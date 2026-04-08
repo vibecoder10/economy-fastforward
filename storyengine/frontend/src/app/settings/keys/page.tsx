@@ -34,17 +34,38 @@ const INTEGRATION_ORDER = [
   "google_refresh_token",
 ];
 
-// Human-readable key names and descriptions
-const KEY_LABELS: Record<string, { name: string; description: string; group?: string; required?: boolean }> = {
+// Human-readable key names, descriptions, and required/optional classification
+const KEY_LABELS: Record<string, { name: string; description: string; group?: string; required: boolean }> = {
   anthropic_api_key: { name: "Anthropic (Claude)", description: "AI for scripts, prompts, and analysis", required: true },
   elevenlabs_api_key: { name: "ElevenLabs API Key", description: "Voice synthesis for narration", group: "ElevenLabs", required: true },
-  elevenlabs_voice_id: { name: "ElevenLabs Voice ID", description: "Voice ID for narration", group: "ElevenLabs" },
+  elevenlabs_voice_id: { name: "ElevenLabs Voice ID", description: "Voice ID for narration", group: "ElevenLabs", required: true },
   kie_ai_api_key: { name: "Kie.ai", description: "Image and video generation", required: true },
-  openai_api_key: { name: "OpenAI", description: "Whisper transcription" },
-  gemini_api_key: { name: "Gemini", description: "Vision analysis for thumbnails" },
-  google_client_id: { name: "YouTube Data API", description: "Upload and analytics", group: "Google" },
-  google_refresh_token: { name: "Google Drive", description: "Asset storage", group: "Google" },
+  openai_api_key: { name: "OpenAI", description: "Whisper transcription", required: true },
+  gemini_api_key: { name: "Gemini", description: "Vision analysis for thumbnails", required: false },
+  google_client_id: { name: "YouTube Data API", description: "Upload and analytics", group: "Google", required: false },
+  google_refresh_token: { name: "Google Drive", description: "Asset storage", group: "Google", required: false },
 };
+
+function IntegrationStatusDot({ status }: { status: "connected" | "not_configured" | "error" }) {
+  const colors = {
+    connected: "bg-[var(--success)]",
+    not_configured: "bg-[var(--text-tertiary)]",
+    error: "bg-[var(--error)]",
+  };
+  const labels = {
+    connected: "Connected",
+    not_configured: "Not configured",
+    error: "Connection failed",
+  };
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={cn("inline-block h-2 w-2 rounded-full", colors[status])} />
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+        {labels[status]}
+      </span>
+    </span>
+  );
+}
 
 export default function ApiKeysPage() {
   const [activeTab, setActiveTab] = useState("keys");
@@ -140,6 +161,17 @@ export default function ApiKeysPage() {
     setSaveError(null);
   };
 
+  // Derive integration status from configured + test results
+  function getIntegrationStatus(keyName: string, configured: boolean): "connected" | "not_configured" | "error" {
+    if (!configured) return "not_configured";
+    const result = testResults[keyName];
+    if (result) {
+      if (result.success === true) return "connected";
+      if (result.success === false) return "error";
+    }
+    return "connected";
+  }
+
   // Filter keys to only show the ones we want, in order
   const orderedKeys = INTEGRATION_ORDER.map((name) => {
     const keyData = keysData?.keys.find((k) => k.name === name);
@@ -175,7 +207,8 @@ export default function ApiKeysPage() {
           apiKey={key}
           label={label.name}
           description={label.description}
-          required={label.required ?? false}
+          required={label.required}
+          integrationStatus={getIntegrationStatus(key.name, key.configured)}
           onUpdate={() => {
             setEditingKey(key.name);
             setKeyValue("");
@@ -339,28 +372,13 @@ export default function ApiKeysPage() {
   );
 }
 
-// Integration status dot — shows connection state at a glance
-function StatusDot({ status }: { status: "connected" | "not_configured" | "failed" }) {
-  const colors = {
-    connected: "var(--green)",
-    not_configured: "var(--text-tertiary)",
-    failed: "var(--red)",
-  };
-  return (
-    <span
-      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-      style={{ backgroundColor: colors[status] }}
-      title={status === "connected" ? "Connected" : status === "failed" ? "Connection failed" : "Not configured"}
-    />
-  );
-}
-
 // Individual API Key Card component
 interface ApiKeyCardProps {
   apiKey: ApiKeyStatus;
   label: string;
   description: string;
   required: boolean;
+  integrationStatus: "connected" | "not_configured" | "error";
   onUpdate: () => void;
   onTest: () => void;
   isTesting: boolean;
@@ -372,17 +390,12 @@ function ApiKeyCard({
   label,
   description,
   required,
+  integrationStatus,
   onUpdate,
   onTest,
   isTesting,
   testResult,
 }: ApiKeyCardProps) {
-  // Derive integration status from configured state + test results
-  const integrationStatus: "connected" | "not_configured" | "failed" =
-    testResult?.success === false ? "failed" :
-    testResult?.success === true ? "connected" :
-    apiKey.configured ? "connected" : "not_configured";
-
   return (
     <Card>
       <div className="flex items-start justify-between p-4">
@@ -402,17 +415,20 @@ function ApiKeyCard({
             <div className="flex items-center gap-2">
               <h3 className="font-medium">{label}</h3>
               <span
-                className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                style={{
-                  color: required ? "var(--orange)" : "var(--text-tertiary)",
-                  backgroundColor: required ? "var(--orange-dim)" : "rgba(255,255,255,0.05)",
-                }}
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                  required
+                    ? "bg-[var(--warning)]/15 text-[var(--warning)]"
+                    : "bg-[var(--text-tertiary)]/15 text-[var(--text-tertiary)]"
+                )}
               >
                 {required ? "Required" : "Optional"}
               </span>
-              <StatusDot status={integrationStatus} />
             </div>
             <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{description}</p>
+            <div className="mt-1.5">
+              <IntegrationStatusDot status={integrationStatus} />
+            </div>
             {apiKey.configured && apiKey.masked_value && (
               <div className="mt-2">
                 <code className="rounded bg-[var(--background)] px-2 py-0.5 text-xs">
