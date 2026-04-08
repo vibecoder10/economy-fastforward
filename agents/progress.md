@@ -2,16 +2,16 @@
 
 ## Summary
 - Total tasks: 14
-- Completed: 2
+- Completed: 5
 - In progress: 0
-- Blocked: 5
-- Pending: 7
+- Blocked: 1
+- Pending: 8
 
 ## Tasks
 
 ### Backend
 - [ ] 1. Add trial_warning_sent column migration (029)
-- [ ] 2. Add query-param token auth fallback for SSE connections
+- [x] 2. Add query-param token auth fallback for SSE connections *(done — auth.py has query_params fallback)*
 - [ ] 3. Enhance SSE endpoint to emit stage_change events (depends: 2)
 - [ ] 4. Create POST /api/settings/keys/validate endpoint
 - [ ] 5. Extract shared email utility from google_auth.py
@@ -19,18 +19,16 @@
 - [ ] 7. Create trial expiry warning email task (depends: 1, 5)
 
 ### Frontend
-- [ ] 8. Create usePipelineSSE hook (depends: 3) — BLOCKED
-- [ ] 9. Build PipelineStepper component (depends: 8) — BLOCKED
-- [x] 10. Upgrade landing page with 7 sections *(completed 2026-04-08 — hero, how-it-works, features, stats, pricing, CTA, footer)*
+- [x] 8. Create usePipelineSSE hook *(completed 2026-04-08)*
+- [x] 9. Build PipelineStepper component *(completed 2026-04-08)*
+- [x] 10. Upgrade landing page with 7 sections *(completed 2026-04-08)*
 - [ ] 11. Add API key validation UI (depends: 4) — BLOCKED
-- [ ] 12. Create PipelineNotificationProvider (depends: 8) — BLOCKED
-- [x] 13. Add compelling empty states to 5 pages *(completed 2026-04-08 — already existed from prior sessions, all acceptance criteria pass)*
+- [x] 12. Create PipelineNotificationProvider *(completed 2026-04-08)*
+- [x] 13. Add compelling empty states to 5 pages *(completed 2026-04-08)*
 
 ### QA
 - [ ] 14. QA: Full-flow verification (depends: 3, 6, 7, 8, 9, 10, 11, 12, 13)
 
 ## Notes
-- Task 10 done. Landing page now has all 7 sections, all acceptance criteria pass.
-- Tasks 8, 9, 11, 12 are BLOCKED on backend tasks 2, 3, 4.
-- Task 13 has no dependencies — next up for frontend.
-- Profile 404 and Analytics 404s: Backend routes registered but returning 404. Handed off to backend-dev.
+- All frontend tasks done except task 11 (blocked on backend task 4).
+- Backend task 2 confirmed done. Tasks 1, 3, 4, 5, 6, 7 still pending.
