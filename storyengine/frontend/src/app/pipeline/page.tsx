@@ -21,6 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
+import { useToast } from "@/components/ui/toast";
 import {
   getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
@@ -188,6 +189,7 @@ function SortableTab({
 export default function VideosPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const toast = useToast();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<TabId>("active");
   const [statusFilter, setStatusFilter] = useState("");
@@ -283,6 +285,7 @@ export default function VideosPage() {
       setNewGuidance("");
       setNewVisualStyle("");
       setNewAccentColor("");
+      toast.success("Video created — starting pipeline");
       router.push(`/pipeline/${newVideo.id}`);
     },
   });

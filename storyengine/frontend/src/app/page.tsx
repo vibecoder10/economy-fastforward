@@ -765,7 +765,12 @@ function Dashboard() {
                 className="h-full rounded-full transition-all"
                 style={{
                   width: `${Math.min(100, (usage.usage.videos_created / Math.max(1, usage.limits.videos_per_month)) * 100)}%`,
-                  background: usage.usage.videos_created >= usage.limits.videos_per_month ? "var(--red)" : "var(--turquoise)",
+                  background: (() => {
+                    const ratio = usage.usage.videos_created / Math.max(1, usage.limits.videos_per_month);
+                    if (ratio >= 0.95) return "var(--red)";
+                    if (ratio >= 0.8) return "var(--orange)";
+                    return "var(--turquoise)";
+                  })(),
                 }}
               />
             </div>
@@ -786,7 +791,12 @@ function Dashboard() {
                 className="h-full rounded-full transition-all"
                 style={{
                   width: `${Math.min(100, (usage.usage.render_minutes / Math.max(1, usage.limits.render_minutes)) * 100)}%`,
-                  background: usage.usage.render_minutes >= usage.limits.render_minutes ? "var(--red)" : "var(--turquoise)",
+                  background: (() => {
+                    const ratio = usage.usage.render_minutes / Math.max(1, usage.limits.render_minutes);
+                    if (ratio >= 0.95) return "var(--red)";
+                    if (ratio >= 0.8) return "var(--orange)";
+                    return "var(--turquoise)";
+                  })(),
                 }}
               />
             </div>

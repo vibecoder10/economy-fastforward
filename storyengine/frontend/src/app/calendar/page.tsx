@@ -75,7 +75,7 @@ export default function CalendarPage() {
 
   const { start, end } = useMemo(() => getMonthRange(year, month), [year, month]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["calendar", start, end],
     queryFn: () => getCalendarVideos(start, end),
   });
@@ -174,6 +174,12 @@ export default function CalendarPage() {
         <div className="flex items-center justify-center py-20">
           <Spinner size="lg" />
         </div>
+      ) : error ? (
+        <ErrorCard
+          title="Calendar unavailable"
+          message="Could not load calendar data. The server may be down."
+          onRetry={() => window.location.reload()}
+        />
       ) : (
         <motion.div
           className="grid grid-cols-7"
