@@ -3213,7 +3213,11 @@
             "backend/routes/pipeline.py",
             "backend/routes/discovery.py",
             "schema.sql"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-08T06:00:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Verified in prior session (commit 1c46877): 13/13 tests pass"
         },
         {
           "id": "T29-002",
@@ -3260,7 +3264,8 @@
           "started_at": "2026-04-08T09:10:00Z",
           "completed_at": "2026-04-08T09:20:00Z",
           "assigned_to": "qa-engineer",
-          "verification_notes": "Code review verified all 6 checks: api.ts type alignment, dashboard bar, settings bars, 402 prompt logic, TypeScript 0 errors, billing router registered in main.py. Note: 402 trigger test requires video creation over limit (not testable via code review alone \u2014 confirm in Playwright when live). All wiring verified correct."
+          "verification_notes": "Code review verified all 6 checks: api.ts type alignment, dashboard bar, settings bars, 402 prompt logic, TypeScript 0 errors, billing router registered in main.py. Note: 402 trigger test requires video creation over limit (not testable via code review alone \u2014 confirm in Playwright when live). All wiring verified correct.",
+          "verified": true
         }
       ]
     },
