@@ -3,7 +3,8 @@
 
 - Tab name for images/storyboard is "Storyboard & Visuals" (not "Visuals" or "Images").
 - storyboard_status values replace underscore with space in UI: 'grids_generated' shows as 'grids generated', search page_text with spaces not underscores.
-- REG6 sweep pattern: context.add_init_script for localStorage token + context.route("**/api/**") for auth/me intercept + route.fetch() proxy. Dashboard stat labels are UPPERCASE ("TOTAL VIDEOS" not "Videos This Month") due to CSS transforms — always check with .lower() matching.
+- REG22 (2026-04-08): 22/22 pages (18 auth + 4 public: /forgot-password, /reset-password, /pricing, /onboarding), 33/33 API, 9/9 tabs, 5/5 security, mobile PASS, tsc 0, 0 console errors, 0 failed requests. All 33 tabs complete. render_minutes limit shown as 120 in usage response. NODE_PATH=./node_modules needed for Playwright in frontend dir.
+- REG6 sweep pattern: context.add_init_script for localStorage token. Dashboard stat labels are UPPERCASE due to CSS transforms — check with .lower() matching.
 - Auth in Playwright: context.add_init_script sets localStorage token reliably. For port 3003 dev server: navigate to /login first, then evaluate localStorage.setItem, then navigate.
 - Ports 3001/3002 serve pre-built Next.js; if stale, test on dev server (npm run dev -- --port 3003).
 - For Playwright auth with real dev-user: use JWT forged with SESSION_SECRET from storyengine/backend/.env (sub='00000000-...', iss='storyengine', tenant_id='f6839de2-...'). Navigate /login first, set token via evaluate, then navigate to target page. Proxy /api/** with this JWT.
