@@ -44,8 +44,8 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
   const [promptSaved, setPromptSaved] = useState(false);
   const savedPromptRef = useRef(video.thumbnail_prompt || "");
 
-  // Backend allows thumbnail generation from ready_for_voice onwards (needs script)
-  const minStageIdx = getStageIndex("ready_for_voice");
+  // Backend requires video to be at ready_for_thumbnail stage or later
+  const minStageIdx = getStageIndex("ready_for_thumbnail");
   const currentStageIdx = getStageIndex(video.status || "");
   const isReadyForThumbnail = currentStageIdx >= minStageIdx;
 
