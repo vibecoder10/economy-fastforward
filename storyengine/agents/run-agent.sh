@@ -129,7 +129,8 @@ fi
 # ─── Branch Setup ───────────────────────────────────────────────────────────
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
-  git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH"
+  git stash --include-untracked 2>/dev/null || true
+  git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH" "origin/$BRANCH" 2>/dev/null || true
 fi
 # Auto-stash local changes before pull (prevents VPS from getting stuck on stale code
 # when someone edits files directly — the #1 cause of "git pull failed" on the VPS)

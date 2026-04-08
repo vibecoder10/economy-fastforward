@@ -1106,7 +1106,7 @@ const server = http.createServer(async (req, res) => {
         controls.focus = `PRD deployed: ${title}. Execute all PRD tasks from agents/prd.json.`;
         fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
         // Spawn unified agents (run-agent.sh) — they auto-detect PRD and work on it
-        const roleToAgent = { backend: 'backend-dev', frontend: 'frontend-dev', qa: 'qa-engineer', 'pipeline-tester': 'pipeline-tester' };
+        const roleToAgent = { backend: 'backend-dev', frontend: 'frontend-dev', qa: 'qa-engineer', 'pipeline-tester': 'pipeline-tester', security: 'security-auditor' };
         const roles = [...new Set((prd.tasks || []).map(t => t.role).filter(Boolean))];
         for (const role of roles) {
           const agent = roleToAgent[role] || role;
