@@ -1852,7 +1852,7 @@ window.__onTabShow = {};
       const queueTotal = (q.tabs || []).flatMap(t => t.tasks || []).length;
       const queuePending = (q.tabs || []).flatMap(t => t.tasks || []).filter(t => t.status !== 'done' && t.status !== 'blocked').length;
       const prdActive = mission.active && !mission.decomposing && !mission.error;
-      const prdPendingCount = prdActive ? (mission.total - mission.done - (mission.blocked || 0)) : 0;
+      const prdPendingCount = prdActive ? Math.max(0, mission.total - mission.done - (mission.blocked || 0)) : 0;
       const prdTotalCount = prdActive ? mission.total : 0;
       document.getElementById('tc-queue-count').textContent = (queuePending + prdPendingCount) + ' pending / ' + (queueTotal + prdTotalCount) + ' total';
 
@@ -1941,7 +1941,7 @@ window.__onTabShow = {};
       const doneCount = allTasks.filter(t => t.status === 'done').length;
 
       // Include PRD tasks in counts
-      const prdPending = mission.active && !mission.decomposing && !mission.error ? (mission.total - mission.done - (mission.blocked || 0)) : 0;
+      const prdPending = mission.active && !mission.decomposing && !mission.error ? Math.max(0, mission.total - mission.done - (mission.blocked || 0)) : 0;
       const prdDone = mission.active && !mission.decomposing && !mission.error ? mission.done : 0;
       const totalPending = pending.length + prdPending;
       const totalDone = doneCount + prdDone;
