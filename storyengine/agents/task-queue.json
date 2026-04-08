@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 27,
-  "last_updated": "2026-04-04",
-  "last_updated_by": "orchestrator",
+  "current_tab": 28,
+  "last_updated": "2026-04-08",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -3146,6 +3146,37 @@
           "verified_at": "2026-04-04T10:30:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "PASS. Commit 3e6bc7c: (1) _persist_url() at line 439 \u2014 non-blocking helper, falls back to original URL on error, skips already-permanent supabase.co URLs. (2) _persist_asset_urls() at line 454 \u2014 batch re-uploads temp image URLs, SQL filters out already-persisted via NOT LIKE '%supabase.co/storage%'. (3) _persist_storyboard_urls() at line 477 \u2014 batch re-uploads temp grid URLs, dynamic SQL safe (column names hardcoded from range(1,6)). (4) Integration: run_storyboard_images (line 1236), run_images (line 1417), run_image_variants (line 1514), run_thumbnail (line 1733) \u2014 all placed after success check, before status advance. (5) No path collision: images/S{n}-{n}.png vs images/S{n}-{n}-v{n}.png vs grids/S{n}-B{n}.png vs thumbnails/thumb.png. (6) Import: upload_from_url at line 40, logging at line 42-43 module level. (7) All 3 methods async (verified via inspect). (8) tsc --noEmit: 0 errors. (9) Diff clean: 1 app file (pipeline_executor.py), 98 lines added, no bloat."
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "name": "Public Pricing Page",
+      "path": "/pricing",
+      "status": "complete",
+      "completed_at": "2026-04-08T00:02:00Z",
+      "tasks": [
+        {
+          "id": "T28-001",
+          "title": "Create public /pricing page with 3-tier plan cards and feature comparison",
+          "role": "frontend",
+          "status": "done",
+          "started_at": "2026-04-08T00:02:00Z",
+          "completed_at": "2026-04-08T00:02:30Z",
+          "assigned_to": "frontend-dev",
+          "description": "Created /pricing as a public page (no auth required). Shows 3 plan cards (Starter $25, Pro $40, Agency $75) with feature checklists, BYOK note, value propositions section, and CTA buttons that route to Stripe checkout (authenticated) or /login (unauthenticated). Added /pricing to PUBLIC_PATHS. Updated UpgradePrompt to link to /pricing instead of /settings.",
+          "files": [
+            "frontend/src/app/pricing/page.tsx",
+            "frontend/src/components/auth/AuthenticatedShell.tsx"
+          ]
+        },
+        {
+          "id": "T28-002",
+          "title": "QA verify /pricing: public access, plan cards, checkout flow, mobile responsive",
+          "role": "qa",
+          "status": "pending",
+          "description": "Verify: (1) /pricing loads without auth (PUBLIC_PATHS). (2) 3 plan cards render with correct prices and features. (3) Subscribe button for unauthenticated user redirects to /login. (4) Subscribe button for authenticated user calls createCheckout. (5) UpgradePrompt now links to /pricing. (6) Mobile responsive (no overflow). (7) tsc --noEmit passes. (8) No console errors.",
+          "depends_on": "T28-001"
         }
       ]
     }

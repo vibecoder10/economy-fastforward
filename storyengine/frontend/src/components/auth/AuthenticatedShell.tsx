@@ -9,7 +9,7 @@ import { Sidebar } from "@/components/nav/sidebar";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
 
-const PUBLIC_PATHS = ["/login", "/onboarding"];
+const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing"];
 
 // Routes that require Pro plan or above
 const PRO_PATHS = ["/autopilot", "/analytics", "/learnings", "/competitors", "/discovery"];
@@ -86,7 +86,7 @@ function UpgradePrompt() {
         over time.
       </p>
       <Link
-        href="/settings"
+        href="/pricing"
         className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all hover:brightness-110"
         style={{
           background: "linear-gradient(135deg, var(--gold), #B8922E)",
