@@ -22,6 +22,7 @@ import {
   ScrollText,
   Settings,
   Key,
+  CreditCard,
 } from "lucide-react";
 
 const primaryTabs = [
@@ -40,6 +41,7 @@ const moreTabs = [
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/system-prompts", icon: ScrollText, label: "System Prompts" },
   { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/billing", icon: CreditCard, label: "Billing" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];
 
