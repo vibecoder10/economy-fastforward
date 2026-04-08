@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 31,
   "last_updated": "2026-04-08",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -3195,7 +3195,7 @@
       "id": 29,
       "name": "Plan Enforcement & Usage Tracking",
       "path": "cross-cutting",
-      "status": "in_progress",
+      "status": "complete",
       "tasks": [
         {
           "id": "T29-001",
@@ -3273,7 +3273,7 @@
       "id": 30,
       "name": "Password Reset Flow",
       "path": "cross-cutting",
-      "status": "in_progress",
+      "status": "complete",
       "tasks": [
         {
           "id": "T30-001",
@@ -3329,7 +3329,7 @@
           "verified": true,
           "verified_at": "2026-04-08T12:35:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Full E2E verified on port 8099 (agent-dev code). Backend: (1) POST /api/auth/forgot-password returns identical 200 for valid AND invalid emails (anti-enumeration). (2) Token created in password_reset_tokens table (DB verified). (3) POST /api/auth/reset-password with valid token updates password — login succeeds with new password, fails with old. (4) Used token returns 'This reset token has already been used'. (5) Invalid token returns 'Invalid or expired reset token'. (6) Short password (<8 chars) returns 400. Frontend: (7) forgot-password/page.tsx renders, submits, shows success. (8) reset-password/page.tsx reads ?token=, validates, submits, shows success/errors. (9) /login has Forgot password? link. (10) Both pages in PUBLIC_PATHS. tsc: 0 errors."
+          "verification_notes": "PASS. Full E2E verified on port 8099 (agent-dev code). Backend: (1) POST /api/auth/forgot-password returns identical 200 for valid AND invalid emails (anti-enumeration). (2) Token created in password_reset_tokens table (DB verified). (3) POST /api/auth/reset-password with valid token updates password \u2014 login succeeds with new password, fails with old. (4) Used token returns 'This reset token has already been used'. (5) Invalid token returns 'Invalid or expired reset token'. (6) Short password (<8 chars) returns 400. Frontend: (7) forgot-password/page.tsx renders, submits, shows success. (8) reset-password/page.tsx reads ?token=, validates, submits, shows success/errors. (9) /login has Forgot password? link. (10) Both pages in PUBLIC_PATHS. tsc: 0 errors."
         }
       ]
     },
