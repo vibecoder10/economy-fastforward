@@ -503,7 +503,27 @@
             <textarea id="cc-prd-textarea" placeholder="Type what you want built in plain English — rough notes are fine.&#10;&#10;Example: I need a settings page where users can update their profile, change their password, and manage API keys. Should have tabs for each section. Backend needs validation. Test everything.&#10;&#10;Click 'Generate PRD' to turn this into a structured PRD, then review and click 'Deploy to Team' to start agents immediately." style="width:100%;min-height:200px;background:#111;color:#ccc;border:1px solid #222;border-radius:8px;padding:14px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical;tab-size:2;box-sizing:border-box;" onfocus="this.style.borderColor='#444'" onblur="this.style.borderColor='#222'"></textarea>
             <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
               <button id="cc-generate-btn" onclick="generatePRD()" style="background:#333;border:1px solid #555;color:#ccc;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Generate PRD</button>
+              <button id="cc-add-queue-btn" onclick="addToQueue()" style="background:#333;border:1px solid #D4A844;color:#D4A844;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Add to Queue</button>
               <button id="cc-deploy-btn" onclick="deployPRD()" style="background:#1A8A7A;border:none;color:white;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Deploy to Team</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- PRD Queue (conveyor belt) -->
+        <div id="cc-prd-queue" style="display:none;margin-bottom:16px;">
+          <div style="padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <h3 style="font-size:14px;font-weight:600;color:#888;margin:0;">PRD Queue</h3>
+                <span id="cc-queue-badge" style="font-size:10px;padding:2px 8px;background:rgba(212,168,68,0.15);color:#D4A844;border-radius:10px;">0</span>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button onclick="startQueue()" id="cc-start-queue-btn" style="background:#1A8A7A;border:none;color:white;padding:6px 16px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Start Queue</button>
+                <button onclick="clearQueue()" style="background:none;border:1px solid #333;color:#e35050;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Clear</button>
+              </div>
+            </div>
+            <div id="cc-queue-cards" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;scroll-behavior:smooth;">
+              <!-- Cards injected by JS -->
             </div>
           </div>
         </div>
@@ -1694,6 +1714,77 @@ window.__onTabShow = {};
     }
   };
 
+  // ─── PRD Queue UI ──────────────────────────────────────────────────────────
+
+  // Add current textarea content to the queue
+  window.addToQueue = async function() {
+    const textarea = document.getElementById('cc-prd-textarea');
+    const content = textarea.value.trim();
+    if (!content) { alert('Write or paste a PRD first.'); return; }
+    // Extract title from first markdown heading or first line
+    const titleMatch = content.match(/^#\s+(.+)/m);
+    const title = titleMatch ? titleMatch[1].trim() : content.split('\n')[0].substring(0, 60);
+    try {
+      const res = await fetch('/api/prd-queue', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content }) });
+      if (res.ok) { textarea.value = ''; pollQueue(); }
+    } catch (e) { alert('Add to queue failed: ' + e.message); }
+  };
+
+  // Start executing the queue
+  window.startQueue = async function() {
+    const btn = document.getElementById('cc-start-queue-btn');
+    btn.textContent = 'Starting...'; btn.disabled = true;
+    try {
+      const res = await fetch('/api/prd-queue/start', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'Start failed'); }
+      else { pollMission(); }
+    } catch (e) { alert('Start failed: ' + e.message); }
+    btn.textContent = 'Start Queue'; btn.disabled = false;
+  };
+
+  // Clear the queue
+  window.clearQueue = async function() {
+    if (!confirm('Clear all queued PRDs?')) return;
+    await fetch('/api/prd-queue', { method: 'DELETE' });
+    pollQueue();
+  };
+
+  // Poll queue and render cards
+  async function pollQueue() {
+    try {
+      const res = await fetch('/api/prd-queue');
+      const data = await res.json();
+      const container = document.getElementById('cc-prd-queue');
+      const cards = document.getElementById('cc-queue-cards');
+      const badge = document.getElementById('cc-queue-badge');
+      if (!data.items || data.items.length === 0) {
+        container.style.display = 'none';
+        return;
+      }
+      container.style.display = 'block';
+      badge.textContent = data.items.length;
+      cards.innerHTML = data.items.map((item, i) => {
+        const colors = {
+          queued: { border: '#333', bg: '#111', dot: '#555', label: '#888', labelBg: 'rgba(85,85,85,0.15)' },
+          active: { border: '#1A8A7A', bg: 'rgba(26,138,122,0.05)', dot: '#50e3c2', label: '#50e3c2', labelBg: 'rgba(26,138,122,0.15)' },
+          completed: { border: '#222', bg: '#0a0a0a', dot: '#50e3c2', label: '#555', labelBg: 'rgba(85,85,85,0.1)' }
+        };
+        const c = colors[item.status] || colors.queued;
+        const checkmark = item.status === 'completed' ? '✓ ' : '';
+        const num = i + 1;
+        return `<div style="min-width:180px;max-width:220px;padding:14px;background:${c.bg};border:1px solid ${c.border};border-radius:10px;flex-shrink:0;${item.status === 'active' ? 'border-left:3px solid #1A8A7A;' : ''}">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <span style="font-size:10px;padding:2px 6px;background:${c.labelBg};color:${c.label};border-radius:4px;font-weight:500;text-transform:uppercase;">${checkmark}${item.status}</span>
+            <span style="font-size:10px;color:#555;">#${num}</span>
+          </div>
+          <div style="font-size:13px;font-weight:600;color:${item.status === 'completed' ? '#555' : '#ccc'};line-height:1.3;${item.status === 'completed' ? 'text-decoration:line-through;' : ''}">${item.title}</div>
+        </div>`;
+      }).join('');
+    } catch {}
+  }
+
   // Deploy PRD — decompose + set focus + spawn agents immediately
   window.deployPRD = async function() {
     const textarea = document.getElementById('cc-prd-textarea');
@@ -2187,8 +2278,10 @@ window.__onTabShow = {};
       pollProposals();
       pollAgentStatus();
       pollFocus();
+      pollQueue();
       setInterval(pollMission, 15000);
       setInterval(pollProposals, 30000);
+      setInterval(pollQueue, 15000);
       setInterval(pollAgentStatus, 10000);
       setInterval(pollFocus, 30000);
     }
@@ -2202,8 +2295,10 @@ window.__onTabShow = {};
       pollProposals();
       pollAgentStatus();
       pollFocus();
+      pollQueue();
       setInterval(pollMission, 15000);
       setInterval(pollProposals, 30000);
+      setInterval(pollQueue, 15000);
       setInterval(pollAgentStatus, 10000);
       setInterval(pollFocus, 30000);
     }
