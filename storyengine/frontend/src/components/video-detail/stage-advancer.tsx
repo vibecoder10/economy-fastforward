@@ -12,7 +12,14 @@ function friendlyError(raw: string): string {
   const detailMatch = raw.match(/"detail"\s*:\s*"([^"]+)"/);
   const detail = detailMatch ? detailMatch[1] : raw;
 
-  // Status mismatch — "Video not ready for X (status: Y)"
+  // New format — "Video not ready for X — needs at least Y (status: Z)"
+  const needsMatch = detail.match(/not ready for (\w+)\s*—\s*needs (.+?)\s*\(status:/i);
+  if (needsMatch) {
+    const target = needsMatch[1].trim();
+    return `Can't run ${target} yet — needs ${needsMatch[2].trim()}.`;
+  }
+
+  // Legacy format — "Video not ready for X (status: Y)"
   const statusMatch = detail.match(/not ready for (\w[\w\s]*)\(status:\s*(\w+)/i);
   if (statusMatch) {
     const target = statusMatch[1].trim();

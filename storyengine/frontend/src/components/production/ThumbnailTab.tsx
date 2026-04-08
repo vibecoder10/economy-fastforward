@@ -44,10 +44,10 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
   const [promptSaved, setPromptSaved] = useState(false);
   const savedPromptRef = useRef(video.thumbnail_prompt || "");
 
-  // Thumbnail generation requires the video to be at or past ready_for_thumbnail
-  const thumbnailStageIdx = getStageIndex("ready_for_thumbnail");
+  // Backend allows thumbnail generation from ready_for_voice onwards (needs script)
+  const minStageIdx = getStageIndex("ready_for_voice");
   const currentStageIdx = getStageIndex(video.status || "");
-  const isReadyForThumbnail = currentStageIdx >= thumbnailStageIdx;
+  const isReadyForThumbnail = currentStageIdx >= minStageIdx;
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -135,8 +135,12 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
         } catch (retryErr) {
           toast.error(`Thumbnail generation failed: ${(retryErr as Error).message}`);
         }
-      } else if (message.includes("400") && message.includes("not ready")) {
-        // Video stage changed since page loaded — refetch to show correct state
+      } else if (message.includes("400")) {
+        // Show the backend's descriptive error message
+        const detailMatch = message.match(/"detail"\s*:\s*"([^"]+)"/);
+        const detail = detailMatch ? detailMatch[1] : message;
+        toast.error(detail);
+        // Refetch in case status changed
         queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       } else {
         toast.error(`Thumbnail generation failed: ${message}`);
@@ -420,7 +424,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
             disabled={isRegenerating || taskRunning || !isReadyForThumbnail}
           >
             {!isReadyForThumbnail
-              ? "Complete earlier stages first"
+              ? "Needs a script first — run Voice stage"
               : taskRunning
                 ? (taskMessage || "Generating...")
                 : isRegenerating
