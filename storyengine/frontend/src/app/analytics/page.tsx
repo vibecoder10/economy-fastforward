@@ -34,11 +34,15 @@ import {
   getAnalyticsOverview,
   getCTRTimeline,
   getFrameworkPerformance,
+  getTopicPerformance,
+  getCompetitorBenchmark,
   type VideoSummary,
   type LearningRecord,
   type AnalyticsOverview,
   type CTRTimelinePoint,
   type FrameworkPerformance,
+  type TopicPerformance,
+  type CompetitorBenchmark,
 } from "@/lib/api";
 import { COMPLETED_STATUSES } from "@/lib/constants";
 import { formatNumber, timeAgo } from "@/lib/utils";
@@ -126,6 +130,16 @@ export default function AnalyticsPage() {
     queryFn: getFrameworkPerformance,
   });
 
+  const { data: topics } = useQuery({
+    queryKey: ["analytics-topic-performance"],
+    queryFn: getTopicPerformance,
+  });
+
+  const { data: benchmark } = useQuery({
+    queryKey: ["analytics-competitor-benchmark"],
+    queryFn: getCompetitorBenchmark,
+  });
+
   // Video list for table
   const { data: allVideos, isLoading: videosLoading } = useQuery({
     queryKey: ["videos"],
@@ -164,6 +178,8 @@ export default function AnalyticsPage() {
       queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
       queryClient.invalidateQueries({ queryKey: ["analytics-ctr-timeline"] });
       queryClient.invalidateQueries({ queryKey: ["analytics-framework-performance"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-topic-performance"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-competitor-benchmark"] });
     }
     prevRunning.current = syncRunning;
   }, [syncRunning, queryClient]);
@@ -521,6 +537,104 @@ export default function AnalyticsPage() {
               </div>
             </div>
           </GlassCard>
+        </motion.div>
+      )}
+
+      {/* Topic Performance + Competitor Benchmark */}
+      {(topics?.length || benchmark) && (
+        <motion.div variants={item} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Topic Performance Chart */}
+          {topics && topics.length > 0 && (
+            <GlassCard className="p-6">
+              <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+                Topic Performance
+              </h2>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topics.slice(0, 8)} layout="vertical">
+                    <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
+                      axisLine={false}
+                      tickFormatter={(v: number) => formatNumber(v)}
+                    />
+                    <YAxis
+                      dataKey="topic"
+                      type="category"
+                      tick={{ fill: "var(--text-secondary)", fontSize: 10 }}
+                      axisLine={false}
+                      width={100}
+                      tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + "…" : v}
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.[0]) return null;
+                        const d = payload[0].payload as TopicPerformance;
+                        return (
+                          <div className="glass-card px-4 py-3 text-xs" style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}>
+                            <p className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>{d.topic}</p>
+                            <p style={{ color: "var(--turquoise)" }}>{formatNumber(d.total_views)} views</p>
+                            <p style={{ color: "var(--text-secondary)" }}>{d.video_count} videos · CTR: {d.avg_ctr !== null ? `${d.avg_ctr.toFixed(1)}%` : "--"}</p>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar dataKey="total_views" radius={[0, 4, 4, 0]}>
+                      {topics.slice(0, 8).map((_, i) => (
+                        <Cell key={i} fill={FRAMEWORK_COLORS[i % FRAMEWORK_COLORS.length]} fillOpacity={0.8} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </GlassCard>
+          )}
+
+          {/* Competitor Benchmark Card */}
+          {benchmark && (
+            <GlassCard className="p-6">
+              <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+                Competitor Benchmark
+              </h2>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.03)" }}>
+                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Our Avg CTR</span>
+                    <p className="text-lg font-mono font-bold mt-1" style={{ color: ctrColor(benchmark.channel_avg_ctr) }}>
+                      {benchmark.channel_avg_ctr !== null ? `${benchmark.channel_avg_ctr.toFixed(1)}%` : "--"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.03)" }}>
+                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Our Total Views</span>
+                    <p className="text-lg font-mono font-bold mt-1" style={{ color: "var(--turquoise)" }}>
+                      {formatNumber(benchmark.channel_total_views)}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                    Competitors by VPH
+                  </span>
+                  <div className="mt-2 space-y-1.5">
+                    {benchmark.competitors.slice(0, 6).map((c) => (
+                      <div key={c.channel} className="flex items-center justify-between py-1.5 px-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
+                        <span className="text-xs truncate max-w-[160px]" style={{ color: "var(--text-primary)" }}>{c.channel}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                            {c.video_count} vids
+                          </span>
+                          <span className="text-xs font-mono font-semibold" style={{ color: "var(--gold)" }}>
+                            {c.avg_vph !== null ? `${formatNumber(c.avg_vph)} VPH` : "--"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </GlassCard>
+          )}
         </motion.div>
       )}
 

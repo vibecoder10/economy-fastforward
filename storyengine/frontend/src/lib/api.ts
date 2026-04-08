@@ -796,6 +796,35 @@ export const getCTRTimeline = (limit?: number) =>
 export const getFrameworkPerformance = () =>
   fetchApi<FrameworkPerformance[]>("/api/analytics/framework-performance");
 
+// Topic Performance
+export interface TopicPerformance {
+  topic: string;
+  video_count: number;
+  avg_ctr: number | null;
+  avg_retention: number | null;
+  total_views: number;
+}
+
+export const getTopicPerformance = () =>
+  fetchApi<TopicPerformance[]>("/api/analytics/topic-performance");
+
+// Competitor Benchmark
+export interface CompetitorBenchmark {
+  channel_avg_ctr: number | null;
+  channel_avg_retention: number | null;
+  channel_total_views: number;
+  channel_videos_with_ctr: number;
+  competitors: {
+    channel: string;
+    video_count: number;
+    avg_vph: number | null;
+    total_views: number;
+  }[];
+}
+
+export const getCompetitorBenchmark = () =>
+  fetchApi<CompetitorBenchmark>("/api/analytics/competitor-benchmark");
+
 // Scene Editing
 export const updateSceneText = (videoId: string, scene: number, text: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/text`, {
