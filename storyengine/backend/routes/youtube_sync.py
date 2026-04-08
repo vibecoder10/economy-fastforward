@@ -23,6 +23,32 @@ router = APIRouter(prefix="/api/youtube", tags=["youtube-sync"])
 # In-memory sync status per tenant
 _sync_tasks: dict[str, dict] = {}
 
+MAX_RETRIES = 2
+RETRY_DELAY = 3.0  # seconds
+
+
+def _classify_error(e: Exception) -> str:
+    """Classify an error into a category for the status response."""
+    msg = str(e).lower()
+    if "401" in msg or "403" in msg or "unauthorized" in msg or "forbidden" in msg:
+        return "auth"
+    if "429" in msg or "rate" in msg or "quota" in msg:
+        return "rate_limit"
+    if "timeout" in msg or "timed out" in msg:
+        return "timeout"
+    if "connect" in msg or "network" in msg or "dns" in msg:
+        return "network"
+    if "404" in msg or "not found" in msg:
+        return "not_found"
+    if "500" in msg or "502" in msg or "503" in msg or "504" in msg:
+        return "api"
+    return "unknown"
+
+
+def _is_retryable(error_type: str) -> bool:
+    """Check if an error type is worth retrying."""
+    return error_type in ("timeout", "network", "api", "rate_limit")
+
 
 @router.post("/sync")
 async def trigger_sync(
@@ -46,7 +72,11 @@ async def sync_status(tenant_id: str = Depends(get_tenant_id)):
         "is_running": task.get("running", False),
         "videos_synced": task.get("videos_synced", 0),
         "videos_total": task.get("videos_total", 0),
+        "videos_failed": task.get("videos_failed", 0),
+        "videos_retried": task.get("videos_retried", 0),
+        "errors": task.get("errors", []),
         "error": task.get("error"),
+        "error_type": task.get("error_type"),
         "last_run": task.get("finished"),
     }
 
@@ -93,6 +123,8 @@ async def _run_sync(tenant_id: str):
 
         _sync_tasks[tenant_id]["videos_total"] = len(videos)
         synced = 0
+        failed = 0
+        errors = []
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             for video in videos:
@@ -104,9 +136,18 @@ async def _run_sync(tenant_id: str):
                     if not video_id:
                         continue
 
-                    # Fetch stats from YouTube Data API
-                    stats = await _fetch_video_stats(client, access_token, video_id)
+                    # Fetch stats from YouTube Data API (with retry for transient errors)
+                    stats = await _fetch_with_retry(
+                        _fetch_video_stats, client, access_token, video_id
+                    )
                     if not stats:
+                        failed += 1
+                        errors.append({
+                            "video_id": str(video.get("id")),
+                            "error_type": "stats_unavailable",
+                            "message": "Could not fetch video stats",
+                        })
+                        _sync_tasks[tenant_id]["videos_failed"] = failed
                         continue
 
                     # Fetch analytics from YouTube Analytics API
@@ -114,8 +155,8 @@ async def _run_sync(tenant_id: str):
                     if not upload_date and stats.get("published_at"):
                         upload_date = stats["published_at"]
 
-                    analytics = await _fetch_video_analytics(
-                        client, access_token, video_id, upload_date
+                    analytics = await _fetch_with_retry(
+                        _fetch_video_analytics, client, access_token, video_id, upload_date
                     )
 
                     # Build update fields
@@ -169,20 +210,47 @@ async def _run_sync(tenant_id: str):
                     _sync_tasks[tenant_id]["videos_synced"] = synced
 
                 except Exception as e:
-                    print(f"[YouTubeSync] Error syncing video {video.get('id')}: {e}")
+                    error_type = _classify_error(e)
+                    failed += 1
+                    errors.append({
+                        "video_id": str(video.get("id")),
+                        "error_type": error_type,
+                        "message": str(e)[:200],
+                    })
+                    _sync_tasks[tenant_id]["videos_failed"] = failed
+                    print(f"[YouTubeSync] Error syncing video {video.get('id')} ({error_type}): {e}")
                     continue
 
         _sync_tasks[tenant_id] = {
             "running": False,
             "videos_synced": synced,
             "videos_total": len(videos),
+            "videos_failed": failed,
+            "errors": errors[-10:],  # Keep last 10 errors
             "finished": datetime.now(timezone.utc).isoformat(),
         }
-        print(f"[YouTubeSync] Synced {synced}/{len(videos)} videos for tenant {tenant_id}")
+        print(f"[YouTubeSync] Synced {synced}/{len(videos)} videos ({failed} failed) for tenant {tenant_id}")
 
     except Exception as e:
-        print(f"[YouTubeSync] Error: {e}")
-        _sync_tasks[tenant_id] = {"running": False, "error": str(e)}
+        error_type = _classify_error(e)
+        print(f"[YouTubeSync] Error ({error_type}): {e}")
+        _sync_tasks[tenant_id] = {"running": False, "error": str(e), "error_type": error_type}
+
+
+async def _fetch_with_retry(fn, *args, retries: int = MAX_RETRIES):
+    """Call fn with retry logic for transient errors."""
+    last_error = None
+    for attempt in range(1 + retries):
+        try:
+            result = await fn(*args)
+            return result
+        except Exception as e:
+            last_error = e
+            error_type = _classify_error(e)
+            if not _is_retryable(error_type) or attempt >= retries:
+                raise
+            await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+    raise last_error
 
 
 async def _refresh_access_token(client_id: str, client_secret: str, refresh_token: str) -> str | None:

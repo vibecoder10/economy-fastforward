@@ -791,10 +791,11 @@ async def run_video_scripts(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_video_scripts"):
+    status = video.get("status") or ""
+    if status and not is_at_or_past_stage(status, "ready_for_sound_design"):
         raise HTTPException(
             status_code=400,
-            detail=f"Video not ready for video scripts (status: {video['status']})",
+            detail=f"Video not ready for video scripts (status: {status})",
         )
 
     if _get_task_status(video_id):
@@ -832,10 +833,11 @@ async def run_video_generation(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_video_generation"):
+    status = video.get("status") or ""
+    if status and not is_at_or_past_stage(status, "ready_for_video_generation"):
         raise HTTPException(
             status_code=400,
-            detail=f"Video not ready for video generation (status: {video['status']})",
+            detail=f"Video not ready for video generation (status: {status})",
         )
 
     if _get_task_status(video_id):
@@ -880,10 +882,11 @@ async def run_thumbnail(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_thumbnail"):
+    status = video.get("status") or ""
+    if status and not is_at_or_past_stage(status, "ready_for_images"):
         raise HTTPException(
             status_code=400,
-            detail=f"Video not ready for thumbnail (status: {video['status']})",
+            detail=f"Video not ready for thumbnail (status: {status})",
         )
 
     if _get_task_status(video_id):
