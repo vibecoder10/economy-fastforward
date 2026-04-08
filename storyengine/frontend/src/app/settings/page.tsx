@@ -6,6 +6,8 @@ import { motion } from "framer-motion";
 import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { Spinner } from "@/components/ui/spinner";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import {
   getCurrentProject,
@@ -60,7 +62,7 @@ export default function SettingsPage() {
   const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch project (replaces channel profile)
-  const { data: project, isLoading: projectLoading } = useQuery({
+  const { data: project, isLoading: projectLoading, error: projectError } = useQuery({
     queryKey: ["currentProject"],
     queryFn: getCurrentProject,
   });
@@ -175,7 +177,15 @@ export default function SettingsPage() {
   if (projectLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 size={32} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (projectError) {
+    return (
+      <div className="py-12">
+        <ErrorCard message={(projectError as Error).message || "Failed to load settings"} onRetry={() => window.location.reload()} />
       </div>
     );
   }

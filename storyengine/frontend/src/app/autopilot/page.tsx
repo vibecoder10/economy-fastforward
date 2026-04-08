@@ -27,6 +27,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { StatCard } from "@/components/ui/StatCard";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   getAutopilotSummary,
   toggleAutopilot,
@@ -525,24 +526,13 @@ export default function AutopilotPage() {
       {/* Top Recommendations */}
       {candidates.length === 0 && !isLoading && (
         <motion.div variants={item}>
-          <GlassCard>
-            <div className="flex flex-col items-center justify-center py-8 gap-2">
-              <Rocket size={28} style={{ color: "var(--text-tertiary)" }} />
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No candidates available
-              </p>
-              <p className="text-xs text-center" style={{ color: "var(--text-tertiary)" }}>
-                Add competitor channels and run a scrape to generate recommendations
-              </p>
-              <Link
-                href="/competitors"
-                className="mt-2 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                style={{ color: "var(--turquoise)", border: "1px solid var(--border)" }}
-              >
-                Set Up Competitors
-              </Link>
-            </div>
-          </GlassCard>
+          <EmptyState
+            icon={Rocket}
+            title="No candidates available"
+            description="Add competitor channels and run a scrape to generate recommendations"
+            actionLabel="Set Up Competitors"
+            actionHref="/competitors"
+          />
         </motion.div>
       )}
       {candidates.length > 0 && (
