@@ -58,13 +58,17 @@ async def setup_niche(body: NicheSetup, tenant_id: str = Depends(get_tenant_id))
             """UPDATE autopilot_config
                SET niche_category = $1, sub_niche = $2, updated_at = NOW()
                WHERE tenant_id = $3""",
-            body.niche_category, body.sub_niche, tenant_id,
+            body.niche_category,
+            body.sub_niche,
+            tenant_id,
         )
     else:
         await execute(
             """INSERT INTO autopilot_config (tenant_id, niche_category, sub_niche)
                VALUES ($1, $2, $3)""",
-            tenant_id, body.niche_category, body.sub_niche,
+            tenant_id,
+            body.niche_category,
+            body.sub_niche,
         )
     return {"status": "ok"}
 
@@ -88,46 +92,74 @@ async def add_channel(body: ChannelAdd, tenant_id: str = Depends(get_tenant_id))
     await execute(
         """INSERT INTO competitor_channels (tenant_id, channel_name, channel_url, category, active)
            VALUES ($1, $2, $3, $4, true)""",
-        tenant_id, body.channel_name, body.channel_url, body.category,
+        tenant_id,
+        body.channel_name,
+        body.channel_url,
+        body.category,
     )
     return {"status": "ok", "channel_name": body.channel_name}
 
 
 @router.delete("/channels/{channel_id}")
 async def remove_channel(channel_id: str, tenant_id: str = Depends(get_tenant_id)):
-    """Remove a competitor channel and its scraped videos."""
+    """Remove a competitor channel and its associated videos (cascade)."""
+    # Look up the channel to get URL/name for cascade delete
     channel = await fetch_one(
-        "SELECT channel_url FROM competitor_channels WHERE id = $1 AND tenant_id = $2",
-        channel_id, tenant_id,
+        "SELECT channel_url, channel_name FROM competitor_channels WHERE id = $1 AND tenant_id = $2",
+        channel_id,
+        tenant_id,
     )
-    if channel and channel.get("channel_url"):
-        await execute(
-            "DELETE FROM competitor_videos WHERE tenant_id = $1 AND channel_url = $2",
-            tenant_id, channel["channel_url"],
-        )
+    if channel:
+        # Delete associated competitor_videos by channel_url or channel name
+        ch_url = channel.get("channel_url", "")
+        ch_name = channel.get("channel_name", "")
+        if ch_url:
+            await execute(
+                "DELETE FROM competitor_videos WHERE tenant_id = $1 AND channel_url = $2",
+                tenant_id,
+                ch_url,
+            )
+        elif ch_name:
+            await execute(
+                "DELETE FROM competitor_videos WHERE tenant_id = $1 AND channel = $2",
+                tenant_id,
+                ch_name,
+            )
     await execute(
         "DELETE FROM competitor_channels WHERE id = $1 AND tenant_id = $2",
-        channel_id, tenant_id,
+        channel_id,
+        tenant_id,
     )
     return {"status": "ok"}
 
 
+# --- Competitor Videos (paginated) ---
+
+# Safe sort column mapping — no user input in SQL
+_SORT_MAP = {
+    "vph_desc": "vph DESC",
+    "vph_asc": "vph ASC",
+    "views_desc": "views DESC",
+    "views_asc": "views ASC",
+    "published_desc": "published_date DESC NULLS LAST",
+    "published_asc": "published_date ASC NULLS LAST",
+    "scrape_desc": "scrape_date DESC NULLS LAST",
+}
+
+
 @router.get("/videos")
 async def list_videos(
-    tenant_id: str = Depends(get_tenant_id),
-    channel: Optional[str] = None,
-    modeled: Optional[bool] = None,
-    sort: str = "vph",
-    order: str = "desc",
     limit: int = 50,
     offset: int = 0,
+    channel: Optional[str] = None,
+    min_vph: Optional[float] = None,
+    sort: str = "vph_desc",
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    """List competitor videos with pagination, filtering, and sorting."""
-    allowed_sorts = {"vph", "views", "published_date", "scrape_date", "title"}
-    if sort not in allowed_sorts:
-        sort = "vph"
-    sort_dir = "ASC" if order.lower() == "asc" else "DESC"
-    nulls = "NULLS LAST" if sort_dir == "DESC" else "NULLS FIRST"
+    """List competitor videos with pagination, filters, and sort."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    order = _SORT_MAP.get(sort, "vph DESC")
 
     conditions = ["tenant_id = $1"]
     params: list = [tenant_id]
@@ -137,29 +169,48 @@ async def list_videos(
         conditions.append(f"channel = ${idx}")
         params.append(channel)
         idx += 1
-    if modeled is not None:
-        conditions.append(f"modeled = ${idx}")
-        params.append(modeled)
+
+    if min_vph is not None and min_vph > 0:
+        conditions.append(f"vph >= ${idx}")
+        params.append(min_vph)
         idx += 1
 
     where = " AND ".join(conditions)
 
-    count_row = await fetch_one(f"SELECT count(*) as cnt FROM competitor_videos WHERE {where}", *params)
+    # Total count
+    count_row = await fetch_one(
+        f"SELECT count(*) as cnt FROM competitor_videos WHERE {where}",
+        *params,
+    )
     total = (count_row or {}).get("cnt", 0)
 
+    # Fetch page
     params.extend([limit, offset])
     rows = await fetch_all(
         f"""SELECT id, video_id, title, url, channel, channel_url, views, vph,
-                   hours_old, published_date, scrape_date, thumbnail_url, modeled,
+                   hours_old, published_date, scrape_date, thumbnail_url,
                    duration_seconds, likes, description
             FROM competitor_videos
             WHERE {where}
-            ORDER BY {sort} {sort_dir} {nulls}
+            ORDER BY {order}
             LIMIT ${idx} OFFSET ${idx + 1}""",
         *params,
     )
 
-    return {"videos": rows or [], "total": total, "limit": limit, "offset": offset}
+    # Distinct channels for filter dropdown
+    ch_rows = await fetch_all(
+        "SELECT DISTINCT channel FROM competitor_videos WHERE tenant_id = $1 AND channel IS NOT NULL ORDER BY channel",
+        tenant_id,
+    )
+    channels_list = [r["channel"] for r in (ch_rows or []) if r.get("channel")]
+
+    return {
+        "videos": rows or [],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "channels": channels_list,
+    }
 
 
 # --- Competitor Scraping ---
@@ -177,7 +228,10 @@ async def scrape_channels(
     if _scrape_tasks.get(tenant_id, {}).get("running"):
         return {"status": "already_running", "message": "Scrape already in progress"}
 
-    _scrape_tasks[tenant_id] = {"running": True, "started": datetime.now(timezone.utc).isoformat()}
+    _scrape_tasks[tenant_id] = {
+        "running": True,
+        "started": datetime.now(timezone.utc).isoformat(),
+    }
     background_tasks.add_task(_run_scrape, tenant_id)
     return {"status": "started", "message": "Scraping competitor channels..."}
 
@@ -190,11 +244,12 @@ async def scrape_status(tenant_id: str = Depends(get_tenant_id)):
         "is_running": task.get("running", False),
         "videos_found": task.get("videos_found", 0),
         "videos_saved": task.get("videos_saved", 0),
+        "channels_total": task.get("channels_total", 0),
+        "channels_done": task.get("channels_done", 0),
+        "current_channel": task.get("current_channel"),
+        "channel_progress": task.get("channel_progress", {}),
         "error": task.get("error"),
         "last_run": task.get("finished"),
-        "channels": task.get("channels", {}),
-        "phase": task.get("phase", ""),
-        "cancelled": task.get("cancelled", False),
     }
 
 
@@ -205,7 +260,7 @@ async def cancel_scrape(tenant_id: str = Depends(get_tenant_id)):
     if not task.get("running"):
         return {"status": "not_running", "message": "No scrape in progress"}
     _scrape_tasks[tenant_id]["cancelled"] = True
-    return {"status": "cancelling", "message": "Scrape will stop after current video"}
+    return {"status": "cancelling", "message": "Scrape cancellation requested"}
 
 
 # --- yt-dlp helpers (synchronous — called via asyncio.to_thread) ---
@@ -215,7 +270,9 @@ def _normalize_channel_url(url: str) -> str:
     """Normalize YouTube channel URL to /videos tab for yt-dlp playlist extraction."""
     url = url.rstrip("/")
     # Strip existing tab paths (/videos, /shorts, /streams, /featured, etc.)
-    url = re.sub(r"/(videos|shorts|streams|featured|playlists|community|about)$", "", url)
+    url = re.sub(
+        r"/(videos|shorts|streams|featured|playlists|community|about)$", "", url
+    )
     return url + "/videos"
 
 
@@ -256,31 +313,41 @@ def _list_channel_videos(channel_url: str, max_results: int = 20) -> list[dict]:
             published_at = None
             if upload_date and len(str(upload_date)) == 8:
                 try:
-                    published_at = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+                    published_at = (
+                        f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+                    )
                 except (IndexError, TypeError):
                     pass
             elif timestamp:
                 try:
-                    published_at = datetime.fromtimestamp(int(timestamp), tz=timezone.utc).isoformat()
+                    published_at = datetime.fromtimestamp(
+                        int(timestamp), tz=timezone.utc
+                    ).isoformat()
                 except (ValueError, TypeError, OSError):
                     pass
             elif release_timestamp:
                 try:
-                    published_at = datetime.fromtimestamp(int(release_timestamp), tz=timezone.utc).isoformat()
+                    published_at = datetime.fromtimestamp(
+                        int(release_timestamp), tz=timezone.utc
+                    ).isoformat()
                 except (ValueError, TypeError, OSError):
                     pass
 
-            videos.append({
-                "id": vid,
-                "title": entry["title"],
-                "url": f"https://www.youtube.com/watch?v={vid}",
-                # Flat extraction often includes these fields
-                "view_count": entry.get("view_count") or 0,
-                "duration": entry.get("duration") or 0,
-                "description": (entry.get("description") or "")[:2000],
-                "thumbnail": entry.get("thumbnails", [{}])[-1].get("url") if entry.get("thumbnails") else None,
-                "published_at": published_at,
-            })
+            videos.append(
+                {
+                    "id": vid,
+                    "title": entry["title"],
+                    "url": f"https://www.youtube.com/watch?v={vid}",
+                    # Flat extraction often includes these fields
+                    "view_count": entry.get("view_count") or 0,
+                    "duration": entry.get("duration") or 0,
+                    "description": (entry.get("description") or "")[:2000],
+                    "thumbnail": entry.get("thumbnails", [{}])[-1].get("url")
+                    if entry.get("thumbnails")
+                    else None,
+                    "published_at": published_at,
+                }
+            )
     return videos
 
 
@@ -311,7 +378,11 @@ def _extract_video_info(video_id: str) -> Optional[dict]:
     # Best thumbnail (prefer maxresdefault)
     thumbnail_url = None
     thumbnails = info.get("thumbnails") or []
-    for thumb in sorted(thumbnails, key=lambda t: t.get("width", 0) * t.get("height", 0), reverse=True):
+    for thumb in sorted(
+        thumbnails,
+        key=lambda t: t.get("width", 0) * t.get("height", 0),
+        reverse=True,
+    ):
         if thumb.get("url"):
             thumbnail_url = thumb["url"]
             break
@@ -410,7 +481,12 @@ def _parse_vtt_transcript(raw: str) -> Optional[str]:
     for line in lines:
         line = line.strip()
         # Skip VTT headers, timestamps, empty lines
-        if not line or line.startswith("WEBVTT") or line.startswith("NOTE") or "-->" in line:
+        if (
+            not line
+            or line.startswith("WEBVTT")
+            or line.startswith("NOTE")
+            or "-->" in line
+        ):
             continue
         if re.match(r"^\d+$", line):
             continue
@@ -448,7 +524,9 @@ async def _fetch_publish_dates(stubs: list[dict]) -> int:
     # YouTube pages include: <meta itemprop="datePublished" content="YYYY-MM-DD">
     # and also: "publishDate":"YYYY-MM-DD" or "uploadDate":"YYYY-MM-DD" in JSON-LD
     date_patterns = [
-        re.compile(r'itemprop="(?:datePublished|uploadDate)"\s+content="(\d{4}-\d{2}-\d{2})'),
+        re.compile(
+            r'itemprop="(?:datePublished|uploadDate)"\s+content="(\d{4}-\d{2}-\d{2})'
+        ),
         re.compile(r'"(?:publishDate|uploadDate)"\s*:\s*"(\d{4}-\d{2}-\d{2})'),
     ]
 
@@ -461,7 +539,7 @@ async def _fetch_publish_dates(stubs: list[dict]) -> int:
         follow_redirects=True,
     ) as client:
         for batch_start in range(0, len(need_dates), batch_size):
-            batch = need_dates[batch_start:batch_start + batch_size]
+            batch = need_dates[batch_start : batch_start + batch_size]
 
             for stub in batch:
                 try:
@@ -481,7 +559,9 @@ async def _fetch_publish_dates(stubs: list[dict]) -> int:
                     # Small delay between individual requests within a batch
                     await asyncio.sleep(0.3)
                 except Exception as e:
-                    print(f"[Scrape] Phase 1.5: failed to fetch date for {stub.get('id')}: {e}")
+                    print(
+                        f"[Scrape] Phase 1.5: failed to fetch date for {stub.get('id')}: {e}"
+                    )
 
             # Delay between batches to avoid rate limiting
             if batch_start + batch_size < len(need_dates):
@@ -501,90 +581,108 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
             tenant_id,
         )
         if not channels:
-            _scrape_tasks[tenant_id] = {"running": False, "error": "No active channels. Add channels first."}
+            _scrape_tasks[tenant_id] = {
+                "running": False,
+                "error": "No active channels. Add channels first.",
+            }
             return
 
-        print(f"[Scrape] Scraping {len(channels)} channels via yt-dlp for tenant {tenant_id}")
+        channel_urls = [c["channel_url"] for c in channels if c.get("channel_url")]
+        print(
+            f"[Scrape] Scraping {len(channel_urls)} channels via yt-dlp for tenant {tenant_id}"
+        )
 
-        # Initialize per-channel tracking
-        ch_progress = {}
-        for ch in channels:
-            ch_progress[ch.get("channel_name") or ch.get("channel_url", "unknown")] = {
-                "status": "pending", "videos_found": 0,
-            }
-        _scrape_tasks[tenant_id].update({"channels": ch_progress, "phase": "listing"})
+        # T4: Track per-channel progress
+        _scrape_tasks[tenant_id]["channels_total"] = len(channels)
+        _scrape_tasks[tenant_id]["channels_done"] = 0
+        _scrape_tasks[tenant_id]["channel_progress"] = {}
 
         # Phase 1: List recent videos from each channel (flat extraction — fast)
         all_video_stubs = []
-        channel_map = {}  # video_id → channel info
-        for ch in channels:
+        channel_map = {}  # video_id -> channel info
+        for ch_idx, ch in enumerate(channels):
+            # Check cancellation
             if _scrape_tasks.get(tenant_id, {}).get("cancelled"):
-                print(f"[Scrape] Cancelled during Phase 1")
-                break
+                print(f"[Scrape] Cancelled by user after {ch_idx} channels")
+                _scrape_tasks[tenant_id] = {
+                    "running": False,
+                    "videos_found": len(all_video_stubs),
+                    "videos_saved": 0,
+                    "finished": datetime.now(timezone.utc).isoformat(),
+                    "error": "Cancelled by user",
+                }
+                return
 
             url = ch.get("channel_url")
             if not url:
                 continue
-            ch_name = ch.get("channel_name") or url
-            ch_progress[ch_name] = {"status": "scraping", "videos_found": 0}
-            _scrape_tasks[tenant_id]["channels"] = ch_progress
+            ch_name = ch.get("channel_name", url)
+            _scrape_tasks[tenant_id]["current_channel"] = ch_name
             try:
-                stubs = await asyncio.to_thread(_list_channel_videos, url, max_videos_per_channel)
+                stubs = await asyncio.to_thread(
+                    _list_channel_videos, url, max_videos_per_channel
+                )
                 for stub in stubs:
                     stub["channel_name"] = ch.get("channel_name", "")
                     stub["channel_url"] = url
                     channel_map[stub["id"]] = ch
                 all_video_stubs.extend(stubs)
-                ch_progress[ch_name] = {"status": "done", "videos_found": len(stubs)}
+                _scrape_tasks[tenant_id]["channel_progress"][ch_name] = len(stubs)
+                _scrape_tasks[tenant_id]["channels_done"] = ch_idx + 1
                 print(f"[Scrape] {ch_name}: {len(stubs)} videos listed")
             except Exception as e:
-                ch_progress[ch_name] = {"status": "error", "videos_found": 0, "error": str(e)}
+                _scrape_tasks[tenant_id]["channel_progress"][ch_name] = -1
+                _scrape_tasks[tenant_id]["channels_done"] = ch_idx + 1
                 print(f"[Scrape] Error listing {ch_name}: {e}")
-            _scrape_tasks[tenant_id]["channels"] = ch_progress
 
-        if _scrape_tasks.get(tenant_id, {}).get("cancelled"):
+        if not all_video_stubs:
             _scrape_tasks[tenant_id] = {
-                "running": False, "cancelled": True, "videos_found": len(all_video_stubs),
-                "videos_saved": 0, "channels": ch_progress,
-                "finished": datetime.now(timezone.utc).isoformat(),
+                "running": False,
+                "error": "No videos found from any channel.",
             }
             return
 
-        if not all_video_stubs:
-            _scrape_tasks[tenant_id] = {"running": False, "error": "No videos found from any channel.", "channels": ch_progress}
-            return
-
-        _scrape_tasks[tenant_id].update({"videos_found": len(all_video_stubs)})
+        _scrape_tasks[tenant_id] = {
+            **_scrape_tasks.get(tenant_id, {}),
+            "videos_found": len(all_video_stubs),
+        }
         print(f"[Scrape] Phase 1 done: {len(all_video_stubs)} video stubs.")
 
         # Phase 1.5: Fetch publish dates for stubs missing them (flat extraction doesn't return dates)
-        _scrape_tasks[tenant_id]["phase"] = "dates"
         missing_dates = sum(1 for s in all_video_stubs if not s.get("published_at"))
         if missing_dates > 0:
-            print(f"[Scrape] Phase 1.5: {missing_dates}/{len(all_video_stubs)} stubs missing publish dates, fetching...")
+            print(
+                f"[Scrape] Phase 1.5: {missing_dates}/{len(all_video_stubs)} stubs missing publish dates, fetching..."
+            )
             dates_fetched = await _fetch_publish_dates(all_video_stubs)
-            print(f"[Scrape] Phase 1.5: fetched {dates_fetched} publish dates from {len(all_video_stubs)} videos")
+            print(
+                f"[Scrape] Phase 1.5: fetched {dates_fetched} publish dates from {len(all_video_stubs)} videos"
+            )
         else:
-            print(f"[Scrape] Phase 1.5: all stubs have publish dates, skipping")
+            print("[Scrape] Phase 1.5: all stubs have publish dates, skipping")
 
+        # Check cancellation before Phase 2
         if _scrape_tasks.get(tenant_id, {}).get("cancelled"):
+            print("[Scrape] Cancelled by user before Phase 2")
             _scrape_tasks[tenant_id] = {
-                "running": False, "cancelled": True, "videos_found": len(all_video_stubs),
-                "videos_saved": 0, "channels": ch_progress,
+                "running": False,
+                "videos_found": len(all_video_stubs),
+                "videos_saved": 0,
                 "finished": datetime.now(timezone.utc).isoformat(),
+                "error": "Cancelled by user",
             }
             return
 
-        print(f"[Scrape] Extracting metadata...")
-        _scrape_tasks[tenant_id]["phase"] = "enriching"
+        print("[Scrape] Extracting metadata...")
 
         # Phase 2: Enrich with full metadata (best-effort, falls back to Phase 1 data)
         now = datetime.now(timezone.utc)
         videos = []
         enriched_count = 0
         for i, stub in enumerate(all_video_stubs):
-            if _scrape_tasks.get(tenant_id, {}).get("cancelled"):
-                print(f"[Scrape] Cancelled during Phase 2 at video {i}/{len(all_video_stubs)}")
+            # Check cancellation periodically
+            if i % 5 == 0 and _scrape_tasks.get(tenant_id, {}).get("cancelled"):
+                print(f"[Scrape] Cancelled by user during Phase 2 at video {i}")
                 break
 
             try:
@@ -605,7 +703,9 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                 info = {
                     "video_id": stub["id"],
                     "title": stub.get("title", ""),
-                    "url": stub.get("url", f"https://www.youtube.com/watch?v={stub['id']}"),
+                    "url": stub.get(
+                        "url", f"https://www.youtube.com/watch?v={stub['id']}"
+                    ),
                     "views": stub.get("view_count", 0),
                     "likes": 0,
                     "channel": stub.get("channel_name", ""),
@@ -618,7 +718,9 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                 }
 
             # Calculate VPH
-            vph, hours_old = _calculate_vph(info.get("views", 0), info.get("published_at", ""), now)
+            vph, hours_old = _calculate_vph(
+                info.get("views", 0), info.get("published_at", ""), now
+            )
             info["vph"] = round(vph, 1)
             info["hours_old"] = round(hours_old, 1)
             videos.append(info)
@@ -632,10 +734,11 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                 }
 
         with_dates = sum(1 for v in videos if v.get("published_at"))
-        print(f"[Scrape] Phase 2 done: {len(videos)} videos ({enriched_count} enriched, {len(videos) - enriched_count} from stubs, {with_dates} with publish dates)")
+        print(
+            f"[Scrape] Phase 2 done: {len(videos)} videos ({enriched_count} enriched, {len(videos) - enriched_count} from stubs, {with_dates} with publish dates)"
+        )
 
         # Phase 3: Upsert into Supabase
-        _scrape_tasks[tenant_id]["phase"] = "saving"
         existing = await fetch_all(
             "SELECT video_id FROM competitor_videos WHERE tenant_id = $1",
             tenant_id,
@@ -652,9 +755,13 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                     try:
                         pa = video["published_at"]
                         if "T" in str(pa):
-                            pub_date = datetime.fromisoformat(str(pa).replace("Z", "+00:00")).date()
+                            pub_date = datetime.fromisoformat(
+                                str(pa).replace("Z", "+00:00")
+                            ).date()
                         elif isinstance(pa, str) and len(pa) >= 10:
-                            pub_date = datetime.strptime(pa[:10], "%Y-%m-%d").date()
+                            pub_date = datetime.strptime(
+                                pa[:10], "%Y-%m-%d"
+                            ).date()
                     except (ValueError, TypeError):
                         pub_date = None
 
@@ -717,6 +824,7 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                 # Log first few failures with full detail to aid debugging
                 if saved == 0:
                     import traceback
+
                     traceback.print_exc()
 
         # Update last_scraped on channels + fix missing names from yt-dlp data
@@ -731,15 +839,20 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                             ch_name = v["channel"]
                             break
                     if not ch_name or ch_name == "None":
-                        # Extract from URL as last resort: /@ChannelName → ChannelName
+                        # Extract from URL as last resort: /@ChannelName -> ChannelName
                         match = re.search(r"/@([^/]+)", ch_url)
                         if match:
                             ch_name = match.group(1)
 
-                if ch_name and ch_name != "None" and ch_name != ch.get("channel_name"):
+                if (
+                    ch_name
+                    and ch_name != "None"
+                    and ch_name != ch.get("channel_name")
+                ):
                     await execute(
                         "UPDATE competitor_channels SET channel_name = $1, last_scraped = now() WHERE id = $2",
-                        ch_name, str(ch["id"]),
+                        ch_name,
+                        str(ch["id"]),
                     )
                 else:
                     await execute(
@@ -751,18 +864,16 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
 
         new_count = sum(1 for v in videos if v["video_id"] not in existing_ids)
         with_transcripts = sum(1 for v in videos if v.get("transcript"))
-        print(f"[Scrape] Done: {saved} saved ({new_count} new, {saved - new_count} updated), {with_transcripts} with transcripts")
+        print(
+            f"[Scrape] Done: {saved} saved ({new_count} new, {saved - new_count} updated), {with_transcripts} with transcripts"
+        )
 
-        was_cancelled = _scrape_tasks.get(tenant_id, {}).get("cancelled", False)
         _scrape_tasks[tenant_id] = {
             "running": False,
             "videos_found": len(all_video_stubs),
             "videos_saved": saved,
             "new_videos": new_count,
             "with_transcripts": with_transcripts,
-            "channels": ch_progress,
-            "phase": "done",
-            "cancelled": was_cancelled,
             "finished": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -790,7 +901,9 @@ def _parse_count(raw) -> int:
         return 0
 
 
-def _calculate_vph(views: int, published_at: str, now: datetime) -> tuple[float, float]:
+def _calculate_vph(
+    views: int, published_at: str, now: datetime
+) -> tuple[float, float]:
     """Calculate views per hour since upload.
 
     When published_at is missing (stub data), estimate assuming video is ~7 days old.
@@ -805,7 +918,9 @@ def _calculate_vph(views: int, published_at: str, now: datetime) -> tuple[float,
         if "T" in published_at:
             published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
         else:
-            published = datetime.strptime(published_at, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            published = datetime.strptime(published_at, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
 
         hours_since = (now - published).total_seconds() / 3600
         if hours_since <= 0:

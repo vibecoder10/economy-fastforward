@@ -27,16 +27,22 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isHome = pathname === "/";
 
   useEffect(() => {
     if (isLoading) return;
-    if (!user && !isPublicPath) {
+    if (!user && !isPublicPath && !isHome) {
       router.replace("/login");
     }
-  }, [user, isLoading, isPublicPath, router]);
+  }, [user, isLoading, isPublicPath, isHome, router]);
 
-  // Public pages (login) render without shell
+  // Public pages (login, pricing) render without shell
   if (isPublicPath) {
+    return <div className="min-h-screen relative z-10">{children}</div>;
+  }
+
+  // Home page: no shell for unauthenticated visitors (landing page)
+  if (isHome && !user && !isLoading) {
     return <div className="min-h-screen relative z-10">{children}</div>;
   }
 
