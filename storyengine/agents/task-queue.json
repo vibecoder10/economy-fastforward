@@ -1,7 +1,7 @@
 {
   "version": 2,
   "current_tab": 33,
-  "last_updated": "2026-04-08",
+  "last_updated": "2026-04-08T16:36:37Z",
   "last_updated_by": "qa-engineer",
   "tabs": [
     {
@@ -3408,7 +3408,11 @@
             "backend/migrations/027_system_prompt_columns.sql",
             "backend/models.py",
             "backend/routes/videos.py"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-08T16:36:37Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Commit b358a6b: (1) Migration 027 line 5 has ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_motion_system_prompt TEXT. (2) models.py:100 video_motion_system_prompt: Optional[str] = None. (3) videos.py SQL SELECT:218 includes column, constructor:292 has r.get(), allowed_fields:311 includes it for PATCH. (4) pipeline_executor.py:1799 reads it for pipeline execution. (5) System prompts endpoint returns 6 types including video_motion. (6) tsc --noEmit: 0 errors. Full wiring intact."
         }
       ]
     },
