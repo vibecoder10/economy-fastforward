@@ -49,7 +49,7 @@ All 14 tasks done and verified.
 
 ## Summary
 - Total: 15 tasks
-- Done: 6 | Verified: 0 | Blocked: 0 | Remaining: 9
+- Done: 10 | Verified: 0 | Blocked: 0 | Remaining: 5
 
 ## Tasks
 
@@ -61,13 +61,13 @@ All 14 tasks done and verified.
 - [x] T5: Export manifest backend — GET /api/videos/{id}/export-manifest (backend) *(done 2026-04-08)*
 
 ### Frontend — independent (can run in parallel)
-- [x] T8: Video preview player on RenderTab (frontend) *(completed 2026-04-08)*
-- [ ] T9: Getting Started guide & help page at /docs (frontend)
-- [ ] T10: Legal pages — Terms of Service + Privacy Policy (frontend)
+- [x] T8: Video preview player on RenderTab (frontend) *(already implemented)*
+- [x] T9: Getting Started guide & help page at /docs (frontend) *(completed 2026-04-08)*
+- [x] T10: Legal pages — Terms of Service + Privacy Policy (frontend) *(already implemented)*
 
 ### Frontend — depends on backend
-- [ ] T6: Learning Insights dashboard redesign (frontend) — depends on T1
-- [ ] T7: Analytics 2.0 frontend — topic chart + competitor card (frontend) — depends on T1
+- [x] T6: Learning Insights dashboard redesign (frontend) — depends on T1 *(completed 2026-04-08)*
+- [x] T7: Analytics 2.0 frontend — topic chart + competitor card (frontend) — depends on T1 *(completed 2026-04-08)*
 - [ ] T11: Demo mode frontend — landing + 3 sub-pages (frontend) — depends on T4
 - [ ] T12: Export button + Brand Kit UI + Notification toggles (frontend) — depends on T2, T3, T5
 
