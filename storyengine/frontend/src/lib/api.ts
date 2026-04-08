@@ -41,6 +41,23 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
       window.location.href = "/login";
       throw new Error("Session expired — redirecting to login");
     }
+    // On 402 (plan limit reached), show upgrade prompt
+    if (res.status === 402 && typeof window !== "undefined") {
+      try {
+        const detail = JSON.parse(body)?.detail || JSON.parse(body);
+        if (detail?.error === "plan_limit_reached") {
+          const goToPricing = window.confirm(
+            `${detail.message}\n\nWould you like to view upgrade options?`
+          );
+          if (goToPricing) {
+            window.location.href = detail.upgrade_url || "/pricing";
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error("Plan limit reached");
+    }
     // Only report non-auth errors to RUBRIC (skip when using fallback dev-token)
     if (storedToken && storedToken !== "dev-token") {
       reportError(path, res.status, body, options?.method || "GET");
@@ -596,6 +613,26 @@ export const createBillingPortal = (returnUrl?: string) =>
     method: "POST",
     body: JSON.stringify({ return_url: returnUrl }),
   });
+
+// Usage tracking
+export interface UsageLimits {
+  plan: string;
+  limits: {
+    videos_per_month: number;
+    render_minutes: number;
+    concurrent_jobs: number;
+  };
+  usage: {
+    videos_created: number;
+    api_calls: number;
+    render_minutes: number;
+    storage_bytes: number;
+  };
+  period_start: string;
+}
+
+export const getUsage = () =>
+  fetchApi<UsageLimits>("/api/billing/usage");
 
 // Analytics
 export interface AnalyticsOverview {

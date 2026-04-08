@@ -3234,8 +3234,11 @@
           "id": "T29-003",
           "title": "Frontend: show usage bar + upgrade prompt when 402 returned",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T29-001",
+          "started_at": "2026-04-08T08:02:00Z",
+          "completed_at": "2026-04-08T08:12:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Three pieces:\n\n1. Add getUsage() to api.ts: GET /api/billing/usage returns { plan, limits: { videos_per_month, render_minutes_per_month }, usage: { videos_created, render_minutes }, period_start }. Add UsageLimits type.\n\n2. Usage bar on /dashboard: Below stat cards, show 'Videos: X/Y this month' progress bar with color thresholds (green <70%, amber 70-90%, red >90%). Fetch via useQuery('usage', getUsage). Also show on /settings in the Billing & Plan section.\n\n3. Handle 402 in fetchApi (api.ts): When response.status === 402, parse the JSON body { error: 'plan_limit_reached', message, used, limit, upgrade_url }. Show a modal/toast: 'You've used X/Y videos this month. Upgrade to Pro for more.' with link to /pricing. Do NOT redirect — just show the prompt. The 402 body includes upgrade_url='/pricing'.",
           "files": [
             "frontend/src/lib/api.ts",

@@ -20,6 +20,7 @@ import { Spinner } from "@/components/ui/spinner";
 import {
   getDashboardSummary,
   getPendingReview,
+  getUsage,
   type DashboardSummary,
 } from "@/lib/api";
 import { PIPELINE_STAGES, COMPLETED_STATUSES, getStageLabel } from "@/lib/constants";
@@ -68,6 +69,11 @@ export default function DashboardPage() {
   const { data: pendingReview } = useQuery({
     queryKey: ["pending-review"],
     queryFn: getPendingReview,
+  });
+
+  const { data: usage } = useQuery({
+    queryKey: ["usage"],
+    queryFn: getUsage,
   });
 
   // Pipeline distribution
@@ -186,6 +192,60 @@ export default function DashboardPage() {
           icon={CalendarDays}
         />
       </motion.div>
+
+      {/* Usage Bar */}
+      {usage && (
+        <motion.div variants={item}>
+          <GlassCard className="!p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Monthly Usage
+              </h2>
+              <span className="text-[10px] font-mono capitalize" style={{ color: "var(--gold)" }}>
+                {usage.plan} plan
+              </span>
+            </div>
+            {(() => {
+              const used = usage.usage.videos_created;
+              const limit = usage.limits.videos_per_month;
+              const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+              const barColor = pct >= 90 ? "var(--red)" : pct >= 70 ? "var(--gold)" : "var(--turquoise)";
+              return (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                      Videos
+                    </span>
+                    <span className="text-xs font-mono" style={{ color: barColor }}>
+                      {used}/{limit}
+                    </span>
+                  </div>
+                  <div
+                    className="h-2 rounded-full overflow-hidden"
+                    style={{ background: "rgba(255,255,255,0.06)" }}
+                  >
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${pct}%`, background: barColor }}
+                    />
+                  </div>
+                  {pct >= 90 && (
+                    <p className="text-[10px] mt-1.5" style={{ color: "var(--red)" }}>
+                      Approaching limit —{" "}
+                      <a href="/pricing" className="underline hover:brightness-125">
+                        upgrade for more
+                      </a>
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+          </GlassCard>
+        </motion.div>
+      )}
 
       {/* Pipeline Stage Tracker */}
       <motion.div variants={item}>
