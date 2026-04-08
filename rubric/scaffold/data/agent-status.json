@@ -20,9 +20,9 @@
     "updatedAt": 1775160663903
   },
   "pipeline-tester": {
-    "status": "active",
-    "task": "REG19 COMPLETE: 28 pages, 32 API, 4 security, 9 tabs — ALL PASS. T29/T30/T31 verified.",
-    "updatedAt": 1775636747583
+    "status": "idle",
+    "task": "REG21 complete — 18/18 pages, 32/32 API, 9/9 tabs, 0 bugs",
+    "updatedAt": 1775665426773
   },
   "orchestrator": {
     "status": "active",
