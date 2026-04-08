@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from auth import verify_token, AuthUser
 from database import fetch_one, execute
+from email_service import send_welcome_email, send_reset_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -127,35 +128,9 @@ async def _create_tenant_for_account(account_id: str, name: str, email: str = ""
     return tenant_id
 
 
-async def _send_welcome_email(email: str, display_name: str):
-    """Send welcome email to new users via Resend API."""
-    api_key = os.getenv("RESEND_API_KEY")
-    if not api_key:
-        print(f"[DEV] Welcome email for {email} (name: {display_name})")
-        return
-
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
-
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "from": os.getenv("EMAIL_FROM", "StoryEngine <noreply@storyengine.ai>"),
-                    "to": [email],
-                    "subject": "Welcome to StoryEngine",
-                    "html": (
-                        f"<h2>Welcome to StoryEngine, {display_name}!</h2>"
-                        f"<p>Your AI video production pipeline is ready.</p>"
-                        f"<p>Get started: add API keys, set up your channel, create your first video.</p>"
-                        f'<p><a href="{frontend_url}">Go to your dashboard</a></p>'
-                    ),
-                },
-                timeout=10.0,
-            )
-    except Exception as e:
-        print(f"[WARN] Failed to send welcome email to {email}: {e}")
+async def _send_welcome_email(email_addr: str, display_name: str):
+    """Send welcome email to new users (delegates to shared email module)."""
+    await send_welcome_email(email_addr, display_name)
 
 
 def _hash_password(password: str) -> str:
@@ -406,36 +381,9 @@ async def get_me(user: AuthUser = Depends(verify_token)):
 RESET_TOKEN_EXPIRY_HOURS = 1
 
 
-async def _send_reset_email(email: str, token: str):
-    """Send password reset email via Resend API."""
-    api_key = os.getenv("RESEND_API_KEY")
-    if not api_key:
-        # Dev mode: log the token instead of sending email
-        print(f"[DEV] Password reset token for {email}: {token}")
-        return
-
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
-    reset_url = f"{frontend_url}/reset-password?token={token}"
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "from": os.getenv("EMAIL_FROM", "StoryEngine <noreply@storyengine.ai>"),
-                "to": [email],
-                "subject": "Reset your StoryEngine password",
-                "html": (
-                    f"<p>You requested a password reset.</p>"
-                    f'<p><a href="{reset_url}">Click here to reset your password</a></p>'
-                    f"<p>This link expires in {RESET_TOKEN_EXPIRY_HOURS} hour.</p>"
-                    f"<p>If you didn't request this, you can safely ignore this email.</p>"
-                ),
-            },
-            timeout=10.0,
-        )
-        if resp.status_code not in (200, 201):
-            print(f"[WARN] Failed to send reset email: {resp.status_code} {resp.text}")
+async def _send_reset_email(email_addr: str, token: str):
+    """Send password reset email (delegates to shared email module)."""
+    await send_reset_email(email_addr, token, expiry_hours=RESET_TOKEN_EXPIRY_HOURS)
 
 
 @router.post("/forgot-password")

@@ -98,10 +98,11 @@ async def get_stats(tenant_id: str = Depends(get_tenant_id)):
 
 @router.get("/stream")
 async def activity_stream(tenant_id: str = Depends(get_tenant_id)):
-    """SSE endpoint for real-time activity updates."""
+    """SSE endpoint for real-time activity and stage_change events."""
 
     async def event_generator():
         last_id = None
+        last_transition_id = None
         while True:
             # Poll for new activity entries
             if last_id:
@@ -136,10 +137,52 @@ async def activity_stream(tenant_id: str = Depends(get_tenant_id)):
                     "cost": float(row.get("cost", 0)),
                     "created_at": row.get("created_at"),
                 }
-                yield f"data: {json.dumps(entry)}\n\n"
+                yield f"event: activity\ndata: {json.dumps(entry)}\n\n"
                 last_id = row["id"]
 
-            await asyncio.sleep(5)  # Poll every 5 seconds
+            # Poll for stage transitions
+            if last_transition_id:
+                transitions = await fetch_all(
+                    """SELECT st.id, st.video_id, v.video_title,
+                              st.from_status, st.to_status, st.triggered_by,
+                              st.cost, st.duration_seconds, st.error_message,
+                              st.created_at::text
+                       FROM stage_transitions st
+                       LEFT JOIN videos v ON v.id = st.video_id
+                       WHERE st.tenant_id = $1 AND st.id > $2
+                       ORDER BY st.created_at DESC LIMIT 10""",
+                    tenant_id, last_transition_id,
+                )
+            else:
+                transitions = await fetch_all(
+                    """SELECT st.id, st.video_id, v.video_title,
+                              st.from_status, st.to_status, st.triggered_by,
+                              st.cost, st.duration_seconds, st.error_message,
+                              st.created_at::text
+                       FROM stage_transitions st
+                       LEFT JOIN videos v ON v.id = st.video_id
+                       WHERE st.tenant_id = $1
+                       ORDER BY st.created_at DESC LIMIT 5""",
+                    tenant_id,
+                )
+
+            for t in transitions:
+                stage_event = {
+                    "id": str(t["id"]),
+                    "video_id": str(t["video_id"]) if t.get("video_id") else None,
+                    "video_title": t.get("video_title"),
+                    "from_status": t.get("from_status"),
+                    "to_status": t.get("to_status"),
+                    "triggered_by": t.get("triggered_by"),
+                    "cost": float(t["cost"]) if t.get("cost") else None,
+                    "duration_seconds": t.get("duration_seconds"),
+                    "error_message": t.get("error_message"),
+                    "created_at": t.get("created_at"),
+                }
+                yield f"event: stage_change\ndata: {json.dumps(stage_event)}\n\n"
+                last_transition_id = t["id"]
+
+            await asyncio.sleep(5)
 
     return StreamingResponse(
         event_generator(),

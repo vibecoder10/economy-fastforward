@@ -10,6 +10,7 @@ from typing import Optional
 
 from auth import get_tenant_id, verify_token, AuthUser
 from database import fetch_one, fetch_all, execute
+from email_service import send_billing_receipt
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
@@ -155,6 +156,17 @@ async def _handle_checkout_completed(session: dict):
            WHERE id = $5""",
         customer_id, subscription_id, plan, plan, account_id,
     )
+
+    # Send billing receipt email (best-effort, don't fail checkout on email error)
+    try:
+        acct = await fetch_one("SELECT email FROM accounts WHERE id = $1", account_id)
+        if acct and acct.get("email"):
+            s = _get_stripe()
+            invoice = s.Invoice.list(subscription=subscription_id, limit=1)
+            amount = f"${invoice.data[0].amount_paid / 100:.2f}" if invoice.data else "See Stripe receipt"
+            await send_billing_receipt(acct["email"], plan.title(), amount)
+    except Exception as e:
+        print(f"[WARN] Billing receipt email failed: {e}")
 
 
 async def _handle_subscription_updated(subscription: dict):
