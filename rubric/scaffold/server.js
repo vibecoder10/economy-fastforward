@@ -8,6 +8,56 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '5050', 10);
 const DATA_DIR = path.join(__dirname, 'data');
 
+// Auto-cadence: boost to 'max' on PRD deploy, restore when PRD completes
+const PRD_BOOST_CADENCE = 'max';
+function setCadence(cadence) {
+  const controlsFile = path.join(DATA_DIR, 'controls.json');
+  let controls = {};
+  try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+  controls.cadence = cadence;
+  fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+
+  const agentsDir = path.join(__dirname, '../../storyengine/agents');
+  const logDir = '/tmp/storyengine-agents';
+  const schedules = {
+    light:  { backend: '0 0,4,8,12,16,20 * * *', frontend: '2 0,4,8,12,16,20 * * *', qa: '4 0,4,8,12,16,20 * * *', tester: '20 0,4,8,12,16,20 * * *', micro: '25 0,4,8,12,16,20 * * *', label: '6x/day (every 4h)' },
+    normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             tester: '25 */2 * * *',             micro: '30 */2 * * *',             label: '12x/day (every 2h)' },
+    fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               tester: '35 * * * *',               micro: '45 * * * *',               label: '24x/day (every 1h)' },
+    max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            tester: '18,48 * * * *',            micro: '24,54 * * * *',            label: '48x/day (every 30m)' },
+    turbo:  { backend: '0,15,30,45 * * * *',       frontend: '2,17,32,47 * * * *',      qa: '4,19,34,49 * * * *',      tester: '10,25,40,55 * * * *',      micro: '12,27,42,57 * * * *',      label: '96x/day (every 15m)' },
+    ultra:  { backend: '*/8 * * * *',              frontend: '1-59/8 * * * *',           qa: '2-59/8 * * * *',           tester: '4-59/8 * * * *',           micro: '6-59/8 * * * *',           label: '180x/day (every 8m)' },
+  };
+  const sched = schedules[cadence] || schedules.fast;
+  try {
+    const cronLines = [
+      `0 5 * * * cd ${agentsDir} && ORCHESTRATOR_MODE=grand bash run-agent.sh orchestrator >> ${logDir}/orchestrator.log 2>&1 # storyengine-agents`,
+      `${sched.backend} cd ${agentsDir} && bash run-agent.sh backend-dev >> ${logDir}/backend-dev.log 2>&1 # storyengine-agents`,
+      `${sched.frontend} cd ${agentsDir} && bash run-agent.sh frontend-dev >> ${logDir}/frontend-dev.log 2>&1 # storyengine-agents`,
+      `${sched.qa} cd ${agentsDir} && bash run-agent.sh qa-engineer >> ${logDir}/qa-engineer.log 2>&1 # storyengine-agents`,
+      `${sched.micro} cd ${agentsDir} && ORCHESTRATOR_MODE=micro bash run-agent.sh orchestrator >> ${logDir}/orchestrator-micro.log 2>&1 # storyengine-agents`,
+      `${sched.tester} cd ${agentsDir} && bash run-agent.sh pipeline-tester >> ${logDir}/pipeline-tester.log 2>&1 # storyengine-agents`,
+      `0 6 * * * cd ${agentsDir} && bash planning-session.sh >> ${logDir}/planning-session.log 2>&1 # storyengine-agents`,
+      `0 7 * * * cd ${agentsDir} && bash morning-briefing.sh >> ${logDir}/morning-briefing.log 2>&1 # storyengine-agents`,
+      `0 23 * * * cd ${agentsDir} && bash daily-report.sh >> ${logDir}/daily-report.log 2>&1 # storyengine-agents`,
+      `5 23 * * * cd ${agentsDir} && bash calculate-skills.sh >> ${logDir}/calculate-skills.log 2>&1 # storyengine-agents`,
+      `10 23 * * * cd ${agentsDir} && bash retro.sh >> ${logDir}/retro.log 2>&1 # storyengine-agents`,
+      `*/5 * * * * pgrep -f 'rubric.*server' > /dev/null || (cd ${path.join(__dirname)} && nohup node server.js > ${logDir}/rubric.log 2>&1 &) # storyengine-agents`,
+    ];
+    const existing = execSync('crontab -l 2>/dev/null || echo ""', { encoding: 'utf8' });
+    const nonAgent = existing.split('\n').filter(l => !l.includes('storyengine-agents')).join('\n');
+    const newCrontab = nonAgent.trim() + '\n\n# === StoryEngine Agents ===\n' + cronLines.join('\n') + '\n';
+    const tmpFile = '/tmp/cron-cadence.txt';
+    fs.writeFileSync(tmpFile, newCrontab);
+    execSync(`crontab ${tmpFile}`);
+    fs.unlinkSync(tmpFile);
+    console.log(`Cadence set to ${cadence} (${sched.label})`);
+    return { success: true, cadence, label: sched.label };
+  } catch (e) {
+    console.error('setCadence failed:', e.message);
+    return { success: false, error: String(e) };
+  }
+}
+
 // --- Node version check ---
 const [major] = process.versions.node.split('.').map(Number);
 if (major < 18) {
@@ -536,56 +586,8 @@ const server = http.createServer(async (req, res) => {
   // POST /api/controls/cadence — update agent cron frequency
   if (pathname === '/api/controls/cadence' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
-    const cadence = body.cadence; // light, normal, fast, max
-    const controlsFile = path.join(DATA_DIR, 'controls.json');
-    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
-    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
-    controls.cadence = cadence;
-    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
-
-    // Generate and install new crontab
-    const agentsDir = path.join(__dirname, '../../storyengine/agents');
-    const logDir = '/tmp/storyengine-agents';
-    const schedules = {
-      // Micro-orchestrator fires ~20 min after agents start (enough time to finish)
-      // Order: Build → QA → Tester finds bugs → Orchestrator plans fixes
-      light:  { backend: '0 0,4,8,12,16,20 * * *', frontend: '2 0,4,8,12,16,20 * * *', qa: '4 0,4,8,12,16,20 * * *', tester: '20 0,4,8,12,16,20 * * *', micro: '25 0,4,8,12,16,20 * * *', label: '6x/day (every 4h)' },
-      normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             tester: '25 */2 * * *',             micro: '30 */2 * * *',             label: '12x/day (every 2h)' },
-      fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               tester: '35 * * * *',               micro: '45 * * * *',               label: '24x/day (every 1h)' },
-      max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            tester: '18,48 * * * *',            micro: '24,54 * * * *',            label: '48x/day (every 30m)' },
-      turbo:  { backend: '0,15,30,45 * * * *',       frontend: '2,17,32,47 * * * *',      qa: '4,19,34,49 * * * *',      tester: '10,25,40,55 * * * *',      micro: '12,27,42,57 * * * *',      label: '96x/day (every 15m)' },
-      ultra:  { backend: '*/8 * * * *',              frontend: '1-59/8 * * * *',           qa: '2-59/8 * * * *',           tester: '4-59/8 * * * *',           micro: '6-59/8 * * * *',           label: '180x/day (every 8m)' },
-    };
-    const sched = schedules[cadence] || schedules.fast;
-
-    try {
-      const cronLines = [
-        `0 5 * * * cd ${agentsDir} && ORCHESTRATOR_MODE=grand bash run-agent.sh orchestrator >> ${logDir}/orchestrator.log 2>&1 # storyengine-agents`,
-        `${sched.backend} cd ${agentsDir} && bash run-agent.sh backend-dev >> ${logDir}/backend-dev.log 2>&1 # storyengine-agents`,
-        `${sched.frontend} cd ${agentsDir} && bash run-agent.sh frontend-dev >> ${logDir}/frontend-dev.log 2>&1 # storyengine-agents`,
-        `${sched.qa} cd ${agentsDir} && bash run-agent.sh qa-engineer >> ${logDir}/qa-engineer.log 2>&1 # storyengine-agents`,
-        `${sched.micro} cd ${agentsDir} && ORCHESTRATOR_MODE=micro bash run-agent.sh orchestrator >> ${logDir}/orchestrator-micro.log 2>&1 # storyengine-agents`,
-        `${sched.tester} cd ${agentsDir} && bash run-agent.sh pipeline-tester >> ${logDir}/pipeline-tester.log 2>&1 # storyengine-agents`,
-        `0 6 * * * cd ${agentsDir} && bash planning-session.sh >> ${logDir}/planning-session.log 2>&1 # storyengine-agents`,
-        `0 7 * * * cd ${agentsDir} && bash morning-briefing.sh >> ${logDir}/morning-briefing.log 2>&1 # storyengine-agents`,
-        `0 23 * * * cd ${agentsDir} && bash daily-report.sh >> ${logDir}/daily-report.log 2>&1 # storyengine-agents`,
-        `5 23 * * * cd ${agentsDir} && bash calculate-skills.sh >> ${logDir}/calculate-skills.log 2>&1 # storyengine-agents`,
-        `10 23 * * * cd ${agentsDir} && bash retro.sh >> ${logDir}/retro.log 2>&1 # storyengine-agents`,
-        `*/5 * * * * pgrep -f 'rubric.*server' > /dev/null || (cd ${path.join(__dirname)} && nohup node server.js > ${logDir}/rubric.log 2>&1 &) # storyengine-agents`,
-      ];
-
-      // Read existing crontab, strip agent lines, re-add with new schedule
-      const existing = execSync('crontab -l 2>/dev/null || echo ""', { encoding: 'utf8' });
-      const nonAgent = existing.split('\n').filter(l => !l.includes('storyengine-agents')).join('\n');
-      const newCrontab = nonAgent.trim() + '\n\n# === StoryEngine Agents ===\n' + cronLines.join('\n') + '\n';
-      const tmpFile = '/tmp/cron-cadence.txt';
-      fs.writeFileSync(tmpFile, newCrontab);
-      execSync(`crontab ${tmpFile}`);
-      fs.unlinkSync(tmpFile);
-      sendJSON(res, { success: true, cadence, label: sched.label });
-    } catch (e) {
-      sendJSON(res, { success: false, error: String(e) }, 500);
-    }
+    const result = setCadence(body.cadence);
+    sendJSON(res, result, result.success ? 200 : 500);
     return;
   }
 
@@ -1095,7 +1097,19 @@ const server = http.createServer(async (req, res) => {
         try { fs.writeFileSync(path.join(agentsDir, 'prd.json'), JSON.stringify({ error: true, message: msg, timestamp: Date.now() })); } catch {}
         return;
       }
-      console.log('PRD decomposition complete — setting focus and spawning agents');
+      console.log('PRD decomposition complete — boosting cadence, setting focus, spawning agents');
+      // Auto-cadence: save current cadence and boost to max for PRD execution
+      try {
+        const ctrlFile = path.join(DATA_DIR, 'controls.json');
+        let ctrl = {};
+        try { ctrl = JSON.parse(fs.readFileSync(ctrlFile, 'utf8')); } catch {}
+        if (ctrl.cadence !== PRD_BOOST_CADENCE) {
+          ctrl.pre_prd_cadence = ctrl.cadence || 'light';
+          fs.writeFileSync(ctrlFile, JSON.stringify(ctrl, null, 2));
+          setCadence(PRD_BOOST_CADENCE);
+          console.log(`Auto-cadence: boosted from ${ctrl.pre_prd_cadence} to ${PRD_BOOST_CADENCE}`);
+        }
+      } catch (e) { console.error('Auto-cadence boost failed:', e.message); }
       try {
         const prd = JSON.parse(fs.readFileSync(path.join(agentsDir, 'prd.json'), 'utf8'));
         const title = prd.title || 'PRD Mission';
@@ -1140,6 +1154,20 @@ const server = http.createServer(async (req, res) => {
     const done = doneFromProgress || (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
     const blocked = blockedFromProgress || (prd.tasks || []).filter(t => t.status === 'blocked').length;
     const inProgress = Math.max(0, total - done - blocked);
+    // Auto-cadence: restore pre-PRD cadence when all tasks are done
+    if (total > 0 && done >= total) {
+      try {
+        const ctrlFile = path.join(DATA_DIR, 'controls.json');
+        const ctrl = JSON.parse(fs.readFileSync(ctrlFile, 'utf8'));
+        if (ctrl.pre_prd_cadence && ctrl.cadence !== ctrl.pre_prd_cadence) {
+          const restored = ctrl.pre_prd_cadence;
+          delete ctrl.pre_prd_cadence;
+          fs.writeFileSync(ctrlFile, JSON.stringify(ctrl, null, 2));
+          setCadence(restored);
+          console.log(`Auto-cadence: PRD complete, restored to ${restored}`);
+        }
+      } catch {}
+    }
     sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress });
     return;
   }
