@@ -3,7 +3,23 @@
 ## Active: SaaS Transformation (2026-04-08)
 
 **Master Plan:** `tasks/dailyjournal.md` — 18-day execution plan (revised from 20)
-**Current:** Day 2 — Billing page shipped. Next: `/pricing` public page + plan enforcement.
+**Current:** Day 2 — Billing page shipped. Critical Bug Fixes PRD backend tasks complete.
+
+---
+
+## Handoff — 2026-04-08 (backend-dev: Critical Bug Fixes PRD)
+
+### Completed (all 6 backend tasks)
+- **T1**: Migration 028 — 4 indexes for competitor_videos (tenant+vph, tenant+channel, tenant+scrape_date, tenant+published_date)
+- **T2**: GET /api/niche/videos with pagination, filters (channel, modeled), sort (vph/views/published_date/scrape_date/title) — already existed
+- **T3**: Cascade delete — DELETE /api/niche/channels/{channel_id} now deletes associated competitor_videos first
+- **T4**: Per-channel scrape progress + POST /api/niche/scrape/cancel — already existed
+- **T5**: Relaxed pipeline validation — thumbnail from `ready_for_images` (was `ready_for_thumbnail`), video-scripts from `ready_for_sound_design` (was `ready_for_video_scripts`)
+- **T6**: YouTube sync — error classification (`_classify_error`), retry with backoff (`_fetch_with_retry`), `error_type` + `videos_retried` in status response
+
+### Frontend tasks for next session (T7-T8 from PRD)
+- **T7**: Wire competitor_videos GET endpoint to frontend — niche page should fetch from /api/niche/videos with pagination/filter/sort params
+- **T8**: Display error_type and retry info in YouTube sync status UI
 
 ---
 
