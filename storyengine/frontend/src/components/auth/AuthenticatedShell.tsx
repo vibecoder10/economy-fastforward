@@ -12,7 +12,7 @@ import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { PipelineNotificationProvider } from "@/components/notifications/PipelineNotificationProvider";
 
-const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password"];
+const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password", "/terms", "/privacy"];
 
 // Routes that require Pro plan or above
 const PRO_PATHS = ["/autopilot", "/analytics", "/learnings", "/competitors", "/discovery"];
