@@ -49,19 +49,19 @@ All 14 tasks done and verified.
 
 ## Summary
 - Total: 15 tasks
-- Done: 1 | Verified: 0 | Blocked: 0 | Remaining: 14
+- Done: 2 | Verified: 0 | Blocked: 0 | Remaining: 13
 
 ## Tasks
 
 ### Backend (no dependencies — run in parallel)
-- [ ] T1: Analytics backend — topic-performance + competitor-benchmark endpoints (backend)
+- [x] T1: Analytics backend — topic-performance + competitor-benchmark endpoints (backend) *(done 2026-04-08)*
 - [ ] T2: Brand Kit backend — migration + channel_profile extensions (backend)
 - [ ] T3: Notification preferences backend — migration + GET/PATCH endpoints (backend)
 - [ ] T4: Demo mode backend — 3 static demo endpoints, no auth (backend)
 - [ ] T5: Export manifest backend — GET /api/videos/{id}/export-manifest (backend)
 
 ### Frontend — independent (can run in parallel)
-- [ ] T8: Video preview player on RenderTab (frontend)
+- [x] T8: Video preview player on RenderTab (frontend) *(completed 2026-04-08)*
 - [ ] T9: Getting Started guide & help page at /docs (frontend)
 - [ ] T10: Legal pages — Terms of Service + Privacy Policy (frontend)
 
