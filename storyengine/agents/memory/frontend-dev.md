@@ -15,3 +15,5 @@
 - PUBLIC_PATHS in AuthenticatedShell.tsx controls which routes render without auth shell (no sidebar). /pricing is public. Add new marketing pages there.
 - SSE endpoint is at /api/activity/stream — use ?token= query param for auth (EventSource can't set headers). usePipelineSSE hook handles this.
 - PipelineStepper replaced ProgressStepper in video detail page — 13 stages vs old 6 steps. Remove old getStepFromStatus/getCompletedSteps/STEP_LABELS when cleaning up.
+- Multiple Claude agents run concurrently — files can be overwritten mid-session. Use bash cat > file for atomic writes and commit immediately. The Edit/Write tools are vulnerable to concurrent overwrites.
+- EmptyState and ErrorCard live in components/ui/. EmptyState uses GlassCard+ActionButton (PRD requirement). Use them for all empty/error states instead of inline JSX.
