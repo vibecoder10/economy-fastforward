@@ -24,9 +24,10 @@ const STAGE_ACTIONS: Record<string, { stage: string; label: string; cost?: strin
   ready_for_video_generation: { stage: "video-generation", label: "Generate Video Clips", cost: "~$8.00" },
   ready_for_thumbnail: { stage: "thumbnail", label: "Generate Thumbnail", cost: "~$0.15" },
   ready_to_render: { stage: "render", label: "Render Final Video" },
+  rendered: { stage: "upload", label: "Upload to YouTube" },
 };
 
-const TERMINAL_STATUSES = new Set(["rendered", "uploaded_draft", "uploaded", "done"]);
+const TERMINAL_STATUSES = new Set(["uploaded_draft", "uploaded", "done"]);
 
 export function PipelineActionBar({ videoId, status }: PipelineActionBarProps) {
   const currentIndex = getStageIndex(status);
