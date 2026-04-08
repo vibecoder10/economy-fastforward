@@ -27,7 +27,9 @@ from video_dispatch.models import (
     ProductionSheet,
     TaskStatus,
 )
+from video_dispatch.verify_output import verify_keyframes
 from orchestrator.pipeline_constants import Endpoints
+from shared.clients.google_client import GoogleClient as GoogleDriveClient
 
 
 # ---------------------------------------------------------------------------
@@ -452,17 +454,15 @@ async def _download_and_upload(
         return None
 
     if drive_folder:
-        proc = await asyncio.create_subprocess_exec(
-            "rclone", "copy", str(local_path), f"gdrive:{drive_folder}",
-            "--drive-root-folder-id=1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode == 0:
+        try:
+            drive = GoogleDriveClient()
+            folder = drive.get_or_create_folder(drive_folder)
+            folder_id = folder["id"]
+            content = local_path.read_bytes()
+            drive.upload_file(content, fname, folder_id, mime_type="image/png")
             print(f"  [upload] {fname} -> Drive:/{drive_folder}/")
-        else:
-            print(f"  [upload] {fname} FAILED: {stderr.decode()[:200]}")
+        except Exception as e:
+            print(f"  [upload] {fname} FAILED: {e}")
 
     return str(local_path)
 
@@ -788,6 +788,37 @@ async def run_dispatch(
         succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
         failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
         print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
+
+        # PHASE 1.5: Verify keyframe output quality BEFORE proceeding (BLOCKING)
+        print("--- PHASE 1.5: Output Verification (MANDATORY) ---")
+        completed_kfs = [kf for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED]
+        verify_results = await verify_keyframes(sheet, completed_kfs, api_key=api_key)
+
+        if not verify_results["passed"]:
+            # Only halt on real appearance mismatches (wrong race/character), not on API errors
+            real_failures = [i for i in verify_results["issues"] if "Vision analysis failed" not in i.get("reason", "")]
+            if real_failures:
+                print(f"\n❌ VERIFICATION FAILED: {len(real_failures)} keyframe(s) have appearance mismatches.")
+                print("Issues found:")
+                for issue in real_failures:
+                    print(f"  - {issue['keyframe_id']}: {issue['reason']}")
+                print("\n⚠️  PIPELINE HALTED — Keyframes must be regenerated with correct appearance.")
+                print("Do NOT proceed with bridges or rendering.\n")
+                for kf in completed_kfs:
+                    kf.status = TaskStatus.FAILED
+                    kf.error = "Verification failed — character appearance mismatch"
+                failed_kf = len(real_failures)
+                return {
+                    "status": "verification_failed",
+                    "keyframes": len(sheet.keyframes),
+                    "verified": len(completed_kfs) - failed_kf,
+                    "failed_verification": failed_kf,
+                    "issues": real_failures,
+                }
+            else:
+                print("⚠️  Verification skipped (vision API unavailable) — proceeding with bridges.\n")
+        else:
+            print("✅ All completed keyframes verified successfully.\n")
 
     # Phase 2: Generate video bridges (needs keyframe images)
     if images_only:

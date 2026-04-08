@@ -18,6 +18,30 @@
 
 ---
 
+## Visual Output Verification Rule (MANDATORY)
+**Before declaring ANY visual generation task complete** — images, keyframes, thumbnails, storyboards, video — **you MUST:**
+
+1. **Download/fetch ALL output assets** from the specified folder
+2. **Visually review EVERY frame** — don't just check that files exist
+3. **Compare against the brief/prompt/expected result** — verify character appearance, composition, location details match
+4. **Run vision analysis** (Claude vision) to check character appearance against specifications:
+   - Expected: Black man → actual image must show dark brown skin
+   - Expected: White man → actual image must show fair/light skin
+   - Expected: Office with glass walls → actual image must show glass walls
+5. **Flag any discrepancies immediately** — do NOT send broken work to the user
+6. **Only AFTER verification passes** do you report "done" and send files
+
+**Why:** On 2026-04-07, generated keyframes with wrong character appearance (white instead of Black). I didn't look at the output before sending. This verification process prevents that.
+
+**Implementation:**
+- Use `video_dispatch.verify_output.verify_images_in_folder()` before reporting completion
+- Use `video_dispatch.verify_output.verify_keyframes()` in dispatch.py (PHASE 1.5)
+- For any visual work: download folder, analyze, verify, then report
+
+**Code location:** `skills/video-pipeline/video_dispatch/verify_output.py` (382 lines, handles both keyframes and generic image folders)
+
+---
+
 ## 🦸 Superpowers Skill Integration
 
 **Skills are NOT optional. Invoke them BEFORE acting.** Use the `Skill` tool.
