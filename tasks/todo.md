@@ -7,6 +7,15 @@
 **Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
 
 ## Handoff
+**PRD 3 in progress.** Security phase nearly done:
+- Fixed critical bug: email.py shadowing stdlib (broke all route imports — profile 404, analytics 404s)
+- T1 done: SEC-1 verified, SEC-2 already fixed, SEC-3 rate limit added
+- T2 done: SEC-4 CORS from env var
+- T3 done: SEC-5 SQL safety comments + beat assertion
+- T4 done: SEC-6 audit logging already in place
+- Next: T5 background_tasks migration, T8 rate limiting middleware
+
+Previous handoff (PRD 2):
 All 7 PRD 2 backend tasks are committed and passing acceptance criteria:
 - Task 1: Migration 029 (trial_warning_sent column)
 - Task 2: Query-param token auth in auth.py for SSE connections
