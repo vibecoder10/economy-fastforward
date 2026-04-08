@@ -1930,7 +1930,8 @@ class PipelineExecutor:
 
             try:
                 from routes.billing import increment_usage
-                await increment_usage(self.tenant_id, "render_minutes")
+                duration = video.get("video_length_minutes") or 10
+                await increment_usage(self.tenant_id, "render_minutes", duration)
             except Exception:
                 pass
 
