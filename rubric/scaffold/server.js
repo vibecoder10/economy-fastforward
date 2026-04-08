@@ -1287,7 +1287,7 @@ RULES:
     // Respect kill switch — unless force:true (Telegram operator override)
     if (!force) {
       try {
-        const controls = JSON.parse(readFileSync(join(DATA_DIR, 'controls.json'), 'utf8'));
+        const controls = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'controls.json'), 'utf8'));
         if (controls.team_enabled === false) {
           sendJSON(res, { success: false, message: `Team is OFF — ${role} not spawned. Use force:true to override.` });
           return;
@@ -1295,11 +1295,11 @@ RULES:
       } catch {}
     }
     // If force-spawning while team is off, temporarily enable for this run
-    const controlsPath = join(DATA_DIR, 'controls.json');
+    const controlsPath = path.join(DATA_DIR, 'controls.json');
     let wasOff = false;
     if (force) {
       try {
-        const controls = JSON.parse(readFileSync(controlsPath, 'utf8'));
+        const controls = JSON.parse(fs.readFileSync(controlsPath, 'utf8'));
         wasOff = controls.team_enabled === false;
         if (wasOff) {
           controls.team_enabled = true;
@@ -1314,7 +1314,7 @@ RULES:
         // One-shot mode: re-disable team after agent finishes
         if (one_shot || (force && wasOff)) {
           try {
-            const controls = JSON.parse(readFileSync(controlsPath, 'utf8'));
+            const controls = JSON.parse(fs.readFileSync(controlsPath, 'utf8'));
             controls.team_enabled = false;
             writeFileSync(controlsPath, JSON.stringify(controls, null, 2));
           } catch {}
