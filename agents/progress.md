@@ -1,70 +1,42 @@
-# PRD Progress: PRD 2 — Pipeline UX, Landing Page, Notifications
+# Progress — PRD 3: Infrastructure (Security, Rate Limiting, Task Persistence, Storage)
+
+## PRD 2 Status: VERIFIED COMPLETE (2026-04-08)
+All 14 tasks pass acceptance criteria. QA verification by qa-engineer.
+- Note: email.py renamed to email_service.py to avoid stdlib shadow
+- Note: Task 11 (API key validation) missing Required/Optional badges — cosmetic only, functionality works
 
 ## Summary
-- Total tasks: 14
-- Completed: 13
-- In progress: 0
-- Blocked: 0
-- Pending: 1 (QA task 14 only)
+- Total: 14 tasks
+- Done: 0 | Verified: 0 | Blocked: 0 | Remaining: 14
 
 ## Tasks
 
-### Backend
-- [x] 1. Add trial_warning_sent column migration (029) *(completed 2026-04-08)*
-- [x] 2. Add query-param token auth fallback for SSE connections *(completed 2026-04-08)*
-- [x] 3. Enhance SSE endpoint to emit stage_change events *(completed 2026-04-08)*
-- [x] 4. Create POST /api/settings/keys/validate endpoint *(completed 2026-04-08)*
-- [x] 5. Extract shared email utility *(completed 2026-04-08)*
-- [x] 6. Add billing receipt email on checkout *(completed 2026-04-08)*
-- [x] 7. Create trial expiry warning email task *(completed 2026-04-08)*
+### Phase 1: Security (Critical/High)
+- [ ] T1: SEC-1/SEC-2/SEC-3 — dev-token verify, tenant isolation, API key rate limit (backend)
+- [ ] T2: SEC-4 — CORS origins from env var (backend)
+- [ ] T3: SEC-5 — Security audit comments on dynamic SQL + beat assertion (backend)
+- [ ] T4: SEC-6 — Audit logging for API key management (backend)
 
-### Frontend
-- [x] 8. Create usePipelineSSE hook *(completed 2026-04-08)*
-- [x] 9. Build PipelineStepper component *(completed 2026-04-08)*
-- [x] 10. Upgrade landing page with 7 sections *(completed 2026-04-08)*
-- [x] 11. Add API key validation UI *(completed 2026-04-08 — already wired)*
-- [x] 12. Create PipelineNotificationProvider *(completed 2026-04-08)*
-- [x] 13. Add compelling empty states to 5 pages *(completed 2026-04-08)*
+### Phase 2: Core Infrastructure (parallel)
+- [ ] T5: Create background_tasks migration + schema.sql update (backend)
+- [ ] T6: Replace in-memory _running_tasks with DB persistence (backend) — depends on T5
+- [ ] T7: Startup recovery for interrupted tasks in lifespan (backend) — depends on T5
+- [ ] T8: Rate limiting middleware with per-plan token bucket (backend)
+- [ ] T9: Per-tenant Supabase Storage backend (backend)
+- [ ] T10: Structured logging module + replace print() (backend)
+- [ ] T11: Expanded health check endpoint + detailed endpoint (backend) — depends on T5
 
-### QA
-- [ ] 14. QA: Full-flow verification — UNBLOCKED
+### Phase 3: Frontend
+- [ ] T12: Health status indicator with polling and banner (frontend) — depends on T11
 
-## Notes
-- All backend + frontend tasks complete. Only QA task 14 remains.
+### Phase 4: Verification
+- [ ] T13: QA — Security verification SEC-1 through SEC-6 (qa) — depends on T1-T4
+- [ ] T14: QA — Infrastructure verification (qa) — depends on T6-T12
 
----
-
-# PRD Progress: PRD 3 — UX Polish — Empty States, Dashboard, Create Flow
-
-## Summary
-- Total tasks: 11
-- Completed: 7
-- In progress: 0
-- Blocked: 0
-- Pending: 4 (QA + security tasks)
-
-## Tasks
-
-### Backend
-- [x] 1. Fix render_minutes usage increment to pass actual video duration *(completed 2026-04-08)*
-
-### Frontend
-- [x] 2. Add 80%/95% color thresholds to dashboard usage meter bars *(completed 2026-04-08)*
-- [x] 3. Add collapsible Advanced Options to pipeline create modal *(completed 2026-04-08 — already existed)*
-- [x] 4. Add success toast on video creation in pipeline page *(completed 2026-04-08)*
-- [x] 5. Wire ErrorCard into calendar and analytics error states *(completed 2026-04-08)*
-- [x] 6. Add retry button to stage-advancer error state *(completed 2026-04-08 — already existed)*
-- [x] 7. Audit: verify all 8 pages have Spinner + ErrorCard + EmptyState *(completed 2026-04-08 — all passing)*
-
-### QA
-- [ ] 8. TypeScript build verification — UNBLOCKED
-- [ ] 9. Verify no hardcoded hex colors (depends: 8)
-
-### Security
-- [ ] 10. Security audit — verify no XSS (depends: 8)
-
-### QA
-- [ ] 11. E2E QA — new user flow with Playwright (depends: 1,8,9,10)
+## Blocked Tasks
+- None
 
 ## Notes
-- All frontend tasks complete. QA/security tasks 8-11 now unblocked.
+- Migration number is 030 (029 already exists for trial_warning_sent)
+- Nav components at: storyengine/frontend/src/components/nav/{sidebar,bottom-tabs}.tsx
+- Existing hooks: use-pipeline-sse.ts, use-task-poller.ts
