@@ -1848,10 +1848,13 @@ window.__onTabShow = {};
       const enabled = ctrl.team_enabled !== false;
       updateTeamToggle(enabled);
 
-      // Queue count
-      const totalTasks = (q.tabs || []).flatMap(t => t.tasks || []).length;
-      const pendingTasks = (q.tabs || []).flatMap(t => t.tasks || []).filter(t => t.status !== 'done' && t.status !== 'blocked').length;
-      document.getElementById('tc-queue-count').textContent = pendingTasks + ' pending / ' + totalTasks + ' total';
+      // Queue count (include PRD tasks when active)
+      const queueTotal = (q.tabs || []).flatMap(t => t.tasks || []).length;
+      const queuePending = (q.tabs || []).flatMap(t => t.tasks || []).filter(t => t.status !== 'done' && t.status !== 'blocked').length;
+      const prdActive = mission.active && !mission.decomposing && !mission.error;
+      const prdPendingCount = prdActive ? (mission.total - mission.done - (mission.blocked || 0)) : 0;
+      const prdTotalCount = prdActive ? mission.total : 0;
+      document.getElementById('tc-queue-count').textContent = (queuePending + prdPendingCount) + ' pending / ' + (queueTotal + prdTotalCount) + ' total';
 
       // PRD status
       const prdStatus = document.getElementById('tc-prd-status');
