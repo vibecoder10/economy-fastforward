@@ -13,3 +13,5 @@
 - Plan gating lives in AuthenticatedShell.tsx — PRO_PATHS array and isPlanAtLeast() are exported for sidebar/bottom-tabs reuse. user.plan comes from AuthProvider (AuthUser.plan field).
 - Always destructure `error` from useQuery and add error states — React Query silently swallows API failures, leaving users with empty/broken cards if not handled.
 - PUBLIC_PATHS in AuthenticatedShell.tsx controls which routes render without auth shell (no sidebar). /pricing is public. Add new marketing pages there.
+- SSE endpoint is at /api/activity/stream — use ?token= query param for auth (EventSource can't set headers). usePipelineSSE hook handles this.
+- PipelineStepper replaced ProgressStepper in video detail page — 13 stages vs old 6 steps. Remove old getStepFromStatus/getCompletedSteps/STEP_LABELS when cleaning up.
