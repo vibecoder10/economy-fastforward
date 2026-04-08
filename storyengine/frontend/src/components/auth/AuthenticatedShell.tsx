@@ -1,10 +1,12 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Lock, Sparkles } from "lucide-react";
+import { Lock, Sparkles, X, AlertTriangle } from "lucide-react";
 import { useAuth } from "./AuthProvider";
+import { useQuery } from "@tanstack/react-query";
+import { getSubscription } from "@/lib/api";
 import { Sidebar } from "@/components/nav/sidebar";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
@@ -59,6 +61,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen relative z-10">
       <Sidebar />
       <main className="flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden">
+        <TrialBanner />
         <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 md:px-12 md:py-10">
           {hasAccess ? children : <UpgradePrompt />}
         </div>
@@ -66,6 +69,86 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
       <BottomTabs />
     </div>
   );
+}
+
+function TrialBanner() {
+  const pathname = usePathname();
+  const [dismissed, setDismissed] = useState(false);
+  const { data: subscription } = useQuery({
+    queryKey: ["subscription"],
+    queryFn: getSubscription,
+    refetchInterval: 60000,
+  });
+
+  // Don't show on pricing or login pages
+  if (["/pricing", "/login"].some((p) => pathname.startsWith(p))) return null;
+  if (!subscription) return null;
+
+  const { trial_active, trial_days_remaining, plan } = subscription;
+  const isFree = (plan || "free") === "free";
+
+  // Trial expired banner (persistent, not dismissible)
+  if (!trial_active && isFree) {
+    return (
+      <div
+        className="px-4 py-3 flex items-center justify-between gap-3"
+        style={{
+          background: "rgba(255, 77, 106, 0.08)",
+          borderBottom: "1px solid rgba(255, 77, 106, 0.2)",
+        }}
+      >
+        <div className="flex items-center gap-2 text-sm font-body" style={{ color: "var(--red)" }}>
+          <AlertTriangle size={16} />
+          <span>Your trial has ended. Upgrade to Pro to unlock Autopilot, Analytics, and more.</span>
+        </div>
+        <Link
+          href="/pricing"
+          className="shrink-0 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+          style={{
+            background: "linear-gradient(135deg, var(--gold), #B8922E)",
+            color: "#0A0A0B",
+          }}
+        >
+          Upgrade
+        </Link>
+      </div>
+    );
+  }
+
+  // Trial expiring soon banner (dismissible, shows when <= 3 days left)
+  if (trial_active && trial_days_remaining <= 3 && !dismissed) {
+    return (
+      <div
+        className="px-4 py-3 flex items-center justify-between gap-3"
+        style={{
+          background: "rgba(212, 168, 82, 0.08)",
+          borderBottom: "1px solid rgba(212, 168, 82, 0.2)",
+        }}
+      >
+        <div className="flex items-center gap-2 text-sm font-body" style={{ color: "var(--gold)" }}>
+          <Sparkles size={16} />
+          <span>Your Pro trial ends in {trial_days_remaining} day{trial_days_remaining !== 1 ? "s" : ""}. Upgrade now to keep all features.</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/pricing"
+            className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+            style={{
+              background: "linear-gradient(135deg, var(--gold), #B8922E)",
+              color: "#0A0A0B",
+            }}
+          >
+            Upgrade
+          </Link>
+          <button onClick={() => setDismissed(true)} style={{ color: "var(--text-tertiary)" }}>
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function UpgradePrompt() {

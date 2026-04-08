@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useQuery } from "@tanstack/react-query";
-import { getPendingReview } from "@/lib/api";
+import { getPendingReview, getSubscription } from "@/lib/api";
 import {
   LayoutGrid,
   List,
@@ -56,6 +56,11 @@ export function Sidebar() {
     queryKey: ["pending-review-count"],
     queryFn: getPendingReview,
     refetchInterval: 30000,
+  });
+  const { data: subscription } = useQuery({
+    queryKey: ["subscription"],
+    queryFn: getSubscription,
+    refetchInterval: 60000,
   });
   const pendingCount = pendingReview
     ? (pendingReview.scripts?.length ?? 0) +
@@ -136,6 +141,42 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Trial badge */}
+      {!collapsed && subscription?.trial_active && (
+        <div className="px-3 pb-2">
+          <Link
+            href="/pricing"
+            className="block px-3 py-2 rounded-lg text-center text-xs font-semibold font-body transition-colors hover:brightness-110"
+            style={{
+              background: subscription.trial_days_remaining <= 3
+                ? "rgba(212, 168, 82, 0.15)"
+                : "rgba(0, 212, 170, 0.1)",
+              color: subscription.trial_days_remaining <= 3
+                ? "var(--gold)"
+                : "var(--turquoise)",
+              border: `1px solid ${subscription.trial_days_remaining <= 3 ? "rgba(212, 168, 82, 0.3)" : "rgba(0, 212, 170, 0.2)"}`,
+            }}
+          >
+            Pro Trial — {subscription.trial_days_remaining}d left
+          </Link>
+        </div>
+      )}
+      {!collapsed && subscription && !subscription.trial_active && (subscription.plan || "free") === "free" && (
+        <div className="px-3 pb-2">
+          <Link
+            href="/pricing"
+            className="block px-3 py-2 rounded-lg text-center text-xs font-semibold font-body transition-colors hover:brightness-110"
+            style={{
+              background: "rgba(255, 77, 106, 0.1)",
+              color: "var(--red)",
+              border: "1px solid rgba(255, 77, 106, 0.2)",
+            }}
+          >
+            Trial ended
+          </Link>
+        </div>
+      )}
 
       {/* User + Logout */}
       <div className="px-2 pb-2">

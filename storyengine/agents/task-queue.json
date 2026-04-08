@@ -3363,8 +3363,11 @@
           "id": "T31-002",
           "title": "Frontend: show trial countdown badge in nav/sidebar + trial expiring banner",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T31-001",
+          "started_at": "2026-04-08T15:02:00Z",
+          "completed_at": "2026-04-08T15:12:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Two things:\n\n1. Update Subscription type in api.ts (line ~578): add trial_active: boolean and trial_days_remaining: number. Add getSubscription() call in sidebar.tsx (useQuery with 60s refetch). When trial_active && trial_days_remaining > 3: show turquoise 'Pro Trial \u2014 Xd left' badge below user name. When trial_days_remaining <= 3 && > 0: show amber 'Trial ending \u2014 Xd left' badge. When trial expired (trial_active=false, plan=free): show red 'Trial ended' badge.\n\n2. Trial banner in AuthenticatedShell.tsx: When trial_days_remaining <= 3 && trial_active: show a dismissible amber banner at top of content area: 'Your Pro trial ends in X days. Upgrade now to keep all features.' with CTA button linking to /pricing. When trial expired and plan=free: show persistent red banner: 'Your trial has ended. Upgrade to Pro to unlock Autopilot, Analytics, and more.' with /pricing link. Banner should NOT show on /pricing or /login pages.",
           "files": [
             "frontend/src/lib/api.ts",

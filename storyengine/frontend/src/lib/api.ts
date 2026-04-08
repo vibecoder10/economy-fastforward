@@ -648,6 +648,8 @@ export interface Subscription {
   stripe_plan: string | null;
   stripe_status: string | null;
   has_subscription: boolean;
+  trial_active: boolean;
+  trial_days_remaining: number;
 }
 
 export const getSubscription = () =>
