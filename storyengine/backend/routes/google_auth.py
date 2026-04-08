@@ -11,6 +11,7 @@ import os
 import uuid
 import hashlib
 import hmac
+import secrets
 from datetime import datetime, timezone, timedelta
 
 import httpx
@@ -41,6 +42,15 @@ class LoginRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     credential: str  # Google ID token from frontend
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 
 class AuthResponse(BaseModel):
@@ -351,3 +361,118 @@ async def get_me(user: AuthUser = Depends(verify_token)):
         "tenant_id": str(membership["tenant_id"]) if membership else None,
         "created_at": str(account["created_at"]) if account.get("created_at") else None,
     }
+
+
+# =============================================
+# Password Reset
+# =============================================
+
+RESET_TOKEN_EXPIRY_HOURS = 1
+
+
+async def _send_reset_email(email: str, token: str):
+    """Send password reset email via Resend API."""
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        # Dev mode: log the token instead of sending email
+        print(f"[DEV] Password reset token for {email}: {token}")
+        return
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    reset_url = f"{frontend_url}/reset-password?token={token}"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "from": os.getenv("EMAIL_FROM", "StoryEngine <noreply@storyengine.ai>"),
+                "to": [email],
+                "subject": "Reset your StoryEngine password",
+                "html": (
+                    f"<p>You requested a password reset.</p>"
+                    f'<p><a href="{reset_url}">Click here to reset your password</a></p>'
+                    f"<p>This link expires in {RESET_TOKEN_EXPIRY_HOURS} hour.</p>"
+                    f"<p>If you didn't request this, you can safely ignore this email.</p>"
+                ),
+            },
+            timeout=10.0,
+        )
+        if resp.status_code not in (200, 201):
+            print(f"[WARN] Failed to send reset email: {resp.status_code} {resp.text}")
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest):
+    """Request a password reset email.
+
+    Always returns 200 (even if email not found) to prevent email enumeration.
+    """
+    email = body.email.strip().lower()
+
+    account = await fetch_one(
+        "SELECT id, email FROM accounts WHERE email = $1", email
+    )
+
+    if account and account.get("id"):
+        # Invalidate any existing unused tokens for this account
+        await execute(
+            """UPDATE password_reset_tokens
+               SET used_at = now()
+               WHERE account_id = $1 AND used_at IS NULL""",
+            str(account["id"]),
+        )
+
+        # Create new token
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=RESET_TOKEN_EXPIRY_HOURS)
+
+        await execute(
+            """INSERT INTO password_reset_tokens (account_id, token, expires_at)
+               VALUES ($1, $2, $3)""",
+            str(account["id"]), token, expires_at,
+        )
+
+        await _send_reset_email(email, token)
+
+    # Always return success to prevent email enumeration
+    return {"message": "If an account with that email exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    """Reset password using a valid reset token."""
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    token_row = await fetch_one(
+        """SELECT id, account_id, expires_at, used_at
+           FROM password_reset_tokens WHERE token = $1""",
+        body.token,
+    )
+
+    if not token_row:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    if token_row.get("used_at"):
+        raise HTTPException(status_code=400, detail="This reset token has already been used")
+
+    if token_row["expires_at"] < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="This reset token has expired")
+
+    # Update password
+    account_id = str(token_row["account_id"])
+    new_hash = _hash_password(body.new_password)
+
+    await execute(
+        "UPDATE accounts SET password_hash = $1, updated_at = now() WHERE id = $2",
+        new_hash, account_id,
+    )
+
+    # Mark token as used
+    await execute(
+        "UPDATE password_reset_tokens SET used_at = now() WHERE id = $1",
+        str(token_row["id"]),
+    )
+
+    return {"message": "Password has been reset successfully. You can now log in."}

@@ -3232,6 +3232,45 @@
           "description": "Wire GET /api/billing/usage into dashboard or settings. Show progress bar (X/Y videos used). Handle 402 response from create_video/render by showing upgrade modal linking to /pricing."
         }
       ]
+    },
+    {
+      "id": 30,
+      "name": "Password Reset Flow",
+      "path": "cross-cutting",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T30-001",
+          "title": "Backend: password_reset_tokens table + forgot-password + reset-password endpoints",
+          "role": "backend",
+          "status": "done",
+          "started_at": "2026-04-08T05:00:00Z",
+          "completed_at": "2026-04-08T05:30:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Migration 025 creates password_reset_tokens table. google_auth.py adds POST /api/auth/forgot-password (generates token, sends email via Resend, prevents email enumeration) and POST /api/auth/reset-password (validates token, updates password_hash). Tokens expire in 1 hour, single-use. Dev mode prints token to console if RESEND_API_KEY not set.",
+          "files": [
+            "backend/migrations/025_password_reset_tokens.sql",
+            "backend/routes/google_auth.py",
+            "schema.sql"
+          ]
+        },
+        {
+          "id": "T30-002",
+          "title": "Frontend: /reset-password page + forgot password link on /login",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T30-001",
+          "description": "Add 'Forgot password?' link on /login page. Create /reset-password page that accepts ?token= query param, shows new password form, calls POST /api/auth/reset-password. Add /forgot-password page with email input that calls POST /api/auth/forgot-password. Both pages should be in PUBLIC_PATHS."
+        },
+        {
+          "id": "T30-003",
+          "title": "QA verify: password reset flow end-to-end",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T30-002",
+          "description": "Verify: (1) forgot-password returns 200 for valid and invalid emails (no enumeration). (2) Reset token is created in DB. (3) reset-password with valid token updates password_hash. (4) Used token cannot be reused. (5) Expired token is rejected. (6) Frontend pages render and wire correctly."
+        }
+      ]
     }
   ]
 }

@@ -684,6 +684,22 @@ CREATE TABLE tenant_usage (
 CREATE INDEX idx_tenant_usage_tenant_period ON tenant_usage(tenant_id, period_start);
 
 -- =============================================
+-- PASSWORD RESET TOKENS
+-- =============================================
+
+CREATE TABLE password_reset_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_password_reset_token ON password_reset_tokens(token);
+CREATE INDEX idx_password_reset_account ON password_reset_tokens(account_id);
+
+-- =============================================
 -- ROW LEVEL SECURITY
 -- =============================================
 
