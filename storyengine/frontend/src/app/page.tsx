@@ -21,6 +21,14 @@ import {
   Mic,
   Image as ImageIcon,
   Upload,
+  Zap,
+  Crown,
+  Building2,
+  CheckCircle2,
+  X,
+  Clock,
+  Video,
+  Users,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
@@ -135,6 +143,41 @@ const VALUE_PROPS = [
   },
 ];
 
+const STATS = [
+  { value: "18", label: "Pipeline Stages", icon: Wand2 },
+  { value: "<15min", label: "Idea to Draft", icon: Clock },
+  { value: "4+", label: "Visual Styles", icon: Video },
+  { value: "24/7", label: "CTR Monitoring", icon: TrendingUp },
+];
+
+const PRICING_TIERS = [
+  {
+    key: "starter",
+    name: "Starter",
+    price: 25,
+    icon: Zap,
+    tagline: "For solo creators getting started",
+    features: ["Full 18-stage pipeline", "1 channel", "4 videos/month", "1 visual style", "Manual mode"],
+  },
+  {
+    key: "creator",
+    name: "Creator",
+    price: 40,
+    icon: Crown,
+    tagline: "For creators who want AI-powered growth",
+    popular: true,
+    features: ["Everything in Starter", "15 videos/month", "Autopilot mode", "Analytics & learnings", "Competitor analysis", "3 visual styles"],
+  },
+  {
+    key: "agency",
+    name: "Agency",
+    price: 75,
+    icon: Building2,
+    tagline: "For teams managing multiple channels",
+    features: ["Everything in Creator", "Unlimited videos", "Multi-channel", "Team management", "Priority rendering", "Custom styles"],
+  },
+];
+
 const landingContainer = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.12 } },
@@ -183,7 +226,8 @@ function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero */}
+      {/* Section 1: Hero */}
+      <section id="hero">
       <motion.div
         className="max-w-6xl mx-auto px-6 pt-16 pb-20 text-center"
         variants={landingContainer}
@@ -255,140 +299,297 @@ function LandingPage() {
           14-day free trial. No credit card required. BYOK — bring your own API keys.
         </motion.p>
       </motion.div>
+      </section>
 
-      {/* Pipeline Steps */}
-      <motion.div
-        className="max-w-5xl mx-auto px-6 pb-20"
-        variants={landingContainer}
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: true, margin: "-100px" }}
-      >
-        <motion.h2
-          variants={landingItem}
-          className="text-center text-2xl sm:text-3xl font-display font-bold mb-12"
-          style={{ color: "var(--text-primary)" }}
-        >
-          From idea to YouTube draft in one click
-        </motion.h2>
-
-        <motion.div variants={landingItem} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {PIPELINE_STEPS.map((step, i) => (
-            <div
-              key={step.label}
-              className="relative rounded-2xl p-4 text-center"
-              style={{
-                background: "rgba(15, 22, 38, 0.65)",
-                border: "1px solid rgba(0, 212, 170, 0.12)",
-              }}
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-3"
-                style={{ background: "rgba(0, 212, 170, 0.1)" }}
-              >
-                <step.icon size={20} style={{ color: "var(--turquoise)" }} />
-              </div>
-              <p className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
-                {step.label}
-              </p>
-              <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-                {step.desc}
-              </p>
-              {i < PIPELINE_STEPS.length - 1 && (
-                <div
-                  className="hidden lg:block absolute top-1/2 -right-3 text-xs"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
-                  →
-                </div>
-              )}
-            </div>
-          ))}
-        </motion.div>
-      </motion.div>
-
-      {/* Value Props */}
-      <motion.div
-        className="max-w-5xl mx-auto px-6 pb-20"
-        variants={landingContainer}
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: true, margin: "-100px" }}
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          {VALUE_PROPS.map((v) => (
-            <motion.div
-              key={v.title}
-              variants={landingItem}
-              className="rounded-2xl p-6"
-              style={{
-                background: "rgba(15, 22, 38, 0.65)",
-                border: "1px solid rgba(255, 255, 255, 0.06)",
-              }}
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
-                style={{ background: "rgba(0, 212, 170, 0.1)" }}
-              >
-                <v.icon size={20} style={{ color: "var(--turquoise)" }} />
-              </div>
-              <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
-                {v.title}
-              </h3>
-              <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                {v.desc}
-              </p>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* CTA */}
-      <motion.div
-        className="max-w-3xl mx-auto px-6 pb-24 text-center"
-        variants={landingContainer}
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: true, margin: "-100px" }}
-      >
+      {/* Section 2: How It Works */}
+      <section id="how-it-works">
         <motion.div
-          variants={landingItem}
-          className="rounded-2xl p-10"
-          style={{
-            background: "linear-gradient(135deg, rgba(0, 212, 170, 0.08), rgba(0, 212, 170, 0.02))",
-            border: "1px solid rgba(0, 212, 170, 0.15)",
-          }}
+          className="max-w-5xl mx-auto px-6 pb-20"
+          variants={landingContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
         >
-          <h2
-            className="text-2xl sm:text-3xl font-display font-bold mb-3"
+          <motion.p
+            variants={landingItem}
+            className="text-center text-xs font-semibold uppercase tracking-widest mb-3"
+            style={{ color: "var(--turquoise)" }}
+          >
+            How It Works
+          </motion.p>
+          <motion.h2
+            variants={landingItem}
+            className="text-center text-2xl sm:text-3xl font-display font-bold mb-12"
             style={{ color: "var(--text-primary)" }}
           >
-            Ready to produce smarter?
-          </h2>
-          <p className="text-base mb-6" style={{ color: "var(--text-secondary)" }}>
-            Start your 14-day free trial. Full Pro features, no credit card.
-          </p>
-          <Link
-            href="/login"
-            className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-base font-semibold transition-all hover:brightness-110"
+            From idea to YouTube draft in one click
+          </motion.h2>
+
+          <motion.div variants={landingItem} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            {PIPELINE_STEPS.map((step, i) => (
+              <div
+                key={step.label}
+                className="relative rounded-2xl p-4 text-center"
+                style={{
+                  background: "rgba(15, 22, 38, 0.65)",
+                  border: "1px solid rgba(0, 212, 170, 0.12)",
+                }}
+              >
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-3"
+                  style={{ background: "rgba(0, 212, 170, 0.1)" }}
+                >
+                  <step.icon size={20} style={{ color: "var(--turquoise)" }} />
+                </div>
+                <p className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                  {step.label}
+                </p>
+                <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                  {step.desc}
+                </p>
+                {i < PIPELINE_STEPS.length - 1 && (
+                  <div
+                    className="hidden lg:block absolute top-1/2 -right-3 text-xs"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    →
+                  </div>
+                )}
+              </div>
+            ))}
+          </motion.div>
+        </motion.div>
+      </section>
+
+      {/* Section 3: Features */}
+      <section id="features">
+        <motion.div
+          className="max-w-5xl mx-auto px-6 pb-20"
+          variants={landingContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+        >
+          <motion.p
+            variants={landingItem}
+            className="text-center text-xs font-semibold uppercase tracking-widest mb-3"
+            style={{ color: "var(--turquoise)" }}
+          >
+            Features
+          </motion.p>
+          <motion.h2
+            variants={landingItem}
+            className="text-center text-2xl sm:text-3xl font-display font-bold mb-12"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Everything you need to scale your channel
+          </motion.h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {VALUE_PROPS.map((v) => (
+              <motion.div
+                key={v.title}
+                variants={landingItem}
+                className="rounded-2xl p-6"
+                style={{
+                  background: "rgba(15, 22, 38, 0.65)",
+                  border: "1px solid rgba(255, 255, 255, 0.06)",
+                }}
+              >
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
+                  style={{ background: "rgba(0, 212, 170, 0.1)" }}
+                >
+                  <v.icon size={20} style={{ color: "var(--turquoise)" }} />
+                </div>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+                  {v.title}
+                </h3>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  {v.desc}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Section 4: Stats */}
+      <section id="stats">
+        <motion.div
+          className="max-w-5xl mx-auto px-6 pb-20"
+          variants={landingContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+        >
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+            {STATS.map((stat) => (
+              <motion.div
+                key={stat.label}
+                variants={landingItem}
+                className="text-center rounded-2xl p-6"
+                style={{
+                  background: "rgba(15, 22, 38, 0.65)",
+                  border: "1px solid rgba(0, 212, 170, 0.12)",
+                }}
+              >
+                <stat.icon size={24} className="mx-auto mb-3" style={{ color: "var(--turquoise)" }} />
+                <p className="text-3xl font-display font-bold mb-1" style={{ color: "var(--text-primary)" }}>
+                  {stat.value}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {stat.label}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Section 5: Pricing */}
+      <section id="pricing">
+        <motion.div
+          className="max-w-5xl mx-auto px-6 pb-20"
+          variants={landingContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+        >
+          <motion.p
+            variants={landingItem}
+            className="text-center text-xs font-semibold uppercase tracking-widest mb-3"
+            style={{ color: "var(--turquoise)" }}
+          >
+            Pricing
+          </motion.p>
+          <motion.h2
+            variants={landingItem}
+            className="text-center text-2xl sm:text-3xl font-display font-bold mb-4"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Simple, transparent pricing
+          </motion.h2>
+          <motion.p
+            variants={landingItem}
+            className="text-center text-sm mb-12"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            BYOK — bring your own API keys. You pay platform cost + your own AI usage.
+          </motion.p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {PRICING_TIERS.map((tier) => (
+              <motion.div
+                key={tier.key}
+                variants={landingItem}
+                className="relative rounded-2xl p-6 flex flex-col"
+                style={{
+                  background: tier.popular
+                    ? "linear-gradient(135deg, rgba(0, 212, 170, 0.08), rgba(15, 22, 38, 0.65))"
+                    : "rgba(15, 22, 38, 0.65)",
+                  border: tier.popular
+                    ? "1px solid rgba(0, 212, 170, 0.3)"
+                    : "1px solid rgba(255, 255, 255, 0.06)",
+                }}
+              >
+                {tier.popular && (
+                  <span
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ background: "var(--turquoise)", color: "#0A0A0B" }}
+                  >
+                    Most Popular
+                  </span>
+                )}
+                <div className="mb-4">
+                  <tier.icon size={24} style={{ color: tier.popular ? "var(--turquoise)" : "var(--text-secondary)" }} />
+                </div>
+                <h3 className="text-xl font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                  {tier.name}
+                </h3>
+                <p className="text-xs mb-4" style={{ color: "var(--text-tertiary)" }}>
+                  {tier.tagline}
+                </p>
+                <div className="mb-6">
+                  <span className="text-4xl font-display font-bold" style={{ color: "var(--text-primary)" }}>
+                    ${tier.price}
+                  </span>
+                  <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>/mo</span>
+                </div>
+                <ul className="space-y-2.5 mb-6 flex-1">
+                  {tier.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                      <CheckCircle2 size={16} className="shrink-0 mt-0.5" style={{ color: "var(--turquoise)" }} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href="/login"
+                  className="block text-center py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
+                  style={{
+                    background: tier.popular
+                      ? "linear-gradient(135deg, var(--turquoise), #00B894)"
+                      : "rgba(255, 255, 255, 0.05)",
+                    color: tier.popular ? "#0A0A0B" : "var(--text-primary)",
+                    border: tier.popular ? "none" : "1px solid rgba(255,255,255,0.1)",
+                  }}
+                >
+                  Get Started
+                </Link>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Section 6: CTA */}
+      <section id="cta">
+        <motion.div
+          className="max-w-3xl mx-auto px-6 pb-24 text-center"
+          variants={landingContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+        >
+          <motion.div
+            variants={landingItem}
+            className="rounded-2xl p-10"
             style={{
-              background: "linear-gradient(135deg, var(--turquoise), #00B894)",
-              color: "#0A0A0B",
+              background: "linear-gradient(135deg, rgba(0, 212, 170, 0.08), rgba(0, 212, 170, 0.02))",
+              border: "1px solid rgba(0, 212, 170, 0.15)",
             }}
           >
-            Get Started Free
-            <ArrowRight size={18} />
-          </Link>
+            <h2
+              className="text-2xl sm:text-3xl font-display font-bold mb-3"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Ready to produce smarter?
+            </h2>
+            <p className="text-base mb-6" style={{ color: "var(--text-secondary)" }}>
+              Start your 14-day free trial. Full Pro features, no credit card.
+            </p>
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-base font-semibold transition-all hover:brightness-110"
+              style={{
+                background: "linear-gradient(135deg, var(--turquoise), #00B894)",
+                color: "#0A0A0B",
+              }}
+            >
+              Get Started Free
+              <ArrowRight size={18} />
+            </Link>
+          </motion.div>
         </motion.div>
-      </motion.div>
+      </section>
 
-      {/* Footer */}
-      <div
+      {/* Section 7: Footer */}
+      <footer
         className="py-8 text-center text-xs"
         style={{ color: "var(--text-tertiary)", borderTop: "1px solid rgba(255,255,255,0.06)" }}
       >
         StoryEngine — AI Video Production for YouTube Creators
-      </div>
+      </footer>
     </div>
   );
 }
