@@ -17,6 +17,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import {
   getDashboardSummary,
   getPendingReview,
@@ -61,7 +62,7 @@ function computeProgress(status: string | null): number {
 export default function DashboardPage() {
   const router = useRouter();
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summary, isLoading: summaryLoading, error: summaryError } = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: getDashboardSummary,
   });
@@ -147,6 +148,14 @@ export default function DashboardPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (summaryError) {
+    return (
+      <div className="py-12">
+        <ErrorCard message={(summaryError as Error).message} onRetry={() => window.location.reload()} />
       </div>
     );
   }

@@ -2,10 +2,11 @@
 
 import { useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle, AlertCircle, ChevronRight } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, ChevronRight, RefreshCw } from "lucide-react";
 import { runPipelineStage, advanceVideo, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
+import { GlassCard } from "@/components/ui/GlassCard";
 
 /** Parse backend 400 errors into user-friendly messages with guidance */
 function friendlyError(raw: string): string {
@@ -147,19 +148,28 @@ export function StageAdvancer({
 
   if (result === "error") {
     return (
-      <div className="flex items-center gap-2">
-        <span className="text-xs" style={{ color: "#C44545" }}>
-          <AlertCircle size={14} className="inline mr-1" />
-          {errorMsg || "Failed"}
-        </span>
-        <button
-          onClick={handleRetry}
-          className="text-xs px-3 py-1.5 rounded-lg font-medium"
-          style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
-        >
-          Retry
-        </button>
-      </div>
+      <GlassCard
+        className="!p-3"
+        style={{
+          background: "rgba(255,77,106,0.08)",
+          borderColor: "rgba(255,77,106,0.25)",
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs" style={{ color: "var(--red)" }}>
+            <AlertCircle size={14} className="inline mr-1" />
+            {errorMsg || "Failed"}
+          </span>
+          <button
+            onClick={handleRetry}
+            className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium shrink-0"
+            style={{ background: "var(--red)", color: "white" }}
+          >
+            <RefreshCw size={12} />
+            Retry
+          </button>
+        </div>
+      </GlassCard>
     );
   }
 
