@@ -3,8 +3,46 @@
 import { useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle, AlertCircle, ChevronRight } from "lucide-react";
-import { runPipelineStage, advanceVideo } from "@/lib/api";
+import { runPipelineStage, advanceVideo, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+
+/** Parse backend 400 errors into user-friendly messages with guidance */
+function friendlyError(raw: string): string {
+  // Extract JSON detail from "API error 400: {"detail":"..."}"
+  const detailMatch = raw.match(/"detail"\s*:\s*"([^"]+)"/);
+  const detail = detailMatch ? detailMatch[1] : raw;
+
+  // Status mismatch — "Video not ready for X (status: Y)"
+  const statusMatch = detail.match(/not ready for (\w[\w\s]*)\(status:\s*(\w+)/i);
+  if (statusMatch) {
+    const target = statusMatch[1].trim();
+    const current = statusMatch[2].replace(/_/g, " ");
+    return `Complete the "${current}" stage first before running ${target}.`;
+  }
+
+  // Task already running
+  if (/already running|task.*running/i.test(detail)) {
+    return "A task is already running for this video. Wait for it to finish or clear it.";
+  }
+
+  // Missing prerequisites
+  if (/no script|no voice|no images|no assets/i.test(detail)) {
+    return `Missing prerequisites — ${detail.replace(/^Video\s*/i, "This video ")}`;
+  }
+
+  // 409 conflict
+  if (/409/.test(raw)) {
+    return "Another task is running. It will be cleared automatically — try again in a moment.";
+  }
+
+  // Plan limit
+  if (/plan.limit|402/i.test(raw)) {
+    return "You've reached your plan's limit. Upgrade for more capacity.";
+  }
+
+  // Fallback: clean up raw message
+  return detail.replace(/^Video\s*/i, "This video ");
+}
 
 interface StageAdvancerProps {
   videoId: string;
@@ -50,8 +88,18 @@ export function StageAdvancer({
       await runPipelineStage(videoId, stage);
       setTaskRunning(true);
     } catch (err: any) {
+      const msg = err.message || "Failed to start";
+      // Auto-retry on 409 (stale task) — clear and retry once
+      if (msg.includes("409")) {
+        try {
+          await clearStaleTask(videoId);
+          await runPipelineStage(videoId, stage);
+          setTaskRunning(true);
+          return;
+        } catch { /* fall through to error display */ }
+      }
       setResult("error");
-      setErrorMsg(err.message || "Failed to start");
+      setErrorMsg(friendlyError(msg));
     }
   }, [videoId, stage]);
 

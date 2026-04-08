@@ -302,6 +302,44 @@ export default function AnalyticsPage() {
         </div>
       </motion.div>
 
+      {/* Sync error display */}
+      {syncStatus && !syncRunning && (syncStatus.error || (syncStatus.errors?.length ?? 0) > 0) && (
+        <motion.div variants={item}>
+          <div
+            className="rounded-xl px-4 py-3 flex flex-col gap-2"
+            style={{ background: "rgba(196,69,69,0.1)", border: "1px solid rgba(196,69,69,0.3)" }}
+          >
+            {syncStatus.error && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm" style={{ color: "#C44545" }}>
+                  Sync error{syncStatus.error_type ? ` (${syncStatus.error_type})` : ""}: {syncStatus.error}
+                </span>
+                {syncStatus.error_type === "auth" && (
+                  <a
+                    href="/settings/keys"
+                    className="text-xs px-3 py-1 rounded-lg font-medium whitespace-nowrap"
+                    style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
+                  >
+                    Re-connect YouTube
+                  </a>
+                )}
+              </div>
+            )}
+            {(syncStatus.videos_failed ?? 0) > 0 && (
+              <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                {syncStatus.videos_failed} of {syncStatus.videos_total} videos failed to sync
+                {(syncStatus.videos_retried ?? 0) > 0 && ` (${syncStatus.videos_retried} retried)`}
+              </span>
+            )}
+            {syncStatus.errors?.slice(0, 5).map((e, i) => (
+              <span key={i} className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {e.error_type}: {e.message}
+              </span>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
       {/* Overview Stats */}
       {overview && (
         <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-4">

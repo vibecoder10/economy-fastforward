@@ -62,7 +62,17 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
     if (storedToken && storedToken !== "dev-token") {
       reportError(path, res.status, body, options?.method || "GET");
     }
-    throw new Error(`API error ${res.status}: ${body}`);
+    // Extract descriptive detail from JSON error responses
+    let errorMessage = `API error ${res.status}: ${body}`;
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed?.detail) {
+        errorMessage = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+      }
+    } catch {
+      // body wasn't JSON, use raw text
+    }
+    throw new Error(errorMessage);
   }
 
   return res.json();
@@ -609,10 +619,58 @@ export const removeNicheChannel = (channelId: string) =>
     method: "DELETE",
   });
 
+// Competitor Videos (niche)
+export interface NicheVideo {
+  id: string;
+  video_id: string;
+  title: string;
+  url: string | null;
+  channel: string;
+  channel_url: string | null;
+  views: number;
+  vph: number;
+  hours_old: number;
+  published_date: string | null;
+  scrape_date: string | null;
+  thumbnail_url: string | null;
+  duration_seconds: number | null;
+  likes: number | null;
+  description: string | null;
+}
+
+export interface NicheVideosResponse {
+  videos: NicheVideo[];
+  total: number;
+  limit: number;
+  offset: number;
+  channels: string[];
+}
+
+export const getNicheVideos = (params?: {
+  limit?: number;
+  offset?: number;
+  channel?: string;
+  min_vph?: number;
+  sort?: string;
+}) => {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  if (params?.channel) searchParams.set("channel", params.channel);
+  if (params?.min_vph) searchParams.set("min_vph", String(params.min_vph));
+  if (params?.sort) searchParams.set("sort", params.sort);
+  const qs = searchParams.toString();
+  return fetchApi<NicheVideosResponse>(`/api/niche/videos${qs ? `?${qs}` : ""}`);
+};
+
 export interface ScrapeStatus {
   is_running: boolean;
   videos_found: number;
   videos_saved: number;
+  channels_total: number;
+  channels_done: number;
+  current_channel: string | null;
+  channel_progress: Record<string, number>;
   error: string | null;
   last_run: string | null;
 }
@@ -625,12 +683,27 @@ export const scrapeCompetitorChannels = () =>
 export const getScrapeStatus = () =>
   fetchApi<ScrapeStatus>("/api/niche/scrape/status");
 
+export const cancelScrape = () =>
+  fetchApi<{ status: string; message: string }>("/api/niche/scrape/cancel", {
+    method: "POST",
+  });
+
 // YouTube Metrics Sync
+export interface YouTubeSyncError {
+  video_id: string;
+  error_type: string;
+  message: string;
+}
+
 export interface YouTubeSyncStatus {
   is_running: boolean;
   videos_synced: number;
   videos_total: number;
+  videos_failed: number;
+  videos_retried: number;
+  errors: YouTubeSyncError[];
   error: string | null;
+  error_type: string | null;
   last_run: string | null;
 }
 
