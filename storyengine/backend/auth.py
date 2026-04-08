@@ -3,12 +3,12 @@
 import os
 import uuid as _uuid
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 class AuthUser(BaseModel):
@@ -18,15 +18,28 @@ class AuthUser(BaseModel):
     tenant_id: Optional[str] = None
 
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> AuthUser:
+def verify_token(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> AuthUser:
     """Verify JWT and extract user info.
 
     Supports three token types (tried in order):
     1. Dev token ("dev-token") for local development
     2. StoryEngine session JWT (iss=storyengine, signed with SESSION_SECRET)
     3. Supabase JWT (signed with SUPABASE_JWT_SECRET)
+
+    Also accepts token via query_params ?token= for SSE connections
+    (EventSource cannot set Authorization headers).
     """
-    token = credentials.credentials
+    # Try Authorization header first, fall back to query param
+    token = None
+    if credentials:
+        token = credentials.credentials
+    if not token:
+        token = request.query_params.get("token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     # Dev mode: accept dev token for local testing (requires explicit opt-in)
     dev_token = os.getenv("DEV_TOKEN")

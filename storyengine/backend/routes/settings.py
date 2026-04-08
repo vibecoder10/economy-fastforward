@@ -3,6 +3,7 @@
 Handles secure storage and retrieval of API keys via Supabase Vault.
 """
 
+import asyncio
 import time
 from collections import defaultdict
 from typing import Optional
@@ -187,6 +188,34 @@ async def test_api_key_endpoint(
         success=result.get("success"),
         message=result.get("message", "Unknown result"),
     )
+
+
+@router.post("/keys/validate")
+async def validate_api_keys(tenant_id: str = Depends(get_tenant_id)):
+    """Validate all configured API keys in parallel with timeout.
+
+    Tests anthropic, elevenlabs, openai, kie_ai, gemini, and tavily keys.
+    Returns per-key results with success/fail status.
+    """
+    testable_keys = [
+        "anthropic_api_key", "elevenlabs_api_key", "openai_api_key",
+        "kie_ai_api_key", "gemini_api_key", "tavily_api_key",
+    ]
+
+    async def _test_with_timeout(key_name: str) -> dict:
+        try:
+            result = await asyncio.wait_for(
+                test_api_key(key_name, tenant_id),
+                timeout=15.0,
+            )
+            return {"key": key_name, **result}
+        except asyncio.TimeoutError:
+            return {"key": key_name, "success": False, "message": "Validation timed out"}
+        except Exception as e:
+            return {"key": key_name, "success": False, "message": str(e)}
+
+    results = await asyncio.gather(*[_test_with_timeout(k) for k in testable_keys])
+    return {"results": list(results)}
 
 
 @router.post("/keys/{key_name}/reveal")
