@@ -10,7 +10,7 @@ from typing import Optional
 
 from auth import get_tenant_id, verify_token, AuthUser
 from database import fetch_one, fetch_all, execute
-from email_service import send_billing_receipt
+from email_service import send_billing_receipt  # email utility
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
