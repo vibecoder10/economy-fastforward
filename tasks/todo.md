@@ -7,13 +7,10 @@
 **Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
 
 ## Handoff
-**PRD 3 in progress.** Security phase nearly done:
-- Fixed critical bug: email.py shadowing stdlib (broke all route imports — profile 404, analytics 404s)
-- T1 done: SEC-1 verified, SEC-2 already fixed, SEC-3 rate limit added
-- T2 done: SEC-4 CORS from env var
-- T3 done: SEC-5 SQL safety comments + beat assertion
-- T4 done: SEC-6 audit logging already in place
-- Next: T5 background_tasks migration, T8 rate limiting middleware
+**PRD 2 Task 11 DONE** — Required/Optional badges + StatusDot on API keys page.
+**PRD 3 frontend tasks 2-7 audited:** Tasks 2-5 already implemented. Task 6 (red error card) + Task 7 (dashboard ErrorCard) now done.
+**Backend 404s** on /api/profile and /api/analytics/* handed off to backend-dev (routes exist but 404 at runtime).
+**PRD 4 now active** in progress.md. Frontend tasks T8-T12 are next.
 
 Previous handoff (PRD 2):
 All 7 PRD 2 backend tasks are committed and passing acceptance criteria:
