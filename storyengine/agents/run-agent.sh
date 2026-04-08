@@ -49,7 +49,7 @@ except Exception as e:
   fi
 }
 SLACK_WEBHOOK="${SLACK_WEBHOOK:-}"
-BRANCH="agent-dev"
+BRANCH="main"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 RUN_ID="$AGENT-$(date +%Y%m%d-%H%M%S)"
 
@@ -132,10 +132,41 @@ if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
   git stash --include-untracked 2>/dev/null || true
   git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH" "origin/$BRANCH" 2>/dev/null || true
 fi
-# Auto-stash local changes before pull (prevents VPS from getting stuck on stale code
-# when someone edits files directly — the #1 cause of "git pull failed" on the VPS)
-git stash --include-untracked 2>/dev/null || true
-git pull --rebase origin "$BRANCH" 2>/dev/null || true
+# ─── Sync: Pull latest from GitHub (gets Ryan's local pushes) ─────────────
+# Stash any uncommitted changes, pull, then pop stash
+STASH_RESULT=$(git stash --include-untracked 2>&1 || echo "stash failed")
+BEFORE_PULL=$(git rev-parse HEAD 2>/dev/null)
+git pull --rebase origin "$BRANCH" 2>/dev/null || {
+  echo "⚠️  git pull failed — attempting reset to origin/$BRANCH"
+  git rebase --abort 2>/dev/null || true
+  git reset --hard "origin/$BRANCH" 2>/dev/null || true
+}
+AFTER_PULL=$(git rev-parse HEAD 2>/dev/null)
+# Pop stash if we stashed something (not "No local changes to save")
+echo "$STASH_RESULT" | grep -q "Saved working directory" && git stash pop 2>/dev/null || true
+
+# ─── Rebuild if pull brought new code ─────────────────────────────────────
+if [ "$BEFORE_PULL" != "$AFTER_PULL" ]; then
+  echo "Pull brought new commits — checking if rebuild needed..."
+  PULLED_FILES=$(git diff --name-only "$BEFORE_PULL" "$AFTER_PULL" 2>/dev/null || echo "")
+  if echo "$PULLED_FILES" | grep -q "storyengine/backend/"; then
+    echo "Backend changed from pull — restarting uvicorn..."
+    pkill -f "uvicorn main:app.*8001" 2>/dev/null || true
+    sleep 1
+    cd "$PROJECT_ROOT/storyengine/backend" && nohup ./venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 > /tmp/storyengine-backend.log 2>&1 &
+    cd "$PROJECT_ROOT"
+  fi
+  if echo "$PULLED_FILES" | grep -q "storyengine/frontend/"; then
+    echo "Frontend changed from pull — rebuilding..."
+    cd "$PROJECT_ROOT/storyengine/frontend"
+    npm run build > /tmp/storyengine-frontend-build.log 2>&1 || echo "Frontend build failed"
+    pkill -f "next.*3001" 2>/dev/null || true
+    sleep 2
+    fuser -k 3001/tcp 2>/dev/null || true
+    nohup npx next start -p 3001 > /tmp/storyengine-frontend.log 2>&1 &
+    cd "$PROJECT_ROOT"
+  fi
+fi
 
 # ─── Completion Check ───────────────────────────────────────────────────────
 ALL_DONE=$(python3 -c "
@@ -778,6 +809,15 @@ if [ -n "$PROPOSAL_JSON" ]; then
 ${PROP_TITLE}
 
 _Reply /approve ${PROP_ID} or /reject ${PROP_ID}_"
+fi
+
+# ─── Push to GitHub (keep VPS, GitHub, and local in sync) ─────────────────
+# Agents commit locally on VPS. Push ensures GitHub stays current and Ryan can pull.
+if git diff --quiet HEAD "origin/$BRANCH" 2>/dev/null; then
+  echo "No new commits to push"
+else
+  echo "Pushing agent commits to GitHub..."
+  git push origin "$BRANCH" 2>/dev/null || echo "⚠️  git push failed — will retry next session"
 fi
 
 # ─── Restart Servers After Code Changes ────────────────────────────────────

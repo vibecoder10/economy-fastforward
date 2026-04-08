@@ -1,5 +1,6 @@
 # Pipeline Tester Memory
 <!-- Lessons from past sessions. One line each. Max 50 entries. -->
+- [2026-04-08] BRANCH CHANGE: agent-dev merged to main and deleted. All work is on main now. Production dir IS the workspace. No separate ports needed — test on 3001/8001 directly. Ignore older notes about agent-dev or port 8002/8099.
 
 - Tab name for images/storyboard is "Storyboard & Visuals" (not "Visuals" or "Images").
 - storyboard_status values replace underscore with space in UI: 'grids_generated' shows as 'grids generated', search page_text with spaces not underscores.

@@ -15,8 +15,8 @@ REPORT_FILE="$REPORTS_DIR/$TODAY.md"
 mkdir -p "$REPORTS_DIR"
 
 cd "$PROJECT_ROOT"
-git checkout agent-dev 2>/dev/null || true
-git pull --rebase origin agent-dev 2>/dev/null || true
+git checkout main 2>/dev/null || true
+git pull --rebase origin main 2>/dev/null || true
 
 # Gather today's git commits
 COMMITS=$(git log --since="$TODAY 00:00" --until="$TODAY 23:59" --oneline --no-merges 2>/dev/null || echo "No commits today")
@@ -84,17 +84,17 @@ echo '```' >> "$REPORT_FILE"
 git add "$REPORT_FILE" 2>/dev/null || true
 git add "$AGENTS_DIR/task-queue.json" 2>/dev/null || true
 git commit -m "report: daily summary for $TODAY" 2>/dev/null || true
-git push origin agent-dev 2>/dev/null || true
+git push origin main 2>/dev/null || true
 
 # Create or update the daily PR
-EXISTING_PR=$(gh pr list --head agent-dev --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+EXISTING_PR=$(gh pr list --head main --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
 
 if [ -z "$EXISTING_PR" ] || [ "$EXISTING_PR" = "null" ]; then
   # Create new PR with today's report as body
   REPORT_BODY=$(cat "$REPORT_FILE")
   gh pr create \
     --base main \
-    --head agent-dev \
+    --head main \
     --title "Agent Build: $TODAY" \
     --body "$(cat <<EOF
 $REPORT_BODY

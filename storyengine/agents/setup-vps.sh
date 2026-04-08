@@ -17,13 +17,13 @@ if [ -d "$WORKSPACE" ]; then
   echo "Agent workspace already exists at $WORKSPACE"
   cd "$WORKSPACE"
   git fetch origin
-  git checkout agent-dev 2>/dev/null || git checkout -b agent-dev origin/agent-dev
-  git pull --rebase origin agent-dev || true
+  git checkout main 2>/dev/null || git checkout -b main origin/main
+  git pull --rebase origin main || true
 else
   echo "Cloning agent workspace..."
   git clone "$REPO_URL" "$WORKSPACE"
   cd "$WORKSPACE"
-  git checkout agent-dev 2>/dev/null || git checkout -b agent-dev origin/agent-dev
+  git checkout main 2>/dev/null || git checkout -b main origin/main
 fi
 
 # 2. Create log directory
