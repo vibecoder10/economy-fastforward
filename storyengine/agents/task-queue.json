@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 28,
   "last_updated": "2026-04-08",
-  "last_updated_by": "frontend-dev",
+  "last_updated_by": "pipeline-tester",
   "tabs": [
     {
       "id": 1,
@@ -3174,9 +3174,16 @@
           "id": "T28-002",
           "title": "QA verify /pricing: public access, plan cards, checkout flow, mobile responsive",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-08T00:18:00Z",
+          "completed_at": "2026-04-08T00:25:00Z",
+          "assigned_to": "pipeline-tester",
+          "verified": true,
+          "verified_at": "2026-04-08T00:25:00Z",
+          "verified_by": "pipeline-tester",
           "description": "Verify: (1) /pricing loads without auth (PUBLIC_PATHS). (2) 3 plan cards render with correct prices and features. (3) Subscribe button for unauthenticated user redirects to /login. (4) Subscribe button for authenticated user calls createCheckout. (5) UpgradePrompt now links to /pricing. (6) Mobile responsive (no overflow). (7) tsc --noEmit passes. (8) No console errors.",
-          "depends_on": "T28-001"
+          "depends_on": "T28-001",
+          "verification_notes": "PASS (14/14). (1) /pricing loads without auth — stays on /pricing, no redirect to /login (PUBLIC_PATHS includes /pricing at AuthenticatedShell:12). (2) 3 plan cards: Starter $25, Pro $40, Agency $75 — all render with feature checklists (included=teal check, excluded=X). (3) 'Most Popular' badge on Pro card (absolute positioned, visible in innerHTML). (4) BYOK note present. (5) Value props section 'Why creators choose StoryEngine' with 4 cards. (6) 14-day free trial text at bottom. (7) Unauthenticated: 3 'Get Started' buttons, click → router.push('/login') works. Nav shows Sign in + Get Started links. (8) Authenticated (real JWT): 3 'Subscribe' buttons, nav shows 'Dashboard' link, no 'Sign in'. (9) Subscribe calls createCheckout with plan key + isStripeUrl validation (SEC-8 pattern). (10) UpgradePrompt href=/pricing at AuthenticatedShell.tsx:89 (was /settings). (11) Mobile (375x812): scrollWidth=375, 0 overflow, cards stack vertically. (12) No sidebar (aside count=0) on public page. (13) tsc --noEmit: 0 errors. (14) 0 console errors, 0 failed requests. Screenshots: T28-002-pricing-desktop.png, T28-002-pricing-mobile.png, T28-002-pricing-auth-jwt.png."
         }
       ]
     }
