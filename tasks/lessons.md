@@ -89,6 +89,7 @@
 ### StoryEngine Frontend
 - **Spinner component is lowercase**: Import from `@/components/ui/spinner` (not `Spinner`). File is `spinner.tsx`.
 - **`as const` on plan arrays breaks optional properties**: If only one plan object has `popular: true`, TypeScript narrows the tuple type and the property doesn't exist on other entries. Remove `as const` or add `popular?: boolean` to all entries.
+- **Concurrent agent stash conflicts break imports**: When `git stash pop` restores changes from another agent, it may update imports (removing old, adding new) but NOT the body code that still references the old types. Always run `tsc --noEmit` after stash pop. The competitors page had imports updated to `NicheVideo` but the body still used `CompetitorCandidate` — would've been a runtime crash.
 
 ### Supabase Storage
 - **Kie.ai tempfile URLs (tempfile.aiquickdraw.com) expire.** Grid and image URLs must be re-uploaded to Supabase Storage immediately after generation. Use `storage.upload_from_url()` for download-and-persist. Public URL format: `{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{path}`.
