@@ -11,7 +11,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing, preferences, system_prompts
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing, preferences, system_prompts, demo
 from routes.autopilot import _bg_task_status
 
 
@@ -325,6 +325,7 @@ app.include_router(google_auth.router)
 app.include_router(billing.router)
 app.include_router(preferences.router)
 app.include_router(system_prompts.router)
+app.include_router(demo.router)
 
 
 @app.get("/api/health")
