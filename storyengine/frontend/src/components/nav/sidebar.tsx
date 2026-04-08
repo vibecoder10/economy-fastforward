@@ -27,6 +27,7 @@ import {
   LogOut,
   Lock,
   X,
+  BookOpen,
 } from "lucide-react";
 import { isPlanAtLeast, PRO_PATHS } from "@/components/auth/AuthenticatedShell";
 
@@ -45,6 +46,7 @@ const navItems = [
   { href: "/billing", icon: CreditCard, label: "Billing" },
   { href: "/settings", icon: Settings, label: "Settings" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
+  { href: "/docs", icon: BookOpen, label: "Getting Started" },
 ];
 
 export function Sidebar() {
