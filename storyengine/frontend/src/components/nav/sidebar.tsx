@@ -13,6 +13,7 @@ import {
   Settings,
   Palette,
   Key,
+  CreditCard,
   Bot,
   Users,
   Lightbulb,
@@ -41,6 +42,7 @@ const navItems = [
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/system-prompts", icon: ScrollText, label: "System Prompts" },
+  { href: "/billing", icon: CreditCard, label: "Billing" },
   { href: "/settings", icon: Settings, label: "Settings" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];
