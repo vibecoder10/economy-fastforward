@@ -792,10 +792,10 @@ async def run_video_scripts(
         raise HTTPException(status_code=404, detail="Video not found")
 
     status = video.get("status") or ""
-    if status and not is_at_or_past_stage(status, "ready_for_sound_design"):
+    if status and not is_at_or_past_stage(status, "ready_for_images"):
         raise HTTPException(
             status_code=400,
-            detail=f"Video not ready for video scripts (status: {status})",
+            detail=f"Video not ready for video scripts — needs images first (status: {status})",
         )
 
     if _get_task_status(video_id):
@@ -883,10 +883,10 @@ async def run_thumbnail(
         raise HTTPException(status_code=404, detail="Video not found")
 
     status = video.get("status") or ""
-    if status and not is_at_or_past_stage(status, "ready_for_images"):
+    if status and not is_at_or_past_stage(status, "ready_for_voice"):
         raise HTTPException(
             status_code=400,
-            detail=f"Video not ready for thumbnail (status: {status})",
+            detail=f"Video not ready for thumbnail — needs at least a script (status: {status})",
         )
 
     if _get_task_status(video_id):

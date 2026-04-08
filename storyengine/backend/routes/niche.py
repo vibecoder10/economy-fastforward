@@ -110,16 +110,33 @@ async def remove_channel(channel_id: str, tenant_id: str = Depends(get_tenant_id
         tenant_id,
     )
     if channel:
-        # Delete associated competitor_videos by channel_url or channel name
+        # Delete associated competitor_videos + cascade to discovery_ideas
         ch_url = channel.get("channel_url", "")
         ch_name = channel.get("channel_name", "")
         if ch_url:
+            # Nullify discovery_ideas FK before deleting videos
+            await execute(
+                """UPDATE discovery_ideas SET competitor_video_id = NULL
+                   WHERE tenant_id = $1 AND competitor_video_id IN (
+                     SELECT id FROM competitor_videos WHERE tenant_id = $1 AND channel_url = $2
+                   )""",
+                tenant_id,
+                ch_url,
+            )
             await execute(
                 "DELETE FROM competitor_videos WHERE tenant_id = $1 AND channel_url = $2",
                 tenant_id,
                 ch_url,
             )
         elif ch_name:
+            await execute(
+                """UPDATE discovery_ideas SET competitor_video_id = NULL
+                   WHERE tenant_id = $1 AND competitor_video_id IN (
+                     SELECT id FROM competitor_videos WHERE tenant_id = $1 AND channel = $2
+                   )""",
+                tenant_id,
+                ch_name,
+            )
             await execute(
                 "DELETE FROM competitor_videos WHERE tenant_id = $1 AND channel = $2",
                 tenant_id,
