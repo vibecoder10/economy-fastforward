@@ -35,6 +35,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import { Spinner } from "@/components/ui/spinner";
 import {
   getDashboardSummary,
@@ -588,10 +589,15 @@ function LandingPage() {
 
       {/* Section 7: Footer */}
       <footer
-        className="py-8 text-center text-xs"
+        className="py-8 text-center text-xs space-y-2"
         style={{ color: "var(--text-tertiary)", borderTop: "1px solid rgba(255,255,255,0.06)" }}
       >
-        StoryEngine — AI Video Production for YouTube Creators
+        <p>StoryEngine — AI Video Production for YouTube Creators</p>
+        <div className="flex items-center justify-center gap-4">
+          <Link href="/terms" className="hover:underline">Terms of Service</Link>
+          <span>&middot;</span>
+          <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
+        </div>
       </footer>
     </div>
   );
@@ -602,12 +608,12 @@ function LandingPage() {
 function Dashboard() {
   const router = useRouter();
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summary, isLoading: summaryLoading, error: summaryError } = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: getDashboardSummary,
   });
 
-  const { data: videos, isLoading: videosLoading } = useQuery({
+  const { data: videos, isLoading: videosLoading, error: videosError } = useQuery({
     queryKey: ["videos"],
     queryFn: () => getVideos(),
   });
@@ -703,6 +709,20 @@ function Dashboard() {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (summaryError || videosError) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
+          Production Overview
+        </h1>
+        <ErrorCard
+          message={(summaryError as Error)?.message || (videosError as Error)?.message || "Failed to load dashboard"}
+          onRetry={() => window.location.reload()}
+        />
       </div>
     );
   }
