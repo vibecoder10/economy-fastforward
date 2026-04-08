@@ -74,3 +74,8 @@ storyengine/config/.env.local
 skills/video-pipeline/timing/
 .superpowers/
 .next/
+
+# PRD runtime state (written by deploy, updated by agents — never commit)
+agents/prd.json
+agents/prd.md
+agents/progress.md
