@@ -209,32 +209,43 @@ export default function DashboardPage() {
               </span>
             </div>
             {(() => {
-              const used = usage.usage.videos_created;
-              const limit = usage.limits.videos_per_month;
-              const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-              const barColor = pct >= 90 ? "var(--red)" : pct >= 70 ? "var(--gold)" : "var(--turquoise)";
+              const getBarColor = (pct: number) =>
+                pct >= 95 ? "var(--red)" : pct >= 80 ? "var(--orange)" : "var(--turquoise)";
+              const meters = [
+                { label: "Videos", used: usage.usage.videos_created, limit: usage.limits.videos_per_month },
+                { label: "Render Minutes", used: Math.round(usage.usage.render_minutes), limit: usage.limits.render_minutes },
+              ];
+              const maxPct = Math.max(...meters.map((m) => m.limit > 0 ? (m.used / m.limit) * 100 : 0));
               return (
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                      Videos
-                    </span>
-                    <span className="text-xs font-mono" style={{ color: barColor }}>
-                      {used}/{limit}
-                    </span>
-                  </div>
-                  <div
-                    className="h-2 rounded-full overflow-hidden"
-                    style={{ background: "rgba(255,255,255,0.06)" }}
-                  >
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${pct}%`, background: barColor }}
-                    />
-                  </div>
-                  {pct >= 90 && (
-                    <p className="text-[10px] mt-1.5" style={{ color: "var(--red)" }}>
-                      Approaching limit —{" "}
+                <div className="space-y-3">
+                  {meters.map((m) => {
+                    const pct = m.limit > 0 ? Math.min((m.used / m.limit) * 100, 100) : 0;
+                    const color = getBarColor(pct);
+                    return (
+                      <div key={m.label}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                            {m.label}
+                          </span>
+                          <span className="text-xs font-mono" style={{ color }}>
+                            {m.used}/{m.limit}
+                          </span>
+                        </div>
+                        <div
+                          className="h-2 rounded-full overflow-hidden"
+                          style={{ background: "rgba(255,255,255,0.06)" }}
+                        >
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${pct}%`, background: color }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {maxPct >= 80 && (
+                    <p className="text-[10px]" style={{ color: maxPct >= 95 ? "var(--red)" : "var(--orange)" }}>
+                      {maxPct >= 95 ? "At limit" : "Approaching limit"} —{" "}
                       <a href="/pricing" className="underline hover:brightness-125">
                         upgrade for more
                       </a>
