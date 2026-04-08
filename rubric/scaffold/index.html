@@ -1767,23 +1767,58 @@ window.__onTabShow = {};
       badge.textContent = data.items.length;
       cards.innerHTML = data.items.map((item, i) => {
         const colors = {
-          queued: { border: '#333', bg: '#111', dot: '#555', label: '#888', labelBg: 'rgba(85,85,85,0.15)' },
-          active: { border: '#1A8A7A', bg: 'rgba(26,138,122,0.05)', dot: '#50e3c2', label: '#50e3c2', labelBg: 'rgba(26,138,122,0.15)' },
-          completed: { border: '#222', bg: '#0a0a0a', dot: '#50e3c2', label: '#555', labelBg: 'rgba(85,85,85,0.1)' }
+          queued: { border: '#333', bg: '#111', label: '#888', labelBg: 'rgba(85,85,85,0.15)' },
+          active: { border: '#1A8A7A', bg: 'rgba(26,138,122,0.05)', label: '#50e3c2', labelBg: 'rgba(26,138,122,0.15)' },
+          completed: { border: '#222', bg: '#0a0a0a', label: '#555', labelBg: 'rgba(85,85,85,0.1)' }
         };
         const c = colors[item.status] || colors.queued;
         const checkmark = item.status === 'completed' ? '✓ ' : '';
         const num = i + 1;
-        return `<div style="min-width:180px;max-width:220px;padding:14px;background:${c.bg};border:1px solid ${c.border};border-radius:10px;flex-shrink:0;${item.status === 'active' ? 'border-left:3px solid #1A8A7A;' : ''}">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-            <span style="font-size:10px;padding:2px 6px;background:${c.labelBg};color:${c.label};border-radius:4px;font-weight:500;text-transform:uppercase;">${checkmark}${item.status}</span>
-            <span style="font-size:10px;color:#555;">#${num}</span>
+        return `<div style="min-width:200px;max-width:260px;flex-shrink:0;">
+          <div onclick="togglePrdCard(${i})" style="padding:14px;background:${c.bg};border:1px solid ${c.border};border-radius:10px;cursor:pointer;${item.status === 'active' ? 'border-left:3px solid #1A8A7A;' : ''}" onmouseenter="this.style.borderColor='#444'" onmouseleave="this.style.borderColor='${c.border}'">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+              <span style="font-size:10px;padding:2px 6px;background:${c.labelBg};color:${c.label};border-radius:4px;font-weight:500;text-transform:uppercase;">${checkmark}${item.status}</span>
+              <span style="font-size:10px;color:#555;">#${num}</span>
+              <span style="font-size:10px;color:#555;margin-left:auto;">click to ${item.status === 'queued' ? 'edit' : 'view'}</span>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:${item.status === 'completed' ? '#555' : '#ccc'};line-height:1.3;${item.status === 'completed' ? 'text-decoration:line-through;' : ''}">${item.title}</div>
           </div>
-          <div style="font-size:13px;font-weight:600;color:${item.status === 'completed' ? '#555' : '#ccc'};line-height:1.3;${item.status === 'completed' ? 'text-decoration:line-through;' : ''}">${item.title}</div>
+          <div id="prd-card-detail-${i}" style="display:none;margin-top:4px;padding:12px;background:#0d0d0d;border:1px solid #222;border-radius:8px;">
+            <textarea id="prd-card-content-${i}" style="width:100%;min-height:300px;max-height:500px;background:#111;color:#aaa;border:1px solid #222;border-radius:6px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;resize:vertical;" ${item.status !== 'queued' ? 'readonly' : ''}>Loading...</textarea>
+            ${item.status === 'queued' ? '<button onclick="savePrdCard(' + i + ')" style="margin-top:8px;background:#333;border:1px solid #555;color:#ccc;padding:6px 16px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Save Changes</button>' : ''}
+          </div>
         </div>`;
       }).join('');
     } catch {}
   }
+
+  // Toggle PRD card detail view (load content on first open)
+  window.togglePrdCard = async function(idx) {
+    const detail = document.getElementById('prd-card-detail-' + idx);
+    const textarea = document.getElementById('prd-card-content-' + idx);
+    if (detail.style.display === 'none') {
+      detail.style.display = 'block';
+      if (textarea.value === 'Loading...') {
+        try {
+          const res = await fetch('/api/prd-queue/' + idx);
+          const data = await res.json();
+          textarea.value = data.content || 'No content';
+        } catch { textarea.value = 'Failed to load'; }
+      }
+    } else {
+      detail.style.display = 'none';
+    }
+  };
+
+  // Save edited PRD card content
+  window.savePrdCard = async function(idx) {
+    const textarea = document.getElementById('prd-card-content-' + idx);
+    try {
+      const res = await fetch('/api/prd-queue/' + idx, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: textarea.value }) });
+      if (res.ok) { textarea.style.borderColor = '#1A8A7A'; setTimeout(() => textarea.style.borderColor = '#222', 2000); }
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
 
   // Deploy PRD — decompose + set focus + spawn agents immediately
   window.deployPRD = async function() {

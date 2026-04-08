@@ -1163,6 +1163,36 @@ const server = http.createServer(async (req, res) => {
       try {
         const prd = JSON.parse(fs.readFileSync(path.join(agentsDir, 'prd.json'), 'utf8'));
         const title = prd.title || 'PRD Mission';
+        // Stamp deploy time so completion detection enforces minimum execution time
+        prd._deployed_at = new Date().toISOString();
+        fs.writeFileSync(path.join(agentsDir, 'prd.json'), JSON.stringify(prd, null, 2));
+        // Write decomposed tasks into task-queue.json so they appear in the Queue UI
+        try {
+          const tqPath = path.join(projectRoot, 'storyengine/agents/task-queue.json');
+          let tq = {};
+          try { tq = JSON.parse(fs.readFileSync(tqPath, 'utf8')); } catch {}
+          if (!tq.tabs) tq.tabs = [];
+          const newTab = {
+            id: tq.tabs.length + 1,
+            name: title,
+            status: 'active',
+            created_at: new Date().toISOString(),
+            tasks: (prd.tasks || []).map((t, i) => ({
+              id: `${tq.tabs.length + 1}-${i + 1}`,
+              description: t.title || t.description || `Task ${i + 1}`,
+              role: t.role || 'backend',
+              status: 'pending',
+              depends_on: t.depends_on || [],
+              acceptance_criteria: t.acceptance_criteria || ''
+            }))
+          };
+          tq.tabs.push(newTab);
+          tq.current_tab = newTab.id;
+          tq.last_updated = new Date().toISOString();
+          tq.last_updated_by = 'prd-deploy';
+          fs.writeFileSync(tqPath, JSON.stringify(tq, null, 2));
+          console.log(`Task queue: added tab "${title}" with ${newTab.tasks.length} tasks`);
+        } catch (e) { console.error('Task queue write failed:', e.message); }
         // Set focus directive so all agents prioritize PRD work
         const controlsFile = path.join(projectRoot, 'storyengine/agents/controls.json');
         let controls = {};
@@ -1199,13 +1229,20 @@ const server = http.createServer(async (req, res) => {
     if (prd && prd.error) { sendJSON(res, { active: true, error: true, errorMessage: prd.message || 'Decomposition failed', hasPrdMd: !!prdRaw }); return; }
     const total = prd.tasks?.length || 0;
     // Parse completion from progress.md (agents update this, not prd.json)
-    const doneFromProgress = (progress.match(/- \[x\]/gi) || []).length;
-    const blockedFromProgress = (progress.match(/BLOCKED/gi) || []).length;
+    // Only count [x] marks in the Tasks section (skip verification headers from previous PRDs)
+    const tasksSection = progress.includes('## Tasks') ? progress.split('## Tasks').pop() : progress;
+    const doneFromProgress = (tasksSection.match(/- \[x\]/gi) || []).length;
+    const blockedFromProgress = (tasksSection.match(/BLOCKED/gi) || []).length;
     const done = doneFromProgress || (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
     const blocked = blockedFromProgress || (prd.tasks || []).filter(t => t.status === 'blocked').length;
     const inProgress = Math.max(0, total - done - blocked);
+    // Enforce minimum execution time — agents from previous PRD write stale [x] marks
+    const deployedAt = prd._deployed_at ? new Date(prd._deployed_at).getTime() : 0;
+    const MIN_EXECUTION_MS = 5 * 60 * 1000; // 5 minutes minimum before completion allowed
+    const elapsed = Date.now() - deployedAt;
+    const canComplete = deployedAt > 0 && elapsed >= MIN_EXECUTION_MS;
     // Auto-cascade: when PRD completes, check queue for next PRD
-    if (total > 0 && done >= total) {
+    if (total > 0 && done >= total && canComplete) {
       const q = readPrdQueue();
       const hasNext = q.current_index >= 0 && q.current_index < q.queue.length - 1;
       if (hasNext) {
@@ -1322,6 +1359,28 @@ const server = http.createServer(async (req, res) => {
     writePrdQueue(q);
     deployNextPrd();
     sendJSON(res, { success: true, message: `Starting queue — deploying "${q.queue[0].title}"` });
+    return;
+  }
+
+  // GET /api/prd-queue/:index — get full PRD content for a queue item
+  if (pathname.match(/^\/api\/prd-queue\/\d+$/) && req.method === 'GET') {
+    const idx = parseInt(pathname.split('/').pop());
+    const q = readPrdQueue();
+    if (idx < 0 || idx >= q.queue.length) { sendJSON(res, { error: 'Not found' }, 404); return; }
+    sendJSON(res, { index: idx, title: q.queue[idx].title, content: q.queue[idx].content });
+    return;
+  }
+
+  // PUT /api/prd-queue/:index — update PRD content for a queue item
+  if (pathname.match(/^\/api\/prd-queue\/\d+$/) && req.method === 'PUT') {
+    const idx = parseInt(pathname.split('/').pop());
+    const body = JSON.parse(await readBody(req));
+    const q = readPrdQueue();
+    if (idx < 0 || idx >= q.queue.length) { sendJSON(res, { error: 'Not found' }, 404); return; }
+    if (body.title) q.queue[idx].title = body.title;
+    if (body.content) q.queue[idx].content = body.content;
+    writePrdQueue(q);
+    sendJSON(res, { success: true, message: `PRD ${idx + 1} updated` });
     return;
   }
 
