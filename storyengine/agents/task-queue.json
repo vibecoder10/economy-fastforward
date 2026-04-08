@@ -3275,7 +3275,11 @@
             "backend/migrations/025_password_reset_tokens.sql",
             "backend/routes/google_auth.py",
             "schema.sql"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-08T08:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS (9/9). (1) Migration 025: password_reset_tokens table with id, account_id FK, token (unique), expires_at, used_at, created_at + 2 indexes. (2) POST /api/auth/forgot-password: returns identical 200 for valid AND invalid emails (anti-enumeration confirmed). (3) Token generated via secrets.token_urlsafe(32), stored in DB. (4) Existing unused tokens invalidated before creating new. (5) POST /api/auth/reset-password: validates token, rejects used tokens ('already been used'), rejects expired tokens, rejects invalid tokens, rejects short passwords (<8 chars). (6) Password actually updated: login with new password succeeds, old password rejected. (7) Token marked used_at after single use. (8) Dev mode prints token to console when RESEND_API_KEY not set. (9) Router registered main.py:317 (google_auth.router, prefix /api/auth). Diff clean: 4 files, 191 lines. tsc --noEmit: 0 errors."
         },
         {
           "id": "T30-002",
@@ -3322,7 +3326,11 @@
             "backend/routes/google_auth.py",
             "backend/routes/billing.py",
             "schema.sql"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-08T08:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS (7/7). (1) Migration 026: trial_ends_at TIMESTAMPTZ added to accounts, backfills existing free users with created_at + 14 days. (2) Email registration sets trial_ends_at = now + 14 days (google_auth.py:172). (3) Google OAuth registration also sets trial (google_auth.py:317). (4) GET /api/billing/subscription returns trial_active:true, trial_days_remaining:13 for new free user. (5) GET /api/billing/usage returns plan:'pro' with pro limits (15 videos, 120 render min) during active trial. (6) _get_tenant_plan() at billing.py:332-335 returns 'pro' when trial_ends_at > now for free users. (7) schema.sql updated (line 559). Diff clean: 5 files, 74 lines. tsc --noEmit: 0 errors."
         },
         {
           "id": "T31-002",
