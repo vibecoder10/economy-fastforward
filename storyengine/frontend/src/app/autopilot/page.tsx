@@ -26,6 +26,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { StatCard } from "@/components/ui/StatCard";
 import { Spinner } from "@/components/ui/spinner";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import {
   getAutopilotSummary,
   toggleAutopilot,
@@ -231,11 +232,7 @@ export default function AutopilotPage() {
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
           Autopilot
         </h1>
-        <GlassCard>
-          <p className="text-sm" style={{ color: "var(--red)" }}>
-            Failed to load autopilot data. The backend may be unreachable.
-          </p>
-        </GlassCard>
+        <ErrorCard message={(error as Error)?.message || "Failed to load autopilot data"} onRetry={() => window.location.reload()} />
       </div>
     );
   }
