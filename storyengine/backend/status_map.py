@@ -167,10 +167,16 @@ def is_at_or_past_stage(current_status: str, required_status: str) -> bool:
 
     Used by pipeline routes to allow re-running stages (e.g., regenerating
     a script when the video is already past scripting).
+
+    Returns True for unknown statuses to avoid blocking valid operations
+    on videos with custom/edge-case statuses.
     """
     try:
         current_idx = SUPABASE_ORDER.index(current_status)
-        required_idx = SUPABASE_ORDER.index(required_status)
-        return current_idx >= required_idx
     except ValueError:
-        return False
+        return True
+    try:
+        required_idx = SUPABASE_ORDER.index(required_status)
+    except ValueError:
+        return True
+    return current_idx >= required_idx

@@ -883,8 +883,7 @@ async def run_thumbnail(
         raise HTTPException(status_code=404, detail="Video not found")
 
     status = video.get("status") or ""
-    early_statuses = {"idea_logged", "approved", "ready_for_scripting"}
-    if status in early_statuses:
+    if status and not is_at_or_past_stage(status, "ready_for_voice"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for thumbnail — needs at least a script (status: {status})",
