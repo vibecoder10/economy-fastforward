@@ -10,7 +10,7 @@ import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import type { VideoDetail } from "@/lib/api";
-import { getStageIndex } from "@/lib/constants";
+import { getStageIndex, getStageLabel } from "@/lib/constants";
 
 const ACCENT_COLORS = [
   { name: "Cold Teal", value: "#4A9E9E" },
@@ -424,7 +424,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
             disabled={isRegenerating || taskRunning || !isReadyForThumbnail}
           >
             {!isReadyForThumbnail
-              ? "Needs a script first — run Voice stage"
+              ? `Not ready — complete ${getStageLabel(video.status || "")} first`
               : taskRunning
                 ? (taskMessage || "Generating...")
                 : isRegenerating
