@@ -13,7 +13,14 @@ AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 REPORTS_DIR="$AGENTS_DIR/reports"
 RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
 ACTIVITY_LOG_FILE="$PROJECT_ROOT/rubric/scaffold/data/activity-log.json"
+
+export PATH="$HOME/.npm-global/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+
+if ! command -v $CLAUDE_BIN &> /dev/null; then
+  echo "Warning: Claude executable not found in PATH. Unable to run agent."
+  exit 0
+fi
 
 # Post to activity log with file fallback when RUBRIC server is unreachable
 post_activity_log() {

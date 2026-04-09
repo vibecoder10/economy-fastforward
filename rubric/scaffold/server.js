@@ -783,6 +783,26 @@ const server = http.createServer(async (req, res) => {
     try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
     controls.team_enabled = body.enabled !== undefined ? !!body.enabled : !controls.team_enabled;
     fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    
+    // Explicitly add or remove crontab entries based on team state to prevent phantom crons
+    if (controls.team_enabled) {
+      setCadence(controls.cadence || 'fast');
+      console.log('Team toggled ON: Restored background crontab schedules.');
+    } else {
+      try {
+        const { execSync } = require('child_process');
+        const existing = execSync('crontab -l 2>/dev/null || echo ""', { encoding: 'utf8' });
+        const nonAgent = existing.split('\n').filter(l => !l.includes('storyengine-agents')).join('\n');
+        const tmpFile = '/tmp/cron-clean.txt';
+        fs.writeFileSync(tmpFile, nonAgent.trim() + '\n');
+        execSync(`crontab ${tmpFile}`);
+        fs.unlinkSync(tmpFile);
+        console.log('Team toggled OFF: Removed all background agent crontabs.');
+      } catch (e) {
+        console.error('Failed to clear crontab on team toggle OFF:', e);
+      }
+    }
+    
     sendJSON(res, { success: true, team_enabled: controls.team_enabled });
     return;
   }
