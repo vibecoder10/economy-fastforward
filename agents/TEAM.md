@@ -25,10 +25,26 @@
 - Never combine "find the problem" with "fix the problem" in one task
 - Each task addresses exactly ONE concern
 
+### The "Done" Standard (read this before marking anything done)
+
+**Two levels — both required:**
+
+| Level | Who sets it | What it means |
+|-------|-------------|---------------|
+| `done` | Implementing agent self-reports | Code committed, acceptance criteria run locally |
+| `verified` | QA/Verifier independently confirms | Playwright clicked the UI, screenshots taken, state changes observed |
+
+**`done` ≠ `verified`.** A PRD is only complete when the final QA task reaches `verified`.
+
+**The "buttons work" rule:** For any frontend task, the implementing agent MUST verify that every interactive element (buttons, forms, dropdowns) triggers a visible state change before marking `done`. If you added a button, click it yourself before committing. If it does nothing: it's not done.
+
+**QA is not optional.** Every PRD ends with a mandatory qa-engineer task. It runs Playwright, takes screenshots, and writes a smoke test file. The PRD cannot advance until this task is `verified`.
+
 ### Quality Gates (enforced by hooks — agents cannot bypass)
 - TypeScript must compile: `npx tsc --noEmit`
 - Tests must pass: `npm test` / `pytest`
 - No lint errors: `npx eslint . --max-warnings 0`
+- Playwright smoke test passes: `npx playwright test tests/prd-N-smoke.spec.ts` (written by QA task)
 
 ### Git Rules
 - Every completed task gets its own commit with a descriptive message

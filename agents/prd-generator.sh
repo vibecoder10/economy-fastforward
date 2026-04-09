@@ -30,19 +30,23 @@ RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
 PREVIEW=false
 FORCE_PRD_ID=""
 FORCE_TITLE=""
+PLAN_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --preview)        PREVIEW=true; shift ;;
     --prd)            FORCE_PRD_ID="$2"; shift 2 ;;
     --title)          FORCE_TITLE="$2"; shift 2 ;;
+    --plan)           PLAN_FILE="$2"; shift 2 ;;
     --help|-h)
-      echo "Usage: $0 [--preview] [--prd N] [--title 'Title']"
+      echo "Usage: $0 [--preview] [--prd N] [--title 'Title'] [--plan PATH]"
       echo ""
       echo "  (no args)       Auto-detect next PRD number and invent it from roadmap"
       echo "  --preview       Show what the next PRD would cover (dry run, no write)"
       echo "  --prd N         Force the PRD ID number (e.g., --prd 5)"
       echo "  --title TEXT    Override the PRD title"
+      echo "  --plan PATH     Path to a superpowers plan/spec to use as authoritative design context"
+      echo "                  e.g., --plan docs/superpowers/plans/2026-03-24-module1-design-dashboard-pipeline.md"
       exit 0 ;;
     *)                echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -108,6 +112,61 @@ print('\n'.join(lines))
 
 ROADMAP_CONTENT=$(cat "$ROADMAP_FILE")
 
+# ─── Load product brain (live codebase state) ─────────────────────────────────
+PRODUCT_BRAIN=""
+BRAIN_FILE="$AGENTS_DIR/product-brain.md"
+if [ -f "$BRAIN_FILE" ]; then
+  PRODUCT_BRAIN=$(cat "$BRAIN_FILE")
+  BRAIN_AGE_HOURS=$(python3 -c "
+import os, time
+mtime = os.path.getmtime('$BRAIN_FILE')
+age_h = (time.time() - mtime) / 3600
+print(f'{age_h:.0f}')
+" 2>/dev/null || echo "?")
+  echo "  Product brain loaded (${BRAIN_AGE_HOURS}h old): $BRAIN_FILE"
+  if [ "${BRAIN_AGE_HOURS}" != "?" ] && [ "${BRAIN_AGE_HOURS}" -gt 24 ] 2>/dev/null; then
+    echo "  WARNING: product-brain.md is >24h old. Consider running ./agents/refresh-product-brain.sh"
+  fi
+else
+  echo "  WARNING: agents/product-brain.md not found."
+  echo "  Run ./agents/refresh-product-brain.sh to generate it."
+  echo "  Falling back to roadmap-only PRD generation (less accurate)."
+fi
+echo ""
+
+# ─── Load superpowers plan (operator's authoritative design doc) ──────────────
+SUPERPOWERS_PLAN_CONTENT=""
+SUPERPOWERS_PLAN_NAME=""
+SUPERPOWERS_DIR="$PROJECT_ROOT/docs/superpowers"
+
+if [ -n "$PLAN_FILE" ]; then
+  # Explicit plan passed via --plan flag
+  if [ -f "$PLAN_FILE" ]; then
+    SUPERPOWERS_PLAN_CONTENT=$(cat "$PLAN_FILE")
+    SUPERPOWERS_PLAN_NAME=$(basename "$PLAN_FILE")
+    echo "  Superpowers plan loaded: $PLAN_FILE"
+  elif [ -f "$PROJECT_ROOT/$PLAN_FILE" ]; then
+    SUPERPOWERS_PLAN_CONTENT=$(cat "$PROJECT_ROOT/$PLAN_FILE")
+    SUPERPOWERS_PLAN_NAME=$(basename "$PLAN_FILE")
+    echo "  Superpowers plan loaded: $PROJECT_ROOT/$PLAN_FILE"
+  else
+    echo "  WARNING: --plan file not found: $PLAN_FILE"
+  fi
+fi
+
+# Build index of all available plans for Claude to reference
+SUPERPOWERS_INDEX=""
+if [ -d "$SUPERPOWERS_DIR" ]; then
+  SUPERPOWERS_INDEX=$(echo "Available superpowers plans (operator-authored design docs):" && \
+    echo "" && \
+    echo "Plans:" && \
+    ls "$SUPERPOWERS_DIR/plans/" 2>/dev/null | grep '\.md$' | sed 's/^/  - docs\/superpowers\/plans\//' && \
+    echo "" && \
+    echo "Specs:" && \
+    ls "$SUPERPOWERS_DIR/specs/" 2>/dev/null | grep '\.md$' | sed 's/^/  - docs\/superpowers\/specs\//')
+fi
+echo ""
+
 # Also pull any existing PRD files for context on scope/style
 EXISTING_PRD_SAMPLE=""
 HIGHEST_PRD="$PRDS_DIR/prd-${MAX_ID}-*.md"
@@ -146,21 +205,21 @@ Your job: Write PRD ${NEXT_PRD_ID} for the autonomous agent team.
 
 ## What You Know About StoryEngine
 
-### The Product
-StoryEngine is a multi-tenant SaaS where creators log in, type a video topic, and the AI pipeline handles everything: research → script → voice → images → video clips → thumbnail → render. Users review stages and publish directly to YouTube.
+### Current Product State (AUTHORITATIVE — generated from live codebase)
+${PRODUCT_BRAIN:-"⚠️  product-brain.md not available. Use roadmap + existing PRDs as fallback."}
 
-**Stack:** Next.js 16 + React 19 + TypeScript + TailwindCSS 4 + Framer Motion | FastAPI + asyncpg + Supabase PostgreSQL
+### Operator's Design Document (AUTHORITATIVE — use this if provided)
+${SUPERPOWERS_PLAN_CONTENT:+"**Active plan: ${SUPERPOWERS_PLAN_NAME}**
 
-**Design system (MANDATORY for all UI work):**
-- Background: var(--bg-void) (#0A0A0B), cards: glass-card class
-- Primary accent: var(--turquoise) (#00D4AA), secondary: var(--orange), gold: var(--gold)
-- Text: var(--text-primary), var(--text-secondary), var(--text-tertiary)
-- Red for errors: var(--red)
-- Font: font-display for headings
-- Existing components: GlassCard, ActionButton, StatusPill, Spinner, Modal, FilterSelect
-- Motion: Framer Motion with container/item stagger pattern
+${SUPERPOWERS_PLAN_CONTENT}
 
-### Product Roadmap (authoritative)
+---"}
+${SUPERPOWERS_PLAN_CONTENT:-"No specific design doc provided. Invent from product state + roadmap."}
+
+### Available Superpowers Library (operator-authored specs — reference these by name in your PRD)
+${SUPERPOWERS_INDEX:-"(docs/superpowers/ directory not found)"}
+
+### Product Roadmap (18-day plan — use product state above to check which days are done)
 ${ROADMAP_CONTENT}
 
 ### PRDs Already Written (DO NOT repeat this work)
@@ -182,6 +241,30 @@ Each task:
 - Addresses ONE concern (no "build X AND wire Y" — those are two tasks)
 - Is sized at 15-45 minutes of agent effort
 
+**ACCEPTANCE CRITERIA RULES — READ CAREFULLY:**
+
+For backend tasks, criteria must verify BEHAVIOR not just file existence:
+- ✅ GOOD: `curl -s http://localhost:8001/api/billing/plan -H 'Authorization: Bearer ...' | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'plan' in d and d['plan'] in ('starter','creator','studio'), 'missing or invalid plan field'"`
+- ✅ GOOD: `curl -s -X POST http://localhost:8001/api/videos -H ... -d '{"topic":"test"}' | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'id' in d, 'no id in response'"`
+- ❌ BAD: `test -f storyengine/backend/routes/billing.py` (file existing ≠ working)
+- ❌ BAD: `curl ... | grep -q 200` (HTTP 200 ≠ correct data)
+
+For frontend tasks, criteria MUST include at least one behavioral Playwright test:
+- ✅ GOOD: `cd storyengine/frontend && npx playwright test --grep "upgrade button triggers Stripe checkout"`
+- ✅ GOOD: `cd storyengine/frontend && npx playwright test --grep "submit form shows success toast"`
+- ❌ BAD: `test -f storyengine/frontend/src/app/billing/page.tsx` (file ≠ buttons work)
+- ❌ BAD: `cd storyengine/frontend && npx tsc --noEmit` alone (types passing ≠ UI working)
+
+Every PRD MUST end with a mandatory QA task (role: qa-engineer) as the final task:
+- It depends on ALL other tasks
+- It uses the webapp-testing skill (Playwright)
+- It does a full user flow walkthrough: navigate → interact → verify state changes
+- It takes screenshots as evidence
+- Its acceptance criteria: `cd storyengine/frontend && npx playwright test tests/prd-N-smoke.spec.ts`
+  (the QA agent writes this test file as part of the task)
+
+The QA task is the GATE. A PRD is not complete until the QA task is verified.
+
 ${FORCE_TITLE:+## Requested Title: $FORCE_TITLE}
 
 ## Your Task
@@ -189,16 +272,20 @@ ${FORCE_TITLE:+## Requested Title: $FORCE_TITLE}
 Write **PRD ${NEXT_PRD_ID}** as a complete markdown document.
 
 **Rules:**
-1. Pick the highest-priority UNADDRESSED items from the roadmap that logically follow what PRDs 1-${MAX_ID} already shipped
-2. Group related features into parallel execution lanes (backend-dev and frontend-dev can run simultaneously)
-3. 8-15 tasks total — enough for 1-2 days of agent work
-4. Every task must reference exact file paths in the StoryEngine repo (storyengine/backend/ or storyengine/frontend/src/)
-5. Backend tasks come before frontend tasks that depend on them
-6. QA/security tasks come last (after all implementation)
-7. Be SPECIFIC — not "add endpoint" but "add POST /api/endpoint to routes/X.py that..."
-8. The acceptance criteria must be verifiable (checkboxes that can be converted to shell commands)
-9. Do NOT include items already shipped in PRDs 1-${MAX_ID}
-10. Invent the right next step based on the roadmap — use your PM judgment
+1. Check the "Implementation Inventory" in the Current Product State first — DO NOT spec anything marked ✅ Done
+2. Check the "Current Priority Gap Queue" — work from Tier 2 downward (Tier 1 = active PRD, don't duplicate it)
+3. Pick the highest-priority UNADDRESSED items. Group related features into parallel lanes (backend + frontend can run simultaneously)
+4. 8-15 tasks total — enough for 1-2 days of agent work
+5. Every task must reference exact file paths in the StoryEngine repo (storyengine/backend/ or storyengine/frontend/src/)
+6. Backend tasks come before frontend tasks that depend on them
+7. QA/security tasks come last (after all implementation)
+8. Be SPECIFIC — not "add endpoint" but "add POST /api/endpoint to routes/X.py that does X, Y, Z"
+9. Acceptance criteria must test BEHAVIOR: response shape (not just 200), Playwright click-and-verify (not just page load), DB record contents (not just column existence). File existence tests (`test -f`) are forbidden as the ONLY criterion for a task — always pair with a behavior test.
+10. The "What NOT to spec" list in the product state is your guard rail — check it before every task
+11. Use the roadmap's tier analysis (Week 1 = payable, Week 2 = UX, Week 3 = reliable, Week 4 = launchable) to pick the right focus
+12. If an operator design doc was provided (see "Operator's Design Document" above), follow its architecture decisions exactly — do not deviate from the specified approach
+13. If NO design doc was provided but a relevant one exists in the Superpowers Library, call it out at the top of your PRD: "NOTE: docs/superpowers/plans/FILENAME.md contains design context for this feature — orchestrator should pass it via --plan flag"
+14. Include a "Skills" section at the end of each task listing which .claude/skills/ the implementing agent should invoke (react-best-practices for frontend, supabase-postgres-best-practices for DB, webapp-testing for QA, next-best-practices for App Router pages)
 
 Write the complete PRD now. Output ONLY the markdown document, no preamble.
 PROMPT_EOF
