@@ -30,19 +30,23 @@ RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
 PREVIEW=false
 FORCE_PRD_ID=""
 FORCE_TITLE=""
+PLAN_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --preview)        PREVIEW=true; shift ;;
     --prd)            FORCE_PRD_ID="$2"; shift 2 ;;
     --title)          FORCE_TITLE="$2"; shift 2 ;;
+    --plan)           PLAN_FILE="$2"; shift 2 ;;
     --help|-h)
-      echo "Usage: $0 [--preview] [--prd N] [--title 'Title']"
+      echo "Usage: $0 [--preview] [--prd N] [--title 'Title'] [--plan PATH]"
       echo ""
       echo "  (no args)       Auto-detect next PRD number and invent it from roadmap"
       echo "  --preview       Show what the next PRD would cover (dry run, no write)"
       echo "  --prd N         Force the PRD ID number (e.g., --prd 5)"
       echo "  --title TEXT    Override the PRD title"
+      echo "  --plan PATH     Path to a superpowers plan/spec to use as authoritative design context"
+      echo "                  e.g., --plan docs/superpowers/plans/2026-03-24-module1-design-dashboard-pipeline.md"
       exit 0 ;;
     *)                echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -130,6 +134,39 @@ else
 fi
 echo ""
 
+# ─── Load superpowers plan (operator's authoritative design doc) ──────────────
+SUPERPOWERS_PLAN_CONTENT=""
+SUPERPOWERS_PLAN_NAME=""
+SUPERPOWERS_DIR="$PROJECT_ROOT/docs/superpowers"
+
+if [ -n "$PLAN_FILE" ]; then
+  # Explicit plan passed via --plan flag
+  if [ -f "$PLAN_FILE" ]; then
+    SUPERPOWERS_PLAN_CONTENT=$(cat "$PLAN_FILE")
+    SUPERPOWERS_PLAN_NAME=$(basename "$PLAN_FILE")
+    echo "  Superpowers plan loaded: $PLAN_FILE"
+  elif [ -f "$PROJECT_ROOT/$PLAN_FILE" ]; then
+    SUPERPOWERS_PLAN_CONTENT=$(cat "$PROJECT_ROOT/$PLAN_FILE")
+    SUPERPOWERS_PLAN_NAME=$(basename "$PLAN_FILE")
+    echo "  Superpowers plan loaded: $PROJECT_ROOT/$PLAN_FILE"
+  else
+    echo "  WARNING: --plan file not found: $PLAN_FILE"
+  fi
+fi
+
+# Build index of all available plans for Claude to reference
+SUPERPOWERS_INDEX=""
+if [ -d "$SUPERPOWERS_DIR" ]; then
+  SUPERPOWERS_INDEX=$(echo "Available superpowers plans (operator-authored design docs):" && \
+    echo "" && \
+    echo "Plans:" && \
+    ls "$SUPERPOWERS_DIR/plans/" 2>/dev/null | grep '\.md$' | sed 's/^/  - docs\/superpowers\/plans\//' && \
+    echo "" && \
+    echo "Specs:" && \
+    ls "$SUPERPOWERS_DIR/specs/" 2>/dev/null | grep '\.md$' | sed 's/^/  - docs\/superpowers\/specs\//')
+fi
+echo ""
+
 # Also pull any existing PRD files for context on scope/style
 EXISTING_PRD_SAMPLE=""
 HIGHEST_PRD="$PRDS_DIR/prd-${MAX_ID}-*.md"
@@ -171,6 +208,17 @@ Your job: Write PRD ${NEXT_PRD_ID} for the autonomous agent team.
 ### Current Product State (AUTHORITATIVE — generated from live codebase)
 ${PRODUCT_BRAIN:-"⚠️  product-brain.md not available. Use roadmap + existing PRDs as fallback."}
 
+### Operator's Design Document (AUTHORITATIVE — use this if provided)
+${SUPERPOWERS_PLAN_CONTENT:+"**Active plan: ${SUPERPOWERS_PLAN_NAME}**
+
+${SUPERPOWERS_PLAN_CONTENT}
+
+---"}
+${SUPERPOWERS_PLAN_CONTENT:-"No specific design doc provided. Invent from product state + roadmap."}
+
+### Available Superpowers Library (operator-authored specs — reference these by name in your PRD)
+${SUPERPOWERS_INDEX:-"(docs/superpowers/ directory not found)"}
+
 ### Product Roadmap (18-day plan — use product state above to check which days are done)
 ${ROADMAP_CONTENT}
 
@@ -211,6 +259,9 @@ Write **PRD ${NEXT_PRD_ID}** as a complete markdown document.
 9. Acceptance criteria must be verifiable shell commands (curl, psql, tsc, grep, test -f)
 10. The "What NOT to spec" list in the product state is your guard rail — check it before every task
 11. Use the roadmap's tier analysis (Week 1 = payable, Week 2 = UX, Week 3 = reliable, Week 4 = launchable) to pick the right focus
+12. If an operator design doc was provided (see "Operator's Design Document" above), follow its architecture decisions exactly — do not deviate from the specified approach
+13. If NO design doc was provided but a relevant one exists in the Superpowers Library, call it out at the top of your PRD: "NOTE: docs/superpowers/plans/FILENAME.md contains design context for this feature — orchestrator should pass it via --plan flag"
+14. Include a "Skills" section at the end of each task listing which .claude/skills/ the implementing agent should invoke (react-best-practices for frontend, supabase-postgres-best-practices for DB, webapp-testing for QA, next-best-practices for App Router pages)
 
 Write the complete PRD now. Output ONLY the markdown document, no preamble.
 PROMPT_EOF

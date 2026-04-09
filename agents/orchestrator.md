@@ -55,6 +55,78 @@ The product brain is your substitute for the operator. It answers: "What would t
 
 ---
 
+## Superpowers Library — Invoke Before Generating PRDs
+
+Before calling `prd-generator.sh` for a new PRD, do two things:
+
+### Step A: Invoke the thinking-partner skill
+```
+Use the thinking-partner skill to think through what the product needs next.
+Don't just execute the roadmap — ask: "Is this the most valuable thing to build right now?"
+Challenge assumptions. Surface the non-obvious insight first.
+```
+
+The thinking-partner skill lives at `.claude/skills/thinking-partner/`. Invoke it via the Skill tool or read it directly for its prompting pattern.
+
+### Step B: Check if a superpowers plan applies
+The `docs/superpowers/` directory contains deep feature specifications written by the operator. These are authoritative design docs — when a plan exists for a feature area, **use it**. Don't invent from scratch.
+
+**Plans index (`docs/superpowers/plans/`):**
+
+| File | Topic | Use when PRD involves... |
+|------|-------|--------------------------|
+| `2026-03-18-autopilot-chunk1-foundation.md` | Autopilot state machine, scoring, cadence | Autopilot scheduling, candidate scoring, production cadence |
+| `2026-03-18-autopilot-chunk2-thumbnail-memory.md` | Thumbnail vision analysis, pattern memory | Thumbnail generation, visual memory, CTR-driven style selection |
+| `2026-03-18-autopilot-chunk3-ctr-learning.md` | CTR monitoring, learning extraction, memory writer | Learning loop, CTR tracking at 6h/24h/48h, LEARNINGS.md |
+| `2026-03-18-competitor-title-analyzer.md` | Competitor title formula extraction | Competitor intelligence, title pattern detection |
+| `2026-03-18-per-act-background-music.md` | Music selector, Remotion MusicBed | Background music per scene/act, audio layering |
+| `2026-03-20-curiosity-gap-phase1-competitor-analysis.md` | Competitor analysis, gap seeding | Title research, curiosity gap data collection |
+| `2026-03-20-curiosity-gap-phase2-generation.md` | Gap-based title + thumbnail generation | Curiosity-gap title writing, 5 gap structures |
+| `2026-03-20-curiosity-gap-phase2-integration.md` | Curiosity gap pipeline integration | Wiring gap titles into the pipeline |
+| `2026-03-20-curiosity-gap-phase3-learning.md` | Learning loop for gap structures | Which gap structures perform best |
+| `2026-03-23-module0-supabase-parity.md` | DB migration, Supabase parity | Database migrations, schema changes, Supabase alignment |
+| `2026-03-24-module1-design-dashboard-pipeline.md` | Dashboard UX, pipeline UI redesign | Dashboard, pipeline page, video list improvements |
+| `2026-03-24-module2-video-detail-create.md` | Video detail tabs, create flow | Video detail page, create video flow, 3-click creation |
+| `2026-03-24-module3-interactive-features.md` | Real-time collaboration, comments | SSE, live updates, multi-user features |
+| `2026-03-24-module4-autopilot-analytics.md` | Autopilot analytics dashboard | Analytics for autopilot performance, A/B testing |
+| `2026-03-24-module5-niche-discovery.md` | Niche discovery engine | Niche market analysis, topic clustering, audience profiling |
+
+**Specs index (`docs/superpowers/specs/`):**
+
+| File | Topic |
+|------|-------|
+| `2026-03-18-autopilot-brain-design.md` | Full autopilot brain architecture |
+| `2026-03-20-curiosity-gap-title-system.md` | Curiosity gap title system design |
+| `2026-03-23-storyengine-productization-design.md` | SaaS productization — pages, features, mobile-first UX |
+| `2026-03-24-module3-interactive-features-design.md` | Interactive features full spec |
+| `2026-03-24-module5-niche-discovery-design.md` | Niche discovery full spec |
+
+**How to use a plan when generating a PRD:**
+
+```bash
+# 1. Identify which plan applies to the next PRD topic
+# 2. Read the relevant plan
+cat docs/superpowers/plans/2026-03-24-module1-design-dashboard-pipeline.md
+
+# 3. Pass it to prd-generator.sh via the --plan flag (see prd-generator.sh docs)
+./agents/prd-generator.sh --plan docs/superpowers/plans/2026-03-24-module1-design-dashboard-pipeline.md
+
+# 4. The generator will include the plan as authoritative design context
+```
+
+**Domain-specific skills** — tell agents to use these when their task falls in the domain:
+
+| Domain | Skill | When to invoke |
+|--------|-------|----------------|
+| React components, hooks, state | `react-best-practices` | Any frontend component task |
+| Next.js pages, routes, RSC | `next-best-practices` | App router pages, data fetching |
+| Component architecture | `composition-patterns` | Building reusable/flexible components |
+| DB schema, queries, Postgres | `supabase-postgres-best-practices` | Migrations, queries, RLS |
+| UI testing, frontend verification | `webapp-testing` | QA tasks, Playwright tests |
+| UI review, design audit | `web-design-guidelines` | Visual review, accessibility |
+
+---
+
 ## Session End Protocol
 
 **Before finishing ANY session, refresh the product brain:**

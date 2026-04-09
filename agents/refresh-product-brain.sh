@@ -2,7 +2,7 @@
 # refresh-product-brain.sh — Regenerates agents/product-brain.md from live codebase state
 #
 # Reads the actual codebase (pages, routes, DB tables), current PRD queue, latest handoff,
-# and roadmap, then calls Claude to synthesize a fresh product-brain.md.
+# recent git commits, and roadmap, then calls Claude to synthesize a fresh product-brain.md.
 #
 # Usage:
 #   ./agents/refresh-product-brain.sh             # Regenerate product-brain.md
@@ -22,6 +22,7 @@ TODO_FILE="$PROJECT_ROOT/tasks/todo.md"
 SCHEMA_FILE="$PROJECT_ROOT/storyengine/schema.sql"
 FRONTEND_APP="$PROJECT_ROOT/storyengine/frontend/src/app"
 BACKEND_ROUTES="$PROJECT_ROOT/storyengine/backend/routes"
+PRDS_DIR="$AGENTS_DIR/prds"
 CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || echo "$HOME/.npm-global/bin/claude")}"
 
 DRY_RUN=false
@@ -50,132 +51,180 @@ DB_TABLES=$(grep -E "^CREATE TABLE" "$SCHEMA_FILE" 2>/dev/null \
   | sed 's/CREATE TABLE IF NOT EXISTS //' | sed 's/CREATE TABLE //' \
   | sed 's/ (.*//' | sort | tr '\n' ', ' | sed 's/,$//' || echo "schema.sql not found")
 
+# Latest migration number
+LATEST_MIGRATION=$(ls "$PROJECT_ROOT/storyengine/backend/migrations/" 2>/dev/null \
+  | grep '\.sql$' | sort | tail -1 || echo "unknown")
+
 echo "  Frontend pages: $(echo "$FRONTEND_PAGES" | tr ',' '\n' | wc -l | tr -d ' ') found"
 echo "  Backend routes: $(echo "$BACKEND_ROUTE_FILES" | tr ',' '\n' | wc -l | tr -d ' ') found"
 echo "  DB tables: $(echo "$DB_TABLES" | tr ',' '\n' | wc -l | tr -d ' ') found"
+echo "  Latest migration: $LATEST_MIGRATION"
 echo ""
 
-# ─── 2. Read state files ──────────────────────────────────────────────────────
+# ─── 2. Read PRD queue state (with verified vs unverified distinction) ────────
 
 PRD_QUEUE_STATE=$(python3 -c "
 import json
 q = json.load(open('$QUEUE_FILE'))
 prds = q.get('prds', [])
+active_id = q.get('active_prd')
 lines = []
 for p in prds:
     tasks = p.get('tasks', [])
+    verified = sum(1 for t in tasks if t.get('status') == 'verified')
     done = sum(1 for t in tasks if t.get('status') in ('done', 'verified'))
     total = len(tasks)
     status = p.get('status', '?')
-    lines.append(f\"PRD {p['id']}: {p['title']} [{status}] — {done}/{total} tasks done\")
+    lines.append(f\"PRD {p['id']}: {p['title']} [{status}] — {verified} verified / {done} done / {total} total\")
     if status == 'active':
-        pending = [t for t in tasks if t.get('status') == 'pending']
-        if pending:
-            lines.append(f\"  Remaining: {', '.join(t.get('id','?') for t in pending[:10])}\")
+        for t in tasks:
+            s = t.get('status', 'pending')
+            sym = 'V' if s == 'verified' else ('x' if s == 'done' else ' ')
+            lines.append(f\"  [{sym}] {t.get('id','?')}: {t.get('title','?')} ({t.get('role','?')}) [{s}]\")
 print('\n'.join(lines))
 " 2>/dev/null || cat "$QUEUE_FILE")
 
-TODO_CONTENT=$(cat "$TODO_FILE" 2>/dev/null | head -80 || echo "todo.md not found")
-ROADMAP_CONTENT=$(cat "$ROADMAP_FILE" 2>/dev/null || echo "roadmap.md not found")
+# ─── 3. Roadmap — extract just the execution plan tables (not full 380 lines) ─
 
-# Check staleness
+ROADMAP_PLAN=$(python3 -c "
+import re
+content = open('$ROADMAP_FILE').read()
+# Extract from 'Sequential Execution Plan' through the end of Week 4 table
+match = re.search(r'(## (Revised )?Sequential Execution Plan.*?)(\n---|\n## [A-Z])', content, re.DOTALL)
+if match:
+    print(match.group(1)[:3500])  # cap at ~3500 chars
+else:
+    # Fallback: grab lines with Day | Date | Focus patterns
+    lines = [l for l in content.split('\n') if '|' in l or l.strip().startswith('###') or 'Week' in l]
+    print('\n'.join(lines[:80]))
+" 2>/dev/null || head -80 "$ROADMAP_FILE")
+
+# ─── 4. Latest handoff + git log ──────────────────────────────────────────────
+
+TODO_CONTENT=$(cat "$TODO_FILE" 2>/dev/null | head -60 || echo "todo.md not found")
+
+RECENT_COMMITS=$(git -C "$PROJECT_ROOT" log --oneline -20 2>/dev/null \
+  || echo "git log unavailable")
+
+# ─── 5. PRD completion summary (for verified/done distinction) ────────────────
+
+PRD_SUMMARY=$(for f in "$PRDS_DIR"/prd-*.md; do
+  [ -f "$f" ] || continue
+  head -3 "$f" | grep "^# PRD" || true
+done 2>/dev/null)
+
+# ─── 6. Check staleness ───────────────────────────────────────────────────────
+
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M')
-LAST_REFRESH="unknown"
 if [ -f "$BRAIN_FILE" ]; then
-  LAST_REFRESH=$(head -3 "$BRAIN_FILE" | grep "Last refreshed" | sed 's/.*Last refreshed: //' | sed 's/ (.*//' || echo "unknown")
-  echo "  Current brain: $LAST_REFRESH"
+  LAST=$(head -3 "$BRAIN_FILE" | grep "Last refreshed" \
+    | sed 's/.*Last refreshed: //' | sed 's/ (.*//' || echo "unknown")
+  echo "  Previous brain: $LAST"
 fi
 echo "  Regenerating at: $TIMESTAMP"
 echo ""
 
-# ─── 3. Build Claude prompt ───────────────────────────────────────────────────
+# ─── 7. Build Claude synthesis prompt ─────────────────────────────────────────
 
 PROMPT_FILE=$(mktemp /tmp/brain-refresh-XXXXXX.txt)
 
 cat > "$PROMPT_FILE" << PROMPT_EOF
-You are regenerating product-brain.md — the single source of truth for an autonomous agent team building StoryEngine, an AI video SaaS.
+You are regenerating product-brain.md — the autonomous agent team's single source of truth for StoryEngine, an AI video SaaS.
 
-Your output will be read by the orchestrator agent at the start of every session. It tells the orchestrator what's been built, what's missing, and what to build next. Keep it accurate, compact, and actionable.
+The orchestrator reads this document at the start of every session. It must be accurate, compact, and actionable.
 
-## Live Codebase State (source of truth)
+---
+
+## LIVE CODEBASE EVIDENCE
 
 Frontend pages detected: ${FRONTEND_PAGES}
 Backend route files detected: ${BACKEND_ROUTE_FILES}
 DB tables detected: ${DB_TABLES}
+Latest migration: ${LATEST_MIGRATION}
 
-## PRD Queue State
+## PRD QUEUE STATE (with task-level verification status)
 ${PRD_QUEUE_STATE}
 
-## Latest Handoff (tasks/todo.md)
+PRD documents on file:
+${PRD_SUMMARY}
+
+## RECENT GIT COMMITS (last 20 — use to infer what was built this session)
+${RECENT_COMMITS}
+
+## CURRENT HANDOFF (tasks/todo.md)
 ${TODO_CONTENT}
 
-## Product Roadmap (tasks/roadmap.md)
-${ROADMAP_CONTENT}
+## 18-DAY EXECUTION PLAN (from roadmap)
+${ROADMAP_PLAN}
 
 ---
 
-## Instructions
+## OUTPUT INSTRUCTIONS
 
-Generate a complete product-brain.md document. The document MUST have these 5 sections, in this order:
+Write the COMPLETE product-brain.md. Sections must appear in this exact order:
 
 ### Section 1: Product Identity
-- 1 paragraph: what StoryEngine is, who it's for, the moat (learning loop)
-- Pricing table: Starter/Creator/Studio with prices and key differentiators
-- UX principles (action-first, 3-click creation, etc.)
-- Stack line + design tokens (--turquoise, --gold, --bg-void, GlassCard, etc.)
+- 1 short paragraph: what StoryEngine is, who it's for, the moat
+- Pricing table: Starter/Creator/Studio (prices, videos/mo, key differentiator)
+- 7 UX principles (action-first, 3-click, visible progress, AI insights surface, empty states sell, errors helpful, mobile-aware)
+- Stack: Next.js 16 + FastAPI + Supabase | design tokens: --turquoise, --gold, --bg-void, GlassCard, ActionButton, StatusPill
 
 ### Section 2: Implementation Inventory
-A table grouped by category. Each row: Feature | Status | Evidence (file path, 1 line max).
-Status icons: ✅ Done | 🔵 Active (in current PRD) | ❌ Missing (on roadmap, not built) | 📋 Planned (post-launch)
+Feature table grouped by category. Columns: Feature | Status | Evidence
 
-Categories: Auth & Access, Billing & Plans, Core Pipeline & UI, Discovery & Competitors, Analytics & Learning, Marketing & Legal, Infrastructure (gaps), Polish & Launch
+**Status rules (strict — follow exactly):**
+- ✅ DONE (verified) — appears as 'verified' in prd-queue.json task list OR in a completed PRD
+- ✅ DONE (unverified) — file exists in codebase but no PRD verification record
+- 🔵 ACTIVE — task exists in current active PRD with pending/done (not yet verified) status
+- ❌ MISSING — on roadmap, not in any PRD, no file evidence
+- 📋 PLANNED — beyond current roadmap horizon
 
-**Rules for this section:**
-- ✅ Done rows: 1 line max, just the file path evidence
-- ❌ Missing rows: 1 line explanation of WHY it matters
-- Total rows: 30-45 features. Do not pad with trivia.
+Evidence: shortest possible file path. For verified tasks, include PRD task ID (e.g., "PRD2-T3").
+
+Categories: Auth & Access | Billing & Plans | Core Pipeline & UI | Discovery & Competitors | Analytics & Learning | Marketing & Legal | Infrastructure | Polish & Launch
+
+Keep to 35-45 rows total. No padding.
 
 ### Section 3: Roadmap Progress
-The 18-day plan from roadmap.md as a compact table: Day | Date | Focus | Status (✅ Done / 🔵 In Progress / ❌ Not Started / 📋 Pending)
+Compact table: Day | Date | Focus | Status | PRD Reference
+Use recent git commits and PRD queue state to determine status accurately.
 
 ### Section 4: Current Priority Gap Queue
-Ordered list of what to build next. Group by tier:
-- Tier 1: Active PRD tasks remaining (complete these first)
-- Tier 2: Next PRD scope (highest impact unbuilt items)
-- Tier 3: Week 4 polish
-- Tier 4: Post-beta
-
-For Tier 2, be SPECIFIC: "Job Queue — Redis + arq, pipeline stages as persistent jobs, server restart = lost jobs today"
+Tiers:
+- Tier 1 — ACTIVE: list remaining PRD tasks by ID
+- Tier 2 — NEXT PRD: top 4-5 unbuilt items from roadmap, specific enough to become PRD tasks
+- Tier 3 — WEEK 4: polish items
+- Tier 4 — POST-BETA: post-launch items
 
 ### Section 5: PRD Writing Guidelines
-- Task structure (role, sizing, one concern per task)
-- File conventions (backend/frontend/api/types/migrations paths)
+- Task structure (role/sizing/one concern)
+- File path conventions (backend/frontend/api/types/migrations)
 - Acceptance criteria patterns (curl, psql, tsc, grep, test -f)
-- Wiring checklist (8 checkboxes)
-- Design system (mandatory for UI tasks)
-- What NOT to spec (already built — 1-line list to avoid duplicates)
+- Wiring checklist (8 items)
+- Design system (mandatory for UI)
+- **What NOT to spec** — bullet list of every ✅ DONE feature name. This is the guard rail.
 
 ---
 
-## Output Rules
-
-1. Start with: "# StoryEngine Product Brain"
-2. Second line: "_Last refreshed: ${TIMESTAMP} (auto-generated from live codebase)_"
-3. Use compact tables — no redundant prose
-4. Total document: 200-350 lines. Do NOT exceed 400 lines.
-5. The "What NOT to spec" list at the end is critical — list every completed feature so the orchestrator doesn't re-build it
-6. Output ONLY the markdown document, no preamble or explanation
+## FORMAT RULES
+- Start with: # StoryEngine Product Brain
+- Line 2: _Last refreshed: ${TIMESTAMP} (auto-generated)_
+- Use compact tables throughout
+- Total: 200-350 lines, hard cap 400
+- Output ONLY the markdown document
 
 PROMPT_EOF
 
 if [ "$DRY_RUN" = true ]; then
-  echo "=== DRY RUN: Prompt preview ==="
-  cat "$PROMPT_FILE"
+  echo "=== DRY RUN: Prompt preview (first 60 lines) ==="
+  head -60 "$PROMPT_FILE"
+  echo "..."
+  echo "(Full prompt: $(wc -l < "$PROMPT_FILE") lines)"
   rm -f "$PROMPT_FILE"
   exit 0
 fi
 
-# ─── 4. Call Claude to generate ───────────────────────────────────────────────
+# ─── 8. Call Claude to synthesize ─────────────────────────────────────────────
 
 echo "Calling Claude (sonnet) to synthesize product brain..."
 echo "(Takes 20-40 seconds)"
@@ -209,3 +258,17 @@ mv "$TEMP_OUTPUT" "$BRAIN_FILE"
 LINE_COUNT=$(wc -l < "$BRAIN_FILE")
 echo "✅ product-brain.md refreshed ($LINE_COUNT lines)"
 echo "   Location: $BRAIN_FILE"
+echo ""
+
+# ─── 9. Auto-commit the refreshed brain ───────────────────────────────────────
+
+cd "$PROJECT_ROOT"
+if git diff --quiet "$BRAIN_FILE" 2>/dev/null; then
+  echo "   (No changes to commit — brain content unchanged)"
+else
+  git add "$BRAIN_FILE" 2>/dev/null || true
+  git commit -m "chore(brain): auto-refresh product-brain.md — ${TIMESTAMP}" \
+    --no-verify 2>/dev/null \
+    && echo "   Committed: product-brain.md" \
+    || echo "   (git commit skipped — no repo or nothing to commit)"
+fi
