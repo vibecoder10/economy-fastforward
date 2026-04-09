@@ -273,6 +273,19 @@ print(f'Loaded PRD {active_id} into prd.json: {len(prd_tasks)} tasks ({len(done_
 
 echo ""
 echo "Run './agents/prd-loader.sh --what-next' to see unblocked tasks."
-echo "Run './agents/swarm.sh \"complete remaining PRD 4 tasks\"' to execute."
+echo "Run './agents/swarm.sh \"complete remaining PRD tasks\"' to execute."
 
 post_activity "PRD queue loaded into prd.json" "completed"
+
+# ─── Auto-refill: trigger generator when queue runs low ─────────────────────
+PENDING_PRDS=$(python3 -c "
+import json
+q = json.load(open('$QUEUE_FILE'))
+print(sum(1 for p in q.get('prds', []) if p.get('status') == 'pending'))
+" 2>/dev/null || echo "99")
+
+if [ "$PENDING_PRDS" -lt 2 ]; then
+  echo ""
+  echo "⚠️  Queue is running low (${PENDING_PRDS} pending PRDs). Auto-generating next PRD from roadmap..."
+  bash "$AGENTS_DIR/prd-generator.sh" 2>/dev/null || echo "  (prd-generator.sh not available or failed — run manually)"
+fi
