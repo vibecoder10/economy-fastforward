@@ -11,6 +11,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 REPORTS_DIR="$AGENTS_DIR/reports"
+
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  set -a; source "$PROJECT_ROOT/.env"; set +a
+fi
+if [ -f "$PROJECT_ROOT/storyengine/backend/.env" ]; then
+  set -a; source "$PROJECT_ROOT/storyengine/backend/.env"; set +a
+fi
+
 RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
 ACTIVITY_LOG_FILE="$PROJECT_ROOT/rubric/scaffold/data/activity-log.json"
 
@@ -731,7 +739,8 @@ echo "Report saved: $REPORT_FILE"
 
 # ─── Handle Failure ─────────────────────────────────────────────────────────
 if [ $CLAUDE_EXIT -ne 0 ]; then
-  ERROR_MSG="Agent crashed (exit code $CLAUDE_EXIT)"
+  CLEAN_OUT=$(echo "$OUTPUT" | tail -n 5 | tr '\n' ' ' | tr -d '"' | cut -c 1-200)
+  ERROR_MSG="Agent crashed (exit code $CLAUDE_EXIT) - $CLEAN_OUT"
   post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"error\", \"detail_file\": \"$RUN_ID.md\"}"
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
