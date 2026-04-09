@@ -241,6 +241,30 @@ Each task:
 - Addresses ONE concern (no "build X AND wire Y" — those are two tasks)
 - Is sized at 15-45 minutes of agent effort
 
+**ACCEPTANCE CRITERIA RULES — READ CAREFULLY:**
+
+For backend tasks, criteria must verify BEHAVIOR not just file existence:
+- ✅ GOOD: `curl -s http://localhost:8001/api/billing/plan -H 'Authorization: Bearer ...' | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'plan' in d and d['plan'] in ('starter','creator','studio'), 'missing or invalid plan field'"`
+- ✅ GOOD: `curl -s -X POST http://localhost:8001/api/videos -H ... -d '{"topic":"test"}' | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'id' in d, 'no id in response'"`
+- ❌ BAD: `test -f storyengine/backend/routes/billing.py` (file existing ≠ working)
+- ❌ BAD: `curl ... | grep -q 200` (HTTP 200 ≠ correct data)
+
+For frontend tasks, criteria MUST include at least one behavioral Playwright test:
+- ✅ GOOD: `cd storyengine/frontend && npx playwright test --grep "upgrade button triggers Stripe checkout"`
+- ✅ GOOD: `cd storyengine/frontend && npx playwright test --grep "submit form shows success toast"`
+- ❌ BAD: `test -f storyengine/frontend/src/app/billing/page.tsx` (file ≠ buttons work)
+- ❌ BAD: `cd storyengine/frontend && npx tsc --noEmit` alone (types passing ≠ UI working)
+
+Every PRD MUST end with a mandatory QA task (role: qa-engineer) as the final task:
+- It depends on ALL other tasks
+- It uses the webapp-testing skill (Playwright)
+- It does a full user flow walkthrough: navigate → interact → verify state changes
+- It takes screenshots as evidence
+- Its acceptance criteria: `cd storyengine/frontend && npx playwright test tests/prd-N-smoke.spec.ts`
+  (the QA agent writes this test file as part of the task)
+
+The QA task is the GATE. A PRD is not complete until the QA task is verified.
+
 ${FORCE_TITLE:+## Requested Title: $FORCE_TITLE}
 
 ## Your Task
@@ -256,7 +280,7 @@ Write **PRD ${NEXT_PRD_ID}** as a complete markdown document.
 6. Backend tasks come before frontend tasks that depend on them
 7. QA/security tasks come last (after all implementation)
 8. Be SPECIFIC — not "add endpoint" but "add POST /api/endpoint to routes/X.py that does X, Y, Z"
-9. Acceptance criteria must be verifiable shell commands (curl, psql, tsc, grep, test -f)
+9. Acceptance criteria must test BEHAVIOR: response shape (not just 200), Playwright click-and-verify (not just page load), DB record contents (not just column existence). File existence tests (`test -f`) are forbidden as the ONLY criterion for a task — always pair with a behavior test.
 10. The "What NOT to spec" list in the product state is your guard rail — check it before every task
 11. Use the roadmap's tier analysis (Week 1 = payable, Week 2 = UX, Week 3 = reliable, Week 4 = launchable) to pick the right focus
 12. If an operator design doc was provided (see "Operator's Design Document" above), follow its architecture decisions exactly — do not deviate from the specified approach

@@ -142,7 +142,22 @@ echo "- Verifier caught: [specific failure]. [lesson for next time]." >> storyen
 - **Only test what was built.** Don't go on a full app sweep — that's regular testing mode.
 - **Run the actual commands.** Don't eyeball the criteria — execute them and check exit codes.
 - **Be precise about failures.** Include the exact error message, HTTP code, or Playwright assertion.
-- **Screenshot everything.** Before and after each verification.
+- **Screenshot everything.** Before and after each verification. No screenshots = no verification.
 - **File bug tasks for failures.** The retry loop depends on these.
 - **Test the flow, not just the parts.** Individual endpoints working doesn't mean the feature works.
 - **Commit prd.json and progress.md** if you added bug tasks.
+
+## The "Buttons Work" Standard (most common QA failure)
+
+Frontend tasks are NOT verified by:
+- ❌ TypeScript compiles
+- ❌ Page loads without 500 error
+- ❌ File exists at the expected path
+
+Frontend tasks ARE verified by:
+- ✅ Button was clicked with Playwright and produced a visible state change
+- ✅ Form was submitted and a success/error response was shown to the user
+- ✅ Data mutation was confirmed in the DB after UI action (`psql ... | grep new_value`)
+- ✅ Screenshot shows the before and after states
+
+If a frontend task has no behavioral Playwright test in its acceptance criteria, **write one yourself** and run it. Then add it to the prd.json criteria for future reference. A page rendering is not a feature working.

@@ -28,15 +28,28 @@ The product brain is your substitute for the operator. It answers: "What would t
 3. `./agents/prd-loader.sh`            → Write prd.json from active PRD for swarm execution
 4. `./agents/prd-loader.sh --advance`  → When PRD is fully done, advance queue to next PRD
 
-**When the queue runs low (< 2 pending PRDs):**
-- `./agents/prd-generator.sh` — Auto-invents the next PRD from `tasks/roadmap.md` using Claude
-- `./agents/prd-generator.sh --preview` — See what the next PRD would cover without writing it
-- `prd-loader.sh` triggers this automatically when it detects low queue depth
+**Queue auto-health check (run after step 1 every session):**
+
+```bash
+PENDING=$(python3 -c "
+import json
+q = json.load(open('agents/prd-queue.json'))
+print(sum(1 for p in q.get('prds',[]) if p.get('status') == 'pending'))
+" 2>/dev/null || echo "0")
+
+if [ "$PENDING" -lt 2 ]; then
+  echo "Queue low ($PENDING pending PRDs) — generating next PRD before dispatching agents"
+  # See Superpowers Library below for --plan flag
+  ./agents/prd-generator.sh
+fi
+```
+
+This ensures agents always have upcoming work queued. `prd-watcher.sh` does this automatically when running as a daemon — for interactive sessions, run this check manually.
 
 **Product roadmap (source of truth for new PRDs):** `tasks/roadmap.md`
 - 18-day SaaS plan: Week 1 (payable) → Week 2 (core UX) → Week 3 (reliable) → Week 4 (launchable)
-- prd-generator.sh reads this + existing PRDs to invent the next logical chunk of work
-- It uses Claude to write a full PRD in the same style as prd-1 through prd-4
+- Next up: Week 3 (Days 11-14) — Job Queue, Per-tenant Storage, Error Monitoring, Security Hardening
+- prd-generator.sh reads product-brain.md (live state) + roadmap to invent next logical chunk
 
 **Current Queue Snapshot:**
 - **PRD 1 — UX Polish:** ✅ COMPLETE (10/10 tasks, 2026-04-08)
