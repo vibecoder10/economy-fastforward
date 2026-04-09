@@ -1,9 +1,28 @@
 # Orchestrator Memory
 
+## Product Brain — Read First
+
+**Before anything else, read the product brain:**
+
+```bash
+cat agents/product-brain.md
+```
+
+This tells you what's actually built (don't re-spec it), which roadmap days are done, and what to build next. If it's missing or >24h stale, regenerate it first:
+
+```bash
+./agents/refresh-product-brain.sh
+```
+
+The product brain is your substitute for the operator. It answers: "What would the owner want built today?"
+
+---
+
 ## PRD Queue — Session Startup Protocol
 
-**Every session MUST start here.** Before touching any code:
+**Every session MUST run these steps (in order):**
 
+0. `cat agents/product-brain.md`       → Read product state, gap queue, and PRD guidelines
 1. `./agents/prd-loader.sh --status`   → See which PRD is active and what's left
 2. `./agents/prd-loader.sh --what-next` → See exact unblocked tasks to assign agents now
 3. `./agents/prd-loader.sh`            → Write prd.json from active PRD for swarm execution
@@ -26,11 +45,30 @@
 - **PRD 4 — Growth & Launch:** 🔵 ACTIVE (10/15 done) — remaining: T11, T12, T13, T14, T15
 
 **Key files:**
+- `agents/product-brain.md` — **LIVING product state** (what's built, gaps, priorities) — read first
+- `agents/refresh-product-brain.sh` — regenerates product-brain.md from live codebase
 - `agents/prd-queue.json` — machine-readable queue state (source of truth)
 - `agents/prd-loader.sh`  — queue manager (status / what-next / load / advance)
-- `agents/prd-generator.sh` — PRD inventor (reads roadmap, writes prd-N-*.md via Claude)
+- `agents/prd-generator.sh` — PRD inventor (reads product-brain + roadmap → writes prd-N-*.md)
 - `agents/prds/prd-N-*.md` — PRD documents (human-readable specs for each chunk of work)
 - `agents/prd.json`       — generated task file consumed by swarm/agents (gitignored)
+
+---
+
+## Session End Protocol
+
+**Before finishing ANY session, refresh the product brain:**
+
+```bash
+./agents/refresh-product-brain.sh
+```
+
+This ensures the next autonomous session starts with an accurate picture of what was built. Without this, the next session's PRD generation is blind to today's progress.
+
+Also run the normal end-of-session checklist:
+- `tasks/todo.md` — update with current progress and clear handoff
+- `tasks/lessons.md` — capture any corrections or new patterns
+- `tasks/decisions.md` — append any architectural choices made
 
 ---
 

@@ -108,6 +108,28 @@ print('\n'.join(lines))
 
 ROADMAP_CONTENT=$(cat "$ROADMAP_FILE")
 
+# ─── Load product brain (live codebase state) ─────────────────────────────────
+PRODUCT_BRAIN=""
+BRAIN_FILE="$AGENTS_DIR/product-brain.md"
+if [ -f "$BRAIN_FILE" ]; then
+  PRODUCT_BRAIN=$(cat "$BRAIN_FILE")
+  BRAIN_AGE_HOURS=$(python3 -c "
+import os, time
+mtime = os.path.getmtime('$BRAIN_FILE')
+age_h = (time.time() - mtime) / 3600
+print(f'{age_h:.0f}')
+" 2>/dev/null || echo "?")
+  echo "  Product brain loaded (${BRAIN_AGE_HOURS}h old): $BRAIN_FILE"
+  if [ "${BRAIN_AGE_HOURS}" != "?" ] && [ "${BRAIN_AGE_HOURS}" -gt 24 ] 2>/dev/null; then
+    echo "  WARNING: product-brain.md is >24h old. Consider running ./agents/refresh-product-brain.sh"
+  fi
+else
+  echo "  WARNING: agents/product-brain.md not found."
+  echo "  Run ./agents/refresh-product-brain.sh to generate it."
+  echo "  Falling back to roadmap-only PRD generation (less accurate)."
+fi
+echo ""
+
 # Also pull any existing PRD files for context on scope/style
 EXISTING_PRD_SAMPLE=""
 HIGHEST_PRD="$PRDS_DIR/prd-${MAX_ID}-*.md"
@@ -146,21 +168,10 @@ Your job: Write PRD ${NEXT_PRD_ID} for the autonomous agent team.
 
 ## What You Know About StoryEngine
 
-### The Product
-StoryEngine is a multi-tenant SaaS where creators log in, type a video topic, and the AI pipeline handles everything: research → script → voice → images → video clips → thumbnail → render. Users review stages and publish directly to YouTube.
+### Current Product State (AUTHORITATIVE — generated from live codebase)
+${PRODUCT_BRAIN:-"⚠️  product-brain.md not available. Use roadmap + existing PRDs as fallback."}
 
-**Stack:** Next.js 16 + React 19 + TypeScript + TailwindCSS 4 + Framer Motion | FastAPI + asyncpg + Supabase PostgreSQL
-
-**Design system (MANDATORY for all UI work):**
-- Background: var(--bg-void) (#0A0A0B), cards: glass-card class
-- Primary accent: var(--turquoise) (#00D4AA), secondary: var(--orange), gold: var(--gold)
-- Text: var(--text-primary), var(--text-secondary), var(--text-tertiary)
-- Red for errors: var(--red)
-- Font: font-display for headings
-- Existing components: GlassCard, ActionButton, StatusPill, Spinner, Modal, FilterSelect
-- Motion: Framer Motion with container/item stagger pattern
-
-### Product Roadmap (authoritative)
+### Product Roadmap (18-day plan — use product state above to check which days are done)
 ${ROADMAP_CONTENT}
 
 ### PRDs Already Written (DO NOT repeat this work)
@@ -189,16 +200,17 @@ ${FORCE_TITLE:+## Requested Title: $FORCE_TITLE}
 Write **PRD ${NEXT_PRD_ID}** as a complete markdown document.
 
 **Rules:**
-1. Pick the highest-priority UNADDRESSED items from the roadmap that logically follow what PRDs 1-${MAX_ID} already shipped
-2. Group related features into parallel execution lanes (backend-dev and frontend-dev can run simultaneously)
-3. 8-15 tasks total — enough for 1-2 days of agent work
-4. Every task must reference exact file paths in the StoryEngine repo (storyengine/backend/ or storyengine/frontend/src/)
-5. Backend tasks come before frontend tasks that depend on them
-6. QA/security tasks come last (after all implementation)
-7. Be SPECIFIC — not "add endpoint" but "add POST /api/endpoint to routes/X.py that..."
-8. The acceptance criteria must be verifiable (checkboxes that can be converted to shell commands)
-9. Do NOT include items already shipped in PRDs 1-${MAX_ID}
-10. Invent the right next step based on the roadmap — use your PM judgment
+1. Check the "Implementation Inventory" in the Current Product State first — DO NOT spec anything marked ✅ Done
+2. Check the "Current Priority Gap Queue" — work from Tier 2 downward (Tier 1 = active PRD, don't duplicate it)
+3. Pick the highest-priority UNADDRESSED items. Group related features into parallel lanes (backend + frontend can run simultaneously)
+4. 8-15 tasks total — enough for 1-2 days of agent work
+5. Every task must reference exact file paths in the StoryEngine repo (storyengine/backend/ or storyengine/frontend/src/)
+6. Backend tasks come before frontend tasks that depend on them
+7. QA/security tasks come last (after all implementation)
+8. Be SPECIFIC — not "add endpoint" but "add POST /api/endpoint to routes/X.py that does X, Y, Z"
+9. Acceptance criteria must be verifiable shell commands (curl, psql, tsc, grep, test -f)
+10. The "What NOT to spec" list in the product state is your guard rail — check it before every task
+11. Use the roadmap's tier analysis (Week 1 = payable, Week 2 = UX, Week 3 = reliable, Week 4 = launchable) to pick the right focus
 
 Write the complete PRD now. Output ONLY the markdown document, no preamble.
 PROMPT_EOF
