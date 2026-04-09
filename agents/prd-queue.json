@@ -1,0 +1,71 @@
+{
+  "queue_version": 1,
+  "updated": "2026-04-09",
+  "active_prd": 4,
+  "prds": [
+    {
+      "id": 1,
+      "title": "UX Polish — Empty States, Dashboard, Create Flow",
+      "file": "agents/prds/prd-1-ux-polish.md",
+      "status": "complete",
+      "completed": "2026-04-08",
+      "tasks_total": 10,
+      "tasks_done": 10,
+      "notes": "All 10 tasks done and verified."
+    },
+    {
+      "id": 2,
+      "title": "Pipeline UX, Landing Page, Notifications",
+      "file": "agents/prds/prd-2-pipeline-ux.md",
+      "status": "complete",
+      "completed": "2026-04-08",
+      "tasks_total": 14,
+      "tasks_done": 14,
+      "notes": "All 14 tasks done and verified."
+    },
+    {
+      "id": 3,
+      "title": "Infrastructure",
+      "file": "agents/prds/prd-3-infrastructure.md",
+      "status": "complete",
+      "completed": "2026-04-08",
+      "tasks_total": 11,
+      "tasks_done": 11,
+      "notes": "All 11 tasks done and verified by QA."
+    },
+    {
+      "id": 4,
+      "title": "Growth & Launch — Learning Insights, Analytics, Docs, Demo, Beta Prep",
+      "file": "agents/prds/prd-4-growth-launch.md",
+      "status": "active",
+      "started": "2026-04-08",
+      "tasks_total": 15,
+      "tasks_done": 10,
+      "tasks_remaining": 5,
+      "tasks": [
+        { "id": "T1",  "title": "Analytics backend — topic-performance + competitor-benchmark endpoints", "role": "backend",   "status": "done",    "depends_on": [] },
+        { "id": "T2",  "title": "Brand Kit backend — migration + channel_profile extensions",              "role": "backend",   "status": "done",    "depends_on": [] },
+        { "id": "T3",  "title": "Notification preferences backend — migration + GET/PATCH endpoints",      "role": "backend",   "status": "done",    "depends_on": [] },
+        { "id": "T4",  "title": "Demo mode backend — 3 static demo endpoints, no auth",                   "role": "backend",   "status": "done",    "depends_on": [] },
+        { "id": "T5",  "title": "Export manifest backend — GET /api/videos/{id}/export-manifest",         "role": "backend",   "status": "done",    "depends_on": [] },
+        { "id": "T6",  "title": "Learning Insights dashboard redesign",                                    "role": "frontend",  "status": "done",    "depends_on": ["T1"] },
+        { "id": "T7",  "title": "Analytics 2.0 frontend — topic chart + competitor card",                 "role": "frontend",  "status": "done",    "depends_on": ["T1"] },
+        { "id": "T8",  "title": "Video preview player on RenderTab",                                      "role": "frontend",  "status": "done",    "depends_on": [] },
+        { "id": "T9",  "title": "Getting Started guide & help page at /docs",                             "role": "frontend",  "status": "done",    "depends_on": [] },
+        { "id": "T10", "title": "Legal pages — Terms of Service + Privacy Policy",                        "role": "frontend",  "status": "done",    "depends_on": [] },
+        { "id": "T11", "title": "Demo mode frontend — landing + 3 sub-pages",                             "role": "frontend",  "status": "pending", "depends_on": ["T4"] },
+        { "id": "T12", "title": "Export button + Brand Kit UI + Notification toggles",                    "role": "frontend",  "status": "pending", "depends_on": ["T2", "T3", "T5"] },
+        { "id": "T13", "title": "Beta launch regression — full page + API sweep",                         "role": "qa",        "status": "pending", "depends_on": ["T11", "T12"] },
+        { "id": "T14", "title": "Security audit — auth, tenant isolation, secrets",                       "role": "security",  "status": "pending", "depends_on": ["T11", "T12"] },
+        { "id": "T15", "title": "Performance & load readiness check",                                     "role": "qa",        "status": "pending", "depends_on": ["T13"] }
+      ],
+      "notes": "Backend (T1-T5) done. Frontend independent tasks (T8, T9, T10) done. T6, T7 done. Remaining: T11 (demo UI), T12 (export+brand kit+notifs UI), T13 QA, T14 security, T15 perf."
+    }
+  ],
+  "next_prd": null,
+  "queue_rules": {
+    "advance_condition": "all tasks in active PRD have status done or verified",
+    "on_advance": "update active_prd, set previous to complete, post to activity log",
+    "agent_reads": "agents should read prd-queue.json at session start to know their current context"
+  }
+}
