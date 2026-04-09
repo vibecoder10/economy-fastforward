@@ -40,8 +40,8 @@ page.on('response', res => {
 ### Step 2: Login
 ```javascript
 await page.goto('http://localhost:3001/login');
-await page.fill('input[type="email"]', 'ryan.ayler@gmail.com');
-await page.fill('input[type="password"]', 'testtest1');
+await page.fill('input[type="email"]', process.env.TEST_USER_EMAIL || 'admin@example.com');
+await page.fill('input[type="password"]', process.env.TEST_USER_PASSWORD || 'changeme');
 await page.click('button[type="submit"]');
 await page.waitForURL('**/dashboard**', { timeout: 10000 });
 ```

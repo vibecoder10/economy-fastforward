@@ -55,25 +55,31 @@ Every task MUST have acceptance criteria that are shell commands exiting 0 on su
 
 Good criteria:
 ```bash
-# API returns 200
-curl -s -o /dev/null -w '%{http_code}' http://localhost:8001/api/pipeline/extract/VIDEO_ID | grep -q 200
+# Backend: validate endpoint returns expected shape (not just status 200)
+curl -s http://localhost:8001/api/pipeline/extract/VIDEO_ID \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'panels' in d, 'missing panels key'"
 
-# Frontend compiles
+# DB schema check
+psql "$DATABASE_URL" -c "SELECT column_name FROM information_schema.columns WHERE table_name='assets'" | grep -q panel_url
+
+# TypeScript compiles
 cd storyengine/frontend && npx tsc --noEmit
 
-# Button exists in browser
-npx playwright test -e "await page.goto('http://localhost:3001/pipeline/VIDEO_ID'); await page.click('text=Extract Panels')"
-
-# File exists
-test -f storyengine/backend/routes/extract.py
+# Frontend behavioral test — click the button, verify state change (write a spec file)
+npx playwright test tests/prd-N-extract-panels.spec.ts
 ```
 
-Bad criteria:
+Bad criteria (never use these):
+```bash
+test -f storyengine/backend/routes/extract.py    # ❌ file existence ≠ feature working
+curl ... | grep -q 200                            # ❌ for frontend tasks — HTTP 200 ≠ UI works
+"Make sure it works"                              # ❌ not executable
+"Verify the data flows correctly"                 # ❌ not executable
 ```
-"Make sure it works"
-"Test the UI"
-"Verify the data flows correctly"
-```
+
+**Behavioral requirement for frontend tasks:** Every frontend task MUST have at least one criterion that uses Playwright to click an element and assert a visible state change. A page that renders is not a feature that works.
+
+**Mandatory QA task:** Every PRD you write MUST include a final `qa-engineer` task that runs Playwright end-to-end, takes screenshots, and writes `tests/prd-N-smoke.spec.ts`. This is the only task that can flip status from `done` to `verified`. Do not omit it.
 
 ### Step 5: Write prd.json
 

@@ -18,13 +18,25 @@ When you receive a PRD file or description:
 
 3. Order tasks bottom-up: database → backend → frontend → QA
 4. Write acceptance criteria as executable commands:
-   - API tests: `curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8001/api/endpoint -H 'Content-Type: application/json' -d '{"key":"value"}' | grep -q 200`
-   - DB checks: `psql "$DATABASE_URL" -c "SELECT column_name FROM information_schema.columns WHERE table_name='users'" | grep -q email`
-   - Type checks: `cd frontend && npx tsc --noEmit`
-   - Browser tests: `cd frontend && npx playwright test tests/login.spec.ts`
-   - File existence: `test -f backend/routes/auth.py`
+   - **Backend endpoints**: curl the route AND validate the response shape, not just the status code
+     ```bash
+     curl -s http://localhost:8001/api/endpoint | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'id' in d"
+     ```
+   - **DB schema**: psql column checks
+     ```bash
+     psql "$DATABASE_URL" -c "SELECT column_name FROM information_schema.columns WHERE table_name='users'" | grep -q email
+     ```
+   - **Type checks**: `cd storyengine/frontend && npx tsc --noEmit`
+   - **Frontend tasks**: MUST include a behavioral Playwright test — click the element, verify the state change:
+     ```bash
+     npx playwright test tests/prd-N-task-title.spec.ts
+     ```
+     ❌ `test -f storyengine/frontend/src/app/page.tsx` — file existence is NOT an acceptance criterion
+     ❌ `curl ... | grep -q 200` alone for a frontend task — HTTP 200 is NOT UI verification
 
-5. Initialize `progress.md` with all tasks listed as pending.
+5. **Every PRD MUST end with a mandatory `qa-engineer` task** that runs Playwright, takes screenshots, and writes `tests/prd-N-smoke.spec.ts`. The PRD is not complete until this task reaches `verified` status.
+
+6. Initialize `progress.md` with all tasks listed as pending.
 
 ## Mode 2: Review (when checking progress)
 
