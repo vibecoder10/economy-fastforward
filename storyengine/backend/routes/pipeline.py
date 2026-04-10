@@ -5,12 +5,14 @@ The frontend can poll for status or use the activity feed to track progress.
 """
 
 import asyncio
+import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth import get_tenant_id
-from database import fetch_one, execute
+from database import fetch_one, fetch_all, execute
 from pipeline_executor import PipelineExecutor
 from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage
 
@@ -1322,3 +1324,134 @@ async def reset_pipeline(
         "reset_to": reset_to,
         "deleted": deleted,
     }
+
+
+# --- Pipeline SSE Stream ---
+
+@router.get("/stream")
+async def pipeline_stream(
+    video_id: Optional[str] = Query(None),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """SSE endpoint for real-time pipeline progress.
+
+    Two event types:
+    - stage_change: video moved to a new pipeline stage (from stage_transitions)
+    - task_progress: background task status update (running/completed/failed)
+
+    Query params:
+    - video_id: filter for a specific video (optional, omit for all videos)
+    - token: auth token for EventSource (can't set Authorization header)
+
+    Frontend connects via: new EventSource('/api/pipeline/stream?token=X&video_id=Y')
+    """
+    async def event_generator():
+        last_transition_at: Optional[str] = None
+        last_task_snapshot: dict[str, str] = {}
+
+        while True:
+            # 1. Poll stage transitions (cursor by created_at, not UUID)
+            if last_transition_at:
+                if video_id:
+                    transitions = await fetch_all(
+                        """SELECT st.video_id, v.video_title, v.status AS current_status,
+                                  st.from_status, st.to_status, st.triggered_by,
+                                  st.cost, st.duration_seconds, st.error_message,
+                                  st.created_at::text AS created_at
+                           FROM stage_transitions st
+                           LEFT JOIN videos v ON v.id = st.video_id
+                           WHERE st.tenant_id = $1 AND st.video_id = $2
+                             AND st.created_at > $3::timestamptz
+                           ORDER BY st.created_at ASC LIMIT 10""",
+                        tenant_id, video_id, last_transition_at,
+                    )
+                else:
+                    transitions = await fetch_all(
+                        """SELECT st.video_id, v.video_title, v.status AS current_status,
+                                  st.from_status, st.to_status, st.triggered_by,
+                                  st.cost, st.duration_seconds, st.error_message,
+                                  st.created_at::text AS created_at
+                           FROM stage_transitions st
+                           LEFT JOIN videos v ON v.id = st.video_id
+                           WHERE st.tenant_id = $1
+                             AND st.created_at > $2::timestamptz
+                           ORDER BY st.created_at ASC LIMIT 10""",
+                        tenant_id, last_transition_at,
+                    )
+            else:
+                # Initial: fetch most recent to establish cursor
+                if video_id:
+                    transitions = await fetch_all(
+                        """SELECT st.video_id, v.video_title, v.status AS current_status,
+                                  st.from_status, st.to_status, st.triggered_by,
+                                  st.cost, st.duration_seconds, st.error_message,
+                                  st.created_at::text AS created_at
+                           FROM stage_transitions st
+                           LEFT JOIN videos v ON v.id = st.video_id
+                           WHERE st.tenant_id = $1 AND st.video_id = $2
+                           ORDER BY st.created_at DESC LIMIT 1""",
+                        tenant_id, video_id,
+                    )
+                else:
+                    transitions = await fetch_all(
+                        """SELECT st.video_id, v.video_title, v.status AS current_status,
+                                  st.from_status, st.to_status, st.triggered_by,
+                                  st.cost, st.duration_seconds, st.error_message,
+                                  st.created_at::text AS created_at
+                           FROM stage_transitions st
+                           LEFT JOIN videos v ON v.id = st.video_id
+                           WHERE st.tenant_id = $1
+                           ORDER BY st.created_at DESC LIMIT 5""",
+                        tenant_id,
+                    )
+
+            for t in transitions:
+                event = {
+                    "video_id": str(t["video_id"]) if t.get("video_id") else None,
+                    "video_title": t.get("video_title"),
+                    "current_status": t.get("current_status"),
+                    "from_status": t.get("from_status"),
+                    "to_status": t.get("to_status"),
+                    "triggered_by": t.get("triggered_by"),
+                    "cost": float(t["cost"]) if t.get("cost") else None,
+                    "duration_seconds": t.get("duration_seconds"),
+                    "error_message": t.get("error_message"),
+                    "created_at": t.get("created_at"),
+                }
+                yield f"event: stage_change\ndata: {json.dumps(event)}\n\n"
+                last_transition_at = t["created_at"]
+
+            # 2. Poll task progress (from in-memory _running_tasks)
+            if video_id:
+                task = _get_task_status(video_id)
+                task_key = json.dumps(task, sort_keys=True, default=str) if task else "idle"
+                if task_key != last_task_snapshot.get(video_id):
+                    event = {
+                        "video_id": video_id,
+                        "status": task["status"] if task else "idle",
+                        "message": task.get("message") if task else None,
+                        "error": task.get("error") if task else None,
+                    }
+                    yield f"event: task_progress\ndata: {json.dumps(event)}\n\n"
+                    last_task_snapshot[video_id] = task_key
+            else:
+                for vid, task in list(_running_tasks.items()):
+                    task_key = json.dumps(task, sort_keys=True, default=str)
+                    if task_key != last_task_snapshot.get(vid):
+                        event = {
+                            "video_id": vid,
+                            "status": task.get("status", "idle"),
+                            "message": task.get("message"),
+                            "error": task.get("error"),
+                        }
+                        yield f"event: task_progress\ndata: {json.dumps(event)}\n\n"
+                        last_task_snapshot[vid] = task_key
+
+            yield ": heartbeat\n\n"
+            await asyncio.sleep(3)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
