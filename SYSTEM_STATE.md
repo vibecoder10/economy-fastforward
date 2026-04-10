@@ -54,7 +54,8 @@ Each production tool is a standalone folder in orchestration order. Shared infra
 | `shared/profiles/script/` | Script voice profiles (power_doctrine_v1, v2) |
 | `shared/json_utils.py` | JSON parsing utilities |
 | `shared/channel_profile.py` | Channel-specific settings |
-| `infra/` | Setup scripts, cron, healthcheck, auth utilities |
+| `infra/` | Setup scripts, cron, healthcheck, auth, StoryEngine deploy |
+| `infra/storyengine_deploy.sh` | Auto-deploys frontend (rebuild) + backend (restart) on code changes |
 
 ### Backward Compatibility
 
@@ -384,6 +385,8 @@ Performance analysis system that extracts patterns from video metrics and compet
 | `storyengine/agents/task-queue.json` | Task queue (26 tabs, 161 tasks) |
 | `storyengine/agents/memory/{role}.md` | Persistent agent memory (max 50 entries) |
 | `storyengine/agents/blueprints/` | Product vision + role-specific blueprints |
+| `storyengine/backend/storyengine-backend.service` | systemd unit for FastAPI (port 8001) |
+| `storyengine/frontend/storyengine-frontend.service` | systemd unit for Next.js (port 3001) |
 | `storyengine/agents/setup-crons.sh` | Cron schedule installer |
 | `storyengine/agents/daily-report.sh` | Daily report + PR + Telegram push |
 | `storyengine/agents/notify-telegram.sh` | Shared Telegram notification helper |

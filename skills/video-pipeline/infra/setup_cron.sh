@@ -14,7 +14,7 @@
 #   8. 12:00 PM — Daily pipeline queue run (processes all stages through to render)
 #   9. Every 15 min — Bot health check (restarts Slack bot if it died)
 #  10. Every 30 min — Approval watcher (catches manual Airtable approvals)
-#  11. Every 30 min — StoryEngine frontend auto-deploy (rebuild on code changes)
+#  11. Every 30 min — StoryEngine auto-deploy (rebuild frontend + restart backend on code changes)
 #
 # Times are in US/Pacific (America/Los_Angeles).
 # Logs are written to /tmp/pipeline-*.log
@@ -177,8 +177,8 @@ TZ=America/Los_Angeles
 # Lock expires after 15 min
 */30 * * * * MAX_LOCK_AGE=900 $WRAPPER approvals /tmp/pipeline-approval.log timeout 600 python orchestrator/approval_watcher.py
 
-# Every 30 min — StoryEngine frontend auto-deploy
-# Detects frontend code changes after git pull and rebuilds + restarts Next.js
+# Every 30 min — StoryEngine auto-deploy (frontend + backend)
+# Detects code changes after git pull: rebuilds + restarts Next.js, restarts uvicorn
 # Prevents the "stale build" issue where server serves old JS chunks
 */30 * * * * cd $REPO_DIR && bash skills/video-pipeline/infra/storyengine_deploy.sh >> /tmp/storyengine-deploy.log 2>&1
 EOF
@@ -207,7 +207,7 @@ echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competi
 echo "    $QUEUE_HOUR:00 daily (~12 PM PT)    ->  Pipeline queue (process all stages to render)"
 echo "    Every 15 min             ->  Bot health check (auto-restart if down)"
 echo "    Every 30 min             ->  Approval watcher (catch manual approvals)"
-echo "    Every 30 min             ->  StoryEngine deploy (rebuild frontend on code changes)"
+echo "    Every 30 min             ->  StoryEngine deploy (frontend rebuild + backend restart)"
 echo ""
 echo "  Failure alerts:"
 echo "    All jobs (except healthcheck) send Slack notifications on failure."
