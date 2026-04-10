@@ -7,6 +7,10 @@
 **Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
 
 ## Handoff
+**Security fix (2026-04-10):** Added `AND tenant_id` to 7 UPDATE queries across assets.py, videos.py, projects.py. Critical tenant isolation bypass patched.
+
+**Still open from security audit:** review.py (3 UPDATEs), agents.py (1), learning_extraction.py (2), youtube_sync.py (1) also missing tenant_id in UPDATE WHERE clauses. Lower priority since those endpoints don't take user-controlled IDs or have ownership checks above.
+
 **PRD 2 COMPLETE** — All 14 tasks verified.
 **PRD 3 frontend COMPLETE** — Tasks 2-7 done (3,4,5 were pre-implemented; 2,6,7 committed this session).
 **PRD 4 in progress:**

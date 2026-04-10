@@ -37,6 +37,7 @@
 - **Captions use character-based chunking, not word-count.** At 72px Inter Bold, the 92% width container fits ~38 chars. Chunking by 6 words caused overflow when words were long (e.g., "manufacturing—Bangladesh"). The fix: CaptionsOverlay.tsx chunks by total character count, creating adaptive chunks (short words → more per chunk, long words → fewer). This guarantees no overflow regardless of sentence content.
 
 ### Auth & Multi-Tenancy
+- **EVERY UPDATE/DELETE WHERE clause must include `AND tenant_id`.** Even when a SELECT above verifies ownership, the UPDATE itself needs it as defense-in-depth (prevents TOCTOU races). Grep for `UPDATE.*WHERE id = \$` to find missing ones. Files to audit: routes/*.py.
 - **Backend loads .env from `storyengine/.env`** (not `storyengine/backend/.env`). The `main.py` line `load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))` goes up one level. Always set env vars in `storyengine/.env`.
 - **DEV_TENANT_ID must match a real tenant with data.** If you migrate data between tenants, update DEV_TENANT_ID or agents see 0 results.
 - **asyncpg needs UUID objects, not strings.** `get_tenant_id()` returns `uuid.UUID` — if it returns a string, `WHERE tenant_id = $1` silently returns 0 rows (no error, just empty).
