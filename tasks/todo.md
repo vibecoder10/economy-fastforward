@@ -109,12 +109,14 @@ Frontend tasks 8-12 are now unblocked. Task queue is empty.
 
 Previous handoffs archived in `tasks/archive/handoffs-2026-03-to-04.md`
 
-## Handoff (2026-04-10 — GRAND audit)
-PRD2 Pipeline UX: 11/13 tasks done+verified. Only T9 (wire trial warning scheduler) and T12/T13 (QA) remain.
-- Fixed auth 401 noise: frontend skips reporting expected 401s on /api/auth/ paths
-- Fixed task queue: mission-sync had overwritten 7 done tasks back to pending; restored with verification notes
-- T8 (email service) verified as already implemented — email_service.py + billing.py wired
-- T9 needs backend-dev: wire check_trial_warnings() into main.py lifespan background tasks
-- T13 (security audit) is UNBLOCKED — all deps met (T1, T6, T8 done)
-- T12 (full QA) blocked on T9 only
-- Next: backend-dev finishes T9 → QA runs T12+T13 → PRD2 complete
+## Handoff (2026-04-10 — QA verification + security audit)
+PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7/T10.
+- BUG-USER-800807 confirmed fixed (380178b) — backend returns "Invalid or expired session", frontend suppresses auth 401s from RUBRIC
+- T9 verified: trial warning wired in main.py lifespan (12h interval), email_tasks.py + migration 029 present
+- T2 verified: SSE hook matches backend event shapes exactly (stage_change + task_progress), tsc clean
+- T13 security audit DONE — filed 3 bugs for backend-dev:
+  - SEC-SSE-001 HIGH: _running_tasks dict at pipeline.py:51 has no tenant scoping — cross-tenant leak via SSE stream
+  - SEC-EMAIL-001 HIGH: email_service.py:59,110 — display_name not html.escape()'d in email templates
+  - SEC-KEYS-001 MEDIUM: vault.py:326 Gemini key in URL + vault.py:356/settings.py:231 leak exception details
+- Remaining: T3 (PipelineStepper), T4 (wire stepper), T7 (key validation UI), T10 (notification provider) for frontend-dev
+- T12 (full QA regression) depends on all of the above

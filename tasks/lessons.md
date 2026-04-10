@@ -211,3 +211,6 @@ _After each session, add a one-line summary of what was done and any new lessons
 ### StoryEngine / Agents
 - **Stash merge conflicts on profile.py**: When a git stash creates conflicts, the upstream (committed) version usually has the better code — keep it. Profile.py upstream has robust try/except for email uniqueness; stash had a simpler version without it.
 - **agents/progress.md**: This file was deleted upstream — accept the deletion, don't restore it.
+- **Global in-memory dicts need tenant scoping**: `_running_tasks` in pipeline.py was keyed by `video_id` only — any authenticated user could see all tenants' task progress via SSE. Always key cross-tenant caches by `(tenant_id, resource_id)`.
+- **HTML-escape user input in email templates**: `display_name` was f-string interpolated directly into HTML email body. Use `html.escape()` on all user-controlled values before HTML interpolation.
+- **Don't send API keys as URL query params**: Gemini validation put the key in `?key=VALUE` — gets logged in access logs. Use `x-goog-api-key` header. Also don't return raw `str(e)` to clients — generic error messages only.
