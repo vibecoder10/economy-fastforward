@@ -245,13 +245,16 @@ if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
 import json, re
 try:
     prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
+    # Only trust progress.md if it references the current PRD title
     done_ids = set()
+    title_words = [w for w in (prd.get('title','') or '').lower().split() if len(w) > 3][:3]
     try:
         with open('$PROJECT_ROOT/agents/progress.md') as f:
-            for line in f:
-                # Match both [x] T1: and T1:...✅ formats
-                m = re.search(r'\[x\]\s*(?:T)?(\d+)[.:]', line) or re.search(r'T(\d+):.*✅', line)
-                if m: done_ids.add(int(m.group(1)))
+            content = f.read()
+            if title_words and all(w in content.lower() for w in title_words):
+                for line in content.split('\n'):
+                    m = re.search(r'\[x\]\s*(?:T)?(\d+)[.:]', line) or re.search(r'T(\d+):.*\u2705', line)
+                    if m: done_ids.add(int(m.group(1)))
     except: pass
     role = '$_PRD_ROLE'
     tasks = [t for t in prd.get('tasks', [])
@@ -379,11 +382,14 @@ import json, re
 try:
     prd = json.load(open('$PRD_JSON_FILE'))
     done_ids = set()
+    title_words = [w for w in (prd.get('title','') or '').lower().split() if len(w) > 3][:3]
     try:
         with open('$PROJECT_ROOT/agents/progress.md') as f:
-            for line in f:
-                m = re.search(r'\[x\]\s*(?:T)?(\d+)[.:]', line) or re.search(r'T(\d+):.*\u2705', line)
-                if m: done_ids.add(int(m.group(1)))
+            content = f.read()
+            if title_words and all(w in content.lower() for w in title_words):
+                for line in content.split('\n'):
+                    m = re.search(r'\[x\]\s*(?:T)?(\d+)[.:]', line) or re.search(r'T(\d+):.*\u2705', line)
+                    if m: done_ids.add(int(m.group(1)))
     except: pass
     role = '$PRD_ROLE'
     tasks = [t for t in prd.get('tasks', [])

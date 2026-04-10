@@ -1376,14 +1376,19 @@ const server = http.createServer(async (req, res) => {
     if (prd && prd.error) { sendJSON(res, { active: true, error: true, errorMessage: prd.message || 'Decomposition failed', hasPrdMd: !!prdRaw }); return; }
     const total = prd.tasks?.length || 0;
     // Build task status from prd.json tasks + progress.md completion markers
-    // progress.md may contain stale entries from previous PRDs, so cross-reference with prd.json task IDs
+    // CRITICAL: progress.md may contain stale entries from a PREVIOUS PRD with overlapping task IDs
+    // Only trust progress.md if it references the CURRENT PRD (by title match)
     const prdTaskIds = new Set((prd.tasks || []).map(t => t.id));
     const doneIdsFromProgress = new Set();
     const blockedIdsFromProgress = new Set();
-    for (const line of progress.split('\n')) {
-      const m = line.match(/- \[x\]\s*(?:T)?(\d+)[.:]/i);
-      if (m && prdTaskIds.has(parseInt(m[1]))) doneIdsFromProgress.add(parseInt(m[1]));
-      if (line.includes('BLOCKED') && m && prdTaskIds.has(parseInt(m[1]))) blockedIdsFromProgress.add(parseInt(m[1]));
+    const prdTitleWords = (prd.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 3);
+    const progressForCurrentPrd = progress && prdTitleWords.length > 0 && prdTitleWords.every(w => progress.toLowerCase().includes(w));
+    if (progressForCurrentPrd) {
+      for (const line of progress.split('\n')) {
+        const m = line.match(/- \[x\]\s*(?:T)?(\d+)[.:]/i);
+        if (m && prdTaskIds.has(parseInt(m[1]))) doneIdsFromProgress.add(parseInt(m[1]));
+        if (line.includes('BLOCKED') && m && prdTaskIds.has(parseInt(m[1]))) blockedIdsFromProgress.add(parseInt(m[1]));
+      }
     }
     // Use progress.md done count if available, otherwise fall back to prd.json status field
     const doneFromPrdJson = (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
