@@ -22,3 +22,4 @@
 - Session #20+: thumbnail 400 + analytics/profile 404 still recurring — skip direct triage, go straight to MICRO sweep. These are confirmed NOT code bugs every session.
 
 - Session #21: All 33 tabs complete (194/194 tasks). REG21 pass: 18/18 pages, 32/32 API. Phase 1 fully shipped. OPS mode — awaiting operator launch decision.
+- PRD2 started (2026-04-10): T5+T11 done. T1 (SSE backend) is the critical path blocker for 4 other frontend tasks. Multiple agent crashes (exit 127/126/1) observed — check harness logs if progress stalls.
