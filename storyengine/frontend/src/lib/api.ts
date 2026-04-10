@@ -1302,6 +1302,8 @@ export interface ChannelProfile {
   niche: string;
   target_audience: string;
   frameworks: string[];
+  accent_color?: string;
+  logo_url?: string;
 }
 
 export interface ChannelProfileUpdate {
@@ -1309,6 +1311,8 @@ export interface ChannelProfileUpdate {
   niche?: string;
   target_audience?: string;
   frameworks?: string[];
+  accent_color?: string;
+  logo_url?: string;
 }
 
 export interface IntegrationStatusItem {
@@ -1428,3 +1432,45 @@ export interface DiscoveryStatus {
   fresh_count: number;
   learnings_applied: number;
 }
+
+// Export Manifest
+export interface ExportManifestFile {
+  type: string;
+  label: string;
+  url?: string;
+  content?: string | Record<string, unknown>;
+  format?: string;
+  size_hint?: string | null;
+}
+
+export interface ExportManifest {
+  video_id: string;
+  video_title: string;
+  status: string;
+  final_video_url: string | null;
+  thumbnail_url: string | null;
+  drive_folder_link: string | null;
+  youtube_url: string | null;
+  assets: { scene: number; image_url: string; image_prompt: string }[];
+  voice_tracks: { scene: number; voice_over_url: string }[];
+}
+
+export const getExportManifest = (videoId: string) =>
+  fetchApi<ExportManifest>(`/api/videos/${videoId}/export-manifest`);
+
+// Notification Preferences
+export interface NotificationPreferences {
+  email_weekly_digest: boolean;
+  email_video_complete: boolean;
+  email_error_alerts: boolean;
+  email_ctr_alerts: boolean;
+}
+
+export const getNotificationPreferences = () =>
+  fetchApi<NotificationPreferences>("/api/preferences/notifications");
+
+export const updateNotificationPreferences = (data: Partial<NotificationPreferences>) =>
+  fetchApi<NotificationPreferences>("/api/preferences/notifications", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });

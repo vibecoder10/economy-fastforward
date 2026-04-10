@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard } from "lucide-react";
+import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard, Palette, Bell } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/spinner";
@@ -14,8 +14,13 @@ import {
   updateProject,
   getApiKeys,
   getSubscription,
+  getChannelProfile,
+  updateChannelProfile,
+  getNotificationPreferences,
+  updateNotificationPreferences,
   type Project,
   type ProjectUpdate,
+  type NotificationPreferences,
 } from "@/lib/api";
 
 const container = {
@@ -79,6 +84,22 @@ export default function SettingsPage() {
     queryFn: getSubscription,
   });
 
+  // Brand Kit
+  const { data: channelProfile } = useQuery({
+    queryKey: ["channelProfile"],
+    queryFn: getChannelProfile,
+  });
+  const [brandAccent, setBrandAccent] = useState("");
+  const [brandLogo, setBrandLogo] = useState("");
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandSaved, setBrandSaved] = useState(false);
+
+  // Notification preferences
+  const { data: notifPrefs } = useQuery({
+    queryKey: ["notificationPrefs"],
+    queryFn: getNotificationPreferences,
+  });
+
   // Local form state
   const [channelName, setChannelName] = useState("");
   const [niche, setNiche] = useState("Geopolitics");
@@ -95,6 +116,14 @@ export default function SettingsPage() {
       setEnabledFrameworks(project.frameworks || []);
     }
   }, [project]);
+
+  // Sync brand kit from channel profile
+  useEffect(() => {
+    if (channelProfile) {
+      setBrandAccent(channelProfile.accent_color || "#00D4AA");
+      setBrandLogo(channelProfile.logo_url || "");
+    }
+  }, [channelProfile]);
 
   // Save mutation
   const saveMutation = useMutation({
@@ -373,6 +402,155 @@ export default function SettingsPage() {
             );
           })}
         </div>
+      </motion.div>
+
+      {/* Brand Kit */}
+      <motion.div variants={item}>
+        <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--gold)", paddingLeft: 16 }}>
+          <Palette size={18} style={{ color: "var(--gold)" }} />
+          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+            Brand Kit
+          </h2>
+          {brandSaved && <SavedIndicator visible />}
+        </div>
+        <GlassCard className="p-6">
+          <div className="space-y-5">
+            {/* Accent Color */}
+            <div>
+              <label className="text-[11px] font-medium uppercase tracking-wider block mb-2" style={{ color: "var(--text-secondary)" }}>
+                Accent Color
+              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {[
+                  { label: "Teal", value: "#00D4AA" },
+                  { label: "Amber", value: "#FFB800" },
+                  { label: "Crimson", value: "#C44545" },
+                  { label: "Purple", value: "#8B5CF6" },
+                ].map((c) => (
+                  <button
+                    key={c.value}
+                    onClick={() => setBrandAccent(c.value)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all"
+                    style={{
+                      background: brandAccent === c.value ? `${c.value}22` : "transparent",
+                      border: `1px solid ${brandAccent === c.value ? c.value : "var(--border-subtle)"}`,
+                    }}
+                  >
+                    <span className="w-4 h-4 rounded-full" style={{ background: c.value }} />
+                    <span className="text-[10px] font-medium" style={{ color: brandAccent === c.value ? c.value : "var(--text-secondary)" }}>
+                      {c.label}
+                    </span>
+                  </button>
+                ))}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={brandAccent}
+                    onChange={(e) => setBrandAccent(e.target.value)}
+                    maxLength={7}
+                    className="w-20 px-2 py-1.5 rounded-lg text-xs font-mono outline-none"
+                    style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                    placeholder="#hex"
+                  />
+                  <span className="w-5 h-5 rounded" style={{ background: brandAccent, border: "1px solid var(--border-subtle)" }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Logo URL */}
+            <div>
+              <label className="text-[11px] font-medium uppercase tracking-wider block mb-2" style={{ color: "var(--text-secondary)" }}>
+                Logo URL
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={brandLogo}
+                  onChange={(e) => setBrandLogo(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-lg text-sm font-body outline-none"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                  placeholder="https://example.com/logo.png"
+                />
+                {brandLogo && (
+                  <img src={brandLogo} alt="Logo preview" className="w-8 h-8 rounded object-contain" style={{ background: "var(--bg-elevated)" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                )}
+              </div>
+            </div>
+
+            {/* Save */}
+            <button
+              onClick={async () => {
+                setBrandSaving(true);
+                try {
+                  await updateChannelProfile({ accent_color: brandAccent, logo_url: brandLogo });
+                  queryClient.invalidateQueries({ queryKey: ["channelProfile"] });
+                  setBrandSaved(true);
+                  setTimeout(() => setBrandSaved(false), 2000);
+                } finally {
+                  setBrandSaving(false);
+                }
+              }}
+              disabled={brandSaving}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
+              style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid var(--gold)" }}
+            >
+              {brandSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+              {brandSaving ? "Saving..." : "Save Brand Kit"}
+            </button>
+          </div>
+        </GlassCard>
+      </motion.div>
+
+      {/* Notification Preferences */}
+      <motion.div variants={item}>
+        <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
+          <Bell size={18} style={{ color: "var(--turquoise)" }} />
+          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+            Notifications
+          </h2>
+        </div>
+        <GlassCard className="p-6">
+          <div className="space-y-4">
+            {([
+              { key: "email_video_complete" as const, label: "Pipeline Complete", desc: "When a video finishes rendering" },
+              { key: "email_weekly_digest" as const, label: "Weekly Digest", desc: "Performance summary every Monday" },
+              { key: "email_error_alerts" as const, label: "Error Alerts", desc: "When a pipeline step fails" },
+              { key: "email_ctr_alerts" as const, label: "CTR Alerts", desc: "CTR drops or surges after publish" },
+            ] as const).map((item) => (
+              <div key={item.key} className="flex items-center justify-between py-1">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{item.label}</p>
+                  <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>{item.desc}</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const current = notifPrefs?.[item.key] ?? true;
+                    // Optimistic update
+                    queryClient.setQueryData(["notificationPrefs"], (old: NotificationPreferences | undefined) =>
+                      old ? { ...old, [item.key]: !current } : old
+                    );
+                    try {
+                      await updateNotificationPreferences({ [item.key]: !current });
+                    } catch {
+                      // Revert on failure
+                      queryClient.invalidateQueries({ queryKey: ["notificationPrefs"] });
+                    }
+                  }}
+                  className="w-10 h-5 rounded-full relative transition-all shrink-0"
+                  style={{ background: (notifPrefs?.[item.key] ?? true) ? "var(--turquoise)" : "var(--bg-surface)" }}
+                >
+                  <div
+                    className="w-4 h-4 rounded-full absolute top-0.5 transition-all"
+                    style={{
+                      background: (notifPrefs?.[item.key] ?? true) ? "var(--bg-void)" : "var(--text-tertiary)",
+                      left: (notifPrefs?.[item.key] ?? true) ? "calc(100% - 18px)" : "2px",
+                    }}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
       </motion.div>
 
       {/* Billing & Plan — link to dedicated page */}

@@ -5,11 +5,11 @@ import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
-  BarChart3, Search, Video, Upload, Loader2, RotateCcw, Brain, Volume2,
+  BarChart3, Search, Video, Upload, Loader2, RotateCcw, Brain, Volume2, Download, ExternalLink, X,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideo, resetPipeline, runNextStep, advanceVideo, clearStaleTask } from "@/lib/api";
+import { getVideo, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -172,6 +172,34 @@ export default function VideoDetailPage() {
     },
   });
 
+  // Export manifest state
+  const [showExport, setShowExport] = useState(false);
+  const [exportData, setExportData] = useState<ExportManifest | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const handleExport = async () => {
+    setExportLoading(true);
+    try {
+      const manifest = await getExportManifest(videoId);
+      setExportData(manifest);
+      setShowExport(true);
+    } catch (err) {
+      toast.error(`Export failed: ${(err as Error).message}`);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const downloadAsFile = (content: string, filename: string, type: string) => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const currentTab = activeTab || defaultTab;
 
   const handleRunNext = async () => {
@@ -320,6 +348,17 @@ export default function VideoDetailPage() {
               ${(video.total_cost || 0).toFixed(2)}
             </p>
           </div>
+
+          {/* Export button */}
+          <button
+            onClick={handleExport}
+            disabled={exportLoading}
+            className="p-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
+            style={{ color: "var(--text-tertiary)" }}
+            title="Export assets"
+          >
+            {exportLoading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+          </button>
 
           {/* Reset button */}
           <div className="relative">
@@ -516,6 +555,76 @@ export default function VideoDetailPage() {
         {currentTab === "upload" && <UploadTab video={videoForTabs} onAdvanced={() => setActiveTab("performance")} />}
         {currentTab === "performance" && <PerformanceTab video={videoForTabs} />}
       </motion.div>
+      {/* Export Modal */}
+      {showExport && exportData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowExport(false)}>
+          <div
+            className="w-full max-w-lg rounded-2xl p-6 space-y-4"
+            style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-display" style={{ color: "var(--text-primary)" }}>Export Assets</h2>
+              <button onClick={() => setShowExport(false)} className="p-1" style={{ color: "var(--text-tertiary)" }}>
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{exportData.video_title}</p>
+
+            <div className="space-y-2">
+              {exportData.final_video_url && (
+                <ExportRow label="Final Video (MP4)" onClick={() => window.open(exportData.final_video_url!, "_blank")} icon={<ExternalLink size={14} />} />
+              )}
+              {exportData.thumbnail_url && (
+                <ExportRow label="Thumbnail" onClick={() => window.open(exportData.thumbnail_url!, "_blank")} icon={<ExternalLink size={14} />} />
+              )}
+              {exportData.drive_folder_link && (
+                <ExportRow label="Google Drive Folder" onClick={() => window.open(exportData.drive_folder_link!, "_blank")} icon={<ExternalLink size={14} />} />
+              )}
+              {exportData.youtube_url && (
+                <ExportRow label="YouTube" onClick={() => window.open(exportData.youtube_url!, "_blank")} icon={<ExternalLink size={14} />} />
+              )}
+              {exportData.voice_tracks.length > 0 && (
+                <ExportRow
+                  label={`Voice Tracks (${exportData.voice_tracks.length} scenes)`}
+                  onClick={() => {
+                    const text = exportData.voice_tracks.map((v) => `Scene ${v.scene}: ${v.voice_over_url}`).join("\n");
+                    downloadAsFile(text, "voice-tracks.txt", "text/plain");
+                  }}
+                  icon={<Download size={14} />}
+                />
+              )}
+              {exportData.assets.length > 0 && (
+                <ExportRow
+                  label={`Asset Manifest (${exportData.assets.length} images)`}
+                  onClick={() => {
+                    downloadAsFile(JSON.stringify(exportData.assets, null, 2), "assets.json", "application/json");
+                  }}
+                  icon={<Download size={14} />}
+                />
+              )}
+              {!exportData.final_video_url && !exportData.thumbnail_url && exportData.assets.length === 0 && (
+                <p className="text-xs py-4 text-center" style={{ color: "var(--text-tertiary)" }}>
+                  No assets available yet. Complete more pipeline stages to generate downloadable files.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
+  );
+}
+
+function ExportRow({ label, onClick, icon }: { label: string; onClick: () => void; icon: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm transition-all hover:brightness-110"
+      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}
+    >
+      {label}
+      <span style={{ color: "var(--turquoise)" }}>{icon}</span>
+    </button>
   );
 }
