@@ -1,5 +1,5 @@
 # Economy FastForward — AI Video Production Pipeline
-"Topic in, video out — length configured per-idea in Airtable"
+"Topic in, video out — length configured per-idea in SupaBase"
 
 ---
 
@@ -14,7 +14,7 @@
 - Renamed or moved files
 - Changed import paths
 - New cron jobs or Slack commands
-- New Airtable tables or fields
+- New Supabase tables or fields
 
 ---
 
@@ -73,7 +73,7 @@ If there's even a **1% chance** a skill applies → **invoke it**.
 ---
 
 ## Stack
-**Pipeline:** Python 3.11+ (async) · Remotion · Airtable (orchestration DB) · Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) · Google Drive (storage) · Slack (control)
+**Pipeline:** Python 3.11+ (async) · Remotion · Supabase (orchestration DB) · Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) · Google Drive (storage) · Slack (control)
 **StoryEngine:** Next.js 16 · React 19 · TypeScript · TailwindCSS 4 · Framer Motion · React Query · FastAPI · Supabase PostgreSQL · asyncpg
 
 ## Repo Structure

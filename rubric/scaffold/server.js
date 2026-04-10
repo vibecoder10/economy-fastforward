@@ -1404,16 +1404,20 @@ const server = http.createServer(async (req, res) => {
       try { tq = JSON.parse(fs.readFileSync(tqPath, 'utf8')); } catch {}
       if (!tq.tabs) tq.tabs = [];
       // Find existing tab for this PRD (by title match) or create one
-      const prdTabName = prd.title || 'Active PRD';
-      let prdTab = tq.tabs.find(t => t.name === prdTabName);
+      // Include PRD queue position for context (e.g. "PRD 2: Pipeline UX...")
+      const q_for_label = readPrdQueue();
+      const prdNum = q_for_label.current_index >= 0 ? q_for_label.current_index + 1 : '';
+      const prdTabName = (prdNum ? `PRD ${prdNum}: ` : '') + (prd.title || 'Active PRD');
+      let prdTab = tq.tabs.find(t => t.name === prdTabName || t.name === prd.title);
       if (!prdTab) {
         prdTab = { id: tq.tabs.length + 1, name: prdTabName, status: 'active', created_at: new Date().toISOString(), tasks: [] };
         tq.tabs.push(prdTab);
       }
+      prdTab.name = prdTabName; // update name in case it changed
       // Sync task statuses from prd.json → task-queue.json
       prdTab.tasks = tasks.map((t, i) => ({
-        id: `PRD-${t.id}`,
-        description: t.title,
+        id: `T${t.id}`,
+        title: t.title,
         role: t.role || 'backend',
         status: t.status,
         depends_on: t.depends_on || [],

@@ -2194,7 +2194,7 @@ window.__onTabShow = {};
     return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;margin:2px 0;background:#111;border-radius:8px;border-left:3px solid ' + roleColor + ';">' +
       '<div style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';flex-shrink:0;margin-top:5px;"></div>' +
       '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:12px;color:' + (t.status === 'done' ? '#666' : '#ccc') + ';line-height:1.4;">' + tqEsc(t.title || t.id || 'Untitled') + '</div>' +
+        '<div style="font-size:12px;color:' + (t.status === 'done' ? '#666' : '#ccc') + ';line-height:1.4;">' + tqEsc(t.title || t.description || t.id || 'Untitled') + '</div>' +
         '<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;align-items:center;">' +
           '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(128,128,128,0.1);color:' + roleColor + ';">' + tqEsc(t.role || '?') + '</span>' +
           '<span style="font-size:9px;color:#444;">' + source + '</span>' +
