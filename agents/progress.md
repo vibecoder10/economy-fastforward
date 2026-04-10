@@ -53,7 +53,7 @@ All 11 tasks done and verified by QA.
 
 ## Summary
 - Total: 15 tasks
-- Done: 13 | Verified: 13 (T1-T13) | Blocked: 0 | Remaining: 2 (T14 security, T15 perf)
+- Done: 14 | Verified: 13 (T1-T13) | Blocked: 0 | Remaining: 1 (T15 perf)
 
 ## Tasks
 
@@ -77,7 +77,7 @@ All 11 tasks done and verified by QA.
 
 ### QA & Security (run last, after all features shipped)
 - [x] T13: Beta launch regression — full page + API sweep (qa) — depends on T6-T12 *(verified 2026-04-10: 0 P0 blockers, profile 500 fixed, 28 pages compile, all endpoints work)*
-- [ ] T14: Security audit — auth, tenant isolation, secrets (security) — depends on T6-T12
+- [x] T14: Security audit — auth, tenant isolation, secrets (security) — depends on T6-T12 *(completed 2026-04-10: 3 CRITICAL, 3 HIGH findings. Report: agents/reports/security-audit-20260410.md. Critical: tenant_id missing in UPDATE WHERE clauses (assets.py, videos.py), API key reveal unmasked. Handed off fixes to backend-dev)*
 - [ ] T15: Performance & load readiness check (qa) — depends on T13
 
 ## T13 Regression Report (2026-04-10)

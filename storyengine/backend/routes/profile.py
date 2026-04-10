@@ -33,15 +33,24 @@ async def get_profile(user: AuthUser = Depends(verify_token)):
             user.email,
         )
     if not row:
-        # Auto-create account
-        await execute(
-            "INSERT INTO accounts (id, email, display_name, plan) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
-            account_id, user.email or "dev@local", user.email or "Dev User", "free",
-        )
+        # Auto-create account (handle both id and email conflicts)
+        try:
+            await execute(
+                "INSERT INTO accounts (id, email, display_name, plan) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
+                account_id, user.email or "dev@local", user.email or "Dev User", "free",
+            )
+        except Exception:
+            pass  # email uniqueness conflict — account exists under different id
         row = await fetch_one(
             "SELECT id, email, display_name, plan, created_at FROM accounts WHERE id = $1",
             account_id,
         )
+        if not row and user.email:
+            # Account exists under different id — look up by email
+            row = await fetch_one(
+                "SELECT id, email, display_name, plan, created_at FROM accounts WHERE email = $1",
+                user.email,
+            )
     if not row:
         raise HTTPException(status_code=404, detail="Account not found")
     return ProfileRead(

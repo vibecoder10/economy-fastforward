@@ -12,3 +12,4 @@
 - SEC-7: HTML audio elements can't set Authorization headers, so tokens go in URL query params. Fix: short-lived scoped JWT (5min, purpose=audio, video_id claim) via POST /audio-token. Frontend fetches token before building src URL.
 - NEVER name a Python file after a stdlib module (email.py, logging.py, json.py, etc). email.py shadowed stdlib email package, broke jwt/fastapi/httpx imports, caused 404s on ALL auth-dependent routes. Renamed to email_service.py. Delete __pycache__/*.pyc too.
 - Security audit (2026-04-08): Always html.escape() user-controlled values (display_name, plan) before interpolating into HTML email templates.
+- Security audit (2026-04-10): 5 UPDATE queries missing AND tenant_id in WHERE clause: assets.py lines 22+39, videos.py lines 325+597+650, projects.py line 176. Add tenant_id to all UPDATE/DELETE WHERE clauses as defense-in-depth.
