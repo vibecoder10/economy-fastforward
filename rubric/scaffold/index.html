@@ -306,6 +306,18 @@
   .cron-cal-event.cat-review { background: rgba(248,113,113,0.1); border-left-color: #f87171; }
   .cron-cal-event.cat-reminder { background: rgba(107,114,128,0.1); border-left-color: #6b7280; }
   .cron-cal-event.cat-default { background: rgba(107,114,128,0.1); border-left-color: #6b7280; }
+  /* Run history overlay bars */
+  .cron-cal-run { position: absolute; left: 4px; right: 4px; border-radius: 4px; z-index: 4; opacity: 0.55; min-height: 4px; cursor: default; transition: opacity 0.15s; }
+  .cron-cal-run:hover { opacity: 0.85; }
+  .cron-cal-run.run-completed { background: var(--green); }
+  .cron-cal-run.run-error { background: var(--red); }
+  .cron-cal-run.run-timeout { background: var(--amber); }
+  .cron-view-toggle { display: inline-flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 11px; }
+  .cron-view-toggle button { background: transparent; border: none; color: var(--text-muted); padding: 4px 12px; cursor: pointer; font-family: inherit; font-size: 11px; transition: all 0.15s; }
+  .cron-view-toggle button:not(:last-child) { border-right: 1px solid var(--border); }
+  .cron-view-toggle button.active { background: rgba(80,227,194,0.12); color: var(--green); }
+  .cron-view-toggle button:hover:not(.active) { color: var(--text-secondary); }
+
   .next-up { margin-top: 8px; }
   .next-up h3, .cron-monthly h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; font-weight: 500; }
   .next-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
@@ -358,6 +370,9 @@
   .icon-toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; font-size: 12px; font-family: 'Outfit', sans-serif; padding: 10px 18px; border-radius: 8px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 999; }
   .icon-toast.show { opacity: 1; }
   .icon-toast span { color: #ff6b1a; font-weight: 700; }
+
+  /* ==================== TOAST ANIMATIONS ==================== */
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
   /* ==================== RESPONSIVE ==================== */
   @media (max-width: 900px) { .agents-grid { grid-template-columns: repeat(2, 1fr); } }
@@ -653,6 +668,12 @@
         <div id="agent-controls-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;"></div>
       </div>
 
+      <!-- Cost Summary (Feature 3) -->
+      <div style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#888;">Agent Costs</h3>
+        <div id="cost-summary"><div style="color:#555;font-size:12px;text-align:center;">Loading...</div></div>
+      </div>
+
       <!-- Cadence Control -->
       <div style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
         <h3 style="font-size:14px;font-weight:600;margin-bottom:4px;color:#888;">Build Cadence</h3>
@@ -821,6 +842,14 @@
         <div class="next-up" style="margin:0;">
           <h3>All Active Jobs</h3>
           <div id="cron-all-list"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span style="font-size:12px;color:var(--text-muted);">Calendar View</span>
+        <div class="cron-view-toggle" id="cron-view-toggle">
+          <button class="active" data-view="scheduled">Scheduled</button>
+          <button data-view="actual">Actual</button>
+          <button data-view="both">Both</button>
         </div>
       </div>
       <div class="cron-calendar-wrapper">
@@ -992,6 +1021,9 @@ window.__onTabShow = {};
     loadActivityFeed();
     setInterval(loadActivityFeed, 8000);
     document.getElementById('activity-refresh-btn')?.addEventListener('click', () => { loadActivityFeed(); loadHandoffs(); loadTaskProgress(); });
+
+    loadCostSummary();
+    setInterval(loadCostSummary, 30000);
 
     loadPullRequests();
     setInterval(loadPullRequests, 60000);
@@ -1307,6 +1339,112 @@ window.__onTabShow = {};
     } catch {}
   };
 
+  // ─── Log Viewer (Feature 4) ───────────────────────────────────────────────
+  window.viewAgentLog = async function(agent) {
+    if (!agent || !/^[a-z0-9-]+$/.test(agent)) return;
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.onclick = (e) => { if (e.target === overlay) { clearInterval(overlay._poll); overlay.remove(); } };
+    const modal = document.createElement('div');
+    modal.style.cssText = 'background:#0a0a0a;border:1px solid #222;border-radius:12px;padding:24px;max-width:800px;width:100%;max-height:80vh;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
+    const color = AGENT_COLORS[agent] || '#888';
+    modal.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+      '<h3 style="font-size:16px;font-weight:700;color:' + color + ';">' + esc(AGENT_NAMES[agent] || agent) + ' — Live Log</h3>' +
+      '<button onclick="clearInterval(this.closest(\'div[style*=fixed]\')._poll);this.closest(\'div[style*=fixed]\').remove()" style="background:none;border:none;color:#555;cursor:pointer;font-size:20px;">&times;</button></div>' +
+      '<pre id="log-content" style="flex:1;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word;font-size:11px;color:#8ab4f8;line-height:1.5;font-family:monospace;background:#111;padding:12px;border-radius:8px;margin:0;">Loading...</pre>';
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    const logEl = modal.querySelector('#log-content');
+    async function refreshLog() {
+      try {
+        const r = await fetch('/api/logs/' + agent + '?lines=300');
+        if (r.ok) { const d = await r.json(); logEl.textContent = d.content || 'Empty log'; logEl.scrollTop = logEl.scrollHeight; }
+      } catch {}
+    }
+    refreshLog();
+    overlay._poll = setInterval(refreshLog, 5000);
+  };
+
+  // ─── Cost Summary (Feature 3) ───────────────────────────────────────────
+  async function loadCostSummary() {
+    const el = document.getElementById('cost-summary');
+    if (!el) return;
+    try {
+      const resp = await fetch('/api/cost-summary');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const periods = [['24h', '24 Hours'], ['7d', '7 Days'], ['30d', '30 Days']];
+      let html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px;">';
+      for (const [k, label] of periods) {
+        const p = data[k] || {};
+        html += '<div style="padding:12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;text-align:center;">' +
+          '<div style="font-size:10px;color:#555;">' + label + '</div>' +
+          '<div style="font-size:20px;font-weight:700;color:#f5a623;margin-top:4px;">$' + (p.totalCost || 0).toFixed(2) + '</div>' +
+          '<div style="font-size:10px;color:#555;margin-top:2px;">' + (p.totalRuns || 0) + ' runs</div>' +
+          '</div>';
+      }
+      html += '</div>';
+      // Per-agent breakdown for 24h
+      const agents24 = data['24h']?.byAgent || {};
+      if (Object.keys(agents24).length > 0) {
+        html += '<div style="font-size:11px;color:#555;margin-bottom:6px;">Last 24h by agent:</div>';
+        for (const [a, info] of Object.entries(agents24).sort((x,y) => y[1].cost - x[1].cost)) {
+          const pct = data['24h'].totalCost > 0 ? Math.round(info.cost / data['24h'].totalCost * 100) : 0;
+          const c = AGENT_COLORS[a] || '#555';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">' +
+            '<span style="font-size:10px;color:' + c + ';width:100px;">' + esc(AGENT_NAMES[a] || a) + '</span>' +
+            '<div style="flex:1;height:4px;background:#1a1a1a;border-radius:2px;"><div style="width:' + pct + '%;height:100%;background:' + c + ';border-radius:2px;"></div></div>' +
+            '<span style="font-size:10px;color:#888;width:50px;text-align:right;">$' + info.cost.toFixed(2) + '</span>' +
+            '<span style="font-size:9px;color:#555;width:30px;">' + info.runs + ' runs</span>' +
+            '</div>';
+        }
+      }
+      el.innerHTML = html;
+    } catch {}
+  }
+
+  // ─── Toast Notifications (Feature 7) ─────────────────────────────────────
+  (function initToasts() {
+    const container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:10000;display:flex;flex-direction:column-reverse;gap:8px;max-width:350px;pointer-events:none;';
+    document.body.appendChild(container);
+
+    window.showToast = function(agent, summary, status) {
+      const color = AGENT_COLORS[agent] || '#888';
+      const statusColor = status === 'completed' ? '#50e3c2' : status === 'error' ? '#e35050' : status === 'timeout' ? '#f5a623' : '#888';
+      const icon = status === 'completed' ? '&#10003;' : status === 'error' ? '&#10007;' : status === 'timeout' ? '&#9201;' : '&#9679;';
+      const toast = document.createElement('div');
+      toast.style.cssText = 'pointer-events:auto;padding:12px 16px;background:#0a0a0a;border:1px solid #222;border-left:3px solid '+color+';border-radius:8px;font-family:Outfit,sans-serif;animation:slideIn 0.3s ease;cursor:pointer;';
+      toast.innerHTML = '<div style="display:flex;gap:10px;align-items:start;">' +
+        '<span style="color:'+statusColor+';font-size:14px;">'+icon+'</span>' +
+        '<div style="flex:1;"><div style="font-size:11px;font-weight:600;color:'+color+';">'+esc(AGENT_NAMES[agent]||agent)+'</div>' +
+        '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+esc(summary?.slice(0,120)||'')+'</div></div></div>';
+      toast.onclick = () => toast.remove();
+      container.appendChild(toast);
+      const dismissMs = status === 'error' || status === 'timeout' ? 10000 : 5000;
+      setTimeout(() => { if (toast.parentNode) { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); } }, dismissMs);
+      // Keep max 3 toasts
+      while (container.children.length > 3) container.removeChild(container.firstChild);
+    };
+
+    // Poll for new activity entries and show toasts
+    let lastActivityTs = Date.now();
+    setInterval(async () => {
+      try {
+        const resp = await fetch('/api/activity-log?limit=3');
+        if (!resp.ok) return;
+        const entries = await resp.json();
+        for (const e of entries) {
+          if (e.timestamp > lastActivityTs && (e.status === 'completed' || e.status === 'error' || e.status === 'timeout')) {
+            showToast(e.agent, e.summary, e.status);
+          }
+        }
+        if (entries.length > 0 && entries[0].timestamp > lastActivityTs) lastActivityTs = entries[0].timestamp;
+      } catch {}
+    }, 10000);
+  })();
+
   // Sidebar pause button click handler
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('.agent-pause-btn');
@@ -1432,12 +1570,21 @@ window.__onTabShow = {};
         const color = AGENT_COLORS[e.agent] || '#888';
         const ago = Math.floor((Date.now() - e.timestamp) / 60000);
         const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';
-        const statusIcon = e.status === 'completed' ? '&#10003;' : e.status === 'error' ? '&#10007;' : '&#9679;';
-        const statusColor = e.status === 'completed' ? '#50e3c2' : e.status === 'error' ? '#e35050' : '#D4A844';
+        const statusIcon = e.status === 'completed' ? '&#10003;' : e.status === 'error' ? '&#10007;' : e.status === 'timeout' ? '&#9201;' : '&#9679;';
+        const statusColor = e.status === 'completed' ? '#50e3c2' : e.status === 'error' ? '#e35050' : e.status === 'timeout' ? '#f5a623' : '#D4A844';
         const detailHtml = e.detail ? '<div style="font-size:12px;color:#999;margin-top:8px;line-height:1.6;padding:8px 12px;background:#111;border-radius:6px;white-space:pre-wrap;">' + esc(e.detail) + '</div>' : '';
         const reportBtn = e.detail_file ? '<button onclick="viewReport(\'' + esc(e.detail_file) + '\')" style="background:none;border:1px solid #222;color:#666;padding:4px 10px;border-radius:4px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;margin-top:6px;">View Full Report</button>' : '';
+        const logBtn = e.agent ? '<button onclick="viewAgentLog(\'' + esc(e.agent) + '\')" style="background:none;border:1px solid #222;color:#666;padding:4px 10px;border-radius:4px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;margin-top:6px;margin-left:4px;">Logs</button>' : '';
         const taskId = e.task || '';
         const screenshotHtml = taskId ? '<div style="display:flex;gap:8px;margin-top:8px;"><img src="/api/screenshots/' + esc(taskId) + '-before.png" onerror="this.parentElement.style.display=\'none\'" style="width:120px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #222;cursor:pointer;" onclick="window.open(this.src)" /><img src="/api/screenshots/' + esc(taskId) + '-after.png" onerror="this.style.display=\'none\'" style="width:120px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #222;cursor:pointer;" onclick="window.open(this.src)" /></div>' : '';
+        // Duration + cost badges
+        const durStr = e.duration_seconds != null ? (e.duration_seconds >= 60 ? Math.floor(e.duration_seconds/60) + 'm ' + (e.duration_seconds%60) + 's' : e.duration_seconds + 's') : '';
+        const costStr = e.estimated_cost != null ? '$' + e.estimated_cost.toFixed(2) : '';
+        const metaBadges = (durStr || costStr) ? '<div style="display:flex;gap:8px;margin-top:4px;">' +
+          (durStr ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(80,227,194,0.08);color:#50e3c2;">&#9202; ' + durStr + '</span>' : '') +
+          (costStr ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(245,166,35,0.08);color:#f5a623;">' + costStr + '</span>' : '') +
+          (e.model ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(138,180,248,0.08);color:#8ab4f8;">' + esc(e.model) + '</span>' : '') +
+          '</div>' : '';
         return '<div style="padding:12px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:10px;border-left:3px solid '+color+';">' +
           '<div style="display:flex;gap:12px;">' +
             '<div style="min-width:100px;">' +
@@ -1447,12 +1594,13 @@ window.__onTabShow = {};
             '<div style="flex:1;">' +
               '<div style="font-size:13px;color:#ccc;font-weight:500;">' + esc(e.summary || e.task || 'No summary') + '</div>' +
               (e.task && e.summary ? '<div style="font-size:10px;color:#555;margin-top:2px;">Task: ' + esc(e.task) + '</div>' : '') +
+              metaBadges +
             '</div>' +
             '<div style="font-size:14px;color:'+statusColor+';">' + statusIcon + '</div>' +
           '</div>' +
           detailHtml +
           screenshotHtml +
-          reportBtn +
+          '<div style="display:flex;gap:4px;">' + reportBtn + logBtn + '</div>' +
         '</div>';
       }).join('');
     } catch {}
@@ -3187,6 +3335,8 @@ async function saveInstructions(agentId) {
 // ==================== CRONS ====================
 (function() {
   let cronsData = [];
+  let runHistoryData = [];
+  let cronViewMode = 'scheduled'; // 'scheduled' | 'actual' | 'both'
   const HOUR_HEIGHT = 48;
 
   function escapeHtml(text) { if (!text) return ''; const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
@@ -3243,8 +3393,9 @@ async function saveInstructions(agentId) {
     const currentMin = now.getMinutes();
 
     const totalJobs = cronsData.length;
-    const activeJobs = cronsData.filter(c => c.enabled).length;
-    document.getElementById('cron-stats').innerHTML = activeJobs + ' active &middot; ' + totalJobs + ' total';
+    const activeJobs = cronsData.filter(c => c.effectivelyEnabled !== false).length;
+    const teamOff = cronsData.length > 0 && cronsData[0].teamOff;
+    document.getElementById('cron-stats').innerHTML = teamOff ? '<span style="color:#e35050;">Team OFF</span>' : activeJobs + ' active &middot; ' + totalJobs + ' total';
     document.getElementById('cron-now-label').textContent = formatTime(currentHour, currentMin);
 
     const daysHeader = document.getElementById('cron-cal-days');
@@ -3296,14 +3447,45 @@ async function saveInstructions(agentId) {
         placed.push({ top, bottom, col, ev });
       }
       for (const p of placed) { const overlapping = placed.filter(q => q.top < p.top + EVENT_PX_HEIGHT && q.top + EVENT_PX_HEIGHT > p.top); const maxC = Math.max(...overlapping.map(q => q.col)) + 1; overlapping.forEach(q => { q.ev._totalCols = Math.max(q.ev._totalCols, maxC); }); }
+      const hideScheduled = cronViewMode === 'actual';
       for (const ev of events) {
         const widthPct = 100 / ev._totalCols; const leftPct = widthPct * ev._col;
-        const style = ev._totalCols > 1 ? 'top:' + ev._top + 'px;left:' + leftPct + '%;width:' + widthPct + '%;right:auto;' : 'top:' + ev._top + 'px';
+        const vis = hideScheduled ? 'display:none;' : '';
+        const style = (ev._totalCols > 1 ? 'top:' + ev._top + 'px;left:' + leftPct + '%;width:' + widthPct + '%;right:auto;' : 'top:' + ev._top + 'px') + vis;
         gridHtml += '<div class="cron-cal-event cat-' + ev.cat + '" style="' + style + '" title="' + escapeHtml(ev.desc || ev.name) + '"><div class="ev-name">' + escapeHtml(ev.name) + '</div><div class="ev-time">' + formatTime(ev.hour, ev.min) + '</div></div>';
       }
       gridHtml += '</div>';
     }
     gridEl.innerHTML = gridHtml;
+
+    // Overlay actual run bars from run history
+    if ((cronViewMode === 'actual' || cronViewMode === 'both') && runHistoryData.length > 0) {
+      const columns = gridEl.querySelectorAll('.cron-cal-column');
+      const weekStart = new Date(now); weekStart.setDate(weekStart.getDate() - todayDow); weekStart.setHours(0,0,0,0);
+      for (const run of runHistoryData) {
+        const startDate = new Date(run.start_time);
+        const endDate = new Date(run.end_time);
+        const runDow = (startDate.getDay() + 6) % 7; // Mon=0
+        const daysSinceWeekStart = Math.floor((startDate - weekStart) / 86400000);
+        if (daysSinceWeekStart < 0 || daysSinceWeekStart > 6) continue;
+        const col = columns[daysSinceWeekStart];
+        if (!col) continue;
+        const startH = startDate.getHours() + startDate.getMinutes() / 60;
+        const endH = endDate.getHours() + endDate.getMinutes() / 60 + (endDate.getDate() !== startDate.getDate() ? 24 : 0);
+        const top = startH * HOUR_HEIGHT;
+        const height = Math.max(4, (Math.min(endH, 24) - startH) * HOUR_HEIGHT);
+        const statusClass = run.status === 'error' ? 'run-error' : run.status === 'timeout' ? 'run-timeout' : 'run-completed';
+        const durStr = run.duration_seconds ? Math.round(run.duration_seconds / 60) + 'm' : '';
+        const costStr = run.estimated_cost ? ' $' + run.estimated_cost : '';
+        const prettyAgent = (run.agent || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const bar = document.createElement('div');
+        bar.className = 'cron-cal-run ' + statusClass;
+        bar.style.cssText = 'top:' + top + 'px;height:' + height + 'px;';
+        bar.title = prettyAgent + ' — ' + run.status + (durStr ? ' (' + durStr + costStr + ')' : '');
+        if (height >= 14) { bar.innerHTML = '<span style="font-size:9px;padding:0 4px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">' + escapeHtml(prettyAgent) + '</span>'; }
+        col.appendChild(bar);
+      }
+    }
 
     // Next Up — find the soonest upcoming run for each cron
     const nextUp = document.getElementById('cron-next-up');
@@ -3347,9 +3529,30 @@ async function saveInstructions(agentId) {
       const days = parsed.monthly ? 'monthly' : [...new Set(parsed.times.map(t => ['MON','TUE','WED','THU','FRI','SAT','SUN'][t.day]))].join(', ');
       const cat = categorize(c.name, c.description); const dotColor = catColors[cat] || 'var(--text-muted)';
       const agentLabel = c.agent ? '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(80,227,194,0.1);color:var(--green);">' + escapeHtml(c.agent) + '</span>' : '';
-      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:4px;font-size:12px;"><span style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;"></span><span style="flex:1;color:var(--text);">' + escapeHtml(name) + '</span><span style="color:var(--text-muted);width:60px;">' + timeStr + '</span><span style="color:var(--text-muted);width:100px;font-size:10px;">' + days + '</span>' + agentLabel + '</div>';
+      const isOff = c.effectivelyEnabled === false;
+      const offLabel = isOff ? (c.teamOff ? '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(227,80,80,0.1);color:#e35050;">Team OFF</span>' : c.agentPaused ? '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(245,166,35,0.1);color:#f5a623;">Paused</span>' : '') : '';
+      const opacity = isOff ? 'opacity:0.4;' : '';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:4px;font-size:12px;'+opacity+'"><span style="width:6px;height:6px;border-radius:50%;background:' + (isOff ? '#555' : dotColor) + ';flex-shrink:0;"></span><span style="flex:1;color:var(--text);">' + escapeHtml(name) + '</span><span style="color:var(--text-muted);width:60px;">' + timeStr + '</span><span style="color:var(--text-muted);width:100px;font-size:10px;">' + days + '</span>' + offLabel + agentLabel + '</div>';
     }).join('') || '<div style="color:var(--text-muted);font-size:12px;padding:12px;">No active jobs found</div>';
   }
+
+  async function loadRunHistory() {
+    try { const res = await fetch('/api/run-history'); if (res.ok) runHistoryData = await res.json(); }
+    catch (e) { console.error('Failed to load run history:', e); }
+  }
+
+  // View toggle handler
+  document.getElementById('cron-view-toggle').addEventListener('click', function(e) {
+    const btn = e.target.closest('button[data-view]');
+    if (!btn) return;
+    cronViewMode = btn.dataset.view;
+    this.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+    if (cronViewMode !== 'scheduled' && runHistoryData.length === 0) {
+      loadRunHistory().then(() => renderCrons());
+    } else {
+      renderCrons();
+    }
+  });
 
   async function loadCrons() {
     try { const res = await fetch('/api/crons'); if (res.ok) cronsData = await res.json(); }
@@ -3362,7 +3565,9 @@ async function saveInstructions(agentId) {
     if (!cronsInitialized) {
       cronsInitialized = true;
       loadCrons();
+      loadRunHistory(); // pre-fetch run history
       setInterval(loadCrons, 30000);
+      setInterval(loadRunHistory, 60000); // refresh run history every minute
       setInterval(() => { if (cronsData.length > 0) renderCrons(); }, 60000);
     }
   };

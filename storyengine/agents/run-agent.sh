@@ -73,6 +73,29 @@ if [ -z "$AGENT" ]; then
   exit 1
 fi
 
+# ─── Concurrency Guard (PID lock) ──────────────────────────────────────────
+LOCK_DIR="/tmp/storyengine-agents"
+LOCK_FILE="$LOCK_DIR/$AGENT.lock"
+mkdir -p "$LOCK_DIR"
+
+if [ -f "$LOCK_FILE" ]; then
+  LOCK_PID=$(cut -d: -f1 "$LOCK_FILE" 2>/dev/null)
+  LOCK_START=$(cut -d: -f2 "$LOCK_FILE" 2>/dev/null)
+  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    LOCK_AGE=$(( $(date +%s) - ${LOCK_START:-0} ))
+    echo "Agent $AGENT already running (PID $LOCK_PID, ${LOCK_AGE}s ago) — skipping"
+    post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": \"Skipped — previous run still active (PID $LOCK_PID, ${LOCK_AGE}s)\", \"status\": \"skipped\"}"
+    exit 0
+  else
+    echo "Removing stale lock for $AGENT (PID $LOCK_PID no longer running)"
+    rm -f "$LOCK_FILE"
+  fi
+fi
+
+# Write lock and ensure cleanup on any exit
+echo "$$:$(date +%s)" > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT INT TERM
+
 AGENT_FILE="$AGENTS_DIR/$AGENT.md"
 if [ ! -f "$AGENT_FILE" ]; then
   echo "Error: Agent file not found: $AGENT_FILE"
@@ -735,13 +758,29 @@ Begin work now. Follow the chain of command above — operator orders FIRST, the
 
 # ─── Invoke Claude ──────────────────────────────────────────────────────────
 # Write prompt to temp file then pipe via stdin to avoid "Argument list too long" (ARG_MAX)
+MAX_AGENT_RUNTIME="${MAX_AGENT_RUNTIME:-1800}" # 30 minutes default
+RUN_START=$(date +%s)
 PROMPT_FILE=$(mktemp /tmp/agent-prompt-XXXXXX.txt)
 printf '%s' "$PROMPT" > "$PROMPT_FILE"
 set +e
-OUTPUT=$($CLAUDE_BIN -p $MODEL_FLAG --dangerously-skip-permissions < "$PROMPT_FILE" 2>&1)
+OUTPUT=$(timeout --signal=TERM --kill-after=60 "$MAX_AGENT_RUNTIME" $CLAUDE_BIN -p $MODEL_FLAG --dangerously-skip-permissions < "$PROMPT_FILE" 2>&1)
 CLAUDE_EXIT=$?
 set -e
+RUN_END=$(date +%s)
+RUN_DURATION=$((RUN_END - RUN_START))
 rm -f "$PROMPT_FILE"
+
+# ─── Timeout Detection ─────────────────────────────────────────────────────
+if [ $CLAUDE_EXIT -eq 124 ]; then
+  ERROR_MSG="Agent timed out after ${MAX_AGENT_RUNTIME}s (${RUN_DURATION}s elapsed)"
+  post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"timeout\", \"duration_seconds\": $RUN_DURATION}"
+  curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"$ERROR_MSG\"}" 2>/dev/null || true
+  notify_slack ":alarm_clock: *$AGENT_DISPLAY* timed out after ${RUN_DURATION}s"
+  notify_telegram "⏰ *${AGENT_DISPLAY}* timed out after ${RUN_DURATION}s"
+  exit 1
+fi
 
 # ─── Save Report ────────────────────────────────────────────────────────────
 REPORT_FILE="$REPORTS_DIR/$RUN_ID.md"
@@ -761,7 +800,7 @@ echo "Report saved: $REPORT_FILE"
 if [ $CLAUDE_EXIT -ne 0 ]; then
   CLEAN_OUT=$(echo "$OUTPUT" | tail -n 5 | tr '\n' ' ' | tr -d '"' | cut -c 1-200)
   ERROR_MSG="Agent crashed (exit code $CLAUDE_EXIT) - $CLEAN_OUT"
-  post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"error\", \"detail_file\": \"$RUN_ID.md\"}"
+  post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"error\", \"detail_file\": \"$RUN_ID.md\", \"duration_seconds\": $RUN_DURATION}"
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
     -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"$ERROR_MSG\"}" 2>/dev/null || true
@@ -779,11 +818,21 @@ if [ -z "$SUMMARY_LINE" ]; then
   SUMMARY_LINE=$(git log --oneline -1 2>/dev/null | cut -d' ' -f2- || echo "Session completed")
 fi
 
+# ─── Cost Estimation ────────────────────────────────────────────────────────
+RUN_MODEL="unknown"
+case "$MODEL_FLAG" in
+  *opus*)   RUN_MODEL="opus";   COST_PER_MIN="0.05" ;;
+  *sonnet*) RUN_MODEL="sonnet"; COST_PER_MIN="0.01" ;;
+  *)        RUN_MODEL="opus";   COST_PER_MIN="0.03" ;;
+esac
+RUN_MINUTES=$(echo "scale=1; $RUN_DURATION / 60" | bc 2>/dev/null || echo "0")
+EST_COST=$(echo "scale=2; $RUN_MINUTES * $COST_PER_MIN" | bc 2>/dev/null || echo "0")
+
 # ─── Post to Activity Feed ──────────────────────────────────────────────────
 DETAIL_JSON=$(echo "$DETAIL_LINES" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"\"")
 SUMMARY_JSON=$(echo "$SUMMARY_LINE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$SUMMARY_LINE\"")
 
-post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}"
+post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\", \"duration_seconds\": $RUN_DURATION, \"estimated_cost\": $EST_COST, \"model\": \"$RUN_MODEL\"}"
 
 # ─── Extract Launch Score (Ops Mode) ──────────────────────────────────────
 if [ "$OPS_MODE" = "true" ]; then
@@ -925,6 +974,16 @@ try:
         role = t.get('role', '')
         agent = role_to_agent.get(role, '')
         if agent and agent != '$AGENT' and agent not in spawned:
+            # Check concurrency lock before spawning
+            lock_path = f'/tmp/storyengine-agents/{agent}.lock'
+            if os.path.exists(lock_path):
+                try:
+                    pid = int(open(lock_path).read().split(':')[0])
+                    os.kill(pid, 0)  # check if alive
+                    print(f'Skipping {agent} — already running (PID {pid})')
+                    continue
+                except (ProcessLookupError, ValueError, OSError):
+                    pass  # stale lock, safe to spawn
             spawned.add(agent)
             print(f'Spawning {agent} (unblocked)')
             subprocess.Popen(
@@ -989,7 +1048,7 @@ for tab in q.get('tabs', []):
 q['tabs'] = [t for t in q['tabs'] if t.get('tasks')]
 json.dump(q, sys.stdout, indent=2)
 " 2>/dev/null || cat "$AGENTS_DIR/task-queue.json")
-  TASK_GEN=$($CLAUDE_BIN -p "$(cat <<TASKEOF
+  TASK_GEN=$(timeout --signal=TERM --kill-after=30 300 $CLAUDE_BIN -p "$(cat <<TASKEOF
 You just completed task $TASK_LINE for StoryEngine as the $AGENT agent.
 Summary: $SUMMARY_LINE
 
