@@ -16,3 +16,4 @@
 - Security audit (2026-04-10): email_service.py:59,110 interpolates display_name into HTML without html.escape(). Always use html.escape() for user-supplied strings in email templates.
 - QA caught SEC-SSE-001: pipeline.py:51 _running_tasks is a global dict keyed by video_id only — no tenant_id scoping. SSE stream at line 1438 leaks cross-tenant task progress. Fix: scope by (tenant_id, video_id).
 - QA caught SEC-KEYS-001: vault.py:326 sends Gemini API key as URL query param (logged in access logs). Use x-goog-api-key header. Also vault.py:356 and settings.py:231 return raw str(e) to client — use generic error messages.
+- Pipeline Tester found: POST /api/settings/keys/validate was unreachable due to FastAPI route ordering — /keys/{key_name} matched first. Always define literal path routes BEFORE parameterized routes in FastAPI.

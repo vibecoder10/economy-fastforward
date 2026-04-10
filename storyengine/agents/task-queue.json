@@ -1,8 +1,8 @@
 {
   "version": 2,
   "current_tab": 0,
-  "last_updated": "2026-04-10T06:25:00Z",
-  "last_updated_by": "qa-engineer",
+  "last_updated": "2026-04-10T06:35:00Z",
+  "last_updated_by": "pipeline-tester",
   "completed_summary": "194 tasks across 33 tabs completed Apr 2-8. Archive: agents/archive/task-queue-2026-04-08.json",
   "tabs": [
     {
@@ -40,22 +40,30 @@
           "id": "T3",
           "title": "PipelineStepper component: 13-stage visual stepper",
           "role": "frontend-dev",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             2
           ],
-          "verified": false
+          "verified": true,
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-10T06:04:00Z",
+          "verified_at": "2026-04-10T06:35:00Z",
+          "verified_by": "pipeline-tester"
         },
         {
           "id": "T4",
           "title": "Wire PipelineStepper to video detail + pipeline list SSE",
           "role": "frontend-dev",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             2,
             3
           ],
-          "verified": false
+          "verified": true,
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-10T06:04:00Z",
+          "verified_at": "2026-04-10T06:35:00Z",
+          "verified_by": "pipeline-tester"
         },
         {
           "id": "T5",
@@ -79,11 +87,15 @@
           "id": "T7",
           "title": "Frontend: settings key validation UI with test buttons",
           "role": "frontend-dev",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             6
           ],
-          "verified": false
+          "verified": true,
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-10T06:04:00Z",
+          "verified_at": "2026-04-10T06:35:00Z",
+          "verified_by": "pipeline-tester"
         },
         {
           "id": "T8",
@@ -114,11 +126,15 @@
           "id": "T10",
           "title": "PipelineNotificationProvider: SSE-driven toast notifications",
           "role": "frontend-dev",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             2
           ],
-          "verified": false
+          "verified": true,
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-10T06:04:00Z",
+          "verified_at": "2026-04-10T06:35:00Z",
+          "verified_by": "pipeline-tester"
         },
         {
           "id": "T11",

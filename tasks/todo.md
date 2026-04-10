@@ -7,19 +7,13 @@
 **Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
 
 ## Handoff
-**Frontend (2026-04-10):** T2 done — SSE hook updated to use /api/pipeline/stream with dual event types (stage_change + task_progress), per-video filtering, updated both consumers. T3 (PipelineStepper), T4 (wire stepper), T7 (key validation UI), T10 (notification provider) are now unblocked. Next: T3 or T7.
+**Pipeline Tester (2026-04-10):** PRD2 T1-T11 all verified via acceptance criteria + Playwright. Fixed route ordering bug in settings.py (POST /keys/validate caught by /keys/{key_name} — commit 4057fb1). Auth 401 on /login NOT A BUG (stale RUBRIC entries from before 380178b).
 
-**Security fix (2026-04-10):** Added `AND tenant_id` to 7 UPDATE queries across assets.py, videos.py, projects.py. Critical tenant isolation bypass patched.
+**PRD 2 status:** 11/13 done. T12 (QA Playwright regression) and T13 (already done by qa-engineer) are the only remaining items. T12 dependencies now all met.
 
-**Still open from security audit:** review.py (3 UPDATEs), agents.py (1), learning_extraction.py (2), youtube_sync.py (1) also missing tenant_id in UPDATE WHERE clauses. Lower priority since those endpoints don't take user-controlled IDs or have ownership checks above.
+**PRD 4 COMPLETE** — All 15/15 tasks done.
 
-**PRD 2 COMPLETE** — All 14 tasks verified.
-**PRD 3 frontend COMPLETE** — Tasks 2-7 done (3,4,5 were pre-implemented; 2,6,7 committed this session).
-**PRD 4 in progress:**
-- T8 (video preview) already implemented
-- T10 (legal pages) DONE — /terms and /privacy created, added to PUBLIC_PATHS, footer links on landing page
-- T9 (getting started guide) is next for frontend
-- T6, T7, T11, T12 blocked on backend (T1-T5)
+**Still open:** 3 SEC bugs in task queue (SEC-SSE-001 cross-tenant SSE, SEC-EMAIL-001 HTML injection, SEC-KEYS-001 exception leak). These are for backend-dev.
 
 Previous handoff (PRD 2):
 All 7 PRD 2 backend tasks are committed and passing acceptance criteria:
