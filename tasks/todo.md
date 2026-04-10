@@ -114,3 +114,10 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
   - SEC-KEYS-001 MEDIUM: vault.py:326 Gemini key in URL + vault.py:356/settings.py:231 leak exception details
 - Remaining: T3 (PipelineStepper), T4 (wire stepper), T7 (key validation UI), T10 (notification provider) for frontend-dev
 - T12 (full QA regression) depends on all of the above
+
+## Handoff (2026-04-10)
+- PRD 2 (Pipeline UX) is active with 13 tasks, agents executing
+- Fixed: ANTHROPIC_API_KEY leak ($64/day), stale progress.md, RUBRIC PRD display, agent coordination
+- RUBRIC layout: two-column (queue + activity feed), tasks labeled by PRD
+- Agents use OAuth now (no API key charges)
+- Monitor: check cost page Apr 11 to confirm $0 API charges

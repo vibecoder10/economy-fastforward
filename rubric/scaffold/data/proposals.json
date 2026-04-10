@@ -1,0 +1,28 @@
+[
+  {
+    "id": "prop-1775794941280",
+    "agent": "qa-engineer",
+    "type": "optimization",
+    "title": "Batch dashboard/summary into 1-2 CTEs",
+    "description": "The dashboard summary endpoint runs 10 separate database queries in sequence, taking 2.1 seconds. Combining them into 1-2 CTEs (Common Table Expressions) would drop it to under 300ms. Same pattern for settings/keys (14 queries, 1.8s).",
+    "impact": "Dashboard loads 7x faster for every user on every page load",
+    "cost": "low",
+    "status": "approved",
+    "created_at": 1775794941280,
+    "resolved_at": 1775795711590,
+    "resolved_by": "operator"
+  },
+  {
+    "id": "prop-1775794499982",
+    "agent": "backend-dev",
+    "type": "bug_fix",
+    "title": "Fix remaining tenant_id gaps in UPDATE queries",
+    "description": "7 more UPDATE queries in review.py, agents.py, learning_extraction.py, and youtube_sync.py are missing AND tenant_id in WHERE clauses. Same pattern as the 7 just fixed. Lower risk since most don't take user-controlled IDs, but still defense-in-depth gaps.",
+    "impact": "Complete tenant isolation across all backend routes",
+    "cost": "low",
+    "status": "approved",
+    "created_at": 1775794499982,
+    "resolved_at": 1775794536303,
+    "resolved_by": "operator"
+  }
+]

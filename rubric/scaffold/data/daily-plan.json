@@ -1,0 +1,56 @@
+{
+  "date": "2026-04-10",
+  "summary": "Backend clears the two biggest blockers today: the live auth bug users are hitting plus the SSE streaming endpoint that unlocks the entire real-time UI. Frontend picks up immediately once those land. QA runs a security audit on new features as they ship. End of day target: 7 of 13 tasks done.",
+  "assignments": {
+    "backend-dev": {
+      "tasks": [
+        "Fix the live auth bug: users hitting '401 Invalid Token' errors on login \u2014 stale tokens are not being refreshed correctly. This is in production and must go first.",
+        "Build the SSE streaming backend: real-time pipeline event feed with two event types and a fallback auth method for browser clients. This unblocks 4 frontend tasks.",
+        "Build the API key validation endpoint: a new /api/settings/keys/validate route that lets users test their API keys before saving them."
+      ],
+      "reason": "Backend is the critical path today. The auth bug is live and hurting users. The SSE endpoint is the single biggest dependency \u2014 nothing in real-time UI can move until it ships. Key validation rounds out the day at 3 tasks."
+    },
+    "frontend-dev": {
+      "tasks": [
+        "Build the SSE frontend hook (use-pipeline-sse.ts): React hook that connects to the new streaming endpoint and exposes live pipeline events to components. Starts after backend T1 lands.",
+        "Build the API key validation UI: settings page buttons that call the new validation endpoint and show pass/fail results inline. Starts after backend T6 lands.",
+        "Build the PipelineStepper component: 13-stage visual progress bar that shows which pipeline step a video is currently on. Starts after the SSE hook is done."
+      ],
+      "reason": "Frontend is in follow-the-backend mode today. All 3 tasks have backend dependencies that ship earlier in the day, so sequencing is: hook \u2192 stepper \u2192 validation UI in parallel. Frontend-dev's QA rate (76%) means QA will review all output before marking done."
+    },
+    "qa-engineer": {
+      "tasks": [
+        "Security audit on the new SSE endpoint: verify that the query-param auth fallback can't be abused, check for token leakage in event streams.",
+        "Security audit on the key validation endpoint: test for input sanitization issues, make sure raw API keys aren't logged or exposed in error responses.",
+        "Review all frontend-dev output from today: given the 76% QA pass rate, spot-check the SSE hook and PipelineStepper for wiring issues before they get marked done."
+      ],
+      "reason": "QA has two security audits unblocked as soon as backend ships (no other dependencies). The frontend review role is a standing priority given frontend-dev's QA trend."
+    },
+    "pipeline-tester": {
+      "tasks": [
+        "Run a regression sweep after the auth bug fix lands \u2014 confirm the fix doesn't break the login flow or any authenticated endpoints.",
+        "Run a second regression sweep after the SSE backend ships \u2014 verify all existing pipeline and analytics endpoints still return 200 and the new SSE endpoint is reachable."
+      ],
+      "reason": "Pipeline-tester had a clean all-200 run yesterday. Use that baseline to catch any regressions from today's backend changes. Two targeted sweeps timed to backend deployments is more useful than one sweep at end of day."
+    },
+    "orchestrator": {
+      "tasks": [
+        "Track dependencies throughout the day: as T1 and T6 land, update the task queue and send the 'unblocked' signal to frontend-dev so they can start immediately.",
+        "Scope T8 and T9 (email utility + trial warning emails): these are the only tasks with no owner today. Prepare a clear spec so backend-dev can pick them up first thing tomorrow."
+      ],
+      "reason": "Orchestrator's value today is keeping handoffs tight \u2014 backend ships, frontend starts within minutes, not hours. T8/T9 prep ensures tomorrow doesn't start with a planning gap."
+    }
+  },
+  "blockers": [
+    "T2 (SSE frontend hook), T3 (PipelineStepper), T4 (wire stepper to live pages), and T10 (toast notifications) are all blocked until the backend SSE endpoint (T1) ships.",
+    "T7 (settings key validation UI) is blocked until the backend validation endpoint (T6) ships.",
+    "T9 (trial warning emails) is blocked until T8 (email utility) ships \u2014 T8 is not assigned today, so T9 is a tomorrow task at the earliest.",
+    "T12 (full QA regression) cannot start until all other 12 tasks are done. Earliest realistic start: April 11.",
+    "The live auth bug (BUG-USER-800807) is in production right now. Users are hitting it. Backend-dev must start here."
+  ],
+  "decisions_needed": [
+    "T8 and T9 (email utility + 3-day trial warning emails) have no owner today. Are these required for PRD2 launch or can they slip to a separate email/billing sprint? If required, backend-dev needs a 4th task tomorrow or we need to decide to carry them over.",
+    "Frontend-dev's QA pass rate is 76% \u2014 notably lower than the rest of the team. Is this expected given higher output volume, or should we add a mandatory self-review step before QA picks up their work?"
+  ],
+  "estimated_completion": "If backend ships T1 and T6 by midday, frontend can finish T2, T3, and T7 today \u2014 bringing PRD2 to 7 of 13 done. T8, T9, T4, T10, and T12 carry to April 11. Full PRD2 completion: April 11 end of day, assuming no new blockers."
+}

@@ -1,14 +1,14 @@
 {
   "version": 2,
   "current_tab": 0,
-  "last_updated": "2026-04-10T06:35:00Z",
-  "last_updated_by": "pipeline-tester",
+  "last_updated": "2026-04-10T14:09:05.082Z",
+  "last_updated_by": "mission-sync",
   "completed_summary": "194 tasks across 33 tabs completed Apr 2-8. Archive: agents/archive/task-queue-2026-04-08.json",
   "tabs": [
     {
       "id": 1,
-      "name": "PRD 2: Pipeline UX \u2014 Real-time Progress, Landing Page, Notifications",
-      "status": "active",
+      "name": "PRD 2: Pipeline UX — Real-time Progress, Landing Page, Notifications",
+      "status": "complete",
       "created_at": "2026-04-10T04:20:35.726Z",
       "tasks": [
         {
@@ -17,9 +17,7 @@
           "role": "backend-dev",
           "status": "done",
           "depends_on": [],
-          "verified": true,
-          "completed_at": "2026-04-08T21:32:43Z",
-          "assigned_to": "backend-dev"
+          "verified": true
         },
         {
           "id": "T2",
@@ -29,12 +27,7 @@
           "depends_on": [
             1
           ],
-          "verified": true,
-          "started_at": "2026-04-10T06:02:30Z",
-          "assigned_to": "frontend-dev",
-          "completed_at": "2026-04-10T06:04:15Z",
-          "verified_at": "2026-04-10T06:28:00Z",
-          "verified_by": "qa-engineer"
+          "verified": true
         },
         {
           "id": "T3",
@@ -44,11 +37,7 @@
           "depends_on": [
             2
           ],
-          "verified": true,
-          "assigned_to": "frontend-dev",
-          "completed_at": "2026-04-10T06:04:00Z",
-          "verified_at": "2026-04-10T06:35:00Z",
-          "verified_by": "pipeline-tester"
+          "verified": true
         },
         {
           "id": "T4",
@@ -59,11 +48,7 @@
             2,
             3
           ],
-          "verified": true,
-          "assigned_to": "frontend-dev",
-          "completed_at": "2026-04-10T06:04:00Z",
-          "verified_at": "2026-04-10T06:35:00Z",
-          "verified_by": "pipeline-tester"
+          "verified": true
         },
         {
           "id": "T5",
@@ -79,9 +64,7 @@
           "role": "backend-dev",
           "status": "done",
           "depends_on": [],
-          "verified": true,
-          "completed_at": "2026-04-08T21:32:43Z",
-          "assigned_to": "backend-dev"
+          "verified": true
         },
         {
           "id": "T7",
@@ -91,11 +74,7 @@
           "depends_on": [
             6
           ],
-          "verified": true,
-          "assigned_to": "frontend-dev",
-          "completed_at": "2026-04-10T06:04:00Z",
-          "verified_at": "2026-04-10T06:35:00Z",
-          "verified_by": "pipeline-tester"
+          "verified": true
         },
         {
           "id": "T8",
@@ -103,9 +82,7 @@
           "role": "backend-dev",
           "status": "done",
           "depends_on": [],
-          "verified": true,
-          "completed_at": "2026-04-08T21:25:16Z",
-          "assigned_to": "backend-dev"
+          "verified": true
         },
         {
           "id": "T9",
@@ -115,12 +92,7 @@
           "depends_on": [
             8
           ],
-          "verified": true,
-          "started_at": "2026-04-10T06:00:02Z",
-          "completed_at": "2026-04-10T06:01:00Z",
-          "assigned_to": "backend-dev",
-          "verified_at": "2026-04-10T06:12:00Z",
-          "verified_by": "qa-engineer"
+          "verified": true
         },
         {
           "id": "T10",
@@ -130,11 +102,7 @@
           "depends_on": [
             2
           ],
-          "verified": true,
-          "assigned_to": "frontend-dev",
-          "completed_at": "2026-04-10T06:04:00Z",
-          "verified_at": "2026-04-10T06:35:00Z",
-          "verified_by": "pipeline-tester"
+          "verified": true
         },
         {
           "id": "T11",
@@ -146,9 +114,9 @@
         },
         {
           "id": "T12",
-          "title": "QA: full PRD 2 regression \u2014 Playwright smoke tests",
+          "title": "QA: full PRD 2 regression — Playwright smoke tests",
           "role": "qa-engineer",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             1,
             2,
@@ -162,7 +130,7 @@
             10,
             11
           ],
-          "verified": false
+          "verified": true
         },
         {
           "id": "T13",
@@ -174,48 +142,7 @@
             6,
             8
           ],
-          "verified": true,
-          "started_at": "2026-04-10T06:13:00Z",
-          "completed_at": "2026-04-10T06:25:00Z",
-          "assigned_to": "qa-engineer",
-          "notes": "Found 6 issues: 2 HIGH (cross-tenant SSE leak, HTML injection in emails), 3 MEDIUM (exception detail leaks, Gemini key in URL), 1 LOW (no rate limiting). Filed as SEC-SSE-001, SEC-EMAIL-001, SEC-KEYS-001."
-        },
-        {
-          "id": "BUG-USER-800807",
-          "title": "BUG-USER: API error 401 on /login: GET /api/auth/me \u2192 {\"detail\":\"Invalid token\"}",
-          "role": "backend",
-          "status": "done",
-          "priority": "critical",
-          "description": "Already fixed in commit 380178b \u2014 auth.py now returns 'Invalid or expired session' instead of 'Invalid token'. Frontend suppresses expected 401s on auth endpoints.",
-          "completed_at": "2026-04-10T06:00:02Z",
-          "assigned_to": "backend-dev",
-          "verified": true,
-          "verified_at": "2026-04-10T06:12:00Z",
-          "verified_by": "qa-engineer"
-        },
-        {
-          "id": "SEC-SSE-001",
-          "title": "SEC: SSE _running_tasks leaks cross-tenant task progress",
-          "role": "backend",
-          "status": "pending",
-          "priority": "high",
-          "description": "pipeline.py:1438 — when SSE client connects without video_id, it iterates ALL _running_tasks (line 51) which is a global dict keyed by video_id only, with NO tenant_id scoping. An authenticated user from tenant A can see task progress from tenant B. Fix: key _running_tasks by (tenant_id, video_id) tuple, or filter by tenant_id before yielding."
-        },
-        {
-          "id": "SEC-EMAIL-001",
-          "title": "SEC: HTML injection in email templates via display_name",
-          "role": "backend",
-          "status": "pending",
-          "priority": "high",
-          "description": "email_service.py:59,110 — user display_name is f-string interpolated directly into HTML email body without html.escape(). Attacker can register with display_name='<script>alert(1)</script>' and inject HTML/JS into welcome and trial warning emails. Fix: import html; use html.escape(display_name) in all send_* functions. Also affects plan/amount_display in send_billing_receipt (line 96-97)."
-        },
-        {
-          "id": "SEC-KEYS-001",
-          "title": "SEC: Key validation leaks exception details + Gemini key in URL",
-          "role": "backend",
-          "status": "pending",
-          "priority": "medium",
-          "description": "Two issues: (1) vault.py:356 and settings.py:231 — raw str(e) returned to client, leaking internal paths/library versions. Fix: return generic 'Validation error' message. (2) vault.py:326 — Gemini API key sent as URL query param (?key=VALUE), gets logged in access logs. Fix: use x-goog-api-key header instead."
+          "verified": true
         }
       ]
     }

@@ -1,5 +1,45 @@
 [
   {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Verified all 11 PRD2 implementation tasks pass, fixed one real bug (API key validation route unreachable), confirmed auth 401 was already fixed.",
+    "status": "completed",
+    "timestamp": 1775803818061,
+    "duration_seconds": 1514,
+    "estimated_cost": 1.26,
+    "model": "opus",
+    "detail": "- Investigated the reported 401 error on /login — confirmed it was already fixed in commit 380178b; the 3 RUBRIC entries were stale (from before the fix)\n- Ran acceptance criteria for all 13 PRD2 tasks — T1-T11 all pass (T12-T13 are QA tasks)\n- Found and fixed a FastAPI route ordering bug: POST /api/settings/keys/validate was unreachable because /keys/{key_name} matched first (commit 4057fb1)\n- Ran Playwright regression: landing page (6/6 checks), PipelineStepper (visible on detail page), key validation UI (6 test buttons), all 5 workflows PASS, 0 console errors, 0 network errors, TSC 0 errors\n- Updated task queue (T3, T4, T7, T10 → done+verified), progress.md, lessons.md, and handed off T12 to qa-engineer\n- 3 SEC bugs remain in task queue for backend-dev (cross-tenant SSE, HTML email injection, exception leak)",
+    "detail_file": "pipeline-tester-20260410-062501.md"
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "PRD2-regression",
+    "summary": "PASS: PRD2 T1-T11 all verified. Fixed route ordering bug (keys/validate). Auth 401 NOT A BUG. TSC 0 errors, 5/5 workflows PASS, 0 console errors. T12 (QA regression) ready for qa-engineer.",
+    "status": "completed",
+    "timestamp": 1775803204230
+  },
+  {
+    "agent": "orchestrator",
+    "task": "micro-sweep",
+    "summary": "MICRO: Auth 401 on /login already fixed (BUG-USER-800807 done+verified). 0 stale tasks. T3/T7/T10 unblocked for frontend-dev. SEC-SSE-001 + SEC-EMAIL-001 ready for backend-dev.",
+    "status": "completed",
+    "timestamp": 1775802955255
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "PRD2-regression",
+    "summary": "Starting PRD2 full regression: landing page, empty states, SSE, PipelineStepper, key validation UI, notifications — Playwright sweep",
+    "status": "started",
+    "timestamp": 1775802914677
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "BUG-PT-ROUTE-ORDER",
+    "summary": "BUG: POST /api/settings/keys/validate is unreachable — caught by /keys/{key_name} route (FastAPI route ordering). Returns 422 expecting SetKeyRequest body. Fix: move /keys/validate before /keys/{key_name} in settings.py",
+    "status": "error",
+    "timestamp": 1775802825183
+  },
+  {
     "agent": "frontend-dev",
     "task": "",
     "summary": "Agent crashed (exit code 127)",
@@ -10,7 +50,7 @@
   {
     "agent": "qa-engineer",
     "task": "T17-006",
-    "summary": "The Google Sign-In frontend (login page, auth context, route protection) is verified working \u2014 unauthenticated users get redirected to /login, the Google button renders, and the auth token flows correctly into all API calls.",
+    "summary": "The Google Sign-In frontend (login page, auth context, route protection) is verified working — unauthenticated users get redirected to /login, the Google button renders, and the auth token flows correctly into all API calls.",
     "status": "completed",
     "timestamp": 1775167827675
   },
@@ -59,28 +99,28 @@
   {
     "agent": "backend-dev",
     "task": "",
-    "summary": "No backend work needed \u2014 all 12 backend tasks are complete and verified.",
+    "summary": "No backend work needed — all 12 backend tasks are complete and verified.",
     "status": "completed",
     "timestamp": 1775163981601
   },
   {
     "agent": "orchestrator",
     "task": "T17-001",
-    "summary": "chore(orchestrator): verify T17-001 + T17-003 \u2014 unblock frontend auth/billing tasks",
+    "summary": "chore(orchestrator): verify T17-001 + T17-003 — unblock frontend auth/billing tasks",
     "status": "completed",
     "timestamp": 1775162826399
   },
   {
     "agent": "pipeline-tester",
     "task": "T6-004",
-    "summary": "verify(qa): T6-004 \u2014 Visuals tab image display, approval, variant generation PASS",
+    "summary": "verify(qa): T6-004 — Visuals tab image display, approval, variant generation PASS",
     "status": "completed",
     "timestamp": 1775162804816
   },
   {
     "agent": "qa-engineer",
     "task": "T3-002",
-    "summary": "verify(qa): BUG-T11-006-QA \u2014 Discovery nav link verified PASS",
+    "summary": "verify(qa): BUG-T11-006-QA — Discovery nav link verified PASS",
     "status": "completed",
     "timestamp": 1775160663075
   },
@@ -108,28 +148,28 @@
   {
     "agent": "pipeline-tester",
     "task": "T11-006",
-    "summary": "verify(qa): T11-007 \u2014 Discovery page QA \u2014 PARTIAL PASS",
+    "summary": "verify(qa): T11-007 — Discovery page QA — PARTIAL PASS",
     "status": "completed",
     "timestamp": 1775159037814
   },
   {
     "agent": "backend-dev",
     "task": "T17-002",
-    "summary": "Built the Google OAuth backend \u2014 users can now sign in with Google and get a session token for all API calls.",
+    "summary": "Built the Google OAuth backend — users can now sign in with Google and get a session token for all API calls.",
     "status": "completed",
     "timestamp": 1775157125096
   },
   {
     "agent": "qa-engineer",
     "task": "T10-003",
-    "summary": "Verified that competitor channel pills now show \"19h ago\" timestamps next to each channel name \u2014 working correctly.",
+    "summary": "Verified that competitor channel pills now show \"19h ago\" timestamps next to each channel name — working correctly.",
     "status": "completed",
     "timestamp": 1775156971008
   },
   {
     "agent": "frontend-dev",
     "task": "T11-006",
-    "summary": "Created the Discovery page \u2014 the hero feature where AI-generated video ideas from competitor analysis are displayed with appeal scores, filter controls, and a launch-to-production modal.",
+    "summary": "Created the Discovery page — the hero feature where AI-generated video ideas from competitor analysis are displayed with appeal scores, filter controls, and a launch-to-production modal.",
     "status": "completed",
     "timestamp": 1775156927470
   },
@@ -227,7 +267,7 @@
   {
     "agent": "user-browser",
     "task": "POST /api/pipeline/thumbnail/f9749bd2-5045-42a5-b90e-ecd253bd7c20",
-    "summary": "API error 400 on /pipeline/f9749bd2-5045-42a5-b90e-ecd253bd7c20: POST /api/pipeline/thumbnail/f9749bd2-5045-42a5-b90e-ecd253bd7c20 \u2192 {\"detail\":\"Video not ready for thumbnail (status: ready_for_storyboard_extraction)\"}",
+    "summary": "API error 400 on /pipeline/f9749bd2-5045-42a5-b90e-ecd253bd7c20: POST /api/pipeline/thumbnail/f9749bd2-5045-42a5-b90e-ecd253bd7c20 → {\"detail\":\"Video not ready for thumbnail (status: ready_for_storyboard_extraction)\"}",
     "status": "error",
     "timestamp": 1775146072822
   },
@@ -248,140 +288,140 @@
   {
     "agent": "orchestrator",
     "task": "T3-002",
-    "summary": "Quick micro-review \u2014 advanced the task queue to Tab 3 (Script Tab) since Tab 7 (Thumbnail) is complete, no stale tasks found.",
+    "summary": "Quick micro-review — advanced the task queue to Tab 3 (Script Tab) since Tab 7 (Thumbnail) is complete, no stale tasks found.",
     "status": "completed",
     "timestamp": 1775144799298
   },
   {
     "agent": "pipeline-tester",
     "task": "",
-    "summary": "Tested all 8 StoryEngine pages and 7 video detail tabs with Playwright \u2014 everything passes except the Profile API which returns 404.",
+    "summary": "Tested all 8 StoryEngine pages and 7 video detail tabs with Playwright — everything passes except the Profile API which returns 404.",
     "status": "completed",
     "timestamp": 1775144744548
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144468525
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144466520
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144465516
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144411195
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144410191
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/framework-performance",
-    "summary": "API error 404 on /analytics: GET /api/analytics/framework-performance \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/framework-performance → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144409410
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/ctr-timeline?limit=50",
-    "summary": "API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144409408
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/overview",
-    "summary": "API error 404 on /analytics: GET /api/analytics/overview \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/overview → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144409406
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144192424
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144190388
   },
   {
     "agent": "user-browser",
     "task": "GET /api/profile",
-    "summary": "API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /profile: GET /api/profile → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144189383
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/framework-performance",
-    "summary": "API error 404 on /analytics: GET /api/analytics/framework-performance \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/framework-performance → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144189317
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/ctr-timeline?limit=50",
-    "summary": "API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144189316
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/overview",
-    "summary": "API error 404 on /analytics: GET /api/analytics/overview \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/overview → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144189315
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/framework-performance",
-    "summary": "API error 404 on /analytics: GET /api/analytics/framework-performance \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/framework-performance → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144188167
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/ctr-timeline?limit=50",
-    "summary": "API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144188166
   },
   {
     "agent": "user-browser",
     "task": "GET /api/analytics/overview",
-    "summary": "API error 404 on /analytics: GET /api/analytics/overview \u2192 {\"detail\":\"Not Found\"}",
+    "summary": "API error 404 on /analytics: GET /api/analytics/overview → {\"detail\":\"Not Found\"}",
     "status": "error",
     "timestamp": 1775144188162
   },
   {
     "agent": "qa-engineer",
     "task": "T9-003",
-    "summary": "Verified the agent suggestion accept/reject UI on the Performance tab and marked Tab 9 (Performance) as complete \u2014 all 7 tasks passed.",
+    "summary": "Verified the agent suggestion accept/reject UI on the Performance tab and marked Tab 9 (Performance) as complete — all 7 tasks passed.",
     "status": "completed",
     "timestamp": 1775142597630
   },
@@ -395,14 +435,14 @@
   {
     "agent": "backend-dev",
     "task": "T2-006",
-    "summary": "No pending backend tasks \u2014 all backend work in the queue is done.",
+    "summary": "No pending backend tasks — all backend work in the queue is done.",
     "status": "completed",
     "timestamp": 1775142054941
   },
   {
     "agent": "qa-engineer",
     "task": "T10-001",
-    "summary": "Verified that the confidence breakdown feature on competitor cards works correctly \u2014 clicking a score expands VPH and Freshness bars with reasoning text.",
+    "summary": "Verified that the confidence breakdown feature on competitor cards works correctly — clicking a score expands VPH and Freshness bars with reasoning text.",
     "status": "completed",
     "timestamp": 1775139231182
   },
@@ -416,7 +456,7 @@
   {
     "agent": "backend-dev",
     "task": "T2-006",
-    "summary": "No backend tasks to do \u2014 all 9 backend tasks in the queue are already done and verified.",
+    "summary": "No backend tasks to do — all 9 backend tasks in the queue are already done and verified.",
     "status": "completed",
     "timestamp": 1775138442687
   },
@@ -437,7 +477,7 @@
   {
     "agent": "backend-dev",
     "task": "T7-003",
-    "summary": "No backend tasks to do \u2014 all backend work across all 16 tabs is complete and verified.",
+    "summary": "No backend tasks to do — all backend work across all 16 tabs is complete and verified.",
     "status": "completed",
     "timestamp": 1775134848858
   },
@@ -458,14 +498,14 @@
   {
     "agent": "backend-dev",
     "task": "T3-002",
-    "summary": "No backend tasks remaining \u2014 all backend work is complete, reported idle.",
+    "summary": "No backend tasks remaining — all backend work is complete, reported idle.",
     "status": "completed",
     "timestamp": 1775131252924
   },
   {
     "agent": "qa-engineer",
     "task": "T15-003",
-    "summary": "Verified the Analytics Dashboard (Tab 15) \u2014 all 3 tasks pass, backend endpoints match frontend types exactly, charts and tables are wired to real data, and the tab is now marked complete.",
+    "summary": "Verified the Analytics Dashboard (Tab 15) — all 3 tasks pass, backend endpoints match frontend types exactly, charts and tables are wired to real data, and the tab is now marked complete.",
     "status": "completed",
     "timestamp": 1775128027997
   },
@@ -479,14 +519,14 @@
   {
     "agent": "backend-dev",
     "task": "T2-006",
-    "summary": "No pending backend tasks \u2014 all backend work in the queue is complete and verified.",
+    "summary": "No pending backend tasks — all backend work in the queue is complete and verified.",
     "status": "completed",
     "timestamp": 1775127640167
   },
   {
     "agent": "qa-engineer",
     "task": "T9-004",
-    "summary": "Verified two Performance tab features \u2014 agent quality scores and post-mortem analysis sections \u2014 both passed all checks.",
+    "summary": "Verified two Performance tab features — agent quality scores and post-mortem analysis sections — both passed all checks.",
     "status": "completed",
     "timestamp": 1775124375350
   },
@@ -500,7 +540,7 @@
   {
     "agent": "backend-dev",
     "task": "T2-006",
-    "summary": "No backend tasks remain \u2014 all backend work across all 16 tabs is done and verified.",
+    "summary": "No backend tasks remain — all backend work across all 16 tabs is done and verified.",
     "status": "completed",
     "timestamp": 1775124045544
   },
@@ -521,14 +561,14 @@
   {
     "agent": "backend-dev",
     "task": "",
-    "summary": "No backend work remaining \u2014 all backend tasks are done and verified.",
+    "summary": "No backend work remaining — all backend tasks are done and verified.",
     "status": "completed",
     "timestamp": 1775120446447
   },
   {
     "agent": "qa-engineer",
     "task": "T9-001",
-    "summary": "Verified 4 completed tasks \u2014 snapshot metrics, analytics dashboard, and profile endpoints all pass QA checks.",
+    "summary": "Verified 4 completed tasks — snapshot metrics, analytics dashboard, and profile endpoints all pass QA checks.",
     "status": "completed",
     "timestamp": 1775117356969
   },
@@ -556,7 +596,7 @@
   {
     "agent": "qa-engineer",
     "task": "T15-001",
-    "summary": "Verified that the analytics API endpoints (T15-001) are correctly built and wired \u2014 all 3 routes pass inspection.",
+    "summary": "Verified that the analytics API endpoints (T15-001) are correctly built and wired — all 3 routes pass inspection.",
     "status": "completed",
     "timestamp": 1775113556379
   },
@@ -570,7 +610,7 @@
   {
     "agent": "qa-engineer",
     "task": "T7-004",
-    "summary": "Verified all remaining thumbnail tab tasks and marked Tab 7 (Thumbnail) as complete \u2014 all 7 tasks pass.",
+    "summary": "Verified all remaining thumbnail tab tasks and marked Tab 7 (Thumbnail) as complete — all 7 tasks pass.",
     "status": "completed",
     "timestamp": 1775110051979
   },
@@ -591,7 +631,7 @@
   {
     "agent": "qa-engineer",
     "task": "T7-003",
-    "summary": "Verified 4 thumbnail tab tasks \u2014 3 passed, 1 failed because the backend developer marked it done without actually writing the code.",
+    "summary": "Verified 4 thumbnail tab tasks — 3 passed, 1 failed because the backend developer marked it done without actually writing the code.",
     "status": "completed",
     "timestamp": 1775106590408
   },
@@ -626,7 +666,7 @@
   {
     "agent": "qa-engineer",
     "task": "T3-001",
-    "summary": "Verified two completed developer tasks (ScriptScene type cleanup and background task status endpoint) \u2014 both passed quality checks with clean diffs.",
+    "summary": "Verified two completed developer tasks (ScriptScene type cleanup and background task status endpoint) — both passed quality checks with clean diffs.",
     "status": "completed",
     "timestamp": 1775102824335
   },
@@ -647,7 +687,7 @@
   {
     "agent": "qa-engineer",
     "task": "T2-003",
-    "summary": "Verified 4 completed tasks and marked the Info Tab (Tab 2) as fully complete \u2014 all code is properly wired from database through backend to frontend UI.",
+    "summary": "Verified 4 completed tasks and marked the Info Tab (Tab 2) as fully complete — all code is properly wired from database through backend to frontend UI.",
     "status": "completed",
     "timestamp": 1775099272731
   },
@@ -668,7 +708,7 @@
   {
     "agent": "qa-engineer",
     "task": "T2-006",
-    "summary": "Verified 3 completed tasks from backend and frontend devs \u2014 all passed code inspection and type checks.",
+    "summary": "Verified 3 completed tasks from backend and frontend devs — all passed code inspection and type checks.",
     "status": "completed",
     "timestamp": 1775095604454
   },
@@ -686,7 +726,7 @@
     "status": "completed",
     "timestamp": 1775095295964,
     "detail_file": "backend-dev-20260401-190001.md",
-    "detail": "- Added 18 fields to the VideoDetail Pydantic model in `models.py`: source metadata (source_views, source_channel, source_urls), view snapshots (24h/48h/7d/30d), CTR metrics (12h/24h/48h), retention_48h, post-mortems (48h/7d), and agent quality fields (paper_trail, hook_score, body_score, tier, cost)\n- These fields existed in the database schema and frontend types but were missing from the backend API response \u2014 a wiring gap blocking multiple frontend tasks\n- GET `/api/videos/{id}` now returns the complete video detail including all performance and agent data\n- Proper type handling: `float()` for NUMERIC columns, `_parse_json_field()` for JSONB (agent_paper_trail), `None` defaults for all\n- Frontend-dev should now pick up T2-003 (display source metadata in Info tab) which was blocked on this"
+    "detail": "- Added 18 fields to the VideoDetail Pydantic model in `models.py`: source metadata (source_views, source_channel, source_urls), view snapshots (24h/48h/7d/30d), CTR metrics (12h/24h/48h), retention_48h, post-mortems (48h/7d), and agent quality fields (paper_trail, hook_score, body_score, tier, cost)\n- These fields existed in the database schema and frontend types but were missing from the backend API response — a wiring gap blocking multiple frontend tasks\n- GET `/api/videos/{id}` now returns the complete video detail including all performance and agent data\n- Proper type handling: `float()` for NUMERIC columns, `_parse_json_field()` for JSONB (agent_paper_trail), `None` defaults for all\n- Frontend-dev should now pick up T2-003 (display source metadata in Info tab) which was blocked on this"
   },
   {
     "agent": "orchestrator",
@@ -695,7 +735,7 @@
     "status": "completed",
     "timestamp": 1775095154641,
     "detail_file": "orchestrator-20260402-015130.md",
-    "detail": "- Audited Tab 1 (Pipeline List Page): all 3 tasks were already done in the codebase \u2014 PipelineStatus enum correct, all 10 status badges mapped, discovery carousel fully built. Closed Tab 1.\n- Audited Tab 2 (Info Tab): found the real blocker is backend, not frontend \u2014 VideoDetail Pydantic model and SQL query in routes/videos.py are missing 18 fields (views snapshots, CTR metrics, post-mortems, agent scores, source metadata) that exist in schema.sql and are already expected by frontend types\n- Marked T2-001 (research_payload display) and T2-004 (frontend types) as already done \u2014 code audit confirmed they were built in prior sessions\n- Created T2-006: critical backend task to add 18 missing fields to models.py and routes/videos.py\n- Narrowed T2-002 to just original_dna display (writer_guidance already renders)\n- Added dependency chain: T2-003 (source metadata UI) depends on T2-006 (backend fields)\n- Posted handoff to backend-dev for T2-006, which also unblocks Tab 9 (Performance tab)\n- Next: backend-dev should pick up T2-006, then frontend-dev handles T2-002 and T2-003"
+    "detail": "- Audited Tab 1 (Pipeline List Page): all 3 tasks were already done in the codebase — PipelineStatus enum correct, all 10 status badges mapped, discovery carousel fully built. Closed Tab 1.\n- Audited Tab 2 (Info Tab): found the real blocker is backend, not frontend — VideoDetail Pydantic model and SQL query in routes/videos.py are missing 18 fields (views snapshots, CTR metrics, post-mortems, agent scores, source metadata) that exist in schema.sql and are already expected by frontend types\n- Marked T2-001 (research_payload display) and T2-004 (frontend types) as already done — code audit confirmed they were built in prior sessions\n- Created T2-006: critical backend task to add 18 missing fields to models.py and routes/videos.py\n- Narrowed T2-002 to just original_dna display (writer_guidance already renders)\n- Added dependency chain: T2-003 (source metadata UI) depends on T2-006 (backend fields)\n- Posted handoff to backend-dev for T2-006, which also unblocks Tab 9 (Performance tab)\n- Next: backend-dev should pick up T2-006, then frontend-dev handles T2-002 and T2-003"
   },
   {
     "agent": "orchestrator",
@@ -723,15 +763,15 @@
   {
     "agent": "pipeline-tester",
     "task": "T10-005",
-    "summary": "Ran regression sweep (9/12 pages pass, 0 new bugs) and did partial QA of competitors page \u2014 confidence breakdown (T10-001) and last-scraped timestamps (T10-003) both PASS. Transcript viewer and scrape error details are not yet built.",
+    "summary": "Ran regression sweep (9/12 pages pass, 0 new bugs) and did partial QA of competitors page — confidence breakdown (T10-001) and last-scraped timestamps (T10-003) both PASS. Transcript viewer and scrape error details are not yet built.",
     "status": "partial",
     "timestamp": 1775178736152,
-    "detail": "- Regression sweep: 9 pages load cleanly, /learnings /videos /create are 404 (not built). No JS errors on any working page. T13-003/T13-004 (YouTube Sync + background tasks on /autopilot) confirmed not built yet.\n- T10-001 PASS: confidence breakdown expands on click with VPH/Freshness bars + reasoning text, ChevronDown toggle works on all 10 cards\n- T10-003 PASS: channel pills show relative timestamps (\"1h ago\") from timeAgo(last_scraped) \u2014 all 6 active channels display correctly\n- T10-002 NOT BUILT: no transcript viewer in competitor card \u2014 blocked on frontend work\n- T10-004 NOT BUILT: scrape error detail panel not present \u2014 only single-line banner exists\n- 0 console errors across all tested pages\n- Screenshots: reg4_* (regression) and reg5_competitors_* saved to storyengine/agents/screenshots/"
+    "detail": "- Regression sweep: 9 pages load cleanly, /learnings /videos /create are 404 (not built). No JS errors on any working page. T13-003/T13-004 (YouTube Sync + background tasks on /autopilot) confirmed not built yet.\n- T10-001 PASS: confidence breakdown expands on click with VPH/Freshness bars + reasoning text, ChevronDown toggle works on all 10 cards\n- T10-003 PASS: channel pills show relative timestamps (\"1h ago\") from timeAgo(last_scraped) — all 6 active channels display correctly\n- T10-002 NOT BUILT: no transcript viewer in competitor card — blocked on frontend work\n- T10-004 NOT BUILT: scrape error detail panel not present — only single-line banner exists\n- 0 console errors across all tested pages\n- Screenshots: reg4_* (regression) and reg5_competitors_* saved to storyengine/agents/screenshots/"
   },
   {
     "agent": "orchestrator",
     "task": "ops-health-check",
-    "summary": "OPS check: user errors confirmed NOT code bugs (session #19). Analytics/profile endpoints return 200 with valid JWT. Thumbnail 400 correct \u2014 video f9749bd2 is at ready_to_render. Task queue: 0 pending, 0 bugs. Launch score: 8/8 (from memory). Proceeding to Telegram health report.",
+    "summary": "OPS check: user errors confirmed NOT code bugs (session #19). Analytics/profile endpoints return 200 with valid JWT. Thumbnail 400 correct — video f9749bd2 is at ready_to_render. Task queue: 0 pending, 0 bugs. Launch score: 8/8 (from memory). Proceeding to Telegram health report.",
     "status": "completed",
     "timestamp": "2026-04-07T20:26:48Z"
   }

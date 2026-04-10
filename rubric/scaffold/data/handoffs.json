@@ -1,5 +1,19 @@
 [
   {
+    "id": "h-1775803204251",
+    "from": "pipeline-tester",
+    "to": "qa-engineer",
+    "task_id": "",
+    "message": "PRD2 T1-T11 all verified and marked done. T12 (QA Playwright regression) is now unblocked — all 11 dependencies met. T13 already done. Only T12 remains for PRD2 completion.",
+    "files_changed": [
+      "agents/progress.md",
+      "storyengine/agents/task-queue.json"
+    ],
+    "endpoint_details": null,
+    "read": false,
+    "timestamp": 1775803204251
+  },
+  {
     "id": "h-1775792036334",
     "from": "backend-dev",
     "to": "frontend-dev",

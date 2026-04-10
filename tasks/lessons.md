@@ -215,3 +215,14 @@ _After each session, add a one-line summary of what was done and any new lessons
 - **HTML-escape user input in email templates**: `display_name` was f-string interpolated directly into HTML email body. Use `html.escape()` on all user-controlled values before HTML interpolation.
 - **Don't send API keys as URL query params**: Gemini validation put the key in `?key=VALUE` — gets logged in access logs. Use `x-goog-api-key` header. Also don't return raw `str(e)` to clients — generic error messages only.
 - **FastAPI route ordering matters**: Literal path segments (`/keys/validate`) must be defined BEFORE parameterized segments (`/keys/{key_name}`) or the parameter route will catch both. POST `/keys/validate` was unreachable for months because `/keys/{key_name}` matched first.
+
+### run-agent.sh sources .env which leaks ANTHROPIC_API_KEY to Claude Code (2026-04-10)
+- run-agent.sh does `source .env` to get Slack tokens etc, but this also exports ANTHROPIC_API_KEY
+- Claude Code sees the env var and uses it instead of OAuth, billing $64/day to the API key
+- Fix: `unset ANTHROPIC_API_KEY` after sourcing .env
+- Pattern: Always audit what env vars leak to child processes when sourcing .env files
+
+### Stale progress.md causes false task completion (2026-04-10)
+- progress.md from PRD 4 had [x] marks for tasks 1-15. When PRD 2 deployed with tasks 1-13, mission-status saw all as done
+- Fix: verify progress.md title matches current PRD before trusting any [x] marks
+- Pattern: Any file that persists across PRD deployments MUST be validated against the current PRD
