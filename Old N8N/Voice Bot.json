@@ -1,0 +1,3818 @@
+{
+  "name": "Voice Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Step 3: Create Voices",
+        "height": 272,
+        "width": 1888,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5d930553-e2bd-4916-888b-7b767e66e44f",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.wavespeed.ai/api/v3/elevenlabs/turbo-v2.5",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $('Search records').item.json['Scene text'] }}"
+            },
+            {
+              "name": "voice_id",
+              "value": "={{ $('Search records').item.json['Voice ID'] }}"
+            },
+            {
+              "name": "similarity",
+              "value": "1"
+            },
+            {
+              "name": "stability",
+              "value": "0.5"
+            },
+            {
+              "name": "use_speaker_boost",
+              "value": "=true"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        208,
+        112
+      ],
+      "id": "2d7e46ba-bc44-4878-87f4-3d6d53b0552d",
+      "name": "Create Voice",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "a3G5U9XCAk330jXo",
+          "name": "Wavespeed API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "959ddd87-a323-401a-bcbe-d8244ad514d2",
+                    "leftValue": "={{ $json.data.status }}",
+                    "rightValue": "completed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "success"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data.status }}",
+                    "rightValue": "processing",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "570539f1-8f1f-46d3-9971-49962519c759"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "in progress"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        1312,
+        112
+      ],
+      "id": "29478046-d69d-4e4b-8ecd-c9df867ed795",
+      "name": "Switch2"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbluGSepeZNgb0NxG",
+          "mode": "list",
+          "cachedResultName": "Script",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tbluGSepeZNgb0NxG"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Search records').item.json.id }}",
+            "Voice Over": "={{ [{ \"url\": $json.data.outputs[0] }] }}",
+            "Voice Status": "Done",
+            "Script Status": "Finished"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Voice ID",
+              "displayName": "Voice ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Script Status",
+              "displayName": "Script Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Create",
+                  "value": "Create"
+                },
+                {
+                  "name": "Finished",
+                  "value": "Finished"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "scene",
+              "displayName": "scene",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Scene text",
+              "displayName": "Scene text",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Voice Status",
+              "displayName": "Voice Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Create",
+                  "value": "Create"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Voice Over",
+              "displayName": "Voice Over",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Dive Folder",
+              "displayName": "Dive Folder",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1552,
+        112
+      ],
+      "id": "5ae6a540-14e9-44e9-86d4-564be3fb88d1",
+      "name": "Log Audio1",
+      "executeOnce": false,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        112
+      ],
+      "id": "97d04fbc-1cfd-4dbe-aac4-14867029cc88",
+      "name": "Wait4",
+      "webhookId": "109a8689-4a7b-4747-8246-7274f346b65a"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.data.urls.get }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1024,
+        64
+      ],
+      "id": "97017205-c079-48f2-956b-9c77ac6d73ff",
+      "name": "Get Voice",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "a3G5U9XCAk330jXo",
+          "name": "Wavespeed API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbluGSepeZNgb0NxG",
+          "mode": "list",
+          "cachedResultName": "Script",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tbluGSepeZNgb0NxG"
+        },
+        "filterByFormula": "{Script Status} = \"Create\"",
+        "options": {},
+        "sort": {
+          "property": [
+            {
+              "field": "scene"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        112
+      ],
+      "id": "7f739e9b-5e25-492f-83ab-75bcff30e63c",
+      "name": "Search records",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputDataFieldName": "=data",
+        "name": "=Scene {{ $json.fields.scene }}.mp3",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Search files and folders').first().json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2400,
+        112
+      ],
+      "id": "6030443e-cd88-483a-b445-1622f0ca6cd0",
+      "name": "Upload file1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "gsA1Zf6hWFLfdLJi",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "=Voice Over Done ✅ \n\nLets Make the Image Prompts 🌉\n\nJust send back \"image prompts\" and well begin!\n",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        2736,
+        112
+      ],
+      "id": "a71bfa6b-247c-4069-9b78-4d2b76c51b53",
+      "name": "Send a message2",
+      "webhookId": "2701fc69-8bf7-4bd7-b9f1-682ce50e3291",
+      "executeOnce": true,
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "Starting to make the Voice Over 🗣️ ! ",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        -400,
+        112
+      ],
+      "id": "8acd53b0-c0ac-4e2e-9e3d-19caa4c2688b",
+      "name": "Send a message8",
+      "webhookId": "2701fc69-8bf7-4bd7-b9f1-682ce50e3291",
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.fields['Voice Over'][0].url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1760,
+        112
+      ],
+      "id": "5e861100-4d68-4ae6-b954-333bf03b6df4",
+      "name": "Download Audio"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $json.fields.Title.replace(/'/g, \"\\\\'\") }}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "filter": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2016,
+        16
+      ],
+      "id": "fdcca377-7173-43e0-9bd6-b6b2198d9bf9",
+      "name": "Search files and folders",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "gsA1Zf6hWFLfdLJi",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2224,
+        160
+      ],
+      "id": "f9492bdb-8711-4ee2-a060-971154d2efc9",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -624,
+        112
+      ],
+      "id": "c7495c4d-6aaa-4fe6-a167-667399d1f0e6",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblrAsJglokZSkC8m",
+          "mode": "list",
+          "cachedResultName": "Ideas",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tblrAsJglokZSkC8m"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "Ready For Visuals",
+            "id": "={{ $('Search records1').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Video Title",
+              "displayName": "Video Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail",
+              "displayName": "Thumbnail",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Idea Logged",
+                  "value": "Idea Logged"
+                },
+                {
+                  "name": "Ready For Scripting",
+                  "value": "Ready For Scripting"
+                },
+                {
+                  "name": "Ready For Voice",
+                  "value": "Ready For Voice"
+                },
+                {
+                  "name": "Ready For Visuals",
+                  "value": "Ready For Visuals"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Hook Script",
+              "displayName": "Hook Script",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail Prompt",
+              "displayName": "Thumbnail Prompt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Past Context",
+              "displayName": "Past Context",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Present Parallel",
+              "displayName": "Present Parallel",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Future Prediction",
+              "displayName": "Future Prediction",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Writer Guidance",
+              "displayName": "Writer Guidance",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Original DNA",
+              "displayName": "Original DNA",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Generated Ideas",
+              "displayName": "Generated Ideas",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Competitor Channel copy",
+              "displayName": "Competitor Channel copy",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Original Video Title",
+              "displayName": "Original Video Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Video URL",
+              "displayName": "Video URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "View Count",
+              "displayName": "View Count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail URL",
+              "displayName": "Thumbnail URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Published Date",
+              "displayName": "Published Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Days Old",
+              "displayName": "Days Old",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Full Analysis",
+              "displayName": "Full Analysis",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Scraped Date",
+              "displayName": "Scraped Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Slack Message TS",
+              "displayName": "Slack Message TS",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2576,
+        112
+      ],
+      "id": "aac5b8bf-dc45-4aa5-b475-5acf525f8034",
+      "name": "Create or update a record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblrAsJglokZSkC8m",
+          "mode": "list",
+          "cachedResultName": "Ideas",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tblrAsJglokZSkC8m"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -208,
+        112
+      ],
+      "id": "7c0fd0ad-35a3-47dc-8d2c-d105176b69c3",
+      "name": "Search records1",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "query": "Generate voiceover for the latest completed script"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Create Voice": [
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "03d6d4df7bd04ae3a4f3de6af38d79f2",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/03d6d4df7bd04ae3a4f3de6af38d79f2/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.013Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "1ed92fbc490c4b4583dbdf1937eea1fd",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/1ed92fbc490c4b4583dbdf1937eea1fd/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.778Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 1
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "f3bf78ed49704bc9ba075d7cd6d5533e",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/f3bf78ed49704bc9ba075d7cd6d5533e/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.844Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 2
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "d367331e87034302af2419977616a209",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/d367331e87034302af2419977616a209/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.865Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 3
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "c61e53779ddb42329a62c897699ed36d",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/c61e53779ddb42329a62c897699ed36d/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.815Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 4
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "a9bd648643944b65952acb982e094ab0",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/a9bd648643944b65952acb982e094ab0/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.866Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 5
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "d7e51a99def545359d193517cf846a13",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/d7e51a99def545359d193517cf846a13/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.841Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 6
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "7b7b23afaecb4684b97e7a66564009bf",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/7b7b23afaecb4684b97e7a66564009bf/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.111Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 7
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "01f28b2e7d58468a8d8e9c08205e848d",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/01f28b2e7d58468a8d8e9c08205e848d/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.998Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 8
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "e296af75bec84d528d936ead8d118fee",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/e296af75bec84d528d936ead8d118fee/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.041Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 9
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "fcf7b0a89e3e47abae25dd49215f80dd",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/fcf7b0a89e3e47abae25dd49215f80dd/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.992Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 10
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "5460ebc25fad456993af0e9e065f7c99",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/5460ebc25fad456993af0e9e065f7c99/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.037Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 11
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "21edae950fb5483ba6b999ed735673f0",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/21edae950fb5483ba6b999ed735673f0/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.028Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 12
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "45b8297439164268a6567221d6af4d90",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/45b8297439164268a6567221d6af4d90/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 13
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "0232a831402a478aac7782e0d05cee76",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/0232a831402a478aac7782e0d05cee76/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.049Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 14
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "022f5bea22e444de8cfc7ef31108ae4f",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/022f5bea22e444de8cfc7ef31108ae4f/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.075Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 15
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "b8bb02c8c4134ad98234834a3367d082",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/b8bb02c8c4134ad98234834a3367d082/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.069Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 16
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "fb14cb0c825a40eaa68d95fc2ada616f",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/fb14cb0c825a40eaa68d95fc2ada616f/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.075Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 17
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "798ba6b077c042dcb052a9107cbd06ea",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/798ba6b077c042dcb052a9107cbd06ea/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.044Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 18
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "4f8f21d496be47738107702ed25ea41b",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/4f8f21d496be47738107702ed25ea41b/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.089Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 19
+        }
+      }
+    ],
+    "Log Audio1": [
+      {
+        "json": {
+          "id": "recR3iVu3t9uVVZiZ",
+          "createdTime": "2026-01-27T15:19:22.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 1,
+            "Scene text": "Everyone's screaming AI bubble. You've heard it a thousand times. The valuations don't make sense. The hype is unsustainable. It's going to crash.\n\nSound familiar?\n\nIn nineteen ninety-nine, they said the same thing about a little online bookstore called Amazon. In two thousand eight, analysts laughed at the idea that a search engine company was worth more than General Motors. And in twenty twenty, Wall Street mocked anyone foolish enough to believe Tesla could compete with a century of automotive dominance.\n\nThose skeptics aren't laughing anymore.\n\nHere's what most people miss: the greatest fortunes in history weren't made by those who avoided bubbles. They were made by those who could tell the difference between a financial bubble and a technological revolution.\n\nAnd right now, the loudest voices are pointing at something they call \"circular financing\" in the AI industry—big tech companies buying from each other, investing in startups that turn around and purchase their cloud services. They call it fake growth. A house of cards.\n\nBut what if they're wrong? What if what critics mock as circular is actually one of the most sophisticated capital allocation strategies ever deployed?\n\nLet's break down what's really happening.",
+            "Voice Over": [
+              {
+                "id": "attLwldU2pMTnfM1N",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/03d6d4df7bd04ae3a4f3de6af38d79f2/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "id": "recQNfh6fegGURZjz",
+          "createdTime": "2026-01-27T15:19:44.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 2,
+            "Scene text": "Here's the thing most people don't realize. This exact pattern has played out before. Not once. Not twice. But every single time a paradigm-shifting technology enters the market.\n\nWhen Amazon traded at five dollars a share, the headlines screamed \"overvalued.\" When Tesla sat at twenty-five dollars, analysts called it a \"guaranteed bankruptcy.\" The fear was loud. The doubt was everywhere. And millions of everyday investors listened. They sold. They stayed out. They watched from the sidelines as generational wealth was built without them.\n\nNow ask yourself: who was buying during that chaos? Institutions. The same hedge funds and asset managers who publicly warned about risk were quietly accumulating massive positions. They understood something critical—that fear creates opportunity, and the biggest returns come from assets everyone else is too scared to touch.\n\nRight now, that same playbook is running again. Retail investors are being flooded with warnings, with doom predictions, with every reason to stay away. And while they hesitate, institutional money is moving. Billions of dollars. Exposed in SEC filings most people never read.\n\nThe question isn't whether this opportunity is real. The question is whether you'll recognize it in time.",
+            "Voice Over": [
+              {
+                "id": "attgOO3W0mNnO9iCt",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/1ed92fbc490c4b4583dbdf1937eea1fd/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 1
+        }
+      },
+      {
+        "json": {
+          "id": "reco04Dv2Hr1DRQgJ",
+          "createdTime": "2026-01-27T15:20:06.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 3,
+            "Scene text": "But here's where skeptics say the real sleight of hand begins.\n\nFollow the money closely. Microsoft invests thirteen billion dollars in OpenAI. Then Microsoft Azure becomes OpenAI's exclusive cloud provider. OpenAI pays that money right back to Microsoft for computing power. The cash never really left the building—it just changed hands on paper.\n\nAnd this pattern repeats everywhere. Amazon pours four billion into Anthropic. Google invests two billion. These aren't traditional venture bets. Critics call it circular financing—tech giants funding startups who immediately become their biggest customers. Revenue that looks organic but traces back to the same corporate wallets.\n\nThen there's the accounting. AI chips depreciate on three-to-five year schedules, but the technology evolves so rapidly that today's cutting-edge hardware becomes obsolete in eighteen months. Skeptics argue companies are masking massive write-downs, inflating asset values on balance sheets that don't reflect reality.\n\nCustomers becoming investors. Investors becoming customers. Depreciation schedules divorced from actual useful life. To the trained eye, these aren't just red flags—they're the exact mechanics we've seen before in Enron, in WeWork, in every speculative mania that ended in tears.\n\nThe fraud case writes itself. Almost too neatly.",
+            "Voice Over": [
+              {
+                "id": "atttGftxclDqzN4iO",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/f3bf78ed49704bc9ba075d7cd6d5533e/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 2
+        }
+      },
+      {
+        "json": {
+          "id": "recNg2s7EVhZuzNIT",
+          "createdTime": "2026-01-27T15:20:26.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 4,
+            "Scene text": "But here's where it gets interesting. What if we've been reading the evidence completely wrong?\n\nEvery warning sign we just examined—the astronomical valuations, the aggressive cash burn, the ecosystem lock-in, the winner-take-all dynamics—these are the exact same patterns that appeared during every major technological revolution in history. Railroads. Electricity. The internet. Each time, skeptics pointed to the same red flags. Each time, the survivors didn't just build products. They built entire worlds.\n\nSo the question we need to ask isn't whether these companies are showing warning signs. It's whether those warning signs are actually the fingerprints of sophisticated ecosystem building during an unprecedented technological transition.\n\nThink about it. When a company burns billions to establish infrastructure that competitors can't replicate, is that recklessness—or strategic moat construction? When valuations defy traditional metrics, are investors delusional—or are they pricing in a future we can barely comprehend?\n\nWe're standing at the edge of the most significant technological shift since the industrial revolution. And the uncomfortable truth is this: the playbook for identifying bubbles might be the same playbook that causes you to miss the opportunity of a generation.",
+            "Voice Over": [
+              {
+                "id": "att5PAh8YGMBX7a3p",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d367331e87034302af2419977616a209/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 3
+        }
+      },
+      {
+        "json": {
+          "id": "recTPB79dLkgGJN32",
+          "createdTime": "2026-01-27T15:20:48.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 5,
+            "Scene text": "Rewind to the year two thousand. The NASDAQ has just cratered. Trillions of dollars—gone. And the vultures are circling.\n\nAmazon is bleeding cash. Analysts are tearing the company apart, pointing to negative free cash flow quarter after quarter. They're exposing what they call \"circular vendor financing\"—arrangements where Amazon essentially loans money to suppliers who then use it to buy advertising on Amazon's own platform. Critics call it a house of cards. A Ponzi scheme with a dotcom address.\n\nAnd they have ammunition. Webvan promised to revolutionize grocery delivery—burned through over a billion dollars and collapsed. Pets.com became a punchline, its sock puppet mascot a symbol of irrational exuberance. These spectacular failures gave skeptics everything they needed.\n\nThe narrative crystallized: internet commerce itself was the fraud. Not just the bad actors—the entire category. Serious investors declared e-commerce dead on arrival. Traditional retailers breathed sighs of relief. The old guard had won.\n\nBut here's what the obituary writers missed. They couldn't distinguish between a flawed business model and a flawed technology. They saw the bodies of the fallen and assumed the battlefield itself was cursed. That mistake would cost them everything.",
+            "Voice Over": [
+              {
+                "id": "attMVG0Uu8GquSPcR",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/c61e53779ddb42329a62c897699ed36d/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 4
+        }
+      },
+      {
+        "json": {
+          "id": "recqMQhfu299CM0KU",
+          "createdTime": "2026-01-27T15:21:10.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 6,
+            "Scene text": "Now let me look at exactly what critics said. They called Amazon's spending \"unsustainable.\" They labeled Bezos a con artist running a Ponzi scheme dressed up as a tech company. Lehman Brothers, in two thousand and one, slapped a sell rating on Amazon and predicted bankruptcy within twelve months.\n\nHere's what they missed.\n\nEvery dollar Wall Street called \"wasted\" was buying warehouse space. Server capacity. Logistics networks. Bezos wasn't burning cash. He was converting it into physical infrastructure at a pace his competitors couldn't match.\n\nThe so-called accounting tricks? Aggressive depreciation schedules that masked the true value of assets being accumulated. Revenue reinvestment that suppressed short-term profits while building long-term moats. Operating losses that hid the fact that Amazon's core retail business had already turned cash-flow positive by two thousand and two.\n\nCritics measured Amazon with old metrics. Profit margins. Quarterly earnings. Traditional retail benchmarks. But Bezos was playing a different game entirely, building the pipes through which twenty-first century commerce would flow.\n\nThose warehouses became fulfillment centers. Those servers became Amazon Web Services. That logistics network became the backbone of global e-commerce. The \"unsustainable\" company is now worth one point seven trillion dollars.",
+            "Voice Over": [
+              {
+                "id": "attotBY6yCqpvV3fl",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/a9bd648643944b65952acb982e094ab0/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 5
+        }
+      },
+      {
+        "json": {
+          "id": "recSvbsoUcWDbiZJs",
+          "createdTime": "2026-01-27T15:21:31.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 7,
+            "Scene text": "Now let's zoom out even further. To the eighteen-forties.\n\nRailway mania gripped Britain like a fever. Investors poured fortunes into iron and steam. Stock prices soared to impossible heights. And then—collapse. Shares became worthless overnight. Families were ruined. The newspapers declared the entire railroad experiment a dangerous delusion. A scam perpetrated on gullible speculators.\n\nBut here's what the critics missed entirely.\n\nThose bankrupt investors? They had just financed twenty-three thousand miles of track across the British Isles. Track that didn't disappear when the stock prices crashed. Track that connected cities, moved goods, transformed time and distance forever.\n\nThe people who bought at the peak lost everything. But the civilization that inherited those rails? It built an empire. The Industrial Revolution didn't happen despite the railroad bubble—it happened because of it.\n\nThe bubble funded infrastructure that no rational investor would have financed on realistic projections alone. It took irrational exuberance to lay the foundation for the modern world.\n\nSo when someone tells you a technology is overhyped, ask yourself: overhyped compared to what? The stock price? Or the world it leaves behind?",
+            "Voice Over": [
+              {
+                "id": "attLy6DztPfLbVFIw",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d7e51a99def545359d193517cf846a13/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 6
+        }
+      },
+      {
+        "json": {
+          "id": "recGul3JVaPDmapKg",
+          "createdTime": "2026-01-27T15:21:51.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 8,
+            "Scene text": "Here's the pattern nobody teaches you in school.\n\nEvery world-changing technology follows the same brutal script. First comes the hype. Then the bubble. Then the crash that wipes out ninety percent of early investors. And then—years later—the real wealth creation begins.\n\nThe railroad boom of the 1840s? Exposed as fraud and speculation. Stock prices collapsed. Fortunes vanished overnight. But the tracks remained. And the few who understood that railroads themselves weren't overvalued—just the *companies* building them—those investors bought the wreckage for pennies. Within two decades, they controlled the arteries of American commerce.\n\nThe dot-com crash? Same story. Pets.com became a punchline. Webvan burned through a billion dollars. But Amazon survived. Google emerged from the ashes. The internet wasn't the illusion—the valuations were.\n\nThis is the critical distinction most people miss. Bubbles don't disprove the technology. They expose which players were real and which were pretenders. The revolution continues. It just changes hands.\n\nAnd right now, with artificial intelligence, we're watching this exact pattern unfold in real time. The question isn't whether AI will transform everything. The question is: which side of the crash will you be standing on?",
+            "Voice Over": [
+              {
+                "id": "att5OtzlvNCL5mRmu",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/7b7b23afaecb4684b97e7a66564009bf/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 7
+        }
+      },
+      {
+        "json": {
+          "id": "recRBEHiLfmAOTiL9",
+          "createdTime": "2026-01-27T15:22:12.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 9,
+            "Scene text": "But here's where the narrative shifts.\n\nWhat critics call circular financing, insiders call something else entirely: ecosystem architecture. And the distinction matters more than you think.\n\nConsider what these companies are actually building. Not products. Not even platforms. They're constructing the foundational infrastructure for a technology that could reshape every industry on Earth. The capital requirements are staggering. The timelines, unprecedented. The interdependencies, unavoidable.\n\nWhen Microsoft invests in OpenAI, then becomes its primary cloud customer, that's not financial sleight of hand. It's vertical integration for a technology stack that doesn't exist yet. When Amazon backs Anthropic while providing compute infrastructure, they're not gaming revenue metrics. They're building supply chains for intelligence itself.\n\nTraditional valuation models were designed for companies selling widgets to customers. They assume clear boundaries, independent transactions, predictable growth curves. None of those assumptions hold in AI.\n\nThis doesn't mean the skeptics are wrong to ask hard questions. It means we need better questions. New analytical frameworks built for technologies that create their own ecosystems as they scale.\n\nThe old playbook isn't just outdated. It's the wrong sport entirely.",
+            "Voice Over": [
+              {
+                "id": "attmXh6HT6QfGCWLV",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/01f28b2e7d58468a8d8e9c08205e848d/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 8
+        }
+      },
+      {
+        "json": {
+          "id": "recM9YrETKxLFAstK",
+          "createdTime": "2026-01-27T15:22:34.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 10,
+            "Scene text": "Thirteen billion dollars. That's what Microsoft committed to OpenAI. And critics love calling this circular financing—money that flows right back to Microsoft through Azure compute fees. But that framing misses the entire point.\n\nThis isn't accounting sleight of hand. This is a land grab during a platform shift.\n\nThink about it. When mobile replaced desktop, Microsoft was caught flat-footed. Windows Mobile became a punchline. Satya Nadella watched that disaster unfold. He's not making the same mistake twice.\n\nThe compute credits aren't a rebate scheme. They're a lock-in mechanism—and it works both ways. OpenAI gets the infrastructure to train increasingly massive models. Microsoft gets guaranteed demand for Azure capacity they're building out anyway. But here's the strategic genius: every dollar of compute credit deepens the integration.\n\nOpenAI's models become optimized for Azure architecture. Their engineering teams build workflows around Microsoft's stack. Their inference costs assume Microsoft pricing. Walking away becomes technically painful, then operationally expensive, then practically impossible.\n\nThis is mutually assured dependency. Neither party can defect without catastrophic switching costs. And in a moment where the entire tech landscape is being redrawn, that alignment isn't just valuable—it's existential insurance.",
+            "Voice Over": [
+              {
+                "id": "att6lQ2ut5kBcuzL3",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/e296af75bec84d528d936ead8d118fee/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 9
+        }
+      },
+      {
+        "json": {
+          "id": "recdEceYIfLkDYnBa",
+          "createdTime": "2026-01-27T15:22:56.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 11,
+            "Scene text": "Now let me address the Anthropic-AWS deal. Four billion dollars. That's what Amazon committed to Anthropic. And in return, Anthropic agreed to run its AI training and inference on Amazon Web Services. Critics called it circular. Some even whispered \"money laundering.\" They're missing the point entirely.\n\nHere's what Amazon actually bought. First, they locked in one of the most promising AI companies as a long-term AWS customer. We're talking about massive, guaranteed compute consumption for years. Every GPU hour Anthropic burns training the next Claude model? That's AWS revenue.\n\nBut it goes deeper. Amazon didn't just buy cloud utilization. They bought positioning. Enterprise customers choosing their AI stack now face a simple equation: Anthropic's models run best on AWS. That's not an accident. That's architecture-level integration.\n\nAnd Anthropic? They got runway without diluting to oblivion. They got infrastructure partnerships that would take years to build independently. They got a distribution channel into every Fortune 500 company already running on AWS.\n\nThis isn't a shell game. It's vertical integration disguised as an investment. Amazon is building the picks-and-shovels empire for the AI gold rush, and they're paying to guarantee the miners use their equipment.",
+            "Voice Over": [
+              {
+                "id": "attYLWi8GLElNHX7x",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fcf7b0a89e3e47abae25dd49215f80dd/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 10
+        }
+      },
+      {
+        "json": {
+          "id": "recAoN6qkOKSlGPj3",
+          "createdTime": "2026-01-27T15:23:17.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 12,
+            "Scene text": "Here's the criticism you'll hear on every finance podcast: NVIDIA's biggest customers are also its biggest investors. Microsoft, Meta, Amazon, Google—they're buying billions in GPUs while holding NVIDIA stock. Critics call it circular. Some even whisper the word fraud.\n\nBut here's what they're missing.\n\nThis isn't a scheme. It's a supply chain evolution. When your customer invests in your success, they're not inflating your stock—they're locking in their future. They need NVIDIA to survive. They need NVIDIA to scale. And by owning equity, they ensure Jensen Huang keeps prioritizing their roadmap.\n\nThink about it. If Meta spends forty billion on chips and watches NVIDIA's stock climb, they're not losing money. They're hedging their own infrastructure bet. The GPU expense becomes partially offset by portfolio gains. It's not fraud—it's aligned incentives at industrial scale.\n\nThis is vertical integration without the paperwork. No acquisitions. No antitrust headaches. Just shared upside creating mutual dependency.\n\nAnd that dependency? It cuts both ways. NVIDIA can't afford to lose these hyperscalers. They represent the demand floor that justifies every fab expansion, every R&D gamble.\n\nThe critics see collusion. The market sees something else entirely: a fortress.",
+            "Voice Over": [
+              {
+                "id": "attCv3HPRXaNYA8lc",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/5460ebc25fad456993af0e9e065f7c99/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 11
+        }
+      },
+      {
+        "json": {
+          "id": "recxwKgQYejXt3xOG",
+          "createdTime": "2026-01-27T15:23:39.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 13,
+            "Scene text": "Here's the math that should keep CFOs awake at night.\n\nA company builds a fifty billion dollar data center. Standard accounting says depreciate it over ten years. That means five billion dollars hits the books annually as an expense. Spread out. Manageable. The quarterly reports look clean.\n\nBut here's what the depreciation schedule assumes: that this infrastructure will actually last ten years. That the chips inside won't become obsolete. That the next generation of AI won't demand entirely different architecture.\n\nNow ask yourself—when has any technology in this space remained cutting-edge for a decade?\n\nIf that data center needs replacing in two years instead of ten, you've got a problem. You've only expensed ten billion. The remaining forty billion in book value? It's worthless. Write it off. And now you need another fifty billion to build the replacement.\n\nThat's not a five billion dollar annual expense. That's a twenty-five billion dollar annual reality. Five times what the accounting suggested.\n\nCritics aren't being paranoid when they flag this. They're doing basic math that the depreciation schedules conveniently obscure. The gap between accounting fiction and technological reality? That's where the hidden liabilities live. And right now, they're growing.",
+            "Voice Over": [
+              {
+                "id": "attHXkiLLQDgevUNd",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/21edae950fb5483ba6b999ed735673f0/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 12
+        }
+      },
+      {
+        "json": {
+          "id": "recqia6eGWxmyt4XI",
+          "createdTime": "2026-01-27T15:24:00.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 14,
+            "Scene text": "But here's where the narrative gets interesting—and where most analysts are getting it wrong.\n\nYes, these companies are extending depreciation schedules. Yes, that inflates near-term earnings. But calling this accounting fraud misses the fundamental reality of technological transitions.\n\nNobody actually knows how long these assets will remain useful.\n\nThink about it. When data centers first emerged, conventional wisdom said servers would be obsolete in three years. Many lasted seven. When cloud computing arrived, experts predicted rapid hardware turnover. Instead, virtualization extended equipment lifecycles far beyond expectations.\n\nWe're in that same fog of uncertainty right now. The companies betting on longer useful lives aren't necessarily cooking the books—they're making a calculated wager that infrastructure investments will prove more durable than skeptics assume.\n\nAnd historically? During major tech transitions, the contrarians have often been right.\n\nThe real question isn't whether depreciation assumptions are aggressive. It's whether the underlying technology will stabilize faster than bears predict. If AI infrastructure follows the pattern of previous computing waves, those extended timelines might look conservative in hindsight.\n\nThis isn't fraud. It's a bet—and one with legitimate historical precedent on its side.",
+            "Voice Over": [
+              {
+                "id": "attiFyfe1kyG7Iyal",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/45b8297439164268a6567221d6af4d90/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 13
+        }
+      },
+      {
+        "json": {
+          "id": "recnrkctEpxslWW7N",
+          "createdTime": "2026-01-27T15:24:20.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 15,
+            "Scene text": "Now here's the truth Wall Street doesn't advertise. You want to know which cloud provider is actually winning the AI infrastructure race? Forget the press releases. Open the balance sheet.\n\nStart with CapEx-to-depreciation ratios. When a company spends three dollars on data centers for every dollar they depreciate, they're building aggressively. That's confidence. But when that ratio compresses toward one-to-one? They're coasting on yesterday's investments. The growth story is slowing down.\n\nNext, examine deferred revenue. This is money customers have already committed but hasn't hit the income statement yet. High-quality deferred revenue means long-term contracts, sticky enterprise clients. Low quality? Month-to-month subscriptions that can vanish overnight.\n\nBut here's the metric that separates the vulnerable from the dominant: customer concentration. If a cloud provider's top ten clients represent forty percent of revenue, one canceled contract becomes an existential threat. Diversified customer bases signal resilience.\n\nRight now, the numbers reveal a clear hierarchy. Some providers are genuinely fortified for the AI era. Others are running on reputation while their financials flash warning signs. The balance sheet never lies. It just waits for investors to finally pay attention.",
+            "Voice Over": [
+              {
+                "id": "attxgAFylIXGxvbC6",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/0232a831402a478aac7782e0d05cee76/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 14
+        }
+      },
+      {
+        "json": {
+          "id": "recBBzsxrKjDj5C9m",
+          "createdTime": "2026-01-27T15:24:39.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 16,
+            "Scene text": "Here's the lesson Wall Street learned a hundred fifty years ago during the California Gold Rush. Most miners went broke. But the merchants selling pickaxes and shovels? They got rich every single time.\n\nNow apply that logic to AI.\n\nOpenAI, Anthropic, Google, Meta—they're all burning billions in a winner-take-all race. And here's the uncomfortable truth: we don't know which model wins. We don't know if *any* of them survive the next decade in their current form.\n\nBut we do know this with absolute certainty: every single one of them needs chips. They need data centers. They need cooling systems, power infrastructure, and networking equipment. They need cloud computing capacity measured in billions of dollars.\n\nThis is the enabler thesis. Stop trying to pick the AI winner. Instead, invest in the companies that profit no matter *who* wins.\n\nNvidia doesn't care whether ChatGPT or Claude dominates. They sell GPUs to both. Taiwan Semiconductor manufactures chips for everyone. Data center REITs collect rent from every player in this space.\n\nThe gold rush is chaotic. The outcome is uncertain. But the demand for shovels? That part is guaranteed.\n\nAnd the smart money already knows it.",
+            "Voice Over": [
+              {
+                "id": "attwBZCqVypIyffKd",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/022f5bea22e444de8cfc7ef31108ae4f/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 15
+        }
+      },
+      {
+        "json": {
+          "id": "recdNcElm4s9C8g7a",
+          "createdTime": "2026-01-27T15:25:01.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 17,
+            "Scene text": "Here's the prediction that will age either brilliantly or catastrophically: within thirty-six months, today's AI skepticism will be indistinguishable from the voices who dismissed cloud computing in 2008. Remember them? The experts who called it \"just someone else's computer.\" The analysts who questioned why anyone would trust their data to remote servers.\n\nOr consider 2009, when respected commentators asked who would actually want a smartphone. Too expensive. Too fragile. A solution looking for a problem.\n\nHistory doesn't repeat, but it rhymes with painful precision.\n\nWhat critics call \"circular investments\" — Big Tech companies buying from each other, funding the same infrastructure, seemingly inflating the same balloon — is actually something far more strategic. They're constructing a vertically integrated AI value chain. Chips feed into cloud platforms. Cloud platforms power foundation models. Foundation models enable applications. Applications generate data. And that data trains the next generation of models.\n\nIt's not a circle. It's a flywheel.\n\nEvery major technological revolution looked irrational to outsiders until the moment it became obvious. By then, the positions were already taken. The infrastructure was already built. And the skeptics were left explaining why they missed the most telegraphed transformation in economic history.",
+            "Voice Over": [
+              {
+                "id": "attjsq9kfDbfJ1nK5",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/b8bb02c8c4134ad98234834a3367d082/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 16
+        }
+      },
+      {
+        "json": {
+          "id": "recqe3rOMSIe92lrd",
+          "createdTime": "2026-01-27T15:25:21.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 18,
+            "Scene text": "Let's talk numbers. Real numbers.\n\nThis emerging value chain isn't speculation anymore. Conservative estimates place it at five hundred billion dollars in annual revenue within the next five years. Some models push that figure past seven hundred billion. We're not talking about projections scribbled on napkins. We're talking about enterprise contracts already signed, infrastructure already deployed, revenue already flowing.\n\nAnd here's what matters for you. The investors who bought during the panic—when headlines screamed \"bubble\" and analysts rushed to publish their obituaries—those early believers are now sitting on positions that will return three hundred to five hundred percent. Minimum.\n\nThis is the math that skeptics refuse to run. They see volatility and assume collapse. They see correction and declare death. But the underlying demand curve doesn't care about sentiment. It cares about adoption. And adoption is accelerating.\n\nTwo years from now, the same voices calling this a bubble will be writing lengthy post-mortems on their missed opportunity. They'll blame timing. They'll blame information asymmetry. They'll blame everything except the real culprit: their own inability to separate signal from noise.\n\nThe numbers don't lie. The question is whether you're paying attention.",
+            "Voice Over": [
+              {
+                "id": "attTH6RI8Qq7khQYL",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fb14cb0c825a40eaa68d95fc2ada616f/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 17
+        }
+      },
+      {
+        "json": {
+          "id": "recY0KitDLxeQWZ8A",
+          "createdTime": "2026-01-27T15:25:41.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 19,
+            "Scene text": "Here's the playbook. Write this down.\n\nFirst, the balance sheet. You want companies with current ratios above one-point-five. You want debt-to-equity under point-eight. And critically, you want free cash flow that covers at least three years of operations without touching a credit line. AI winters can last longer than most companies can survive.\n\nSecond, the enablers with fortress positions. Look for recurring revenue above seventy percent. Look for customer switching costs measured in years, not months. And look for gross margins expanding even as competitors enter. These companies don't just survive downturns. They acquire the casualties.\n\nThird, spotting institutional accumulation. Watch thirteen-F filings quarterly. When three or more top-tier funds initiate positions within sixty days, that's not coincidence. That's coordinated conviction. Track unusual options activity, specifically out-of-the-money calls with six-month expirations. And monitor dark pool volume. When it spikes above fifteen percent of daily trading while price stays flat, smart money is loading before the news breaks.\n\nThis isn't speculation. This is pattern recognition refined over decades of market cycles. The data tells you exactly where capital is flowing before the headlines catch up.",
+            "Voice Over": [
+              {
+                "id": "attVXYsyEHQ6gtG1x",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/798ba6b077c042dcb052a9107cbd06ea/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 18
+        }
+      },
+      {
+        "json": {
+          "id": "reclccFzMqHP9eXTZ",
+          "createdTime": "2026-01-27T15:26:02.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 20,
+            "Scene text": "So let's return to where we started. Is AI a bubble? Is the whole thing some elaborate scam built on circular financing and hype?\n\nHere's what the evidence actually shows: Every single objection we examined had a clear, documented explanation. The revenue is real. The infrastructure is being built. The technology is delivering measurable returns across every industry it touches.\n\nBut there is a scam happening right now. And you're the target.\n\nIt's not Nvidia. It's not Microsoft. It's not the data centers humming with GPUs.\n\nThe scam is the fear itself. The endless parade of skeptics, the viral threads, the confident predictions of collapse—all designed to generate clicks while keeping ordinary investors paralyzed on the sidelines.\n\nAnd while you hesitate? Institutions are accumulating. Pension funds are repositioning. Sovereign wealth is flowing into the very assets the fearmongers told you to avoid.\n\nThis isn't about being reckless. It's about recognizing that the greatest risk isn't buying into a transformational technology. It's letting manufactured doubt cost you a seat at the table.\n\nThe next decade of wealth creation is being decided right now. The only question left is whether you'll be part of it.",
+            "Voice Over": [
+              {
+                "id": "attI1jeoY1RAeprWI",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/4f8f21d496be47738107702ed25ea41b/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "pairedItem": {
+          "item": 19
+        }
+      }
+    ],
+    "Wait4": [
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "03d6d4df7bd04ae3a4f3de6af38d79f2",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/03d6d4df7bd04ae3a4f3de6af38d79f2/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.013Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "1ed92fbc490c4b4583dbdf1937eea1fd",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/1ed92fbc490c4b4583dbdf1937eea1fd/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.778Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 1
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "f3bf78ed49704bc9ba075d7cd6d5533e",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/f3bf78ed49704bc9ba075d7cd6d5533e/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.844Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 2
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "d367331e87034302af2419977616a209",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/d367331e87034302af2419977616a209/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.865Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 3
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "c61e53779ddb42329a62c897699ed36d",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/c61e53779ddb42329a62c897699ed36d/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.815Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 4
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "a9bd648643944b65952acb982e094ab0",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/a9bd648643944b65952acb982e094ab0/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.866Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 5
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "d7e51a99def545359d193517cf846a13",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/d7e51a99def545359d193517cf846a13/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.841Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 6
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "7b7b23afaecb4684b97e7a66564009bf",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/7b7b23afaecb4684b97e7a66564009bf/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.111Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 7
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "01f28b2e7d58468a8d8e9c08205e848d",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/01f28b2e7d58468a8d8e9c08205e848d/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.998Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 8
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "e296af75bec84d528d936ead8d118fee",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/e296af75bec84d528d936ead8d118fee/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.041Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 9
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "fcf7b0a89e3e47abae25dd49215f80dd",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/fcf7b0a89e3e47abae25dd49215f80dd/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:46.992Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 10
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "5460ebc25fad456993af0e9e065f7c99",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/5460ebc25fad456993af0e9e065f7c99/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.037Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 11
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "21edae950fb5483ba6b999ed735673f0",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/21edae950fb5483ba6b999ed735673f0/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.028Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 12
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "45b8297439164268a6567221d6af4d90",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/45b8297439164268a6567221d6af4d90/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 13
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "0232a831402a478aac7782e0d05cee76",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/0232a831402a478aac7782e0d05cee76/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.049Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 14
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "022f5bea22e444de8cfc7ef31108ae4f",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/022f5bea22e444de8cfc7ef31108ae4f/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.075Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 15
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "b8bb02c8c4134ad98234834a3367d082",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/b8bb02c8c4134ad98234834a3367d082/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.069Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 16
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "fb14cb0c825a40eaa68d95fc2ada616f",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/fb14cb0c825a40eaa68d95fc2ada616f/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.075Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 17
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "798ba6b077c042dcb052a9107cbd06ea",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/798ba6b077c042dcb052a9107cbd06ea/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.044Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 18
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "4f8f21d496be47738107702ed25ea41b",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/4f8f21d496be47738107702ed25ea41b/result"
+            },
+            "has_nsfw_contents": [],
+            "status": "created",
+            "created_at": "2026-01-27T15:45:47.089Z",
+            "error": "",
+            "executionTime": 0,
+            "timings": {
+              "inference": 0
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 19
+        }
+      }
+    ],
+    "Get Voice": [
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "03d6d4df7bd04ae3a4f3de6af38d79f2",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/03d6d4df7bd04ae3a4f3de6af38d79f2/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/03d6d4df7bd04ae3a4f3de6af38d79f2/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.012245599Z",
+            "error": "",
+            "executionTime": 4591,
+            "timings": {
+              "inference": 4591
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "1ed92fbc490c4b4583dbdf1937eea1fd",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/1ed92fbc490c4b4583dbdf1937eea1fd/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/1ed92fbc490c4b4583dbdf1937eea1fd/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.776478406Z",
+            "error": "",
+            "executionTime": 4751,
+            "timings": {
+              "inference": 4751
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 1
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "f3bf78ed49704bc9ba075d7cd6d5533e",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/f3bf78ed49704bc9ba075d7cd6d5533e/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/f3bf78ed49704bc9ba075d7cd6d5533e/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.843189744Z",
+            "error": "",
+            "executionTime": 4735,
+            "timings": {
+              "inference": 4735
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 2
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "d367331e87034302af2419977616a209",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d367331e87034302af2419977616a209/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/d367331e87034302af2419977616a209/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.864344496Z",
+            "error": "",
+            "executionTime": 4683,
+            "timings": {
+              "inference": 4683
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 3
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "c61e53779ddb42329a62c897699ed36d",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/c61e53779ddb42329a62c897699ed36d/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/c61e53779ddb42329a62c897699ed36d/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.814089419Z",
+            "error": "",
+            "executionTime": 4428,
+            "timings": {
+              "inference": 4428
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 4
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "a9bd648643944b65952acb982e094ab0",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/a9bd648643944b65952acb982e094ab0/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/a9bd648643944b65952acb982e094ab0/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.865224989Z",
+            "error": "",
+            "executionTime": 4775,
+            "timings": {
+              "inference": 4775
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 5
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "d7e51a99def545359d193517cf846a13",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d7e51a99def545359d193517cf846a13/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/d7e51a99def545359d193517cf846a13/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.840017005Z",
+            "error": "",
+            "executionTime": 4570,
+            "timings": {
+              "inference": 4570
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 6
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "7b7b23afaecb4684b97e7a66564009bf",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/7b7b23afaecb4684b97e7a66564009bf/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/7b7b23afaecb4684b97e7a66564009bf/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.109243777Z",
+            "error": "",
+            "executionTime": 4248,
+            "timings": {
+              "inference": 4248
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 7
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "01f28b2e7d58468a8d8e9c08205e848d",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/01f28b2e7d58468a8d8e9c08205e848d/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/01f28b2e7d58468a8d8e9c08205e848d/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.996897403Z",
+            "error": "",
+            "executionTime": 4531,
+            "timings": {
+              "inference": 4531
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 8
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "e296af75bec84d528d936ead8d118fee",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/e296af75bec84d528d936ead8d118fee/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/e296af75bec84d528d936ead8d118fee/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.039428015Z",
+            "error": "",
+            "executionTime": 4357,
+            "timings": {
+              "inference": 4357
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 9
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "fcf7b0a89e3e47abae25dd49215f80dd",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fcf7b0a89e3e47abae25dd49215f80dd/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/fcf7b0a89e3e47abae25dd49215f80dd/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.990959546Z",
+            "error": "",
+            "executionTime": 4365,
+            "timings": {
+              "inference": 4365
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 10
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "5460ebc25fad456993af0e9e065f7c99",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/5460ebc25fad456993af0e9e065f7c99/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/5460ebc25fad456993af0e9e065f7c99/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.035650726Z",
+            "error": "",
+            "executionTime": 4570,
+            "timings": {
+              "inference": 4570
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 11
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "21edae950fb5483ba6b999ed735673f0",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/21edae950fb5483ba6b999ed735673f0/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/21edae950fb5483ba6b999ed735673f0/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.026836312Z",
+            "error": "",
+            "executionTime": 4426,
+            "timings": {
+              "inference": 4426
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 12
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "45b8297439164268a6567221d6af4d90",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/45b8297439164268a6567221d6af4d90/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/45b8297439164268a6567221d6af4d90/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:46.998717066Z",
+            "error": "",
+            "executionTime": 5558,
+            "timings": {
+              "inference": 5558
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 13
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "0232a831402a478aac7782e0d05cee76",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/0232a831402a478aac7782e0d05cee76/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/0232a831402a478aac7782e0d05cee76/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.048342229Z",
+            "error": "",
+            "executionTime": 4592,
+            "timings": {
+              "inference": 4592
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 14
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "022f5bea22e444de8cfc7ef31108ae4f",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/022f5bea22e444de8cfc7ef31108ae4f/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/022f5bea22e444de8cfc7ef31108ae4f/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.073009248Z",
+            "error": "",
+            "executionTime": 5458,
+            "timings": {
+              "inference": 5458
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 15
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "b8bb02c8c4134ad98234834a3367d082",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/b8bb02c8c4134ad98234834a3367d082/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/b8bb02c8c4134ad98234834a3367d082/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.066404289Z",
+            "error": "",
+            "executionTime": 4489,
+            "timings": {
+              "inference": 4489
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 16
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "fb14cb0c825a40eaa68d95fc2ada616f",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fb14cb0c825a40eaa68d95fc2ada616f/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/fb14cb0c825a40eaa68d95fc2ada616f/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.072924493Z",
+            "error": "",
+            "executionTime": 4421,
+            "timings": {
+              "inference": 4421
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 17
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "798ba6b077c042dcb052a9107cbd06ea",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/798ba6b077c042dcb052a9107cbd06ea/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/798ba6b077c042dcb052a9107cbd06ea/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.042673673Z",
+            "error": "",
+            "executionTime": 4515,
+            "timings": {
+              "inference": 4515
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 18
+        }
+      },
+      {
+        "json": {
+          "code": 200,
+          "message": "success",
+          "data": {
+            "id": "4f8f21d496be47738107702ed25ea41b",
+            "model": "elevenlabs/turbo-v2.5",
+            "outputs": [
+              "https://d1q70pf5vjeyhc.cloudfront.net/predictions/4f8f21d496be47738107702ed25ea41b/1.mp3"
+            ],
+            "urls": {
+              "get": "https://api.wavespeed.ai/api/v3/predictions/4f8f21d496be47738107702ed25ea41b/result"
+            },
+            "status": "completed",
+            "created_at": "2026-01-27T15:45:47.087697087Z",
+            "error": "",
+            "executionTime": 4154,
+            "timings": {
+              "inference": 4154
+            }
+          }
+        },
+        "pairedItem": {
+          "item": 19
+        }
+      }
+    ],
+    "Download Audio": [
+      {
+        "json": {
+          "id": "recR3iVu3t9uVVZiZ",
+          "createdTime": "2026-01-27T15:19:22.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 1,
+            "Scene text": "Everyone's screaming AI bubble. You've heard it a thousand times. The valuations don't make sense. The hype is unsustainable. It's going to crash.\n\nSound familiar?\n\nIn nineteen ninety-nine, they said the same thing about a little online bookstore called Amazon. In two thousand eight, analysts laughed at the idea that a search engine company was worth more than General Motors. And in twenty twenty, Wall Street mocked anyone foolish enough to believe Tesla could compete with a century of automotive dominance.\n\nThose skeptics aren't laughing anymore.\n\nHere's what most people miss: the greatest fortunes in history weren't made by those who avoided bubbles. They were made by those who could tell the difference between a financial bubble and a technological revolution.\n\nAnd right now, the loudest voices are pointing at something they call \"circular financing\" in the AI industry—big tech companies buying from each other, investing in startups that turn around and purchase their cloud services. They call it fake growth. A house of cards.\n\nBut what if they're wrong? What if what critics mock as circular is actually one of the most sophisticated capital allocation strategies ever deployed?\n\nLet's break down what's really happening.",
+            "Voice Over": [
+              {
+                "id": "attLwldU2pMTnfM1N",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/03d6d4df7bd04ae3a4f3de6af38d79f2/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/03d6d4df7bd04ae3a4f3de6af38d79f2/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/e351dfc5-ffe9-4388-9312-502309d65d96",
+            "fileSize": "1.11 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "id": "recQNfh6fegGURZjz",
+          "createdTime": "2026-01-27T15:19:44.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 2,
+            "Scene text": "Here's the thing most people don't realize. This exact pattern has played out before. Not once. Not twice. But every single time a paradigm-shifting technology enters the market.\n\nWhen Amazon traded at five dollars a share, the headlines screamed \"overvalued.\" When Tesla sat at twenty-five dollars, analysts called it a \"guaranteed bankruptcy.\" The fear was loud. The doubt was everywhere. And millions of everyday investors listened. They sold. They stayed out. They watched from the sidelines as generational wealth was built without them.\n\nNow ask yourself: who was buying during that chaos? Institutions. The same hedge funds and asset managers who publicly warned about risk were quietly accumulating massive positions. They understood something critical—that fear creates opportunity, and the biggest returns come from assets everyone else is too scared to touch.\n\nRight now, that same playbook is running again. Retail investors are being flooded with warnings, with doom predictions, with every reason to stay away. And while they hesitate, institutional money is moving. Billions of dollars. Exposed in SEC filings most people never read.\n\nThe question isn't whether this opportunity is real. The question is whether you'll recognize it in time.",
+            "Voice Over": [
+              {
+                "id": "attgOO3W0mNnO9iCt",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/1ed92fbc490c4b4583dbdf1937eea1fd/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/1ed92fbc490c4b4583dbdf1937eea1fd/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/7a010f47-50e9-4fae-bdbe-8d0427b97092",
+            "fileSize": "1.21 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 1
+        }
+      },
+      {
+        "json": {
+          "id": "reco04Dv2Hr1DRQgJ",
+          "createdTime": "2026-01-27T15:20:06.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 3,
+            "Scene text": "But here's where skeptics say the real sleight of hand begins.\n\nFollow the money closely. Microsoft invests thirteen billion dollars in OpenAI. Then Microsoft Azure becomes OpenAI's exclusive cloud provider. OpenAI pays that money right back to Microsoft for computing power. The cash never really left the building—it just changed hands on paper.\n\nAnd this pattern repeats everywhere. Amazon pours four billion into Anthropic. Google invests two billion. These aren't traditional venture bets. Critics call it circular financing—tech giants funding startups who immediately become their biggest customers. Revenue that looks organic but traces back to the same corporate wallets.\n\nThen there's the accounting. AI chips depreciate on three-to-five year schedules, but the technology evolves so rapidly that today's cutting-edge hardware becomes obsolete in eighteen months. Skeptics argue companies are masking massive write-downs, inflating asset values on balance sheets that don't reflect reality.\n\nCustomers becoming investors. Investors becoming customers. Depreciation schedules divorced from actual useful life. To the trained eye, these aren't just red flags—they're the exact mechanics we've seen before in Enron, in WeWork, in every speculative mania that ended in tears.\n\nThe fraud case writes itself. Almost too neatly.",
+            "Voice Over": [
+              {
+                "id": "atttGftxclDqzN4iO",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/f3bf78ed49704bc9ba075d7cd6d5533e/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/f3bf78ed49704bc9ba075d7cd6d5533e/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/81ae89df-f7c6-440c-ab98-fdeef3b1ce37",
+            "fileSize": "1.29 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 2
+        }
+      },
+      {
+        "json": {
+          "id": "recNg2s7EVhZuzNIT",
+          "createdTime": "2026-01-27T15:20:26.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 4,
+            "Scene text": "But here's where it gets interesting. What if we've been reading the evidence completely wrong?\n\nEvery warning sign we just examined—the astronomical valuations, the aggressive cash burn, the ecosystem lock-in, the winner-take-all dynamics—these are the exact same patterns that appeared during every major technological revolution in history. Railroads. Electricity. The internet. Each time, skeptics pointed to the same red flags. Each time, the survivors didn't just build products. They built entire worlds.\n\nSo the question we need to ask isn't whether these companies are showing warning signs. It's whether those warning signs are actually the fingerprints of sophisticated ecosystem building during an unprecedented technological transition.\n\nThink about it. When a company burns billions to establish infrastructure that competitors can't replicate, is that recklessness—or strategic moat construction? When valuations defy traditional metrics, are investors delusional—or are they pricing in a future we can barely comprehend?\n\nWe're standing at the edge of the most significant technological shift since the industrial revolution. And the uncomfortable truth is this: the playbook for identifying bubbles might be the same playbook that causes you to miss the opportunity of a generation.",
+            "Voice Over": [
+              {
+                "id": "att5PAh8YGMBX7a3p",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d367331e87034302af2419977616a209/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d367331e87034302af2419977616a209/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/82031bd1-afa8-4f02-b675-c9a465ede930",
+            "fileSize": "1.19 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 3
+        }
+      },
+      {
+        "json": {
+          "id": "recTPB79dLkgGJN32",
+          "createdTime": "2026-01-27T15:20:48.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 5,
+            "Scene text": "Rewind to the year two thousand. The NASDAQ has just cratered. Trillions of dollars—gone. And the vultures are circling.\n\nAmazon is bleeding cash. Analysts are tearing the company apart, pointing to negative free cash flow quarter after quarter. They're exposing what they call \"circular vendor financing\"—arrangements where Amazon essentially loans money to suppliers who then use it to buy advertising on Amazon's own platform. Critics call it a house of cards. A Ponzi scheme with a dotcom address.\n\nAnd they have ammunition. Webvan promised to revolutionize grocery delivery—burned through over a billion dollars and collapsed. Pets.com became a punchline, its sock puppet mascot a symbol of irrational exuberance. These spectacular failures gave skeptics everything they needed.\n\nThe narrative crystallized: internet commerce itself was the fraud. Not just the bad actors—the entire category. Serious investors declared e-commerce dead on arrival. Traditional retailers breathed sighs of relief. The old guard had won.\n\nBut here's what the obituary writers missed. They couldn't distinguish between a flawed business model and a flawed technology. They saw the bodies of the fallen and assumed the battlefield itself was cursed. That mistake would cost them everything.",
+            "Voice Over": [
+              {
+                "id": "attMVG0Uu8GquSPcR",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/c61e53779ddb42329a62c897699ed36d/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/c61e53779ddb42329a62c897699ed36d/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/2314596f-4f9a-471d-85a8-5adedf038ebe",
+            "fileSize": "1.23 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 4
+        }
+      },
+      {
+        "json": {
+          "id": "recqMQhfu299CM0KU",
+          "createdTime": "2026-01-27T15:21:10.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 6,
+            "Scene text": "Now let me look at exactly what critics said. They called Amazon's spending \"unsustainable.\" They labeled Bezos a con artist running a Ponzi scheme dressed up as a tech company. Lehman Brothers, in two thousand and one, slapped a sell rating on Amazon and predicted bankruptcy within twelve months.\n\nHere's what they missed.\n\nEvery dollar Wall Street called \"wasted\" was buying warehouse space. Server capacity. Logistics networks. Bezos wasn't burning cash. He was converting it into physical infrastructure at a pace his competitors couldn't match.\n\nThe so-called accounting tricks? Aggressive depreciation schedules that masked the true value of assets being accumulated. Revenue reinvestment that suppressed short-term profits while building long-term moats. Operating losses that hid the fact that Amazon's core retail business had already turned cash-flow positive by two thousand and two.\n\nCritics measured Amazon with old metrics. Profit margins. Quarterly earnings. Traditional retail benchmarks. But Bezos was playing a different game entirely, building the pipes through which twenty-first century commerce would flow.\n\nThose warehouses became fulfillment centers. Those servers became Amazon Web Services. That logistics network became the backbone of global e-commerce. The \"unsustainable\" company is now worth one point seven trillion dollars.",
+            "Voice Over": [
+              {
+                "id": "attotBY6yCqpvV3fl",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/a9bd648643944b65952acb982e094ab0/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/a9bd648643944b65952acb982e094ab0/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/a8b47640-1aa9-4151-a1f5-7dea0f05df99",
+            "fileSize": "1.31 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 5
+        }
+      },
+      {
+        "json": {
+          "id": "recSvbsoUcWDbiZJs",
+          "createdTime": "2026-01-27T15:21:31.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 7,
+            "Scene text": "Now let's zoom out even further. To the eighteen-forties.\n\nRailway mania gripped Britain like a fever. Investors poured fortunes into iron and steam. Stock prices soared to impossible heights. And then—collapse. Shares became worthless overnight. Families were ruined. The newspapers declared the entire railroad experiment a dangerous delusion. A scam perpetrated on gullible speculators.\n\nBut here's what the critics missed entirely.\n\nThose bankrupt investors? They had just financed twenty-three thousand miles of track across the British Isles. Track that didn't disappear when the stock prices crashed. Track that connected cities, moved goods, transformed time and distance forever.\n\nThe people who bought at the peak lost everything. But the civilization that inherited those rails? It built an empire. The Industrial Revolution didn't happen despite the railroad bubble—it happened because of it.\n\nThe bubble funded infrastructure that no rational investor would have financed on realistic projections alone. It took irrational exuberance to lay the foundation for the modern world.\n\nSo when someone tells you a technology is overhyped, ask yourself: overhyped compared to what? The stock price? Or the world it leaves behind?",
+            "Voice Over": [
+              {
+                "id": "attLy6DztPfLbVFIw",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d7e51a99def545359d193517cf846a13/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/d7e51a99def545359d193517cf846a13/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/ee2b730c-9128-48b7-a181-0157337016ae",
+            "fileSize": "1.21 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 6
+        }
+      },
+      {
+        "json": {
+          "id": "recGul3JVaPDmapKg",
+          "createdTime": "2026-01-27T15:21:51.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 8,
+            "Scene text": "Here's the pattern nobody teaches you in school.\n\nEvery world-changing technology follows the same brutal script. First comes the hype. Then the bubble. Then the crash that wipes out ninety percent of early investors. And then—years later—the real wealth creation begins.\n\nThe railroad boom of the 1840s? Exposed as fraud and speculation. Stock prices collapsed. Fortunes vanished overnight. But the tracks remained. And the few who understood that railroads themselves weren't overvalued—just the *companies* building them—those investors bought the wreckage for pennies. Within two decades, they controlled the arteries of American commerce.\n\nThe dot-com crash? Same story. Pets.com became a punchline. Webvan burned through a billion dollars. But Amazon survived. Google emerged from the ashes. The internet wasn't the illusion—the valuations were.\n\nThis is the critical distinction most people miss. Bubbles don't disprove the technology. They expose which players were real and which were pretenders. The revolution continues. It just changes hands.\n\nAnd right now, with artificial intelligence, we're watching this exact pattern unfold in real time. The question isn't whether AI will transform everything. The question is: which side of the crash will you be standing on?",
+            "Voice Over": [
+              {
+                "id": "att5OtzlvNCL5mRmu",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/7b7b23afaecb4684b97e7a66564009bf/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/7b7b23afaecb4684b97e7a66564009bf/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/bcae1410-df4d-4c5d-8d9a-2a8e22437527",
+            "fileSize": "1.23 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 7
+        }
+      },
+      {
+        "json": {
+          "id": "recRBEHiLfmAOTiL9",
+          "createdTime": "2026-01-27T15:22:12.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 9,
+            "Scene text": "But here's where the narrative shifts.\n\nWhat critics call circular financing, insiders call something else entirely: ecosystem architecture. And the distinction matters more than you think.\n\nConsider what these companies are actually building. Not products. Not even platforms. They're constructing the foundational infrastructure for a technology that could reshape every industry on Earth. The capital requirements are staggering. The timelines, unprecedented. The interdependencies, unavoidable.\n\nWhen Microsoft invests in OpenAI, then becomes its primary cloud customer, that's not financial sleight of hand. It's vertical integration for a technology stack that doesn't exist yet. When Amazon backs Anthropic while providing compute infrastructure, they're not gaming revenue metrics. They're building supply chains for intelligence itself.\n\nTraditional valuation models were designed for companies selling widgets to customers. They assume clear boundaries, independent transactions, predictable growth curves. None of those assumptions hold in AI.\n\nThis doesn't mean the skeptics are wrong to ask hard questions. It means we need better questions. New analytical frameworks built for technologies that create their own ecosystems as they scale.\n\nThe old playbook isn't just outdated. It's the wrong sport entirely.",
+            "Voice Over": [
+              {
+                "id": "attmXh6HT6QfGCWLV",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/01f28b2e7d58468a8d8e9c08205e848d/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/01f28b2e7d58468a8d8e9c08205e848d/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/5c05dbcf-498a-438c-b09e-e437d29d4aa2",
+            "fileSize": "1.19 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 8
+        }
+      },
+      {
+        "json": {
+          "id": "recM9YrETKxLFAstK",
+          "createdTime": "2026-01-27T15:22:34.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 10,
+            "Scene text": "Thirteen billion dollars. That's what Microsoft committed to OpenAI. And critics love calling this circular financing—money that flows right back to Microsoft through Azure compute fees. But that framing misses the entire point.\n\nThis isn't accounting sleight of hand. This is a land grab during a platform shift.\n\nThink about it. When mobile replaced desktop, Microsoft was caught flat-footed. Windows Mobile became a punchline. Satya Nadella watched that disaster unfold. He's not making the same mistake twice.\n\nThe compute credits aren't a rebate scheme. They're a lock-in mechanism—and it works both ways. OpenAI gets the infrastructure to train increasingly massive models. Microsoft gets guaranteed demand for Azure capacity they're building out anyway. But here's the strategic genius: every dollar of compute credit deepens the integration.\n\nOpenAI's models become optimized for Azure architecture. Their engineering teams build workflows around Microsoft's stack. Their inference costs assume Microsoft pricing. Walking away becomes technically painful, then operationally expensive, then practically impossible.\n\nThis is mutually assured dependency. Neither party can defect without catastrophic switching costs. And in a moment where the entire tech landscape is being redrawn, that alignment isn't just valuable—it's existential insurance.",
+            "Voice Over": [
+              {
+                "id": "att6lQ2ut5kBcuzL3",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/e296af75bec84d528d936ead8d118fee/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/e296af75bec84d528d936ead8d118fee/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/b7aecd1d-ccb7-414a-990a-6ed43c9a3851",
+            "fileSize": "1.28 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 9
+        }
+      },
+      {
+        "json": {
+          "id": "recdEceYIfLkDYnBa",
+          "createdTime": "2026-01-27T15:22:56.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 11,
+            "Scene text": "Now let me address the Anthropic-AWS deal. Four billion dollars. That's what Amazon committed to Anthropic. And in return, Anthropic agreed to run its AI training and inference on Amazon Web Services. Critics called it circular. Some even whispered \"money laundering.\" They're missing the point entirely.\n\nHere's what Amazon actually bought. First, they locked in one of the most promising AI companies as a long-term AWS customer. We're talking about massive, guaranteed compute consumption for years. Every GPU hour Anthropic burns training the next Claude model? That's AWS revenue.\n\nBut it goes deeper. Amazon didn't just buy cloud utilization. They bought positioning. Enterprise customers choosing their AI stack now face a simple equation: Anthropic's models run best on AWS. That's not an accident. That's architecture-level integration.\n\nAnd Anthropic? They got runway without diluting to oblivion. They got infrastructure partnerships that would take years to build independently. They got a distribution channel into every Fortune 500 company already running on AWS.\n\nThis isn't a shell game. It's vertical integration disguised as an investment. Amazon is building the picks-and-shovels empire for the AI gold rush, and they're paying to guarantee the miners use their equipment.",
+            "Voice Over": [
+              {
+                "id": "attYLWi8GLElNHX7x",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fcf7b0a89e3e47abae25dd49215f80dd/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fcf7b0a89e3e47abae25dd49215f80dd/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/5546ee9e-2c0d-4d7b-96d5-476b0a432d9a",
+            "fileSize": "1.24 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 10
+        }
+      },
+      {
+        "json": {
+          "id": "recAoN6qkOKSlGPj3",
+          "createdTime": "2026-01-27T15:23:17.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 12,
+            "Scene text": "Here's the criticism you'll hear on every finance podcast: NVIDIA's biggest customers are also its biggest investors. Microsoft, Meta, Amazon, Google—they're buying billions in GPUs while holding NVIDIA stock. Critics call it circular. Some even whisper the word fraud.\n\nBut here's what they're missing.\n\nThis isn't a scheme. It's a supply chain evolution. When your customer invests in your success, they're not inflating your stock—they're locking in their future. They need NVIDIA to survive. They need NVIDIA to scale. And by owning equity, they ensure Jensen Huang keeps prioritizing their roadmap.\n\nThink about it. If Meta spends forty billion on chips and watches NVIDIA's stock climb, they're not losing money. They're hedging their own infrastructure bet. The GPU expense becomes partially offset by portfolio gains. It's not fraud—it's aligned incentives at industrial scale.\n\nThis is vertical integration without the paperwork. No acquisitions. No antitrust headaches. Just shared upside creating mutual dependency.\n\nAnd that dependency? It cuts both ways. NVIDIA can't afford to lose these hyperscalers. They represent the demand floor that justifies every fab expansion, every R&D gamble.\n\nThe critics see collusion. The market sees something else entirely: a fortress.",
+            "Voice Over": [
+              {
+                "id": "attCv3HPRXaNYA8lc",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/5460ebc25fad456993af0e9e065f7c99/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/5460ebc25fad456993af0e9e065f7c99/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/d7ecf726-ebd8-4b0d-a454-4c3afe21928c",
+            "fileSize": "1.22 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 11
+        }
+      },
+      {
+        "json": {
+          "id": "recxwKgQYejXt3xOG",
+          "createdTime": "2026-01-27T15:23:39.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 13,
+            "Scene text": "Here's the math that should keep CFOs awake at night.\n\nA company builds a fifty billion dollar data center. Standard accounting says depreciate it over ten years. That means five billion dollars hits the books annually as an expense. Spread out. Manageable. The quarterly reports look clean.\n\nBut here's what the depreciation schedule assumes: that this infrastructure will actually last ten years. That the chips inside won't become obsolete. That the next generation of AI won't demand entirely different architecture.\n\nNow ask yourself—when has any technology in this space remained cutting-edge for a decade?\n\nIf that data center needs replacing in two years instead of ten, you've got a problem. You've only expensed ten billion. The remaining forty billion in book value? It's worthless. Write it off. And now you need another fifty billion to build the replacement.\n\nThat's not a five billion dollar annual expense. That's a twenty-five billion dollar annual reality. Five times what the accounting suggested.\n\nCritics aren't being paranoid when they flag this. They're doing basic math that the depreciation schedules conveniently obscure. The gap between accounting fiction and technological reality? That's where the hidden liabilities live. And right now, they're growing.",
+            "Voice Over": [
+              {
+                "id": "attHXkiLLQDgevUNd",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/21edae950fb5483ba6b999ed735673f0/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/21edae950fb5483ba6b999ed735673f0/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/9666360c-a756-48a0-b992-9feef78656ea",
+            "fileSize": "1.15 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 12
+        }
+      },
+      {
+        "json": {
+          "id": "recqia6eGWxmyt4XI",
+          "createdTime": "2026-01-27T15:24:00.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 14,
+            "Scene text": "But here's where the narrative gets interesting—and where most analysts are getting it wrong.\n\nYes, these companies are extending depreciation schedules. Yes, that inflates near-term earnings. But calling this accounting fraud misses the fundamental reality of technological transitions.\n\nNobody actually knows how long these assets will remain useful.\n\nThink about it. When data centers first emerged, conventional wisdom said servers would be obsolete in three years. Many lasted seven. When cloud computing arrived, experts predicted rapid hardware turnover. Instead, virtualization extended equipment lifecycles far beyond expectations.\n\nWe're in that same fog of uncertainty right now. The companies betting on longer useful lives aren't necessarily cooking the books—they're making a calculated wager that infrastructure investments will prove more durable than skeptics assume.\n\nAnd historically? During major tech transitions, the contrarians have often been right.\n\nThe real question isn't whether depreciation assumptions are aggressive. It's whether the underlying technology will stabilize faster than bears predict. If AI infrastructure follows the pattern of previous computing waves, those extended timelines might look conservative in hindsight.\n\nThis isn't fraud. It's a bet—and one with legitimate historical precedent on its side.",
+            "Voice Over": [
+              {
+                "id": "attiFyfe1kyG7Iyal",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/45b8297439164268a6567221d6af4d90/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/45b8297439164268a6567221d6af4d90/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/b4ded4db-9fed-434e-83df-2674434c7828",
+            "fileSize": "1.22 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 13
+        }
+      },
+      {
+        "json": {
+          "id": "recnrkctEpxslWW7N",
+          "createdTime": "2026-01-27T15:24:20.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 15,
+            "Scene text": "Now here's the truth Wall Street doesn't advertise. You want to know which cloud provider is actually winning the AI infrastructure race? Forget the press releases. Open the balance sheet.\n\nStart with CapEx-to-depreciation ratios. When a company spends three dollars on data centers for every dollar they depreciate, they're building aggressively. That's confidence. But when that ratio compresses toward one-to-one? They're coasting on yesterday's investments. The growth story is slowing down.\n\nNext, examine deferred revenue. This is money customers have already committed but hasn't hit the income statement yet. High-quality deferred revenue means long-term contracts, sticky enterprise clients. Low quality? Month-to-month subscriptions that can vanish overnight.\n\nBut here's the metric that separates the vulnerable from the dominant: customer concentration. If a cloud provider's top ten clients represent forty percent of revenue, one canceled contract becomes an existential threat. Diversified customer bases signal resilience.\n\nRight now, the numbers reveal a clear hierarchy. Some providers are genuinely fortified for the AI era. Others are running on reputation while their financials flash warning signs. The balance sheet never lies. It just waits for investors to finally pay attention.",
+            "Voice Over": [
+              {
+                "id": "attxgAFylIXGxvbC6",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/0232a831402a478aac7782e0d05cee76/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/0232a831402a478aac7782e0d05cee76/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/8b2d1bdb-4f88-4d15-baaa-8ab2d90be416",
+            "fileSize": "1.26 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 14
+        }
+      },
+      {
+        "json": {
+          "id": "recBBzsxrKjDj5C9m",
+          "createdTime": "2026-01-27T15:24:39.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 16,
+            "Scene text": "Here's the lesson Wall Street learned a hundred fifty years ago during the California Gold Rush. Most miners went broke. But the merchants selling pickaxes and shovels? They got rich every single time.\n\nNow apply that logic to AI.\n\nOpenAI, Anthropic, Google, Meta—they're all burning billions in a winner-take-all race. And here's the uncomfortable truth: we don't know which model wins. We don't know if *any* of them survive the next decade in their current form.\n\nBut we do know this with absolute certainty: every single one of them needs chips. They need data centers. They need cooling systems, power infrastructure, and networking equipment. They need cloud computing capacity measured in billions of dollars.\n\nThis is the enabler thesis. Stop trying to pick the AI winner. Instead, invest in the companies that profit no matter *who* wins.\n\nNvidia doesn't care whether ChatGPT or Claude dominates. They sell GPUs to both. Taiwan Semiconductor manufactures chips for everyone. Data center REITs collect rent from every player in this space.\n\nThe gold rush is chaotic. The outcome is uncertain. But the demand for shovels? That part is guaranteed.\n\nAnd the smart money already knows it.",
+            "Voice Over": [
+              {
+                "id": "attwBZCqVypIyffKd",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/022f5bea22e444de8cfc7ef31108ae4f/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/022f5bea22e444de8cfc7ef31108ae4f/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/ac101e0d-9dc5-458d-9702-db92ddbaf5f6",
+            "fileSize": "1.16 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 15
+        }
+      },
+      {
+        "json": {
+          "id": "recdNcElm4s9C8g7a",
+          "createdTime": "2026-01-27T15:25:01.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 17,
+            "Scene text": "Here's the prediction that will age either brilliantly or catastrophically: within thirty-six months, today's AI skepticism will be indistinguishable from the voices who dismissed cloud computing in 2008. Remember them? The experts who called it \"just someone else's computer.\" The analysts who questioned why anyone would trust their data to remote servers.\n\nOr consider 2009, when respected commentators asked who would actually want a smartphone. Too expensive. Too fragile. A solution looking for a problem.\n\nHistory doesn't repeat, but it rhymes with painful precision.\n\nWhat critics call \"circular investments\" — Big Tech companies buying from each other, funding the same infrastructure, seemingly inflating the same balloon — is actually something far more strategic. They're constructing a vertically integrated AI value chain. Chips feed into cloud platforms. Cloud platforms power foundation models. Foundation models enable applications. Applications generate data. And that data trains the next generation of models.\n\nIt's not a circle. It's a flywheel.\n\nEvery major technological revolution looked irrational to outsiders until the moment it became obvious. By then, the positions were already taken. The infrastructure was already built. And the skeptics were left explaining why they missed the most telegraphed transformation in economic history.",
+            "Voice Over": [
+              {
+                "id": "attjsq9kfDbfJ1nK5",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/b8bb02c8c4134ad98234834a3367d082/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/b8bb02c8c4134ad98234834a3367d082/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/90a17edf-c6a8-4816-8ed8-051f32973fa7",
+            "fileSize": "1.33 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 16
+        }
+      },
+      {
+        "json": {
+          "id": "recqe3rOMSIe92lrd",
+          "createdTime": "2026-01-27T15:25:21.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 18,
+            "Scene text": "Let's talk numbers. Real numbers.\n\nThis emerging value chain isn't speculation anymore. Conservative estimates place it at five hundred billion dollars in annual revenue within the next five years. Some models push that figure past seven hundred billion. We're not talking about projections scribbled on napkins. We're talking about enterprise contracts already signed, infrastructure already deployed, revenue already flowing.\n\nAnd here's what matters for you. The investors who bought during the panic—when headlines screamed \"bubble\" and analysts rushed to publish their obituaries—those early believers are now sitting on positions that will return three hundred to five hundred percent. Minimum.\n\nThis is the math that skeptics refuse to run. They see volatility and assume collapse. They see correction and declare death. But the underlying demand curve doesn't care about sentiment. It cares about adoption. And adoption is accelerating.\n\nTwo years from now, the same voices calling this a bubble will be writing lengthy post-mortems on their missed opportunity. They'll blame timing. They'll blame information asymmetry. They'll blame everything except the real culprit: their own inability to separate signal from noise.\n\nThe numbers don't lie. The question is whether you're paying attention.",
+            "Voice Over": [
+              {
+                "id": "attTH6RI8Qq7khQYL",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fb14cb0c825a40eaa68d95fc2ada616f/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/fb14cb0c825a40eaa68d95fc2ada616f/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/7d14b97f-7b89-44f0-92c5-c621fb770b20",
+            "fileSize": "1.22 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 17
+        }
+      },
+      {
+        "json": {
+          "id": "recY0KitDLxeQWZ8A",
+          "createdTime": "2026-01-27T15:25:41.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 19,
+            "Scene text": "Here's the playbook. Write this down.\n\nFirst, the balance sheet. You want companies with current ratios above one-point-five. You want debt-to-equity under point-eight. And critically, you want free cash flow that covers at least three years of operations without touching a credit line. AI winters can last longer than most companies can survive.\n\nSecond, the enablers with fortress positions. Look for recurring revenue above seventy percent. Look for customer switching costs measured in years, not months. And look for gross margins expanding even as competitors enter. These companies don't just survive downturns. They acquire the casualties.\n\nThird, spotting institutional accumulation. Watch thirteen-F filings quarterly. When three or more top-tier funds initiate positions within sixty days, that's not coincidence. That's coordinated conviction. Track unusual options activity, specifically out-of-the-money calls with six-month expirations. And monitor dark pool volume. When it spikes above fifteen percent of daily trading while price stays flat, smart money is loading before the news breaks.\n\nThis isn't speculation. This is pattern recognition refined over decades of market cycles. The data tells you exactly where capital is flowing before the headlines catch up.",
+            "Voice Over": [
+              {
+                "id": "attVXYsyEHQ6gtG1x",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/798ba6b077c042dcb052a9107cbd06ea/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/798ba6b077c042dcb052a9107cbd06ea/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/949b1194-15a6-48b3-b0c7-5bfde216fdef",
+            "fileSize": "1.17 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 18
+        }
+      },
+      {
+        "json": {
+          "id": "reclccFzMqHP9eXTZ",
+          "createdTime": "2026-01-27T15:26:02.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 20,
+            "Scene text": "So let's return to where we started. Is AI a bubble? Is the whole thing some elaborate scam built on circular financing and hype?\n\nHere's what the evidence actually shows: Every single objection we examined had a clear, documented explanation. The revenue is real. The infrastructure is being built. The technology is delivering measurable returns across every industry it touches.\n\nBut there is a scam happening right now. And you're the target.\n\nIt's not Nvidia. It's not Microsoft. It's not the data centers humming with GPUs.\n\nThe scam is the fear itself. The endless parade of skeptics, the viral threads, the confident predictions of collapse—all designed to generate clicks while keeping ordinary investors paralyzed on the sidelines.\n\nAnd while you hesitate? Institutions are accumulating. Pension funds are repositioning. Sovereign wealth is flowing into the very assets the fearmongers told you to avoid.\n\nThis isn't about being reckless. It's about recognizing that the greatest risk isn't buying into a transformational technology. It's letting manufactured doubt cost you a seat at the table.\n\nThe next decade of wealth creation is being decided right now. The only question left is whether you'll be part of it.",
+            "Voice Over": [
+              {
+                "id": "attI1jeoY1RAeprWI",
+                "url": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/4f8f21d496be47738107702ed25ea41b/1.mp3",
+                "filename": ""
+              }
+            ],
+            "Script Status": "Create",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Voice Status": "Done"
+          }
+        },
+        "binary": {
+          "data": {
+            "mimeType": "binary/octet-stream",
+            "fileExtension": "mp3",
+            "data": "filesystem-v2",
+            "directory": "https://d1q70pf5vjeyhc.cloudfront.net/predictions/4f8f21d496be47738107702ed25ea41b/1.mp3",
+            "fileName": "1.mp3",
+            "id": "filesystem-v2:workflows/l0qHxVRnMjGS5hNf/executions/1887/binary_data/03334a15-84b9-4503-9138-471f5dffacf7",
+            "fileSize": "1.14 MB"
+          }
+        },
+        "pairedItem": {
+          "item": 19
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Create Voice": {
+      "main": [
+        [
+          {
+            "node": "Wait4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch2": {
+      "main": [
+        [
+          {
+            "node": "Log Audio1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Audio1": {
+      "main": [
+        [
+          {
+            "node": "Download Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait4": {
+      "main": [
+        [
+          {
+            "node": "Get Voice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Voice": {
+      "main": [
+        [
+          {
+            "node": "Switch2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search records": {
+      "main": [
+        [
+          {
+            "node": "Create Voice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file1": {
+      "main": [
+        [
+          {
+            "node": "Create or update a record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message8": {
+      "main": [
+        [
+          {
+            "node": "Search records1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Upload file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Send a message8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create or update a record": {
+      "main": [
+        [
+          {
+            "node": "Send a message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search records1": {
+      "main": [
+        [
+          {
+            "node": "Search records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "fef3645e-da8e-4339-8c37-245c2c5bbb5d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "747d48093dd1c9d7f37ddb21ddd6aed0a10f79f752a6a85c87ebd116dd406794"
+  },
+  "id": "l0qHxVRnMjGS5hNf",
+  "tags": []
+}

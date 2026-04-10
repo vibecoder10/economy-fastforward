@@ -1,0 +1,320 @@
+{
+  "title": "The Vibe Coder",
+  "total_duration_s": 60,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "elapsed_s": 1083.1,
+  "keyframes": [
+    {
+      "id": "KF-001",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493054551-1acy5xrfy1w.png",
+      "task_id": "cb0f6405602e5b1ab63dcf006b02f092",
+      "error": null
+    },
+    {
+      "id": "KF-002",
+      "shot_type": "wide",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493094036-6mzhbeguxkm.png",
+      "task_id": "412908e89baa16a461992f49248289a5",
+      "error": null
+    },
+    {
+      "id": "KF-003",
+      "shot_type": "close-up",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493148695-3lkp56bxjan.png",
+      "task_id": "2d83262c41272fd49dc1d8352c2c1122",
+      "error": null
+    },
+    {
+      "id": "KF-004",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/gemini-preview/1775493218909-j3218m73oef.png",
+      "task_id": "2c5601eb529ff0c227fbd1d6e96f20ed",
+      "error": null
+    },
+    {
+      "id": "KF-005",
+      "shot_type": "over-shoulder",
+      "status": "failed",
+      "image_url": null,
+      "task_id": "5272a3d9592d0624811ee82c07a39e41",
+      "error": "Poll returned no results"
+    },
+    {
+      "id": "KF-006",
+      "shot_type": "close-up",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493422608-8jex6a2i2b2.png",
+      "task_id": "5084c92149eee3b902bbbd13e2a048f3",
+      "error": null
+    },
+    {
+      "id": "KF-007",
+      "shot_type": "wide",
+      "status": "failed",
+      "image_url": null,
+      "task_id": "94d58ab27fd6faaf0ec0c3a47dd497d1",
+      "error": "Poll returned no results"
+    },
+    {
+      "id": "KF-008",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493659366-betasj33r7i.png",
+      "task_id": "a688b540b68818e7c9b6c0f5f96ddd19",
+      "error": null
+    },
+    {
+      "id": "KF-009",
+      "shot_type": "close-up",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493763004-21i9feern6a.png",
+      "task_id": "50a9d4b119b6dfeea6456adb0672135f",
+      "error": null
+    },
+    {
+      "id": "KF-010",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493865205-cxljkxylegq.png",
+      "task_id": "6cc662b1ea0fcd8fc3e0c1d0b734e50d",
+      "error": null
+    },
+    {
+      "id": "KF-011",
+      "shot_type": "wide",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775493982634-k8058vii29.png",
+      "task_id": "2dfce242be3ca5d0370da574d1654249",
+      "error": null
+    },
+    {
+      "id": "KF-012",
+      "shot_type": "wide establishing",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775494079375-7qpoz1kj9i3.png",
+      "task_id": "2fdbbb354c9de3a1ab36688bda0f3974",
+      "error": null
+    }
+  ],
+  "bridges": [
+    {
+      "id": "BR-001",
+      "from": "KF-001",
+      "to": "KF-002",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-002",
+      "from": "KF-002",
+      "to": "KF-003",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-003",
+      "from": "KF-003",
+      "to": "KF-004",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-004",
+      "from": "KF-004",
+      "to": "KF-005",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-005",
+      "from": "KF-005",
+      "to": "KF-006",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-006",
+      "from": "KF-006",
+      "to": "KF-007",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-007",
+      "from": "KF-007",
+      "to": "KF-008",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-008",
+      "from": "KF-008",
+      "to": "KF-009",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-009",
+      "from": "KF-009",
+      "to": "KF-010",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-010",
+      "from": "KF-010",
+      "to": "KF-011",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-011",
+      "from": "KF-011",
+      "to": "KF-012",
+      "duration": 5,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    }
+  ],
+  "assembly_order": [
+    {
+      "type": "keyframe",
+      "id": "KF-001"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-001"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-002"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-002"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-003"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-003"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-004"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-004"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-005"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-005"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-006"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-006"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-007"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-007"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-008"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-008"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-009"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-009"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-010"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-010"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-011"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-011"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-012"
+    }
+  ],
+  "summary": {
+    "keyframes_total": 12,
+    "keyframes_completed": 10,
+    "keyframes_failed": 2,
+    "bridges_total": 11,
+    "bridges_completed": 0,
+    "bridges_failed": 0,
+    "elapsed_s": 1083.1
+  }
+}

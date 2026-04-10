@@ -1,0 +1,100 @@
+{
+  "title": "The Midnight Builder v6",
+  "total_duration_s": 10,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "elapsed_s": 208.9,
+  "character_refs": [
+    {
+      "name": "Marcus",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775571589282-gq3yekzi9vn.png"
+    },
+    {
+      "name": "The Boss",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775571631715-eegvmihti.png"
+    }
+  ],
+  "location_refs": [
+    {
+      "name": "Manager's Office",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775571702999-djemf1mnyhg.png"
+    }
+  ],
+  "keyframes": [
+    {
+      "id": "KF-001",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775571776968-grc4zg38dsd.png",
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "KF-002",
+      "shot_type": "close-up",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775571849641-la2g70r6hle.png",
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "KF-003",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775571915071-4i2zap9hapl.png",
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "KF-004",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775572008592-5p76dos9lsc.png",
+      "task_id": null,
+      "error": null
+    }
+  ],
+  "bridges": [
+    {
+      "id": "BR-001",
+      "from": "KF-001",
+      "to": "KF-004",
+      "duration": 10,
+      "status": "completed",
+      "video_url": "https://tempfile.aiquickdraw.com/r/users/4f9a1643-1b7a-49c0-acb1-2a8aa9243243/generated/67ab2138-9917-4e0f-8525-a93037d868e4/generated_video.mp4",
+      "task_id": "476cad8403199638d8167aa1411f10c3",
+      "error": null
+    }
+  ],
+  "assembly_order": [
+    {
+      "type": "keyframe",
+      "id": "KF-001"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-001"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-002"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-003"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-004"
+    }
+  ],
+  "summary": {
+    "keyframes_total": 4,
+    "keyframes_completed": 4,
+    "keyframes_failed": 0,
+    "bridges_total": 1,
+    "bridges_completed": 1,
+    "bridges_failed": 0,
+    "elapsed_s": 208.9
+  }
+}

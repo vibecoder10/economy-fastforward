@@ -1,0 +1,450 @@
+{
+  "name": "Router Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        160,
+        -48
+      ],
+      "id": "5ec6f3f4-591d-40b9-a2b1-1a0672967eba",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        96,
+        144
+      ],
+      "id": "5a52c2c3-a7ea-45f5-b5ee-ceb76f32b5d4",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "cUdiv3ckrD14oRe5",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "USE THIS when the user wants to write a full video script for an idea that has already been logged. This tool triggers the Script Bot to fetch the latest 'Idea Logged' entry from Airtable and expand it into a full Economy Fast-Forward script. No extra input is needed from the user; just call this tool to start the writing process.",
+        "workflowId": {
+          "__rl": true,
+          "value": "V9ly8VyGB6nCf8mX",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/V9ly8VyGB6nCf8mX",
+          "cachedResultName": "Script Bot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        400,
+        176
+      ],
+      "id": "24cdfd8f-3be3-4ad2-98fd-878a04815734",
+      "name": "Call 'Script Bot'"
+    },
+    {
+      "parameters": {
+        "description": "USE THIS when the user wants to generate the voiceover for a finished script. This tool triggers the Voice Bot to fetch the completed script from Airtable and convert it into high-quality audio for 'Economy Fast-Forward'. No additional input is required; calling this tool initiates the final audio production step.\"",
+        "workflowId": {
+          "__rl": true,
+          "value": "l0qHxVRnMjGS5hNf",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/l0qHxVRnMjGS5hNf",
+          "cachedResultName": "Voice Bot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        176
+      ],
+      "id": "69b19bc8-2d42-4c53-be29-dbf5edd0e663",
+      "name": "Call 'Voice Bot'"
+    },
+    {
+      "parameters": {
+        "description": "Use this tool when the user asks to generate image prompts",
+        "workflowId": {
+          "__rl": true,
+          "value": "HhyBBIV1FchqUmSJ",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/HhyBBIV1FchqUmSJ",
+          "cachedResultName": "Image Prompt Bot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        176
+      ],
+      "id": "efc1eeaf-e01e-49d8-a9e7-852caf6b3779",
+      "name": "Call 'Image Prompt Bot'"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.channel }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        160,
+        -176
+      ],
+      "id": "4cb998d2-8ed5-4c31-9656-f92fee54c1c2",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "description": "MUST be used whenever the user provides a YouTube URL. This tool accepts a 'url' and analyzes the video to generate new ideas.",
+        "workflowId": {
+          "__rl": true,
+          "value": "PiKdCBc92IW4dF6y",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/PiKdCBc92IW4dF6y",
+          "cachedResultName": "Idea Bot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        272,
+        176
+      ],
+      "id": "f074645c-774e-455d-8756-89ae6edad43b",
+      "name": "Call Idea Bot"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "={{ $json.output }}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        624,
+        -80
+      ],
+      "id": "a3f88cdc-94f5-475a-81d2-cee4d3c49ff7",
+      "name": "Send a message",
+      "webhookId": "342fe7b6-2b4e-4595-8769-b241714f20e4",
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "USE THIS to generate the complete visual sequence for the video. This tool triggers the Image Bot to fetch the 'Visual Style Generator' instructions and all individual scene descriptions from Airtable. It will generate a high-quality, stylistically consistent image for every scene in the script and upload them directly to the designated Google Drive project folder. No additional user input is required to begin the generation of the full visual deck.",
+        "workflowId": {
+          "__rl": true,
+          "value": "Zybhu5lWsWtYQpaS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Zybhu5lWsWtYQpaS",
+          "cachedResultName": "Image Bot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        176
+      ],
+      "id": "c4b901d5-6f8b-4f61-aa01-0ee7f2e23521",
+      "name": "Call 'Image Bot'"
+    },
+    {
+      "parameters": {
+        "trigger": [
+          "app_mention"
+        ],
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        -16
+      ],
+      "id": "bc512685-adb2-491d-ba4b-1adea2c13f31",
+      "name": "Slack Trigger",
+      "webhookId": "3c7cf5e0-99d2-451c-8cc8-ca45a2999ddc",
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Use this tool when the user requests to make a thumbnail",
+        "workflowId": {
+          "__rl": true,
+          "value": "uOo65o0yOpDTSkvS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/uOo65o0yOpDTSkvS",
+          "cachedResultName": "Thumbnail Bot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1056,
+        176
+      ],
+      "id": "244412c6-43ff-4ab8-ac69-edd21a3f7143",
+      "name": "Call 'Thumbnail Bot'"
+    }
+  ],
+  "pinData": {
+    "Slack Trigger": [
+      {
+        "json": {
+          "type": "app_mention",
+          "user": "U061S7X8KFE",
+          "ts": "1769739853.504099",
+          "client_msg_id": "b9fcd725-e1ec-46b2-8592-98ca4ee9cd02",
+          "text": "<@U0A8ZS1J1RD> we need image prompts",
+          "team": "T061PMBUT7D",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "74k9x",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "user",
+                      "user_id": "U0A8ZS1J1RD"
+                    },
+                    {
+                      "type": "text",
+                      "text": " we need image prompts"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "channel": "C0A9U1X8NSW",
+          "assistant_thread": {
+            "action_token": "10417657850113.6057725979251.ae405568e6fe928ccc51b2608bda1dcd"
+          },
+          "event_ts": "1769739853.504099"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Script Bot'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Voice Bot'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Image Prompt Bot'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Idea Bot": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Image Bot'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Thumbnail Bot'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "cc3e16ff-40b4-4a5e-ace2-8f5e868a6a8c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "747d48093dd1c9d7f37ddb21ddd6aed0a10f79f752a6a85c87ebd116dd406794"
+  },
+  "id": "6b1vkEGXt0ItrQw9",
+  "tags": []
+}

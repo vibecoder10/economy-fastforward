@@ -1,0 +1,196 @@
+{
+  "title": "The Midnight Builder v4",
+  "total_duration_s": 210,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "elapsed_s": 758.0,
+  "character_refs": [
+    {
+      "name": "Marcus",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775518538496-nb3k1wozaz.png"
+    },
+    {
+      "name": "Aisha",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775518578397-0ymtth3n3gf.png"
+    },
+    {
+      "name": "Zara",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775518615561-kd26ar3lj8.png"
+    },
+    {
+      "name": "The Boss",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775518659292-wadcwkwnnaq.png"
+    }
+  ],
+  "location_refs": [
+    {
+      "name": "Manager's Office",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775518705640-eea77s8l0wr.png"
+    },
+    {
+      "name": "Open-Plan Office",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775518738214-a644nsjdjdj.png"
+    },
+    {
+      "name": "Office Exterior",
+      "ref_image_url": "https://tempfile.aiquickdraw.com/images/1775518774821-7zblahixunb.png"
+    }
+  ],
+  "keyframes": [
+    {
+      "id": "KF-001",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775518843120-3dup0qryotj.png",
+      "task_id": "9a71edb0defb7a5010fd4b2f0f851ccf",
+      "error": null
+    },
+    {
+      "id": "KF-002",
+      "shot_type": "close-up",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775518909371-1br5lvl1inm.png",
+      "task_id": "454242bf5a331d3d8cbc4c472ed72fed",
+      "error": null
+    },
+    {
+      "id": "KF-003",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775518975094-fappaeyjtbp.png",
+      "task_id": "4e0f6f75f6bfdd992a29f574d9c9eaf5",
+      "error": null
+    },
+    {
+      "id": "KF-004",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775519042865-45lkbn6ipoy.png",
+      "task_id": "170a0826060e31ec9ce372267a09e5e1",
+      "error": null
+    },
+    {
+      "id": "KF-005",
+      "shot_type": "medium",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775519151776-yxuo1x6slds.png",
+      "task_id": "9c2a795b7520c54d2ee29fc78ffa5d71",
+      "error": null
+    },
+    {
+      "id": "KF-006",
+      "shot_type": "wide",
+      "status": "completed",
+      "image_url": "https://tempfile.aiquickdraw.com/images/1775519219941-njh1i6p8q1b.png",
+      "task_id": "ddd1f69ad9a05d48683086ece8812f2f",
+      "error": null
+    }
+  ],
+  "bridges": [
+    {
+      "id": "BR-001",
+      "from": "KF-001",
+      "to": "KF-002",
+      "duration": 6,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-002",
+      "from": "KF-002",
+      "to": "KF-003",
+      "duration": 6,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-003",
+      "from": "KF-003",
+      "to": "KF-004",
+      "duration": 6,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-004",
+      "from": "KF-004",
+      "to": "KF-005",
+      "duration": 6,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    },
+    {
+      "id": "BR-005",
+      "from": "KF-005",
+      "to": "KF-006",
+      "duration": 6,
+      "status": "pending",
+      "video_url": null,
+      "task_id": null,
+      "error": null
+    }
+  ],
+  "assembly_order": [
+    {
+      "type": "keyframe",
+      "id": "KF-001"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-001"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-002"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-002"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-003"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-003"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-004"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-004"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-005"
+    },
+    {
+      "type": "bridge",
+      "id": "BR-005"
+    },
+    {
+      "type": "keyframe",
+      "id": "KF-006"
+    }
+  ],
+  "summary": {
+    "keyframes_total": 6,
+    "keyframes_completed": 6,
+    "keyframes_failed": 0,
+    "bridges_total": 5,
+    "bridges_completed": 0,
+    "bridges_failed": 0,
+    "elapsed_s": 758.0
+  }
+}

@@ -1,0 +1,545 @@
+{
+  "name": "Image Prompt Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Step 4: Create Img Prompts ",
+        "height": 336,
+        "width": 1888,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -928,
+        -48
+      ],
+      "id": "7c6b32d2-2b71-4966-a414-d802a4650a2d",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        16,
+        -272
+      ],
+      "id": "2bb4cc6a-9fd7-46bf-a850-ed03b383c5f6",
+      "name": "Anthropic Chat Model1",
+      "credentials": {
+        "anthropicApi": {
+          "id": "cUdiv3ckrD14oRe5",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $execution.id }}",
+        "contextWindowLength": 1
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        176,
+        -272
+      ],
+      "id": "0abda5dc-8a8a-4e16-9b1d-32548890d6e4",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -336,
+        32
+      ],
+      "id": "a1ee2968-89f6-4df5-abc3-29dab11516d9",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the raw text from the input\nconst items = $input.all();\nlet results = [];\n\nfor (const item of items) {\n  let text = item.json.output;\n  \n  // 1. Clean the text (Standard AI Cleanup)\n  // Removes markdown fences ```json ... ``` so JSON.parse doesn't break\n  text = text.replace(/^json\\s*/i, '')\n             .replace(/```json/gi, '')\n             .replace(/```/g, '')\n             .trim();\n  \n  try {\n    // 2. Parse the single object\n    let data = JSON.parse(text);\n    \n    // 3. Process the \"prompts\" array\n    // We expect data to look like: { \"scene\": 1, \"prompts\": [\"text...\", \"text...\"] }\n    if (data.prompts && Array.isArray(data.prompts)) {\n      \n      data.prompts.forEach((promptText, index) => {\n        results.push({\n          json: {\n            // Keep the scene number for grouping later\n            scene: data.scene || 1, \n            \n            // Create a simple 1, 2, 3... index\n            image_number: index + 1, \n            \n            // The actual prompt text\n            image_prompt: promptText \n          }\n        });\n      });\n      \n    } else {\n      // Fallback: If AI returns a single \"image_prompt\" string instead of an array\n      if (data.image_prompt) {\n        results.push({\n          json: {\n            scene: data.scene,\n            image_number: 1,\n            image_prompt: data.image_prompt\n          }\n        });\n      }\n    }\n    \n  } catch (error) {\n    console.log(\"JSON Parse Error:\", error);\n    // Optional: Return the raw text if parsing fails so you can debug\n    results.push({\n      json: { error: \"Failed to parse JSON\", raw_text: text }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        -128
+      ],
+      "id": "8d06fd6b-9b9e-4c18-8bbb-d269acaa21f0",
+      "name": "Parse The Data"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl3luJ0zsWu0MYYz",
+          "mode": "list",
+          "cachedResultName": "Images",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tbl3luJ0zsWu0MYYz"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Scene": "={{ $json.scene }}",
+            "Image Index": "={{ $json.image_number }}",
+            "Image Prompt": "={{ $json.image_prompt }}\n{{ $json.style }}\n{{ $json.lighting }}\n{{ $json.foreground }}\n{{ $json.background }}\n{{ $json.aspect_ratio }}\n{{ $json.artist_influences }}\n",
+            "Aspect Ratio": "16:9",
+            "Status": "Pending",
+            "Video Title": "={{ $('Search Script').item.json.Title }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "Video Title",
+              "displayName": "Video Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Scene",
+              "displayName": "Scene",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Image Index",
+              "displayName": "Image Index",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Image Prompt",
+              "displayName": "Image Prompt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Aspect Ratio",
+              "displayName": "Aspect Ratio",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "9:16",
+                  "value": "9:16"
+                },
+                {
+                  "name": "16:9",
+                  "value": "16:9"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "prompt done",
+              "displayName": "prompt done",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Done",
+                  "value": "Done"
+                },
+                {
+                  "name": "Pending",
+                  "value": "Pending"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Image",
+              "displayName": "Image",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Video",
+              "displayName": "Video",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        736,
+        64
+      ],
+      "id": "e2cad282-ca5d-49dd-96fe-e7f1381e261d",
+      "name": "Put the data",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbluGSepeZNgb0NxG",
+          "mode": "list",
+          "cachedResultName": "Script",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tbluGSepeZNgb0NxG"
+        },
+        "filterByFormula": "{Script Status} = \"Create\"",
+        "options": {},
+        "sort": {
+          "property": [
+            {
+              "field": "scene"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -624,
+        32
+      ],
+      "id": "e8b3aaf4-412f-4058-87ae-b522eee2a466",
+      "name": "Search Script",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Take the scene provided and make 6 JSON image prompts for this scene that allow of each image prompt to build off the previous prompt to make a cohesive story line for the scene with the 6 images..\n\n***\nVideo Title: {{ $json.Title }}\nCurrent Scene Number: {{ $json.scene }}\nCurrent Scene Text: {{ $json['Scene text'] }}\n***\n\nBased on the 10-second rule, generate exactly 6 unique image prompts for the specific scene text provided above and only provide your image prompt response in the given format, nothing else.\n\nIMPORTANT: Do not use double quotes (\") anywhere inside the prompt descriptions. Use single quotes (') instead if necessary",
+        "options": {
+          "systemMessage": "=Take in the prompt data and use it accordingly for your output\n\n---\n\nROLE:\n\"You are an expert JSON image prompt creator for a faceless YouTube channel. Your task is to create 6 sequential, cohesive image prompts based on the scene data provided by the user.\n\n---\n\nSTRICT STYLE GUIDELINES (READ CAREFULLY):\nThe style is \"Cinematic Lofi Digital\".\n\n1.  **NEGATIVE CONSTRAINTS:** You are STRICTLY FORBIDDEN from using the words \"Cozy\", \"Bedroom\", \"Home Desk\", \"Study\", or \"Warm Amber\". Do not generate images of people sitting at desks.\n2.  **Mood:** Atmospheric, Moody, Expansive, Industrial, Serious.\n3.  **Visuals:** 2D flat illustration, hand-drawn linework, soft painterly textures, 16:9 aspect ratio.\n4.  **Colors:** Use a palette relevant to the scene text (e.g., cool tech-blues for software, stark red/black for warnings, golden-yellows for finance).\n\n---\n\nVISUAL ANCHOR PROTOCOL (REQUIRED):\nTo visualize abstract concepts (finance, strategy, software), you MUST frame every prompt using one of the following \"Anchor Settings\". Do not use a room or furniture.\n\n* **Anchor A: \"The Digital Void\"** – Elements floating in a vast, dark space with glowing neon grids, binary rain, or floating text.\n* **Anchor B: \"The Urban Exterior\"** – A futuristic city street at twilight, rainy sidewalks, glowing billboards, or glass skyscrapers reflecting data.\n* **Anchor C: \"The Data Landscape\"** – Massive physical server towers rising like monoliths in a desert, or an infinite warehouse of glowing files.\n* **Anchor D: \"The Macro Lens\"** – A close-up of a symbolic object (chess piece, coin, hourglass, circuit board) isolated against a blurred, cinematic background (NOT a table).\n\n---\n\nOUTPUT FORMAT:\nThe Image Prompt must follow the JSON format exactly.\n* No line breaks inside the prompt strings.\n* No double quotes (\") inside the prompt strings; use single quotes (') instead.\n\nStructure:\n{\n  \"scene\": {{ $json.scene }},\n  \"prompts\": [\n    \"Image prompt 1 text...\",\n    \"Image prompt 2 text...\",\n    \"Image prompt 3 text...\",\n    \"Image prompt 4 text...\",\n    \"Image prompt 5 text...\",\n    \"Image prompt 6 text...\"\n  ]\n}\n\n---\n\nSTYLE REFERENCE (SAFE EXAMPLE):\nUse this quality, but apply it to your specific scene:\n\"Atmospheric lo-fi 2D digital illustration, 16:9. A vast digital canyon with glowing red warning symbols and floating ERROR text cascading down like a waterfall. In the foreground, a solitary figure in business attire stands at the edge holding a tablet. Soft painterly textures, hand-drawn linework, moody reds and oranges, atmospheric depth.\""
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        16,
+        -128
+      ],
+      "id": "f97c162d-1951-4283-97be-8a14e34c8785",
+      "name": "Image Prompt Agent",
+      "retryOnFail": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "=Image prompt are Done ✅ \n\nNow lets make the images!\n\nSend back \"images\" and well start!",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        1184,
+        0
+      ],
+      "id": "6f96cc16-3cbe-4acb-9f45-2005dfe1c6a2",
+      "name": "Send a message3",
+      "webhookId": "2701fc69-8bf7-4bd7-b9f1-682ce50e3291",
+      "executeOnce": true,
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "Starting to make the image prompts 🌉 ! ",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        -848,
+        32
+      ],
+      "id": "fb9ea6cf-5db7-40a3-a79f-3323766cc25b",
+      "name": "Send a message10",
+      "webhookId": "2701fc69-8bf7-4bd7-b9f1-682ce50e3291",
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1152,
+        64
+      ],
+      "id": "601834e9-95e4-4678-8018-a62acaceee16",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1152,
+        -144
+      ],
+      "id": "da59cc8b-ebf9-4393-8d9c-37f74d39c573",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "query": "start"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Anthropic Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Image Prompt Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Image Prompt Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Send a message3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Image Prompt Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse The Data": {
+      "main": [
+        [
+          {
+            "node": "Put the data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Put the data": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Script": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Prompt Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse The Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message10": {
+      "main": [
+        [
+          {
+            "node": "Search Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Send a message10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Send a message10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e487f27e-ae3c-449b-adea-e08244a85d1d",
+  "meta": {
+    "instanceId": "747d48093dd1c9d7f37ddb21ddd6aed0a10f79f752a6a85c87ebd116dd406794"
+  },
+  "id": "HhyBBIV1FchqUmSJ",
+  "tags": []
+}
