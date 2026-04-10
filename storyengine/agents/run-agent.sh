@@ -19,6 +19,10 @@ if [ -f "$PROJECT_ROOT/storyengine/backend/.env" ]; then
   set -a; source "$PROJECT_ROOT/storyengine/backend/.env"; set +a
 fi
 
+# CRITICAL: Unset ANTHROPIC_API_KEY so Claude Code uses OAuth (Max subscription)
+# instead of the paid API key. The .env key is for the video pipeline bots only.
+unset ANTHROPIC_API_KEY
+
 RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
 ACTIVITY_LOG_FILE="$PROJECT_ROOT/rubric/scaffold/data/activity-log.json"
 
