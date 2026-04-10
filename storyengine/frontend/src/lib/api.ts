@@ -1479,6 +1479,31 @@ export const updateNotificationPreferences = (data: Partial<NotificationPreferen
     body: JSON.stringify(data),
   });
 
+// Google Drive connection
+export interface DriveStatus {
+  connected: boolean;
+  folder_id: string | null;
+  folder_name: string | null;
+}
+
+export const getDriveStatus = () =>
+  fetchApi<DriveStatus>("/api/auth/google-drive/status");
+
+export const getDriveConnectUrl = () =>
+  fetchApi<{ auth_url: string }>("/api/auth/google-drive/connect");
+
+export const postDriveCallback = (code: string) =>
+  fetchApi<{ status: string; access_token: string }>("/api/auth/google-drive/callback", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+
+export const disconnectDrive = () =>
+  fetchApi<{ status: string }>("/api/auth/google-drive/disconnect", { method: "POST" });
+
+export const getDriveAccessToken = () =>
+  fetchApi<{ access_token: string }>("/api/auth/google-drive/access-token", { method: "POST" });
+
 // Health Check
 export interface HealthStatus {
   status: "healthy" | "degraded" | "unhealthy";

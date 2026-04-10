@@ -460,3 +460,179 @@ async def reset_password(body: ResetPasswordRequest):
     )
 
     return {"message": "Password has been reset successfully. You can now log in."}
+
+
+# ---------------------------------------------------------------------------
+# Google Drive OAuth — server-side flow for per-user Drive access
+# ---------------------------------------------------------------------------
+
+DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file"
+
+
+@router.get("/google-drive/connect")
+async def google_drive_connect(user: AuthUser = Depends(verify_token)):
+    """Initiate Google OAuth for Drive access.
+
+    Returns the authorization URL. Frontend redirects the user there.
+    Google redirects back to /api/auth/google-drive/callback with an auth code.
+    """
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="GOOGLE_OAUTH_CLIENT_ID not configured")
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    redirect_uri = os.getenv("GOOGLE_DRIVE_REDIRECT_URI", f"{frontend_url}/settings/drive-callback")
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": DRIVE_SCOPES,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": str(user.tenant_id),
+    }
+    qs = "&".join(f"{k}={httpx.URL('').copy_with(params={k: v}).params[k]}" for k, v in params.items())
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{qs}"
+
+    return {"auth_url": auth_url}
+
+
+class DriveCallbackRequest(BaseModel):
+    code: str
+
+
+@router.post("/google-drive/callback")
+async def google_drive_callback(
+    body: DriveCallbackRequest,
+    user: AuthUser = Depends(verify_token),
+):
+    """Exchange Google auth code for refresh token and store it.
+
+    Frontend sends the auth code after Google redirects back.
+    We exchange it for tokens server-side (client secret never leaves backend).
+    """
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail="Google OAuth credentials not configured")
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    redirect_uri = os.getenv("GOOGLE_DRIVE_REDIRECT_URI", f"{frontend_url}/settings/drive-callback")
+
+    # Exchange auth code for tokens
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": body.code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            timeout=15.0,
+        )
+
+    if resp.status_code != 200:
+        detail = resp.json().get("error_description", "Token exchange failed")
+        raise HTTPException(status_code=400, detail=detail)
+
+    tokens = resp.json()
+    refresh_token = tokens.get("refresh_token")
+    access_token = tokens.get("access_token")
+
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="No refresh token received. Try disconnecting the app in Google Account settings and reconnecting.",
+        )
+
+    # Store refresh token on the tenant's channel profile
+    tenant_id = str(user.tenant_id)
+    existing = await fetch_one(
+        "SELECT id FROM channel_profiles WHERE tenant_id = $1", tenant_id
+    )
+    if existing:
+        await execute(
+            "UPDATE channel_profiles SET google_drive_refresh_token = $1, updated_at = now() WHERE tenant_id = $2",
+            refresh_token, tenant_id,
+        )
+    else:
+        await execute(
+            "INSERT INTO channel_profiles (tenant_id, google_drive_refresh_token) VALUES ($1, $2)",
+            tenant_id, refresh_token,
+        )
+
+    return {"status": "connected", "access_token": access_token}
+
+
+@router.get("/google-drive/status")
+async def google_drive_status(user: AuthUser = Depends(verify_token)):
+    """Check if Google Drive is connected for this tenant."""
+    tenant_id = str(user.tenant_id)
+    row = await fetch_one(
+        "SELECT google_drive_refresh_token, google_drive_folder_id, google_drive_folder_name "
+        "FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    if not row or not row.get("google_drive_refresh_token"):
+        return {"connected": False, "folder_id": None, "folder_name": None}
+
+    return {
+        "connected": True,
+        "folder_id": row.get("google_drive_folder_id") or None,
+        "folder_name": row.get("google_drive_folder_name") or None,
+    }
+
+
+@router.post("/google-drive/disconnect")
+async def google_drive_disconnect(user: AuthUser = Depends(verify_token)):
+    """Disconnect Google Drive — removes stored refresh token and folder selection."""
+    tenant_id = str(user.tenant_id)
+    await execute(
+        "UPDATE channel_profiles SET google_drive_refresh_token = NULL, "
+        "google_drive_folder_id = NULL, google_drive_folder_name = NULL, "
+        "updated_at = now() WHERE tenant_id = $1",
+        tenant_id,
+    )
+    return {"status": "disconnected"}
+
+
+@router.post("/google-drive/access-token")
+async def google_drive_access_token(user: AuthUser = Depends(verify_token)):
+    """Get a fresh access token for the Google Picker.
+
+    Uses the stored refresh token to mint a short-lived access token.
+    The frontend uses this to open the Picker — no API key needed.
+    """
+    tenant_id = str(user.tenant_id)
+    row = await fetch_one(
+        "SELECT google_drive_refresh_token FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    if not row or not row.get("google_drive_refresh_token"):
+        raise HTTPException(status_code=400, detail="Google Drive not connected")
+
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail="Google OAuth credentials not configured")
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": row["google_drive_refresh_token"],
+                "grant_type": "refresh_token",
+            },
+            timeout=10.0,
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail="Failed to refresh Drive token. Try reconnecting.")
+
+    tokens = resp.json()
+    return {"access_token": tokens["access_token"]}
