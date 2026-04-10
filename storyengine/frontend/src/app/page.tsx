@@ -173,8 +173,8 @@ const PRICING_TIERS = [
     features: ["Everything in Starter", "15 videos/month", "Autopilot mode", "Analytics & learnings", "Competitor analysis", "3 visual styles"],
   },
   {
-    key: "agency",
-    name: "Agency",
+    key: "studio",
+    name: "Studio",
     price: 75,
     icon: Building2,
     tagline: "For teams managing multiple channels",

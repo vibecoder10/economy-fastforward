@@ -73,7 +73,7 @@ const PLANS = [
   },
   {
     key: "agency",
-    name: "Agency",
+    name: "Studio",
     price: 75,
     icon: Building2,
     tagline: "For teams managing multiple channels",
