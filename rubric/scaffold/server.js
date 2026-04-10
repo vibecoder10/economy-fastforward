@@ -2026,4 +2026,30 @@ server.listen(PORT, HOST, () => {
   console.log(`\n  Rubric Console`);
   console.log(`  http://localhost:${PORT}`);
   console.log(`  Templates active: ${INSTALLED_TABS.join(', ')}\n`);
+
+  // ─── Startup Recovery: if queue has an active PRD but no prd.json, auto-deploy ──
+  setTimeout(() => {
+    const q = readPrdQueue();
+    if (q.current_index >= 0 && q.current_index < q.queue.length) {
+      const current = q.queue[q.current_index];
+      if (current.started_at && !current.completed_at) {
+        const agentsDir = path.join(__dirname, '../../agents');
+        const prdExists = fs.existsSync(path.join(agentsDir, 'prd.json'));
+        if (!prdExists) {
+          console.log(`PRD Queue recovery: "${current.title}" is active but prd.json missing — re-deploying...`);
+          const postData = JSON.stringify({ content: current.content });
+          const req = http.request({ hostname: 'localhost', port: PORT, path: '/api/deploy-prd', method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+          }, (res) => {
+            let body = '';
+            res.on('data', d => body += d);
+            res.on('end', () => console.log(`PRD Queue recovery: deploy response — ${body}`));
+          });
+          req.on('error', e => console.error(`PRD Queue recovery failed: ${e.message}`));
+          req.write(postData);
+          req.end();
+        }
+      }
+    }
+  }, 5000);
 });
