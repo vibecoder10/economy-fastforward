@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard, Palette, Bell } from "lucide-react";
+import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard, Palette, Bell, FolderOpen, X, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/spinner";
@@ -93,6 +93,113 @@ export default function SettingsPage() {
   const [brandLogo, setBrandLogo] = useState("");
   const [brandSaving, setBrandSaving] = useState(false);
   const [brandSaved, setBrandSaved] = useState(false);
+
+  // Google Drive folder
+  const [driveFolderId, setDriveFolderId] = useState("");
+  const [driveFolderName, setDriveFolderName] = useState("");
+  const [driveSaving, setDriveSaving] = useState(false);
+  const [driveSaved, setDriveSaved] = useState(false);
+  const [pickerLoaded, setPickerLoaded] = useState(false);
+
+  // Sync Drive folder from channel profile
+  useEffect(() => {
+    if (channelProfile) {
+      setDriveFolderId(channelProfile.google_drive_folder_id || "");
+      setDriveFolderName(channelProfile.google_drive_folder_name || "");
+    }
+  }, [channelProfile]);
+
+  // Load Google Picker API
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (document.getElementById("google-picker-script")) {
+      setPickerLoaded(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "google-picker-script";
+    script.src = "https://apis.google.com/js/api.js";
+    script.onload = () => setPickerLoaded(true);
+    document.head.appendChild(script);
+  }, []);
+
+  const openDrivePicker = useCallback(() => {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+
+    if (!clientId || !apiKey) {
+      alert("Google API credentials not configured. Set NEXT_PUBLIC_GOOGLE_CLIENT_ID and NEXT_PUBLIC_GOOGLE_API_KEY in your environment.");
+      return;
+    }
+
+    const gapi = (window as unknown as Record<string, unknown>).gapi as {
+      load: (api: string, cb: () => void) => void;
+    } | undefined;
+
+    if (!gapi) return;
+
+    gapi.load("picker", () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const google = (window as any).google;
+      if (!google?.picker) return;
+
+      // Use the stored OAuth token
+      const token = localStorage.getItem("google_access_token");
+      if (!token) {
+        // Fall back to OAuth popup
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(window.location.origin + "/settings")}&response_type=token&scope=https://www.googleapis.com/auth/drive.file&prompt=consent`;
+        window.location.href = authUrl;
+        return;
+      }
+
+      const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS);
+      view.setSelectFolderEnabled(true);
+      view.setMimeTypes("application/vnd.google-apps.folder");
+
+      const picker = new google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(token)
+        .setDeveloperKey(apiKey)
+        .setTitle("Select a folder for StoryEngine assets")
+        .setCallback(async (data: { action: string; docs?: { id: string; name: string }[] }) => {
+          if (data.action === google.picker.Action.PICKED && data.docs?.[0]) {
+            const folder = data.docs[0];
+            setDriveFolderId(folder.id);
+            setDriveFolderName(folder.name);
+            // Auto-save
+            setDriveSaving(true);
+            try {
+              await updateChannelProfile({
+                google_drive_folder_id: folder.id,
+                google_drive_folder_name: folder.name,
+              });
+              queryClient.invalidateQueries({ queryKey: ["channelProfile"] });
+              setDriveSaved(true);
+              setTimeout(() => setDriveSaved(false), 2000);
+            } finally {
+              setDriveSaving(false);
+            }
+          }
+        })
+        .build();
+      picker.setVisible(true);
+    });
+  }, [queryClient]);
+
+  // Check for OAuth token in URL hash (redirect from Google)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (hash.includes("access_token=")) {
+      const params = new URLSearchParams(hash.substring(1));
+      const token = params.get("access_token");
+      if (token) {
+        localStorage.setItem("google_access_token", token);
+        // Clean the URL
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  }, []);
 
   // Notification preferences
   const { data: notifPrefs } = useQuery({
@@ -498,6 +605,97 @@ export default function SettingsPage() {
               {brandSaving ? "Saving..." : "Save Brand Kit"}
             </button>
           </div>
+        </GlassCard>
+      </motion.div>
+
+      {/* Google Drive Storage */}
+      <motion.div variants={item}>
+        <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--green)", paddingLeft: 16 }}>
+          <HardDrive size={18} style={{ color: "var(--green)" }} />
+          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+            Google Drive Storage
+          </h2>
+          {driveSaved && <SavedIndicator visible />}
+        </div>
+        <GlassCard className="p-6">
+          <p className="text-xs mb-4" style={{ color: "var(--text-tertiary)" }}>
+            Connect a Google Drive folder to store your pipeline assets — voice files, renders, thumbnails, and more.
+          </p>
+
+          {driveFolderId ? (
+            <div className="space-y-3">
+              {/* Connected folder display */}
+              <div
+                className="flex items-center gap-3 px-4 py-3 rounded-lg"
+                style={{ background: "rgba(34, 197, 94, 0.08)", border: "1px solid rgba(34, 197, 94, 0.2)" }}
+              >
+                <FolderOpen size={20} style={{ color: "var(--green)" }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                    {driveFolderName || "Selected Folder"}
+                  </p>
+                  <p className="text-[10px] font-mono truncate" style={{ color: "var(--text-tertiary)" }}>
+                    {driveFolderId}
+                  </p>
+                </div>
+                <a
+                  href={`https://drive.google.com/drive/folders/${driveFolderId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-surface)]"
+                  title="Open in Google Drive"
+                >
+                  <ExternalLink size={14} style={{ color: "var(--text-secondary)" }} />
+                </a>
+              </div>
+
+              {/* Change / Disconnect buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openDrivePicker}
+                  disabled={!pickerLoaded || driveSaving}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+                >
+                  <FolderOpen size={12} />
+                  Change Folder
+                </button>
+                <button
+                  onClick={async () => {
+                    setDriveSaving(true);
+                    try {
+                      await updateChannelProfile({ google_drive_folder_id: "", google_drive_folder_name: "" });
+                      setDriveFolderId("");
+                      setDriveFolderName("");
+                      queryClient.invalidateQueries({ queryKey: ["channelProfile"] });
+                    } finally {
+                      setDriveSaving(false);
+                    }
+                  }}
+                  disabled={driveSaving}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
+                  style={{ background: "rgba(239, 68, 68, 0.08)", color: "#ef4444", border: "1px solid rgba(239, 68, 68, 0.2)" }}
+                >
+                  <X size={12} />
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={openDrivePicker}
+              disabled={!pickerLoaded || driveSaving}
+              className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all hover:brightness-110 w-full justify-center"
+              style={{ background: "var(--green-dim, rgba(34,197,94,0.1))", color: "var(--green)", border: "1px solid rgba(34, 197, 94, 0.3)" }}
+            >
+              {driveSaving ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <FolderOpen size={16} />
+              )}
+              {driveSaving ? "Connecting..." : "Connect Google Drive Folder"}
+            </button>
+          )}
         </GlassCard>
       </motion.div>
 

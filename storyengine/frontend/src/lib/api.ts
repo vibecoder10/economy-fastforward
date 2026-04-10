@@ -1304,6 +1304,8 @@ export interface ChannelProfile {
   frameworks: string[];
   accent_color?: string;
   logo_url?: string;
+  google_drive_folder_id?: string;
+  google_drive_folder_name?: string;
 }
 
 export interface ChannelProfileUpdate {
@@ -1313,6 +1315,8 @@ export interface ChannelProfileUpdate {
   frameworks?: string[];
   accent_color?: string;
   logo_url?: string;
+  google_drive_folder_id?: string;
+  google_drive_folder_name?: string;
 }
 
 export interface IntegrationStatusItem {

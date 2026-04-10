@@ -543,6 +543,14 @@ CREATE TABLE channel_profiles (
   target_audience TEXT DEFAULT '',
   frameworks JSONB DEFAULT '[]'::jsonb,
 
+  -- Brand Kit
+  accent_color TEXT DEFAULT '#00D4AA',
+  logo_url TEXT,
+
+  -- Google Drive storage
+  google_drive_folder_id TEXT,
+  google_drive_folder_name TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

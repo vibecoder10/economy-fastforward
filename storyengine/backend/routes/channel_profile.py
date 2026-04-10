@@ -24,6 +24,8 @@ class ChannelProfile(BaseModel):
     frameworks: list[str] = []
     accent_color: str = ""
     logo_url: str = ""
+    google_drive_folder_id: str = ""
+    google_drive_folder_name: str = ""
 
 
 class ChannelProfileUpdate(BaseModel):
@@ -34,6 +36,8 @@ class ChannelProfileUpdate(BaseModel):
     frameworks: Optional[list[str]] = None
     accent_color: Optional[str] = None
     logo_url: Optional[str] = None
+    google_drive_folder_id: Optional[str] = None
+    google_drive_folder_name: Optional[str] = None
 
 
 class IntegrationStatus(BaseModel):
@@ -74,7 +78,8 @@ async def get_channel_profile(tenant_id: str = Depends(get_tenant_id)):
     await _ensure_table()
 
     row = await fetch_one(
-        """SELECT channel_name, niche, target_audience, frameworks, accent_color, logo_url
+        """SELECT channel_name, niche, target_audience, frameworks,
+                  accent_color, logo_url, google_drive_folder_id, google_drive_folder_name
            FROM channel_profiles WHERE tenant_id = $1""",
         tenant_id,
     )
@@ -96,6 +101,8 @@ async def get_channel_profile(tenant_id: str = Depends(get_tenant_id)):
         frameworks=frameworks,
         accent_color=row.get("accent_color") or "",
         logo_url=row.get("logo_url") or "",
+        google_drive_folder_id=row.get("google_drive_folder_id") or "",
+        google_drive_folder_name=row.get("google_drive_folder_name") or "",
     )
 
 
@@ -121,8 +128,10 @@ async def update_channel_profile(
         # Create new profile with provided values
         frameworks_json = json.dumps(update.frameworks or [])
         await execute(
-            """INSERT INTO channel_profiles (tenant_id, channel_name, niche, target_audience, frameworks, accent_color, logo_url)
-               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)""",
+            """INSERT INTO channel_profiles
+               (tenant_id, channel_name, niche, target_audience, frameworks,
+                accent_color, logo_url, google_drive_folder_id, google_drive_folder_name)
+               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)""",
             tenant_id,
             update.channel_name or "",
             update.niche or "",
@@ -130,6 +139,8 @@ async def update_channel_profile(
             frameworks_json,
             update.accent_color or "",
             update.logo_url or "",
+            update.google_drive_folder_id or "",
+            update.google_drive_folder_name or "",
         )
     else:
         # Build dynamic update
@@ -166,6 +177,16 @@ async def update_channel_profile(
             param_idx += 1
             sets.append(f"logo_url = ${param_idx}")
             params.append(update.logo_url)
+
+        if update.google_drive_folder_id is not None:
+            param_idx += 1
+            sets.append(f"google_drive_folder_id = ${param_idx}")
+            params.append(update.google_drive_folder_id)
+
+        if update.google_drive_folder_name is not None:
+            param_idx += 1
+            sets.append(f"google_drive_folder_name = ${param_idx}")
+            params.append(update.google_drive_folder_name)
 
         if sets:
             sets.append("updated_at = now()")
