@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useQuery } from "@tanstack/react-query";
 import { getPendingReview, getSubscription } from "@/lib/api";
+import { useHealthCheck } from "@/hooks/use-health-check";
 import {
   LayoutGrid,
   List,
@@ -55,6 +56,8 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const { data: health } = useHealthCheck();
 
   const { data: pendingReview } = useQuery({
     queryKey: ["pending-review-count"],
@@ -199,6 +202,50 @@ export function Sidebar() {
           )}
         </button>
       </div>
+
+      {/* System health indicator */}
+      <div className={`px-3 pb-2 ${collapsed ? "flex justify-center" : ""}`}>
+        <div
+          className={`flex items-center gap-2 ${collapsed ? "" : "px-3 py-1.5"}`}
+          title={
+            health
+              ? `System: ${health.status}\nDB: ${health.database ? "OK" : "DOWN"}\nActive tasks: ${health.active_tasks}\nStorage: ${health.storage ? "OK" : "DOWN"}`
+              : "Checking system status..."
+          }
+        >
+          <span
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{
+              background: !health
+                ? "var(--text-tertiary)"
+                : health.status === "healthy"
+                  ? "#22c55e"
+                  : health.status === "degraded"
+                    ? "#eab308"
+                    : "#ef4444",
+            }}
+          />
+          {!collapsed && (
+            <span className="text-[11px] font-body" style={{ color: "var(--text-tertiary)" }}>
+              {!health ? "..." : health.status === "healthy" ? "All systems OK" : health.status === "degraded" ? "Degraded" : "System issues"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Unhealthy banner */}
+      {health && health.status === "unhealthy" && !collapsed && (
+        <div
+          className="mx-3 mb-2 px-3 py-2 rounded-lg text-[11px] font-body"
+          style={{
+            background: "rgba(239, 68, 68, 0.1)",
+            color: "#ef4444",
+            border: "1px solid rgba(239, 68, 68, 0.2)",
+          }}
+        >
+          System experiencing issues. Some features may be slow.
+        </div>
+      )}
 
       {/* Collapse toggle (desktop only) */}
       <div className="px-2 pb-4 hidden md:block">

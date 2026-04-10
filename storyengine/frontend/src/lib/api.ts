@@ -1474,3 +1474,15 @@ export const updateNotificationPreferences = (data: Partial<NotificationPreferen
     method: "PATCH",
     body: JSON.stringify(data),
   });
+
+// Health Check
+export interface HealthStatus {
+  status: "healthy" | "degraded" | "unhealthy";
+  service: string;
+  database: boolean;
+  active_tasks: number;
+  storage: boolean;
+}
+
+export const getHealthStatus = () =>
+  fetchApi<HealthStatus>("/api/health");
