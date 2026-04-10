@@ -432,7 +432,7 @@
 
   <!-- WELCOME -->
   <div id="tab-welcome" class="tab-panel active">
-    <div style="max-width:800px;margin:0 auto;padding:20px;">
+    <div style="max-width:1400px;margin:0 auto;padding:20px;">
 
       <!-- Team Controls Panel -->
       <div style="margin-bottom:20px;padding:20px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
@@ -474,31 +474,48 @@
         </div>
       </div>
 
-      <!-- Work Board (always visible — pending queue + completed history) -->
-      <div id="tq-panel" style="margin-bottom:20px;">
-        <!-- Header with tab switcher -->
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px 12px 0 0;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <button id="wb-tab-queue" onclick="switchWorkBoard('queue')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #D4A844;background:rgba(212,168,68,0.15);color:#D4A844;cursor:pointer;font-family:Outfit,sans-serif;font-weight:600;">Queue <span id="tq-pending-badge">0</span></button>
-            <button id="wb-tab-done" onclick="switchWorkBoard('done')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #222;background:transparent;color:#555;cursor:pointer;font-family:Outfit,sans-serif;font-weight:500;">Completed <span id="tq-done-badge">0</span></button>
+      <!-- Two-column: Work Board (left) + Activity Feed (right) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+        <!-- Work Board (Queue + Completed) -->
+        <div id="tq-panel">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px 12px 0 0;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button id="wb-tab-queue" onclick="switchWorkBoard('queue')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #D4A844;background:rgba(212,168,68,0.15);color:#D4A844;cursor:pointer;font-family:Outfit,sans-serif;font-weight:600;">Queue <span id="tq-pending-badge">0</span></button>
+              <button id="wb-tab-done" onclick="switchWorkBoard('done')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #222;background:transparent;color:#555;cursor:pointer;font-family:Outfit,sans-serif;font-weight:500;">Completed <span id="tq-done-badge">0</span></button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span id="tq-summary" style="font-size:11px;color:#555;">Loading...</span>
+              <button onclick="clearTaskQueue()" style="background:none;border:1px solid #222;color:#e35050;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;">Clear All</button>
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span id="tq-summary" style="font-size:11px;color:#555;">Loading...</span>
-            <button onclick="clearTaskQueue()" style="background:none;border:1px solid #222;color:#e35050;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;">Clear All</button>
+          <div id="wb-queue" style="border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:600px;overflow-y:auto;">
+            <div id="tq-list" style="padding:8px;">
+              <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading tasks...</div>
+            </div>
+          </div>
+          <div id="wb-done" style="display:none;border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:600px;overflow-y:auto;">
+            <div id="tq-done-list" style="padding:8px;">
+              <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading...</div>
+            </div>
           </div>
         </div>
-        <!-- Queue view (pending tasks — the bulletin board) -->
-        <div id="wb-queue" style="border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:500px;overflow-y:auto;">
-          <div id="tq-list" style="padding:8px;">
-            <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading tasks...</div>
+
+        <!-- Activity Feed (live, 2-day window) -->
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px 12px 0 0;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:12px;font-weight:600;color:#888;">Activity Feed</span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#50e3c2;animation:pulse 2s ease-in-out infinite;"></span>
+              <span style="font-size:10px;color:#555;">Live</span>
+            </div>
+            <button id="activity-refresh-btn" style="background:none;border:1px solid #222;color:#666;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;">Refresh</button>
+          </div>
+          <div id="activity-feed" style="border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:600px;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px;">
+            <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading activity...</div>
           </div>
         </div>
-        <!-- Completed view (all done tasks by tab — initially hidden) -->
-        <div id="wb-done" style="display:none;border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:500px;overflow-y:auto;">
-          <div id="tq-done-list" style="padding:8px;">
-            <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading...</div>
-          </div>
-        </div>
+
       </div>
 
       <!-- Section 1: Mission Brief -->
@@ -733,14 +750,7 @@
         <div id="proposals-list" style="display:flex;flex-direction:column;gap:8px;"></div>
       </div>
 
-      <!-- Activity Feed -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-        <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.3px;">Activity Feed</h2>
-        <button id="activity-refresh-btn" style="background:none;border:1px solid #222;color:#888;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Outfit',sans-serif;">Refresh</button>
-      </div>
-      <div id="activity-feed" style="display:flex;flex-direction:column;gap:8px;">
-        <div style="color:#555;font-size:13px;padding:20px 0;text-align:center;">No activity yet. Agents will post updates here as they work.</div>
-      </div>
+      <!-- Activity Feed moved to two-column layout above -->
     </div>
   </div>
 
@@ -1559,48 +1569,37 @@ window.__onTabShow = {};
     const feed = document.getElementById('activity-feed');
     if (!feed) return;
     try {
-      const resp = await fetch('/api/activity-log?limit=50');
+      const resp = await fetch('/api/activity-log?limit=80');
       if (!resp.ok) return;
-      const entries = await resp.json();
+      const allEntries = await resp.json();
+      // Filter to last 2 days only
+      const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+      const cutoff = Date.now() - twoDaysMs;
+      const entries = allEntries.filter(e => e.timestamp > cutoff);
       if (entries.length === 0) {
-        feed.innerHTML = '<div style="color:#555;font-size:13px;padding:20px 0;text-align:center;">No activity yet. Agents will post updates here as they work.</div>';
+        feed.innerHTML = '<div style="color:#555;font-size:12px;padding:20px 0;text-align:center;">No activity in the last 2 days.</div>';
         return;
       }
       feed.innerHTML = entries.map(e => {
         const color = AGENT_COLORS[e.agent] || '#888';
         const ago = Math.floor((Date.now() - e.timestamp) / 60000);
-        const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';
+        const timeStr = ago < 1 ? 'now' : ago < 60 ? ago + 'm' : ago < 1440 ? Math.floor(ago/60) + 'h' : Math.floor(ago/1440) + 'd';
         const statusIcon = e.status === 'completed' ? '&#10003;' : e.status === 'error' ? '&#10007;' : e.status === 'timeout' ? '&#9201;' : '&#9679;';
         const statusColor = e.status === 'completed' ? '#50e3c2' : e.status === 'error' ? '#e35050' : e.status === 'timeout' ? '#f5a623' : '#D4A844';
-        const detailHtml = e.detail ? '<div style="font-size:12px;color:#999;margin-top:8px;line-height:1.6;padding:8px 12px;background:#111;border-radius:6px;white-space:pre-wrap;">' + esc(e.detail) + '</div>' : '';
-        const reportBtn = e.detail_file ? '<button onclick="viewReport(\'' + esc(e.detail_file) + '\')" style="background:none;border:1px solid #222;color:#666;padding:4px 10px;border-radius:4px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;margin-top:6px;">View Full Report</button>' : '';
-        const logBtn = e.agent ? '<button onclick="viewAgentLog(\'' + esc(e.agent) + '\')" style="background:none;border:1px solid #222;color:#666;padding:4px 10px;border-radius:4px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;margin-top:6px;margin-left:4px;">Logs</button>' : '';
-        const taskId = e.task || '';
-        const screenshotHtml = taskId ? '<div style="display:flex;gap:8px;margin-top:8px;"><img src="/api/screenshots/' + esc(taskId) + '-before.png" onerror="this.parentElement.style.display=\'none\'" style="width:120px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #222;cursor:pointer;" onclick="window.open(this.src)" /><img src="/api/screenshots/' + esc(taskId) + '-after.png" onerror="this.style.display=\'none\'" style="width:120px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #222;cursor:pointer;" onclick="window.open(this.src)" /></div>' : '';
-        // Duration + cost badges
-        const durStr = e.duration_seconds != null ? (e.duration_seconds >= 60 ? Math.floor(e.duration_seconds/60) + 'm ' + (e.duration_seconds%60) + 's' : e.duration_seconds + 's') : '';
-        const costStr = e.estimated_cost != null ? '$' + e.estimated_cost.toFixed(2) : '';
-        const metaBadges = (durStr || costStr) ? '<div style="display:flex;gap:8px;margin-top:4px;">' +
-          (durStr ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(80,227,194,0.08);color:#50e3c2;">&#9202; ' + durStr + '</span>' : '') +
-          (costStr ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(245,166,35,0.08);color:#f5a623;">' + costStr + '</span>' : '') +
-          (e.model ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(138,180,248,0.08);color:#8ab4f8;">' + esc(e.model) + '</span>' : '') +
-          '</div>' : '';
-        return '<div style="padding:12px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:10px;border-left:3px solid '+color+';">' +
-          '<div style="display:flex;gap:12px;">' +
-            '<div style="min-width:100px;">' +
-              '<div style="font-size:12px;font-weight:600;color:'+color+';">' + esc((AGENT_NAMES[e.agent] || e.agent)) + '</div>' +
-              '<div style="font-size:10px;color:#555;margin-top:2px;">' + timeStr + '</div>' +
+        const reportBtn = e.detail_file ? ' <button onclick="viewReport(\'' + esc(e.detail_file) + '\')" style="background:none;border:1px solid #222;color:#555;padding:2px 8px;border-radius:4px;font-size:9px;cursor:pointer;font-family:Outfit,sans-serif;">Report</button>' : '';
+        const logBtn = e.agent ? ' <button onclick="viewAgentLog(\'' + esc(e.agent) + '\')" style="background:none;border:1px solid #222;color:#555;padding:2px 8px;border-radius:4px;font-size:9px;cursor:pointer;font-family:Outfit,sans-serif;">Logs</button>' : '';
+        return '<div style="padding:8px 10px;background:#111;border-radius:8px;border-left:2px solid '+color+';">' +
+          '<div style="display:flex;align-items:flex-start;gap:8px;">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">' +
+                '<span style="font-size:11px;font-weight:600;color:'+color+';">' + esc((AGENT_NAMES[e.agent] || e.agent)) + '</span>' +
+                '<span style="font-size:9px;color:#444;">' + timeStr + '</span>' +
+              '</div>' +
+              '<div style="font-size:11px;color:#aaa;line-height:1.4;">' + esc(e.summary || e.task || 'No summary') + '</div>' +
+              (reportBtn || logBtn ? '<div style="margin-top:3px;">' + reportBtn + logBtn + '</div>' : '') +
             '</div>' +
-            '<div style="flex:1;">' +
-              '<div style="font-size:13px;color:#ccc;font-weight:500;">' + esc(e.summary || e.task || 'No summary') + '</div>' +
-              (e.task && e.summary ? '<div style="font-size:10px;color:#555;margin-top:2px;">Task: ' + esc(e.task) + '</div>' : '') +
-              metaBadges +
-            '</div>' +
-            '<div style="font-size:14px;color:'+statusColor+';">' + statusIcon + '</div>' +
+            '<div style="font-size:12px;color:'+statusColor+';flex-shrink:0;">' + statusIcon + '</div>' +
           '</div>' +
-          detailHtml +
-          screenshotHtml +
-          '<div style="display:flex;gap:4px;">' + reportBtn + logBtn + '</div>' +
         '</div>';
       }).join('');
     } catch {}
