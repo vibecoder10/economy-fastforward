@@ -26,8 +26,14 @@ async def get_profile(user: AuthUser = Depends(verify_token)):
         "SELECT id, email, display_name, plan, created_at FROM accounts WHERE id = $1",
         account_id,
     )
+    if not row and user.email:
+        # Fallback: user may have re-authenticated with a new sub ID but same email
+        row = await fetch_one(
+            "SELECT id, email, display_name, plan, created_at FROM accounts WHERE email = $1",
+            user.email,
+        )
     if not row:
-        # Auto-create dev account if it doesn't exist yet
+        # Auto-create account
         await execute(
             "INSERT INTO accounts (id, email, display_name, plan) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
             account_id, user.email or "dev@local", user.email or "Dev User", "free",
