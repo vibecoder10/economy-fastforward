@@ -68,6 +68,14 @@ Frontend tasks 8-12 are now unblocked. Task queue is empty.
 ### Rubric / Agent Team Improvements
 - [x] Cron health audit: crons.json synced with setCadence, security-auditor wired, health checks fixed
 - [x] Cadence buttons: all 6 tiers (light/normal/fast/max/turbo/ultra) now sync crontab + crons.json + UI labels
+- [x] Feature 1: Concurrency guard — PID lock file + stale lock cleanup in run-agent.sh
+- [x] Feature 2: Run timeout — `timeout` command wrapping Claude CLI (30min default)
+- [x] Feature 3: Duration + cost tracking — timing, cost heuristic, model in activity log
+- [x] Feature 4: Log viewer — `/api/logs` + `/api/logs/:agent` endpoints, dashboard modal with auto-refresh
+- [x] Feature 5: Crons-controls sync — grayed out paused/OFF jobs, "Team OFF" badges
+- [x] Feature 6: Runtime visualization — `/api/run-history` endpoint, calendar overlay (green/red/amber bars), Scheduled/Actual/Both toggle
+- [x] Feature 7: Dashboard notifications — toast alerts polling activity log, auto-dismiss
+- [x] Feature 8: Cost summary panel — `/api/cost-summary` endpoint, 24h/7d/30d cards + per-agent bar chart
 - Command Center: Master ON/OFF toggle, clear queue button, task counter reset
 - Activity feed: auto-scroll, WebSocket for real-time, collapse old entries
 - Playwright auth fix: 13/20 QA tests skip (need shared auth intercept fixture)

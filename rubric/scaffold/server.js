@@ -630,13 +630,19 @@ const server = http.createServer(async (req, res) => {
     const logFile = path.join(DATA_DIR, 'activity-log.json');
     let log = [];
     try { log = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
-    log.unshift({
+    const entry = {
       agent: body.agent || 'unknown',
       task: body.task || '',
       summary: body.summary || '',
       status: body.status || 'completed',
       timestamp: Date.now(),
-    });
+    };
+    if (body.duration_seconds != null) entry.duration_seconds = Number(body.duration_seconds);
+    if (body.estimated_cost != null) entry.estimated_cost = Number(body.estimated_cost);
+    if (body.model) entry.model = body.model;
+    if (body.detail) entry.detail = body.detail;
+    if (body.detail_file) entry.detail_file = body.detail_file;
+    log.unshift(entry);
     // Keep last 200 entries
     if (log.length > 200) log = log.slice(0, 200);
     fs.writeFileSync(logFile, JSON.stringify(log, null, 2));
@@ -794,6 +800,94 @@ const server = http.createServer(async (req, res) => {
     if (toFilter) handoffs = handoffs.filter(h => h.to === toFilter);
     if (unreadOnly) handoffs = handoffs.filter(h => !h.read);
     sendJSON(res, handoffs);
+    return;
+  }
+
+  // ===== LOG VIEWING (Feature 4) =====
+
+  // GET /api/logs — list available agent log files
+  if (pathname === '/api/logs' && req.method === 'GET') {
+    const logDir = '/tmp/storyengine-agents';
+    try {
+      const files = fs.readdirSync(logDir).filter(f => f.endsWith('.log'));
+      const logs = files.map(f => {
+        const stat = fs.statSync(path.join(logDir, f));
+        return { name: f, agent: f.replace('.log', ''), size: stat.size, modified: stat.mtimeMs };
+      }).sort((a, b) => b.modified - a.modified);
+      sendJSON(res, logs);
+    } catch { sendJSON(res, []); }
+    return;
+  }
+
+  // GET /api/logs/:agent — tail last N lines of an agent's log
+  if (pathname.startsWith('/api/logs/') && req.method === 'GET') {
+    const agentId = pathname.split('/api/logs/')[1];
+    if (!/^[a-z0-9-]+$/.test(agentId)) { sendJSON(res, { error: 'Invalid agent ID' }, 400); return; }
+    const logDir = '/tmp/storyengine-agents';
+    const logFile = path.join(logDir, agentId + '.log');
+    if (!fs.existsSync(logFile)) { sendJSON(res, { error: 'Log not found' }, 404); return; }
+    try {
+      const lines = parseInt(url.searchParams.get('lines') || '200', 10);
+      const content = execSync(`tail -n ${Math.min(lines, 1000)} "${logFile}"`, { encoding: 'utf8', maxBuffer: 1024 * 1024 });
+      const stat = fs.statSync(logFile);
+      sendJSON(res, { agent: agentId, content, size: stat.size, modified: stat.mtimeMs });
+    } catch (e) { sendJSON(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // ===== COST SUMMARY (Feature 3) =====
+
+  // GET /api/cost-summary — aggregate costs from activity log
+  if (pathname === '/api/cost-summary' && req.method === 'GET') {
+    const logFile = path.join(DATA_DIR, 'activity-log.json');
+    let log = [];
+    try { log = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+    const now = Date.now();
+    const DAY = 86400000;
+    const periods = { '24h': now - DAY, '7d': now - 7 * DAY, '30d': now - 30 * DAY };
+    const summary = {};
+    for (const [period, since] of Object.entries(periods)) {
+      const entries = log.filter(e => e.timestamp >= since && e.estimated_cost != null);
+      const byAgent = {};
+      let totalCost = 0, totalDuration = 0, totalRuns = 0;
+      for (const e of entries) {
+        const a = e.agent || 'unknown';
+        if (!byAgent[a]) byAgent[a] = { cost: 0, duration: 0, runs: 0, errors: 0 };
+        byAgent[a].cost += e.estimated_cost || 0;
+        byAgent[a].duration += e.duration_seconds || 0;
+        byAgent[a].runs++;
+        if (e.status === 'error' || e.status === 'timeout') byAgent[a].errors++;
+        totalCost += e.estimated_cost || 0;
+        totalDuration += e.duration_seconds || 0;
+        totalRuns++;
+      }
+      summary[period] = { totalCost: Math.round(totalCost * 100) / 100, totalDuration, totalRuns, byAgent };
+    }
+    sendJSON(res, summary);
+    return;
+  }
+
+  // ===== RUN HISTORY (Feature 6) =====
+
+  // GET /api/run-history — extract actual run windows from activity log
+  if (pathname === '/api/run-history' && req.method === 'GET') {
+    const logFile = path.join(DATA_DIR, 'activity-log.json');
+    let log = [];
+    try { log = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+    const DAY = 86400000;
+    const since = Date.now() - 7 * DAY;
+    const runs = log
+      .filter(e => e.timestamp >= since && (e.status === 'completed' || e.status === 'error' || e.status === 'timeout'))
+      .map(e => ({
+        agent: e.agent,
+        end_time: e.timestamp,
+        start_time: e.duration_seconds ? e.timestamp - (e.duration_seconds * 1000) : e.timestamp,
+        duration_seconds: e.duration_seconds || null,
+        status: e.status,
+        summary: e.summary,
+        estimated_cost: e.estimated_cost || null,
+      }));
+    sendJSON(res, runs);
     return;
   }
 
@@ -1706,8 +1800,28 @@ RULES:
   // ===== CRONS ROUTES =====
   if (INSTALLED.includes('crons')) {
     if (pathname === '/api/crons' && req.method === 'GET') {
-      try { sendJSON(res, loadCrons()); }
-      catch (err) { sendJSON(res, { error: 'Could not read cron jobs', message: err.message }, 500); }
+      try {
+        let jobs = loadCrons();
+        // Feature 5: Enrich with live controls state
+        const controlsFile = path.join(DATA_DIR, 'controls.json');
+        let controls = {};
+        try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+        const teamOff = controls.team_enabled === false;
+        const paused = controls.paused_agents || [];
+        const cronToAgent = {
+          'backend-dev': 'backend-dev', 'frontend-dev': 'frontend-dev',
+          'qa-engineer': 'qa-engineer', 'security-auditor': 'security-auditor',
+          'pipeline-tester': 'pipeline-tester', 'orchestrator-micro': 'orchestrator',
+          'orchestrator-grand': 'orchestrator',
+        };
+        jobs = jobs.map(j => ({
+          ...j,
+          effectivelyEnabled: !teamOff && j.enabled && !paused.includes(cronToAgent[j.id] || ''),
+          teamOff,
+          agentPaused: paused.includes(cronToAgent[j.id] || ''),
+        }));
+        sendJSON(res, jobs);
+      } catch (err) { sendJSON(res, { error: 'Could not read cron jobs', message: err.message }, 500); }
       return;
     }
   }
