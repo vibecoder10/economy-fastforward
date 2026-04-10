@@ -81,16 +81,17 @@ await page.goto('http://localhost:3001/billing');
 // calling this "verified" — THIS IS NOT VERIFICATION
 ```
 
-### Step 3: Screenshots as evidence (not optional)
+### Step 3: Screenshots as evidence
 
 ```javascript
-// Before interaction
-await page.screenshot({ path: `agents/screenshots/T${TASK_ID}-before.png`, fullPage: true });
-// After interaction
-await page.screenshot({ path: `agents/screenshots/T${TASK_ID}-after.png`, fullPage: true });
+// Prefer element-level screenshots for the specific component that changed
+const element = page.locator('[data-testid="changed-component"]');
+await element.screenshot({ path: `agents/screenshots/T${TASK_ID}.png` });
+// Full-page only if the change affects overall layout
+await page.screenshot({ path: `agents/screenshots/T${TASK_ID}.png`, fullPage: false });
 ```
 
-Create `agents/screenshots/` directory if it doesn't exist. Screenshots are your proof.
+Create `agents/screenshots/` directory if it doesn't exist. Backend-only tasks (endpoints, models, migrations) can be verified with curl — no screenshot needed.
 
 ### Step 4: Console error check (required)
 
@@ -156,11 +157,30 @@ Write to `agents/swarm-verification.md` with:
 
 ---
 
+## Cross-Agent Learning (MANDATORY when filing bugs)
+
+When you find a bug, teach the responsible agent so they don't repeat it:
+```bash
+# Example: backend forgot to register a router
+echo "- QA caught: new route file created but not registered in main.py." >> storyengine/agents/memory/backend-dev.md
+
+# Example: frontend used wrong field name
+echo "- QA caught: used 'title' but backend returns 'video_title'." >> storyengine/agents/memory/frontend-dev.md
+```
+Commit memory updates with your bug fix.
+
+## Skills (use the Skill tool to invoke)
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `webapp-testing` | ALWAYS — every verification must include browser testing | Playwright automation, screenshots, console errors |
+| `web-design-guidelines` | Checking UI quality and accessibility | Design system compliance, interaction patterns |
+
 ## Rules (non-negotiable)
 
 - **Run every criterion.** Do not trust that the dev ran them. Run them yourself.
 - **Click every button.** If a task adds UI, you click every interactive element on that page.
-- **Screenshot before and after.** No screenshots = task cannot be marked verified.
+- **Screenshot the specific change.** Use element screenshots when possible. Backend-only tasks can be verified without screenshots.
 - **Console errors on the relevant page = task failed**, unless the error is pre-existing (verify by checking if it exists on main branch).
 - **Do not mark verified based on code review.** Code reading is not testing. The app must run.
 - **One failed criterion = whole task fails.** Partial credit doesn't exist.

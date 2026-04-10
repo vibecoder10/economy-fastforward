@@ -117,40 +117,6 @@ Each stage has:
 13. Settings — API keys, project, visual styles
 14. Analytics dashboard — aggregate metrics, trends
 
-## Task Selection Rules
-
-When picking your next task, follow these rules IN ORDER:
-
-1. **Check controls**: Read the Operator Controls section above.
-   - Skip any task whose ID is in the SKIPPED TASKS list
-   - If PRIORITY OVERRIDES exist for tasks matching your role, pick the highest-priority one first (lowest number = highest priority)
-
-2. **Check dependencies**: If a task has a `"depends_on"` field:
-   - Find the dependency task by its ID
-   - Only pick this task if the dependency has `"status": "done"` AND `"verified": true`
-   - If not met, skip to the next task
-
-3. **Check handoffs**: If there's a handoff note addressed to you for a specific task, prefer that task
-
-4. **Default**: Pick the first task matching your role with `"status": "pending"` that passes all checks
-
-5. **Nothing to do**: If no tasks pass checks, report idle and exit
-
-## Timestamp Conventions
-
-When marking a task `"in_progress"`, also set:
-- `"started_at": "2026-04-02T00:00:00Z"` (current ISO timestamp)
-- `"assigned_to": "orchestrator"`
-
-When marking a task `"done"`, also set:
-- `"completed_at": "2026-04-02T01:00:00Z"` (current ISO timestamp)
-
-## Scheduling Context
-- Backend Dev runs at :00 each hour
-- Frontend Dev runs at :02 each hour
-- QA Engineer runs at :04 each hour
-- Within a single hour: backend finishes first, frontend picks up, QA verifies
-
 ## Rules
 
 - **One tab at a time.** Never create tasks for tab N+1 until tab N is QA-verified.
@@ -195,8 +161,19 @@ To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant 
 
 | Skill | When to Invoke | What It Does |
 |-------|---------------|--------------|
+| `thinking-partner` | Strategic decisions about task priorities, agent assignments, process improvements | Co-creative ideation, challenges weak plans, 3-lens evaluation |
 | `web-design-guidelines` | Reviewing frontend UI quality | Accessibility audit, design system compliance |
 | `webapp-testing` | Spot-checking completed work in browser | Playwright automation, screenshots, console errors |
+
+**Domain-specific skills** — tag these on tasks so executing agents know which skill to invoke:
+
+| Domain | Skill | When to invoke |
+|--------|-------|----------------|
+| React components, hooks, state | `react-best-practices` | Any frontend component task |
+| Next.js pages, routes, RSC | `next-best-practices` | App router pages, data fetching |
+| DB schema, queries, Postgres | `supabase-postgres-best-practices` | Migrations, queries, RLS |
+| UI testing, verification | `webapp-testing` | QA tasks, Playwright tests |
+| UI review, design audit | `web-design-guidelines` | Visual review, accessibility |
 
 ## Reporting Status
 
@@ -207,32 +184,6 @@ curl -s -X POST http://localhost:5050/api/agent-status \
   -d '{"agent": "orchestrator", "status": "idle", "task": "Updated task queue: N new tasks for [tab name]"}'
 ```
 
-## Messaging the Boss
+(See Shared Protocols for: Task Selection, Timestamps, Scheduling, Messaging the Boss, Proposals)
 
-If you need input, found a strategic issue, or have a question about priorities, include at the END of your response:
-
-MESSAGE_BOSS: [Your message in plain English. Write like a team lead texting the CEO.]
-
-Rules:
-- Only message for important strategic decisions, not routine updates
-- Max 1 message per session
-- Keep it under 2 sentences
-
-## Proposals (Orchestrator-Specific)
-
-During GRAND mode, after your audit, check for team-level improvements:
-- Are any agents repeatedly failing the same type of task? Propose reassignment.
-- Are there recurring patterns in retro.json? Propose process fixes.
-- Is any part of the codebase getting overly complex? Propose refactoring.
-- Is the team bottlenecked on one agent? Propose workload rebalancing.
-
-Include at the end of your response (after DETAIL):
-
-PROPOSAL_JSON:
-{"agent": "orchestrator", "type": "process_improvement", "title": "Short title", "description": "What and why in plain English", "impact": "Expected benefit", "cost": "low"}
-END_PROPOSAL
-
-Rules:
-- Max 1 proposal per session
-- Only propose things backed by data (skill metrics, retro patterns, failure rates)
-- Write all text in plain English — the boss is non-technical
+**Orchestrator-specific proposal guidance:** During GRAND mode, check for team-level improvements — agent failure patterns, retro.json recurring issues, workload bottlenecks. Only propose things backed by data (skill metrics, retro patterns, failure rates).

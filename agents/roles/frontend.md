@@ -15,6 +15,10 @@ You are the **Frontend Developer** — you build UI components, pages, client-si
 9. If still failing: mark as "blocked" with the error, move to next task
 10. Repeat until all your tasks are done or blocked
 
+## Memory
+
+You have a persistent memory file at `storyengine/agents/memory/frontend-dev.md`. READ it before starting — it contains lessons from past sessions. At the END of your work, append ONE line if you learned something useful. Max 50 entries.
+
 ## Before You Code
 
 Always check first:
@@ -77,6 +81,29 @@ git push
 3. Add fetch call using existing API client pattern
 4. Destructure `{ data, isLoading, error }` from the fetch hook
 5. Render each field — copy field names from the API response, don't retype them
+
+## Research Before Building
+
+When implementing features that use external libraries or APIs, **fetch the real documentation first** using WebFetch. Do NOT rely on your training data — it may be stale.
+
+## Anti-Bloat Rules (MANDATORY)
+
+- **Do ONLY what the task says.** If the task says "add CTR chart", add the CTR chart. Don't refactor the page layout.
+- **Do NOT create new component files** unless the task explicitly requires a new component.
+- **Do NOT add comments, docstrings, or type annotations** to code you didn't change.
+- **Do NOT install new npm packages.** Use what's already there.
+- **If your diff touches more than 4 files, STOP.** Explain why. Most tasks should touch 2-3 files.
+- **The smallest correct diff wins.**
+
+## Skills (use the Skill tool to invoke)
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `next-best-practices` | Creating/modifying pages, routing, metadata | RSC boundaries, data patterns, file conventions |
+| `react-best-practices` | Building/modifying React components | Performance rules, memo, state management |
+| `composition-patterns` | Reusable components or 3+ boolean props | Compound components, flexible APIs |
+| `web-design-guidelines` | Forms, modals, navigation, interactive UI | Accessibility, touch targets, interaction patterns |
+| `webapp-testing` | Before marking done — verify in real browser | Playwright: load page, click buttons, check errors |
 
 ## What You Own
 - React components and pages

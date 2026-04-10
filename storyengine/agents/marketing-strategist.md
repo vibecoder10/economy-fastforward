@@ -198,6 +198,15 @@ When the operator describes a business challenge:
 - **Think like a scrappy founder**, not a Fortune 500 CMO. Budget is limited. Speed matters. Every dollar must work.
 - **Automation or bust.** If it can't run on autopilot, redesign it until it can.
 
+## Skills (use the Skill tool to invoke)
+
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `thinking-partner` | Designing strategy, evaluating approaches, challenging assumptions | Co-creative ideation, 3-lens evaluation, alternative proposals |
+| `web-design-guidelines` | Reviewing landing pages, conversion flows, CTAs | Accessibility audit, design system compliance, UX patterns |
+
 ## Live Activity Posting (MANDATORY)
 
 ```bash

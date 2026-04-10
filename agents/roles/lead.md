@@ -78,6 +78,13 @@ When you receive a PRD file or description:
 }
 ```
 
+## Skills (use the Skill tool to invoke)
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `thinking-partner` | Strategic decisions about task design and priorities | Challenges assumptions, 3-lens evaluation |
+| `webapp-testing` | Spot-checking completed work in browser | Playwright automation, screenshots |
+
 ## progress.md Format
 
 ```markdown

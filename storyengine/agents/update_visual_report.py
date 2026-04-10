@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Upload ALL new screenshots to Google Drive and append to the Visual Report Google Doc.
+"""Upload new screenshots to Google Drive and append to the Visual Report Google Doc.
 
 Usage:
   python3 update_visual_report.py                          # Upload all new screenshots
   python3 update_visual_report.py T9-003 "Task summary"    # Upload specific task screenshots
+  python3 update_visual_report.py --skip-regression         # Skip reg* regression screenshots
 """
 import glob, json, os, sys
 from datetime import datetime
@@ -13,8 +14,10 @@ SCREENSHOTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scre
 DRIVE_FOLDER_ID = "1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD"
 UPLOADED_FILE = os.path.join(SCREENSHOTS_DIR, ".uploaded.json")
 
-TASK_ID = sys.argv[1] if len(sys.argv) > 1 else None
-SUMMARY = sys.argv[2] if len(sys.argv) > 2 else ""
+SKIP_REGRESSION = '--skip-regression' in sys.argv
+args = [a for a in sys.argv[1:] if not a.startswith('--')]
+TASK_ID = args[0] if len(args) > 0 else None
+SUMMARY = args[1] if len(args) > 1 else ""
 
 # Track what's already been uploaded
 uploaded = set()
@@ -26,7 +29,7 @@ if os.path.exists(UPLOADED_FILE):
 
 # Load credentials
 env = {}
-env_path = "/home/clawd/projects/economy-fastforward/.env"
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
 if os.path.exists(env_path):
     with open(env_path) as f:
         for line in f:
@@ -74,6 +77,8 @@ try:
             if filename.startswith("."):
                 continue
             if filename in uploaded:
+                continue
+            if SKIP_REGRESSION and filename.startswith("reg"):
                 continue
             files_to_upload.append(filepath)
 
