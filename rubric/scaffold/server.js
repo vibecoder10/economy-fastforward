@@ -823,7 +823,6 @@ const server = http.createServer(async (req, res) => {
       console.log('Team toggled ON: Restored background crontab schedules.');
     } else {
       try {
-        const { execSync } = require('child_process');
         const existing = execSync('crontab -l 2>/dev/null || echo ""', { encoding: 'utf8' });
         const nonAgent = existing.split('\n').filter(l => !l.includes('storyengine-agents')).join('\n');
         const tmpFile = '/tmp/cron-clean.txt';
