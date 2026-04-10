@@ -10,3 +10,4 @@
 - Audit (2026-04-08): PRD task 10 XSS audit PASS. EmptyState/ErrorCard/page.tsx/pipeline clean. No critical issues in recent commits.
 - Finding (2026-04-08): email_service.py interpolates display_name into HTML without html.escape() — HTML injection risk in emails. MEDIUM.
 - Pattern: SSE endpoints reintroduce token-in-URL (SEC-7 variant). EventSource can't set headers — inherent tradeoff. Mitigate with short-lived tokens.
+- Audit (2026-04-10): Full audit PASS. SEC-1–8 remain fixed. 3 MEDIUM open: email HTML injection (display_name), no auth rate limiting, vault plaintext. safe_column() blocks dynamic SQL. All routes authed. npm 0 vulns.
