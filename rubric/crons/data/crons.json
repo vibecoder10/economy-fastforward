@@ -8,6 +8,18 @@
       "enabled": true
     },
     {
+      "id": "planning-session",
+      "name": "Planning Session (daily)",
+      "cron": "0 6 * * *",
+      "enabled": true
+    },
+    {
+      "id": "morning-briefing",
+      "name": "Morning Briefing (daily)",
+      "cron": "0 7 * * *",
+      "enabled": true
+    },
+    {
       "id": "backend-dev-hourly",
       "name": "Backend Dev — Build",
       "cron": "0 * * * *",
@@ -26,6 +38,12 @@
       "enabled": true
     },
     {
+      "id": "security-auditor",
+      "name": "Security Auditor — Scan",
+      "cron": "20 */4 * * *",
+      "enabled": true
+    },
+    {
       "id": "pipeline-tester-hourly",
       "name": "Pipeline Tester — Click Through App",
       "cron": "35 * * * *",
@@ -41,6 +59,24 @@
       "id": "daily-report",
       "name": "Daily Report + PR",
       "cron": "0 23 * * *",
+      "enabled": true
+    },
+    {
+      "id": "calculate-skills",
+      "name": "Calculate Agent Skills",
+      "cron": "5 23 * * *",
+      "enabled": true
+    },
+    {
+      "id": "retro",
+      "name": "Daily Retrospective",
+      "cron": "10 23 * * *",
+      "enabled": true
+    },
+    {
+      "id": "rubric-healthcheck",
+      "name": "RUBRIC Server Healthcheck",
+      "cron": "*/5 * * * *",
       "enabled": true
     }
   ]

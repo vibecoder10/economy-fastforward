@@ -48,6 +48,44 @@ function deployNextPrd(server_url) {
 
 // Auto-cadence: boost to 'max' on PRD deploy, restore when PRD completes
 const PRD_BOOST_CADENCE = 'max';
+
+const CADENCE_SCHEDULES = {
+  light:  { backend: '0 0,4,8,12,16,20 * * *', frontend: '2 0,4,8,12,16,20 * * *', qa: '4 0,4,8,12,16,20 * * *', security: '20 0,8,16 * * *', tester: '30 0,4,8,12,16,20 * * *', micro: '35 0,4,8,12,16,20 * * *', label: '6x/day (every 4h)' },
+  normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             security: '20 */4 * * *',      tester: '25 */2 * * *',             micro: '30 */2 * * *',             label: '12x/day (every 2h)' },
+  fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               security: '20 */4 * * *',      tester: '35 * * * *',               micro: '45 * * * *',               label: '24x/day (every 1h)' },
+  max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            security: '20 */2 * * *',      tester: '18,48 * * * *',            micro: '24,54 * * * *',            label: '48x/day (every 30m)' },
+  turbo:  { backend: '0,15,30,45 * * * *',       frontend: '2,17,32,47 * * * *',      qa: '4,19,34,49 * * * *',      security: '20 * * * *',        tester: '10,25,40,55 * * * *',      micro: '12,27,42,57 * * * *',      label: '96x/day (every 15m)' },
+  ultra:  { backend: '*/8 * * * *',              frontend: '1-59/8 * * * *',           qa: '2-59/8 * * * *',           security: '3-59/8 * * * *',   tester: '4-59/8 * * * *',           micro: '6-59/8 * * * *',           label: '180x/day (every 8m)' },
+};
+
+function syncCronsJson(sched) {
+  // Keep the Crons dashboard in sync with the actual crontab
+  const cronsFile = path.join(__dirname, '../crons/data/crons.json');
+  try {
+    const cronsData = {
+      description: 'StoryEngine Agent Schedule — Build → QA → Tester finds bugs → Orchestrator plans fixes',
+      crons: [
+        { id: 'orchestrator-grand', name: 'Orchestrator — Grand Audit (daily)', cron: '0 5 * * *', enabled: true },
+        { id: 'planning-session', name: 'Planning Session (daily)', cron: '0 6 * * *', enabled: true },
+        { id: 'morning-briefing', name: 'Morning Briefing (daily)', cron: '0 7 * * *', enabled: true },
+        { id: 'backend-dev', name: 'Backend Dev — Build', cron: sched.backend, enabled: true },
+        { id: 'frontend-dev', name: 'Frontend Dev — Wire', cron: sched.frontend, enabled: true },
+        { id: 'qa-engineer', name: 'QA Engineer — Verify', cron: sched.qa, enabled: true },
+        { id: 'security-auditor', name: 'Security Auditor — Scan', cron: sched.security, enabled: true },
+        { id: 'pipeline-tester', name: 'Pipeline Tester — Click Through App', cron: sched.tester, enabled: true },
+        { id: 'orchestrator-micro', name: 'Orchestrator — Micro Review', cron: sched.micro, enabled: true },
+        { id: 'daily-report', name: 'Daily Report + PR', cron: '0 23 * * *', enabled: true },
+        { id: 'calculate-skills', name: 'Calculate Agent Skills', cron: '5 23 * * *', enabled: true },
+        { id: 'retro', name: 'Daily Retrospective', cron: '10 23 * * *', enabled: true },
+        { id: 'rubric-healthcheck', name: 'RUBRIC Server Healthcheck', cron: '*/5 * * * *', enabled: true },
+      ],
+    };
+    fs.writeFileSync(cronsFile, JSON.stringify(cronsData, null, 2) + '\n');
+  } catch (e) {
+    console.error('syncCronsJson failed:', e.message);
+  }
+}
+
 function setCadence(cadence) {
   const controlsFile = path.join(DATA_DIR, 'controls.json');
   let controls = {};
@@ -57,21 +95,14 @@ function setCadence(cadence) {
 
   const agentsDir = path.join(__dirname, '../../storyengine/agents');
   const logDir = '/tmp/storyengine-agents';
-  const schedules = {
-    light:  { backend: '0 0,4,8,12,16,20 * * *', frontend: '2 0,4,8,12,16,20 * * *', qa: '4 0,4,8,12,16,20 * * *', tester: '20 0,4,8,12,16,20 * * *', micro: '25 0,4,8,12,16,20 * * *', label: '6x/day (every 4h)' },
-    normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             tester: '25 */2 * * *',             micro: '30 */2 * * *',             label: '12x/day (every 2h)' },
-    fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               tester: '35 * * * *',               micro: '45 * * * *',               label: '24x/day (every 1h)' },
-    max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            tester: '18,48 * * * *',            micro: '24,54 * * * *',            label: '48x/day (every 30m)' },
-    turbo:  { backend: '0,15,30,45 * * * *',       frontend: '2,17,32,47 * * * *',      qa: '4,19,34,49 * * * *',      tester: '10,25,40,55 * * * *',      micro: '12,27,42,57 * * * *',      label: '96x/day (every 15m)' },
-    ultra:  { backend: '*/8 * * * *',              frontend: '1-59/8 * * * *',           qa: '2-59/8 * * * *',           tester: '4-59/8 * * * *',           micro: '6-59/8 * * * *',           label: '180x/day (every 8m)' },
-  };
-  const sched = schedules[cadence] || schedules.fast;
+  const sched = CADENCE_SCHEDULES[cadence] || CADENCE_SCHEDULES.fast;
   try {
     const cronLines = [
       `0 5 * * * cd ${agentsDir} && ORCHESTRATOR_MODE=grand bash run-agent.sh orchestrator >> ${logDir}/orchestrator.log 2>&1 # storyengine-agents`,
       `${sched.backend} cd ${agentsDir} && bash run-agent.sh backend-dev >> ${logDir}/backend-dev.log 2>&1 # storyengine-agents`,
       `${sched.frontend} cd ${agentsDir} && bash run-agent.sh frontend-dev >> ${logDir}/frontend-dev.log 2>&1 # storyengine-agents`,
       `${sched.qa} cd ${agentsDir} && bash run-agent.sh qa-engineer >> ${logDir}/qa-engineer.log 2>&1 # storyengine-agents`,
+      `${sched.security} cd ${agentsDir} && bash run-agent.sh security-auditor >> ${logDir}/security-auditor.log 2>&1 # storyengine-agents`,
       `${sched.micro} cd ${agentsDir} && ORCHESTRATOR_MODE=micro bash run-agent.sh orchestrator >> ${logDir}/orchestrator-micro.log 2>&1 # storyengine-agents`,
       `${sched.tester} cd ${agentsDir} && bash run-agent.sh pipeline-tester >> ${logDir}/pipeline-tester.log 2>&1 # storyengine-agents`,
       `0 6 * * * cd ${agentsDir} && bash planning-session.sh >> ${logDir}/planning-session.log 2>&1 # storyengine-agents`,
@@ -88,6 +119,8 @@ function setCadence(cadence) {
     fs.writeFileSync(tmpFile, newCrontab);
     execSync(`crontab ${tmpFile}`);
     fs.unlinkSync(tmpFile);
+    // Sync the Crons dashboard data file with the actual schedule
+    syncCronsJson(sched);
     console.log(`Cadence set to ${cadence} (${sched.label})`);
     return { success: true, cadence, label: sched.label };
   } catch (e) {
@@ -790,7 +823,6 @@ const server = http.createServer(async (req, res) => {
       console.log('Team toggled ON: Restored background crontab schedules.');
     } else {
       try {
-        const { execSync } = require('child_process');
         const existing = execSync('crontab -l 2>/dev/null || echo ""', { encoding: 'utf8' });
         const nonAgent = existing.split('\n').filter(l => !l.includes('storyengine-agents')).join('\n');
         const tmpFile = '/tmp/cron-clean.txt';

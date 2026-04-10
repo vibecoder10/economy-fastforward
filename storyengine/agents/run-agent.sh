@@ -959,8 +959,8 @@ if [ "$FRONTEND_OK" != "200" ]; then
   post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Frontend was DOWN — auto-restarted\", \"status\": \"completed\"}"
 fi
 
-if [ "$BACKEND_OK" = "000" ]; then
-  echo "⚠️  BACKEND DOWN — restarting..."
+if [ "$BACKEND_OK" != "200" ] && [ "$BACKEND_OK" != "401" ]; then
+  echo "⚠️  BACKEND UNHEALTHY (HTTP $BACKEND_OK) — restarting..."
   pkill -f 'uvicorn.*8001' 2>/dev/null || true
   sleep 1
   cd "$PROJECT_ROOT/storyengine/backend"

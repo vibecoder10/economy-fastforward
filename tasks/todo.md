@@ -66,6 +66,8 @@ Frontend tasks 8-12 are now unblocked. Task queue is empty.
 - SEC-6 (MEDIUM): No audit logging for key management
 
 ### Rubric / Agent Team Improvements
+- [x] Cron health audit: crons.json synced with setCadence, security-auditor wired, health checks fixed
+- [x] Cadence buttons: all 6 tiers (light/normal/fast/max/turbo/ultra) now sync crontab + crons.json + UI labels
 - Command Center: Master ON/OFF toggle, clear queue button, task counter reset
 - Activity feed: auto-scroll, WebSocket for real-time, collapse old entries
 - Playwright auth fix: 13/20 QA tests skip (need shared auth intercept fixture)
