@@ -1,8 +1,8 @@
 {
   "version": 2,
   "current_tab": 0,
-  "last_updated": "2026-04-10T06:00:02Z",
-  "last_updated_by": "backend-dev",
+  "last_updated": "2026-04-10T06:04:15Z",
+  "last_updated_by": "frontend-dev",
   "completed_summary": "194 tasks across 33 tabs completed Apr 2-8. Archive: agents/archive/task-queue-2026-04-08.json",
   "tabs": [
     {
@@ -25,11 +25,14 @@
           "id": "T2",
           "title": "SSE frontend hook: use-pipeline-sse.ts",
           "role": "frontend-dev",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             1
           ],
-          "verified": false
+          "verified": false,
+          "started_at": "2026-04-10T06:02:30Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-10T06:04:15Z"
         },
         {
           "id": "T3",
@@ -101,7 +104,9 @@
           "verified": true,
           "started_at": "2026-04-10T06:00:02Z",
           "completed_at": "2026-04-10T06:01:00Z",
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "verified_at": "2026-04-10T06:12:00Z",
+          "verified_by": "qa-engineer"
         },
         {
           "id": "T10",
@@ -145,13 +150,15 @@
           "id": "T13",
           "title": "Security audit: SSE auth, key validation input sanitization, email injection",
           "role": "qa-engineer",
-          "status": "pending",
+          "status": "in_progress",
           "depends_on": [
             1,
             6,
             8
           ],
-          "verified": false
+          "verified": false,
+          "started_at": "2026-04-10T06:13:00Z",
+          "assigned_to": "qa-engineer"
         },
         {
           "id": "BUG-USER-800807",
@@ -159,9 +166,12 @@
           "role": "backend",
           "status": "done",
           "priority": "critical",
-          "description": "Already fixed in commit 380178b — auth.py now returns 'Invalid or expired session' instead of 'Invalid token'. Frontend suppresses expected 401s on auth endpoints.",
+          "description": "Already fixed in commit 380178b \u2014 auth.py now returns 'Invalid or expired session' instead of 'Invalid token'. Frontend suppresses expected 401s on auth endpoints.",
           "completed_at": "2026-04-10T06:00:02Z",
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "verified": true,
+          "verified_at": "2026-04-10T06:12:00Z",
+          "verified_by": "qa-engineer"
         }
       ]
     }

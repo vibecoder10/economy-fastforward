@@ -4,42 +4,45 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
-/** Activity event from the SSE stream (matches backend bot_activity row). */
-export interface SSEActivityEvent {
-  id: string;
-  bot_name: string;
-  video_id: string | null;
-  video_title: string | null;
-  status: string;
-  message: string | null;
-  cost: number;
-  created_at: string | null;
-}
-
-/** Stage change event (emitted when a video transitions pipeline stages). */
+/** Stage change event — a video transitioned between pipeline stages. */
 export interface SSEStageChangeEvent {
   video_id: string;
   video_title: string | null;
-  old_status: string;
-  new_status: string;
-  changed_at: string;
+  current_status: string;
+  from_status: string;
+  to_status: string;
+  triggered_by: string | null;
+  cost: number | null;
+  duration_seconds: number | null;
+  error_message: string | null;
+  created_at: string | null;
+}
+
+/** Task progress event — background task status update. */
+export interface SSETaskProgressEvent {
+  video_id: string;
+  status: "idle" | "running" | "completed" | "failed";
+  message: string | null;
+  error: string | null;
 }
 
 export interface UsePipelineSSEOptions {
   /** Set false to disconnect. Default true. */
   enabled?: boolean;
-  /** Called for each activity event. */
-  onActivity?: (event: SSEActivityEvent) => void;
+  /** Filter events for a specific video. Omit for all videos. */
+  videoId?: string;
   /** Called for each stage_change event. */
   onStageChange?: (event: SSEStageChangeEvent) => void;
+  /** Called for each task_progress event. */
+  onTaskProgress?: (event: SSETaskProgressEvent) => void;
   /** Called when connection state changes. */
   onConnectionChange?: (connected: boolean) => void;
 }
 
 interface SSEState {
   isConnected: boolean;
-  lastEvent: SSEActivityEvent | null;
   lastStageChange: SSEStageChangeEvent | null;
+  lastTaskProgress: SSETaskProgressEvent | null;
   reconnectAttempt: number;
 }
 
@@ -51,19 +54,19 @@ function getBackoff(attempt: number): number {
 }
 
 export function usePipelineSSE(options: UsePipelineSSEOptions = {}) {
-  const { enabled = true } = options;
+  const { enabled = true, videoId } = options;
   const [state, setState] = useState<SSEState>({
     isConnected: false,
-    lastEvent: null,
     lastStageChange: null,
+    lastTaskProgress: null,
     reconnectAttempt: 0,
   });
 
-  const onActivityRef = useRef(options.onActivity);
   const onStageChangeRef = useRef(options.onStageChange);
+  const onTaskProgressRef = useRef(options.onTaskProgress);
   const onConnectionChangeRef = useRef(options.onConnectionChange);
-  onActivityRef.current = options.onActivity;
   onStageChangeRef.current = options.onStageChange;
+  onTaskProgressRef.current = options.onTaskProgress;
   onConnectionChangeRef.current = options.onConnectionChange;
 
   const esRef = useRef<EventSource | null>(null);
@@ -84,13 +87,16 @@ export function usePipelineSSE(options: UsePipelineSSEOptions = {}) {
   const connect = useCallback(() => {
     cleanup();
 
-    // Get token for query-param auth (EventSource can't set headers)
     const token =
       typeof window !== "undefined"
         ? localStorage.getItem("token") || "dev-token"
         : "dev-token";
 
-    const url = `${API_URL}/api/activity/stream?token=${encodeURIComponent(token)}`;
+    let url = `${API_URL}/api/pipeline/stream?token=${encodeURIComponent(token)}`;
+    if (videoId) {
+      url += `&video_id=${encodeURIComponent(videoId)}`;
+    }
+
     const es = new EventSource(url);
     esRef.current = es;
 
@@ -100,23 +106,21 @@ export function usePipelineSSE(options: UsePipelineSSEOptions = {}) {
       onConnectionChangeRef.current?.(true);
     };
 
-    // Default message event (activity entries — no named event type)
-    es.onmessage = (e) => {
-      try {
-        const data: SSEActivityEvent = JSON.parse(e.data);
-        setState((s) => ({ ...s, lastEvent: data }));
-        onActivityRef.current?.(data);
-      } catch {
-        // Ignore malformed events
-      }
-    };
-
-    // Named event: stage_change (emitted by backend task 3)
     es.addEventListener("stage_change", ((e: MessageEvent) => {
       try {
         const data: SSEStageChangeEvent = JSON.parse(e.data);
         setState((s) => ({ ...s, lastStageChange: data }));
         onStageChangeRef.current?.(data);
+      } catch {
+        // Ignore malformed events
+      }
+    }) as EventListener);
+
+    es.addEventListener("task_progress", ((e: MessageEvent) => {
+      try {
+        const data: SSETaskProgressEvent = JSON.parse(e.data);
+        setState((s) => ({ ...s, lastTaskProgress: data }));
+        onTaskProgressRef.current?.(data);
       } catch {
         // Ignore malformed events
       }
@@ -128,7 +132,6 @@ export function usePipelineSSE(options: UsePipelineSSEOptions = {}) {
       setState((s) => ({ ...s, isConnected: false }));
       onConnectionChangeRef.current?.(false);
 
-      // Exponential backoff reconnect
       const attempt = attemptRef.current;
       attemptRef.current = attempt + 1;
       const backoff = getBackoff(attempt);
@@ -138,7 +141,7 @@ export function usePipelineSSE(options: UsePipelineSSEOptions = {}) {
         connect();
       }, backoff);
     };
-  }, [cleanup]);
+  }, [cleanup, videoId]);
 
   useEffect(() => {
     if (enabled) {
@@ -147,8 +150,8 @@ export function usePipelineSSE(options: UsePipelineSSEOptions = {}) {
       cleanup();
       setState({
         isConnected: false,
-        lastEvent: null,
         lastStageChange: null,
+        lastTaskProgress: null,
         reconnectAttempt: 0,
       });
     }
@@ -157,8 +160,8 @@ export function usePipelineSSE(options: UsePipelineSSEOptions = {}) {
 
   return {
     isConnected: state.isConnected,
-    lastEvent: state.lastEvent,
     lastStageChange: state.lastStageChange,
+    lastTaskProgress: state.lastTaskProgress,
     reconnectAttempt: state.reconnectAttempt,
   };
 }

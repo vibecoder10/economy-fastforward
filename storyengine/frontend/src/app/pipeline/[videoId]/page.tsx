@@ -132,14 +132,13 @@ export default function VideoDetailPage() {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
 
-  // SSE for live pipeline updates
+  // SSE for live pipeline updates (filtered to this video)
   usePipelineSSE({
     enabled: !TERMINAL_STATUSES.has(status),
+    videoId,
     onStageChange: (event) => {
-      if (event.video_id === videoId) {
-        setLiveStatus(event.new_status);
-        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
-      }
+      setLiveStatus(event.to_status);
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
     },
   });
   const [resetting, setResetting] = useState(false);

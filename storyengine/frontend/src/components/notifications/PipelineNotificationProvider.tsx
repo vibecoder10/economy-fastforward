@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { usePipelineSSE, SSEActivityEvent, SSEStageChangeEvent } from "@/hooks/use-pipeline-sse";
+import { usePipelineSSE, SSETaskProgressEvent, SSEStageChangeEvent } from "@/hooks/use-pipeline-sse";
 import { useToast } from "@/components/ui/toast";
 import { getStageLabel } from "@/lib/constants";
 
@@ -27,21 +27,18 @@ export function PipelineNotificationProvider({ children }: { children: ReactNode
       if (shouldThrottle()) return;
 
       const title = event.video_title || "Video";
-      const stage = formatStageLabel(event.new_status);
+      const stage = formatStageLabel(event.to_status);
       toast.info(`${title} → ${stage}`);
     },
-    onActivity: (event: SSEActivityEvent) => {
-      if (!event.status) return;
+    onTaskProgress: (event: SSETaskProgressEvent) => {
+      if (!event.status || event.status === "idle" || event.status === "running") return;
 
-      // Only notify on completed or error statuses
       if (event.status === "completed") {
         if (shouldThrottle()) return;
-        const label = event.video_title || event.bot_name || "Task";
-        toast.success(`${label}: ${event.message || "Done"}`);
-      } else if (event.status === "error" || event.status === "failed") {
+        toast.success(event.message || "Task completed");
+      } else if (event.status === "failed") {
         if (shouldThrottle()) return;
-        const label = event.video_title || event.bot_name || "Pipeline";
-        toast.error(`${label}: ${event.message || "Failed"}`);
+        toast.error(event.error || event.message || "Task failed");
       }
     },
   });
