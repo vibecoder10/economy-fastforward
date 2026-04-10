@@ -19,8 +19,8 @@ async def approve_asset(asset_id: str, tenant_id: str = Depends(get_tenant_id)):
         raise HTTPException(status_code=404, detail="Asset not found")
 
     await execute(
-        "UPDATE assets SET status = 'approved' WHERE id = $1",
-        asset_id,
+        "UPDATE assets SET status = 'approved' WHERE id = $1 AND tenant_id = $2",
+        asset_id, tenant_id,
     )
     return {"status": "approved"}
 
@@ -36,8 +36,8 @@ async def reject_asset(asset_id: str, tenant_id: str = Depends(get_tenant_id)):
         raise HTTPException(status_code=404, detail="Asset not found")
 
     await execute(
-        "UPDATE assets SET status = 'rejected' WHERE id = $1",
-        asset_id,
+        "UPDATE assets SET status = 'rejected' WHERE id = $1 AND tenant_id = $2",
+        asset_id, tenant_id,
     )
     return {"status": "rejected"}
 

@@ -322,7 +322,9 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
 
     updates.append("updated_at = now()")
     params.append(video_id)
-    query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${idx}"
+    idx += 1
+    params.append(tenant_id)
+    query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${idx - 1} AND tenant_id = ${idx}"
     await execute(query, *params)
     return {"status": "updated", "video_id": video_id}
 
@@ -342,8 +344,8 @@ async def advance_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         raise HTTPException(status_code=400, detail="Video is already at final stage")
 
     await execute(
-        "UPDATE videos SET status = $1, updated_at = now() WHERE id = $2",
-        next_status, video_id,
+        "UPDATE videos SET status = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+        next_status, video_id, tenant_id,
     )
 
     # Log transition
@@ -590,11 +592,12 @@ async def update_video_styles(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    # Add updated_at and video_id
+    # Add updated_at and video_id + tenant_id
     updates.append("updated_at = now()")
     params.append(video_id)
+    params.append(tenant_id)
 
-    query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${param_idx}"
+    query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${param_idx} AND tenant_id = ${param_idx + 1}"
     await execute(query, *params)
 
     return {
@@ -646,8 +649,8 @@ async def accept_suggestion(video_id: str, request: dict, tenant_id: str = Depen
         "updated_at = NOW()",
     ])
 
-    query = f"UPDATE videos SET {', '.join(set_clauses)} WHERE id = $1"
-    await execute(query, video_id)
+    query = f"UPDATE videos SET {', '.join(set_clauses)} WHERE id = $1 AND tenant_id = $2"
+    await execute(query, video_id, tenant_id)
 
     return {"status": "ok", "video_id": video_id, "accepted": accept_fields}
 
@@ -673,8 +676,8 @@ async def reject_suggestion(video_id: str, tenant_id: str = Depends(get_tenant_i
             suggestion_scores = NULL,
             suggestion_status = 'rejected',
             updated_at = NOW()
-        WHERE id = $1
-    """, video_id)
+        WHERE id = $1 AND tenant_id = $2
+    """, video_id, tenant_id)
 
     return {"status": "ok", "video_id": video_id}
 

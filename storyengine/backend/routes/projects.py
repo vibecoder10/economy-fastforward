@@ -173,8 +173,8 @@ async def update_current_project(
 
     if sets:
         sets.append("updated_at = now()")
-        query = f"UPDATE projects SET {', '.join(sets)} WHERE id = $1"
-        await execute(query, project_id, *params)
+        query = f"UPDATE projects SET {', '.join(sets)} WHERE id = $1 AND tenant_id = ${param_idx + 1}"
+        await execute(query, project_id, *params, tenant_id)
 
     # Return updated project
     updated = await fetch_one(
