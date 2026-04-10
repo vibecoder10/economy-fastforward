@@ -1,13 +1,13 @@
 {
   "version": 2,
   "current_tab": 0,
-  "last_updated": "2026-04-10T05:16:00Z",
-  "last_updated_by": "orchestrator",
+  "last_updated": "2026-04-10T06:00:02Z",
+  "last_updated_by": "backend-dev",
   "completed_summary": "194 tasks across 33 tabs completed Apr 2-8. Archive: agents/archive/task-queue-2026-04-08.json",
   "tabs": [
     {
       "id": 1,
-      "name": "PRD 2: Pipeline UX — Real-time Progress, Landing Page, Notifications",
+      "name": "PRD 2: Pipeline UX \u2014 Real-time Progress, Landing Page, Notifications",
       "status": "active",
       "created_at": "2026-04-10T04:20:35.726Z",
       "tasks": [
@@ -18,38 +18,39 @@
           "status": "done",
           "depends_on": [],
           "verified": true,
-          "completed_at": "2026-04-10T04:50:00Z",
-          "verification_notes": "Commit e8ac766. GET /api/pipeline/stream with EventSourceResponse, dual events (stage_change + task_progress), query-param auth, heartbeat. Registered in main.py."
+          "completed_at": "2026-04-08T21:32:43Z",
+          "assigned_to": "backend-dev"
         },
         {
           "id": "T2",
           "title": "SSE frontend hook: use-pipeline-sse.ts",
           "role": "frontend-dev",
-          "status": "done",
-          "depends_on": [1],
-          "verified": true,
-          "completed_at": "2026-04-10T04:37:00Z",
-          "verification_notes": "File exists: hooks/use-pipeline-sse.ts. EventSource with query-param auth, dual event listeners (onmessage + stage_change), exponential backoff reconnection."
+          "status": "pending",
+          "depends_on": [
+            1
+          ],
+          "verified": false
         },
         {
           "id": "T3",
           "title": "PipelineStepper component: 13-stage visual stepper",
           "role": "frontend-dev",
-          "status": "done",
-          "depends_on": [2],
-          "verified": true,
-          "completed_at": "2026-04-10T04:37:00Z",
-          "verification_notes": "File exists: components/production/PipelineStepper.tsx. 13 stages defined, Framer Motion animations, compact mode, liveStatus prop for SSE."
+          "status": "pending",
+          "depends_on": [
+            2
+          ],
+          "verified": false
         },
         {
           "id": "T4",
           "title": "Wire PipelineStepper to video detail + pipeline list SSE",
           "role": "frontend-dev",
-          "status": "done",
-          "depends_on": [2, 3],
-          "verified": true,
-          "completed_at": "2026-04-10T04:37:00Z",
-          "verification_notes": "PipelineStepper imported and rendered in pipeline/[videoId]/page.tsx with liveStatus from usePipelineSSE hook."
+          "status": "pending",
+          "depends_on": [
+            2,
+            3
+          ],
+          "verified": false
         },
         {
           "id": "T5",
@@ -66,18 +67,18 @@
           "status": "done",
           "depends_on": [],
           "verified": true,
-          "completed_at": "2026-04-10T04:37:00Z",
-          "verification_notes": "Route exists in settings.py line 209. Tests 6 keys in parallel with asyncio.gather(), 15s timeout. Registered in main.py."
+          "completed_at": "2026-04-08T21:32:43Z",
+          "assigned_to": "backend-dev"
         },
         {
           "id": "T7",
           "title": "Frontend: settings key validation UI with test buttons",
           "role": "frontend-dev",
-          "status": "done",
-          "depends_on": [6],
-          "verified": true,
-          "completed_at": "2026-04-10T04:37:00Z",
-          "verification_notes": "settings/keys/page.tsx has validateAllApiKeys mutation, Validate All button with RefreshCw icon, per-key test results, loading states."
+          "status": "pending",
+          "depends_on": [
+            6
+          ],
+          "verified": false
         },
         {
           "id": "T8",
@@ -86,27 +87,31 @@
           "status": "done",
           "depends_on": [],
           "verified": true,
-          "completed_at": "2026-04-10T05:15:00Z",
-          "verification_notes": "email_service.py exists with send_email(), send_billing_receipt(), send_trial_warning(), send_welcome_email(), send_reset_email(). Billing receipt wired in billing.py webhook handler. Resend API with dev-mode console fallback."
+          "completed_at": "2026-04-08T21:25:16Z",
+          "assigned_to": "backend-dev"
         },
         {
           "id": "T9",
-          "title": "Wire check_trial_warnings() into background scheduler",
+          "title": "Trial warning migration + email task (3-day pre-expiry)",
           "role": "backend-dev",
-          "status": "pending",
-          "depends_on": [8],
-          "verified": false,
-          "description": "email_tasks.py exists with check_trial_warnings() and migrations 026+029 add trial_ends_at + trial_warning_sent columns. But the function is NEVER CALLED — not in main.py lifespan, not in any cron. Wire it into FastAPI lifespan background tasks (main.py ~line 263) or create a cron endpoint."
+          "status": "done",
+          "depends_on": [
+            8
+          ],
+          "verified": true,
+          "started_at": "2026-04-10T06:00:02Z",
+          "completed_at": "2026-04-10T06:01:00Z",
+          "assigned_to": "backend-dev"
         },
         {
           "id": "T10",
           "title": "PipelineNotificationProvider: SSE-driven toast notifications",
           "role": "frontend-dev",
-          "status": "done",
-          "depends_on": [2],
-          "verified": true,
-          "completed_at": "2026-04-10T04:37:00Z",
-          "verification_notes": "File exists: components/notifications/PipelineNotificationProvider.tsx. Uses usePipelineSSE, fires toasts on stage_change and activity events, 5s throttle. Wired in AuthenticatedShell.tsx."
+          "status": "pending",
+          "depends_on": [
+            2
+          ],
+          "verified": false
         },
         {
           "id": "T11",
@@ -118,10 +123,22 @@
         },
         {
           "id": "T12",
-          "title": "QA: full PRD 2 regression — Playwright smoke tests",
+          "title": "QA: full PRD 2 regression \u2014 Playwright smoke tests",
           "role": "qa-engineer",
           "status": "pending",
-          "depends_on": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+          "depends_on": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
           "verified": false
         },
         {
@@ -129,8 +146,22 @@
           "title": "Security audit: SSE auth, key validation input sanitization, email injection",
           "role": "qa-engineer",
           "status": "pending",
-          "depends_on": [1, 6, 8],
+          "depends_on": [
+            1,
+            6,
+            8
+          ],
           "verified": false
+        },
+        {
+          "id": "BUG-USER-800807",
+          "title": "BUG-USER: API error 401 on /login: GET /api/auth/me \u2192 {\"detail\":\"Invalid token\"}",
+          "role": "backend",
+          "status": "done",
+          "priority": "critical",
+          "description": "Already fixed in commit 380178b — auth.py now returns 'Invalid or expired session' instead of 'Invalid token'. Frontend suppresses expected 401s on auth endpoints.",
+          "completed_at": "2026-04-10T06:00:02Z",
+          "assigned_to": "backend-dev"
         }
       ]
     }

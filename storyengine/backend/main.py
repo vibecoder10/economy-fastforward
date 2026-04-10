@@ -194,6 +194,27 @@ async def _auto_scrape_competitors():
         await asyncio.sleep(86400)  # Run once daily
 
 
+async def _auto_check_trial_warnings():
+    """Background task: send trial expiry warning emails every 12 hours.
+
+    Checks all accounts (cross-tenant) for trials expiring within 3 days.
+    Only sends once per account (trial_warning_sent flag).
+    """
+    await asyncio.sleep(150)  # Offset from other tasks
+    while True:
+        try:
+            from email_tasks import check_trial_warnings
+            result = await check_trial_warnings()
+            checked = result.get("checked", 0)
+            sent = result.get("sent", 0)
+            if sent > 0:
+                print(f"[TrialWarnings] Sent {sent} warning emails ({checked} accounts checked)")
+        except Exception as e:
+            print(f"[TrialWarnings] Error: {e}")
+
+        await asyncio.sleep(43200)  # Run every 12 hours
+
+
 async def _run_pending_migrations():
     """Auto-run SQL migration files on startup.
 
@@ -264,6 +285,7 @@ async def lifespan(app: FastAPI):
     youtube_sync_task = asyncio.create_task(_auto_sync_youtube())
     title_analysis_task = asyncio.create_task(_auto_analyze_competitor_titles())
     scrape_task = asyncio.create_task(_auto_scrape_competitors())
+    trial_warning_task = asyncio.create_task(_auto_check_trial_warnings())
 
     yield
 
@@ -272,6 +294,7 @@ async def lifespan(app: FastAPI):
     youtube_sync_task.cancel()
     title_analysis_task.cancel()
     scrape_task.cancel()
+    trial_warning_task.cancel()
     await close_pool()
 
 
