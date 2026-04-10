@@ -1374,14 +1374,27 @@ const server = http.createServer(async (req, res) => {
     // Detect decompose failure (error prd.json written by timeout/crash handler)
     if (prd && prd.error) { sendJSON(res, { active: true, error: true, errorMessage: prd.message || 'Decomposition failed', hasPrdMd: !!prdRaw }); return; }
     const total = prd.tasks?.length || 0;
-    // Parse completion from progress.md (agents update this, not prd.json)
-    // Only count [x] marks in the Tasks section (skip verification headers from previous PRDs)
-    const tasksSection = progress.includes('## Tasks') ? progress.split('## Tasks').pop() : progress;
-    const doneFromProgress = (tasksSection.match(/- \[x\]/gi) || []).length;
-    const blockedFromProgress = (tasksSection.match(/BLOCKED/gi) || []).length;
-    const done = doneFromProgress || (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
-    const blocked = blockedFromProgress || (prd.tasks || []).filter(t => t.status === 'blocked').length;
+    // Build task status from prd.json tasks + progress.md completion markers
+    // progress.md may contain stale entries from previous PRDs, so cross-reference with prd.json task IDs
+    const prdTaskIds = new Set((prd.tasks || []).map(t => t.id));
+    const doneIdsFromProgress = new Set();
+    const blockedIdsFromProgress = new Set();
+    for (const line of progress.split('\n')) {
+      const m = line.match(/- \[x\]\s*(?:T)?(\d+)[.:]/i);
+      if (m && prdTaskIds.has(parseInt(m[1]))) doneIdsFromProgress.add(parseInt(m[1]));
+      if (line.includes('BLOCKED') && m && prdTaskIds.has(parseInt(m[1]))) blockedIdsFromProgress.add(parseInt(m[1]));
+    }
+    // Use progress.md done count if available, otherwise fall back to prd.json status field
+    const doneFromPrdJson = (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
+    const done = doneIdsFromProgress.size || doneFromPrdJson;
+    const blocked = blockedIdsFromProgress.size || (prd.tasks || []).filter(t => t.status === 'blocked').length;
     const inProgress = Math.max(0, total - done - blocked);
+    // Build tasks array for frontend rendering (from prd.json, enriched with progress.md status)
+    const tasks = (prd.tasks || []).map(t => ({
+      id: t.id, title: t.title, role: t.role,
+      status: doneIdsFromProgress.has(t.id) ? 'done' : blockedIdsFromProgress.has(t.id) ? 'blocked' : (t.status === 'done' || t.status === 'verified') ? 'done' : t.status || 'pending',
+      depends_on: t.depends_on || [], acceptance_criteria: t.acceptance_criteria || []
+    }));
     // Enforce minimum execution time — agents from previous PRD write stale [x] marks
     const deployedAt = prd._deployed_at ? new Date(prd._deployed_at).getTime() : 0;
     const MIN_EXECUTION_MS = 5 * 60 * 1000; // 5 minutes minimum before completion allowed
@@ -1406,7 +1419,7 @@ const server = http.createServer(async (req, res) => {
         console.log(`PRD Queue: "${prd.title}" complete — deploying next PRD...`);
         // Small delay to let cleanup settle, then deploy next
         setTimeout(() => deployNextPrd(), 5000);
-        sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress, queueNext: true });
+        sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress, tasks, queueNext: true });
         return;
       }
       // No queue or queue exhausted — restore cadence as before
@@ -1422,7 +1435,7 @@ const server = http.createServer(async (req, res) => {
         }
       } catch {}
     }
-    sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress });
+    sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress, tasks });
     return;
   }
 

@@ -2232,18 +2232,17 @@ window.__onTabShow = {};
 
       var html = '';
 
-      // Show PRD tasks first when active
-      if (mission.active && !mission.decomposing && !mission.error && mission.progress) {
+      // Show PRD tasks first when active — uses prd.json tasks (not progress.md parsing)
+      if (mission.active && !mission.decomposing && !mission.error) {
         var prdTitle = mission.title || 'Active PRD';
-        var lines = mission.progress.split('\n').filter(function(l) { return l.match(/^- \[[ x]\]/); });
-        var prdTasks = lines.map(function(l) {
-          var done = l.indexOf('[x]') !== -1;
-          var blocked = l.indexOf('BLOCKED') !== -1;
-          var text = l.replace(/^- \[[ x]\] /, '');
-          var taskId = (text.match(/^T(\d+):/) || [])[1] || '';
-          var roleMatch = text.match(/\((backend|frontend|qa|pipeline-tester|security|lead)\)/);
-          var role = roleMatch ? roleMatch[1] : '';
-          return { title: text, status: done ? 'done' : blocked ? 'blocked' : 'pending', role: role, id: 'T' + taskId };
+        var prdTasks = (mission.tasks || []).map(function(t) {
+          var deps = (t.depends_on || []).map(function(d) { return 'T' + d; }).join(', ');
+          return {
+            title: 'T' + t.id + ': ' + t.title + (t.role ? ' (' + t.role + ')' : '') + (deps ? ' — depends on ' + deps : ''),
+            status: t.status || 'pending',
+            role: t.role || '',
+            id: 'T' + t.id
+          };
         });
         var prdPendingTasks = prdTasks.filter(function(t) { return t.status !== 'done'; });
         if (prdPendingTasks.length > 0) {

@@ -239,7 +239,7 @@ if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
   case "$AGENT" in
     backend-dev) _PRD_ROLE="backend" ;; frontend-dev) _PRD_ROLE="frontend" ;;
     qa-engineer) _PRD_ROLE="qa" ;; pipeline-tester) _PRD_ROLE="any" ;;
-    security-auditor) _PRD_ROLE="security" ;; orchestrator) _PRD_ROLE="lead" ;;
+    security-auditor) _PRD_ROLE="security" ;; orchestrator) _PRD_ROLE="any" ;;
   esac
   _PRD_PENDING=$(python3 -c "
 import json, re
