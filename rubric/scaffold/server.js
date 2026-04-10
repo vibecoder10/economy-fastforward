@@ -626,7 +626,8 @@ const server = http.createServer(async (req, res) => {
 
   // POST /api/activity-log — append a run entry
   if (pathname === '/api/activity-log' && req.method === 'POST') {
-    const body = JSON.parse(await readBody(req));
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch (e) { sendJSON(res, { error: 'Invalid JSON: ' + e.message }, 400); return; }
     const logFile = path.join(DATA_DIR, 'activity-log.json');
     let log = [];
     try { log = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
@@ -1395,6 +1396,35 @@ const server = http.createServer(async (req, res) => {
       status: doneIdsFromProgress.has(t.id) ? 'done' : blockedIdsFromProgress.has(t.id) ? 'blocked' : (t.status === 'done' || t.status === 'verified') ? 'done' : t.status || 'pending',
       depends_on: t.depends_on || [], acceptance_criteria: t.acceptance_criteria || []
     }));
+    // Auto-sync PRD tasks into task-queue.json so they appear in the Queue UI
+    // This ensures tasks are visible even if the deploy callback failed (e.g. server crash)
+    try {
+      const tqPath = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+      let tq = {};
+      try { tq = JSON.parse(fs.readFileSync(tqPath, 'utf8')); } catch {}
+      if (!tq.tabs) tq.tabs = [];
+      // Find existing tab for this PRD (by title match) or create one
+      const prdTabName = prd.title || 'Active PRD';
+      let prdTab = tq.tabs.find(t => t.name === prdTabName);
+      if (!prdTab) {
+        prdTab = { id: tq.tabs.length + 1, name: prdTabName, status: 'active', created_at: new Date().toISOString(), tasks: [] };
+        tq.tabs.push(prdTab);
+      }
+      // Sync task statuses from prd.json → task-queue.json
+      prdTab.tasks = tasks.map((t, i) => ({
+        id: `PRD-${t.id}`,
+        description: t.title,
+        role: t.role || 'backend',
+        status: t.status,
+        depends_on: t.depends_on || [],
+        verified: t.status === 'done'
+      }));
+      prdTab.status = tasks.every(t => t.status === 'done') ? 'complete' : 'active';
+      tq.last_updated = new Date().toISOString();
+      tq.last_updated_by = 'mission-sync';
+      fs.writeFileSync(tqPath, JSON.stringify(tq, null, 2));
+    } catch (e) { /* silent — task queue sync is best-effort */ }
+
     // Enforce minimum execution time — agents from previous PRD write stale [x] marks
     const deployedAt = prd._deployed_at ? new Date(prd._deployed_at).getTime() : 0;
     const MIN_EXECUTION_MS = 5 * 60 * 1000; // 5 minutes minimum before completion allowed

@@ -2220,38 +2220,18 @@ window.__onTabShow = {};
       const pending = allTasks.filter(t => t.status !== 'done' && t.status !== 'blocked');
       const doneCount = allTasks.filter(t => t.status === 'done').length;
 
-      // Include PRD tasks in counts
-      const prdPending = mission.active && !mission.decomposing && !mission.error ? Math.max(0, mission.total - mission.done - (mission.blocked || 0)) : 0;
-      const prdDone = mission.active && !mission.decomposing && !mission.error ? mission.done : 0;
-      const totalPending = pending.length + prdPending;
-      const totalDone = doneCount + prdDone;
+      // PRD tasks are now synced into task-queue.json, so counts come from there directly
+      const totalPending = pending.length;
+      const totalDone = doneCount;
 
       pendingBadge.textContent = totalPending;
       doneBadge.textContent = totalDone;
-      summary.textContent = totalDone + '/' + (allTasks.length + (mission.active && !mission.error ? mission.total || 0 : 0)) + ' done';
+      summary.textContent = totalDone + '/' + allTasks.length + ' done';
 
       var html = '';
 
-      // Show PRD tasks first when active — uses prd.json tasks (not progress.md parsing)
-      if (mission.active && !mission.decomposing && !mission.error) {
-        var prdTitle = mission.title || 'Active PRD';
-        var prdTasks = (mission.tasks || []).map(function(t) {
-          var deps = (t.depends_on || []).map(function(d) { return 'T' + d; }).join(', ');
-          return {
-            title: 'T' + t.id + ': ' + t.title + (t.role ? ' (' + t.role + ')' : '') + (deps ? ' — depends on ' + deps : ''),
-            status: t.status || 'pending',
-            role: t.role || '',
-            id: 'T' + t.id
-          };
-        });
-        var prdPendingTasks = prdTasks.filter(function(t) { return t.status !== 'done'; });
-        if (prdPendingTasks.length > 0) {
-          html += '<div style="padding:4px 8px;">';
-          html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;"><div style="font-size:11px;font-weight:600;color:#1A8A7A;text-transform:uppercase;letter-spacing:0.5px;">PRD: ' + tqEsc(prdTitle) + '</div><span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(26,138,122,0.15);color:#1A8A7A;">' + mission.done + '/' + mission.total + '</span></div>';
-          prdPendingTasks.forEach(function(t) { html += renderTaskCard(t, false); });
-          html += '</div>';
-        }
-      }
+      // PRD tasks now flow through task-queue.json (synced by mission-status endpoint)
+      // No separate PRD rendering needed — they appear as a labeled tab in the queue
 
       if (pending.length === 0 && !html) {
         list.innerHTML = '<div style="padding:16px;text-align:center;">' +
