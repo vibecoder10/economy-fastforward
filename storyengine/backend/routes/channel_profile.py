@@ -169,6 +169,7 @@ async def update_channel_profile(
 
         if sets:
             sets.append("updated_at = now()")
+            # SECURITY: column names are hardcoded per-field conditionals, values use $N params
             query = f"UPDATE channel_profiles SET {', '.join(sets)} WHERE tenant_id = $1"
             await execute(query, tenant_id, *params)
 

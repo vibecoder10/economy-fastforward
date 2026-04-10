@@ -2,6 +2,10 @@
 
 All pipeline operations run as background tasks so the API responds immediately.
 The frontend can poll for status or use the activity feed to track progress.
+
+Task tracking uses a dual-layer approach:
+- In-memory dict for fast real-time progress (sync-compatible with progress callbacks)
+- Database table (background_tasks) for persistence across restarts and task history
 """
 
 import asyncio
@@ -44,8 +48,7 @@ class PipelineStatus(BaseModel):
     airtable_synced: bool = False
 
 
-# --- Background Task Tracking ---
-# Maps video_id -> task info
+# --- Background Task Tracking (dual-layer: dict + DB) ---
 import time as _time
 
 _running_tasks: dict[str, dict] = {}
@@ -54,13 +57,76 @@ _running_tasks: dict[str, dict] = {}
 _STALE_TASK_SECONDS = 600
 
 
+async def _db_persist_task(
+    tenant_id: str,
+    video_id: str,
+    task_type: str,
+    status: str,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Persist task state to the background_tasks table.
+
+    Uses upsert: one active row per video_id (status in running/pending).
+    Completed/failed rows are kept for history.
+    """
+    try:
+        if status == "running":
+            # Insert new task (or update if one is already running for this video)
+            existing = await fetch_one(
+                "SELECT id FROM background_tasks "
+                "WHERE video_id = $1 AND status = 'running' LIMIT 1",
+                video_id,
+            )
+            if existing:
+                await execute(
+                    "UPDATE background_tasks SET message = $1 WHERE id = $2",
+                    message, existing["id"],
+                )
+            else:
+                await execute(
+                    "INSERT INTO background_tasks "
+                    "(tenant_id, video_id, task_type, status, message, started_at) "
+                    "VALUES ($1, $2, $3, 'running', $4, now())",
+                    tenant_id, video_id, task_type, message,
+                )
+        elif status in ("completed", "failed"):
+            await execute(
+                "UPDATE background_tasks "
+                "SET status = $1, message = $2, error_message = $3, completed_at = now() "
+                "WHERE video_id = $4 AND status = 'running'",
+                status, message, error, video_id,
+            )
+    except Exception:
+        pass  # DB persistence is best-effort; dict is the real-time source
+
+
+async def recover_stale_tasks() -> int:
+    """Mark any tasks stuck in 'running' as failed. Called on server startup."""
+    try:
+        result = await execute(
+            "UPDATE background_tasks SET status = 'failed', "
+            "error_message = 'Server restarted — task interrupted', "
+            "completed_at = now() "
+            "WHERE status = 'running'"
+        )
+        # asyncpg returns "UPDATE N" string
+        count = int(result.split()[-1]) if result else 0
+        return count
+    except Exception:
+        return 0
+
+
 def _set_task_status(
     video_id: str,
     status: str,
     message: Optional[str] = None,
     error: Optional[str] = None,
+    *,
+    tenant_id: Optional[str] = None,
+    task_type: str = "pipeline",
 ):
-    """Update task status for polling.
+    """Update task status in dict. Fire-and-forget DB persistence for key transitions.
 
     Normalizes status to: running | completed | failed
     """
@@ -80,6 +146,18 @@ def _set_task_status(
         "started_at": _running_tasks.get(video_id, {}).get("started_at", _time.time()),
     }
 
+    # Persist key transitions to DB (fire-and-forget)
+    if tenant_id and normalized in ("running", "completed", "failed"):
+        try:
+            asyncio.get_running_loop().create_task(
+                _db_persist_task(
+                    str(tenant_id), video_id, task_type,
+                    normalized, resolved_message, resolved_error,
+                )
+            )
+        except RuntimeError:
+            pass  # No event loop — skip DB write
+
 
 def _get_task_status(video_id: str) -> Optional[dict]:
     """Get task status for a video. Auto-clears stale tasks."""
@@ -94,7 +172,7 @@ def _get_task_status(video_id: str) -> Optional[dict]:
 
 
 def _clear_task_status(video_id: str):
-    """Clear task status after completion."""
+    """Clear task status after completion (dict only — DB row stays for history)."""
     _running_tasks.pop(video_id, None)
 
 
@@ -151,13 +229,13 @@ async def run_research(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running for this video")
 
-    _set_task_status(video_id, "running", "Research in progress")
+    _set_task_status(video_id, "running", "Research in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_research(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
 
             # Auto-cascade: keep advancing through pipeline steps
             if result.get("status") != "failed":
@@ -171,14 +249,14 @@ async def run_research(
                     step_result = await executor.run_next_step(video_id)
                     step_status = step_result.get("status", "")
                     if step_status == "failed":
-                        _set_task_status(video_id, "failed", step_result.get("error"))
+                        _set_task_status(video_id, "failed", step_result.get("error"), tenant_id=tenant_id)
                         break
                     if step_status in ("needs_approval", "idle"):
                         _set_task_status(video_id, "completed", step_result.get("message", "Waiting for approval"))
                         break
                     _set_task_status(video_id, step_status)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             # Clear after a delay so frontend can poll final status
             await asyncio.sleep(30)
@@ -219,15 +297,15 @@ async def run_script(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Script generation in progress")
+    _set_task_status(video_id, "running", "Script generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_script(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -265,15 +343,15 @@ async def run_voice(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Voice generation in progress")
+    _set_task_status(video_id, "running", "Voice generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_voice(video_id, scene=scene)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -354,15 +432,15 @@ async def run_prompts(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Prompt generation in progress")
+    _set_task_status(video_id, "running", "Prompt generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_prompts(video_id, scene=scene, index=index)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -408,7 +486,7 @@ async def run_storyboards(
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" Scene {scene}" if scene else ""
-    _set_task_status(video_id, "running", f"Generating storyboard prompts{scene_label}...")
+    _set_task_status(video_id, "running", f"Generating storyboard prompts{scene_label}...", tenant_id=tenant_id)
 
     def progress_callback(msg: str):
         _set_task_status(video_id, "running", msg)
@@ -424,9 +502,10 @@ async def run_storyboards(
                 result.get("status", "unknown"),
                 result.get("message") or result.get("error"),
                 result.get("error"),
+                tenant_id=tenant_id,
             )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e), str(e))
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -453,7 +532,7 @@ async def run_story_bible(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Story Bible generation in progress")
+    _set_task_status(video_id, "running", "Story Bible generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
@@ -464,9 +543,10 @@ async def run_story_bible(
                 result.get("status", "unknown"),
                 result.get("message") or "Story Bible generated",
                 result.get("error"),
+                tenant_id=tenant_id,
             )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e), str(e))
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -509,7 +589,7 @@ async def run_storyboard_images(
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" Scene {scene}" if scene else ""
-    _set_task_status(video_id, "running", f"Generating storyboard images{scene_label}...")
+    _set_task_status(video_id, "running", f"Generating storyboard images{scene_label}...", tenant_id=tenant_id)
 
     def progress_callback(msg: str):
         _set_task_status(video_id, "running", msg)
@@ -525,9 +605,10 @@ async def run_storyboard_images(
                 result.get("status", "unknown"),
                 result.get("message") or result.get("error"),
                 result.get("error"),
+                tenant_id=tenant_id,
             )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e), str(e))
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -560,7 +641,7 @@ async def run_storyboard_extract(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Storyboard extraction in progress")
+    _set_task_status(video_id, "running", "Storyboard extraction in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
@@ -575,9 +656,10 @@ async def run_storyboard_extract(
                 result.get("status", "unknown"),
                 result.get("message") or result.get("error"),
                 result.get("error"),
+                tenant_id=tenant_id,
             )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e), str(e))
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -604,7 +686,7 @@ async def run_upscale_panels(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Panel upscaling in progress")
+    _set_task_status(video_id, "running", "Panel upscaling in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
@@ -619,9 +701,10 @@ async def run_upscale_panels(
                 result.get("status", "unknown"),
                 result.get("message") or result.get("error"),
                 result.get("error"),
+                tenant_id=tenant_id,
             )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e), str(e))
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -667,7 +750,7 @@ async def run_images(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Image generation in progress")
+    _set_task_status(video_id, "running", "Image generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
@@ -676,9 +759,9 @@ async def run_images(
                 result = await executor.run_image_variants(video_id, scene=scene, index=index, variants=variants)
             else:
                 result = await executor.run_images(video_id, scene=scene, index=index)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -720,15 +803,15 @@ async def run_sound_prompts(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Sound prompt generation in progress")
+    _set_task_status(video_id, "running", "Sound prompt generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_sound_prompts(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -761,15 +844,15 @@ async def run_sound_effects(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Sound effects generation in progress")
+    _set_task_status(video_id, "running", "Sound effects generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_sound_effects(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -803,15 +886,15 @@ async def run_video_scripts(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Video script generation in progress")
+    _set_task_status(video_id, "running", "Video script generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_video_scripts(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -845,15 +928,15 @@ async def run_video_generation(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Video clip generation in progress")
+    _set_task_status(video_id, "running", "Video clip generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_video_generation(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -894,15 +977,15 @@ async def run_thumbnail(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Thumbnail generation in progress")
+    _set_task_status(video_id, "running", "Thumbnail generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_thumbnail(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -938,15 +1021,15 @@ async def run_render(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Rendering in progress")
+    _set_task_status(video_id, "running", "Rendering in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_render(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -979,15 +1062,15 @@ async def run_upload(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Upload in progress")
+    _set_task_status(video_id, "running", "Upload in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_upload(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -1017,15 +1100,15 @@ async def run_next_step(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Running next step")
+    _set_task_status(video_id, "running", "Running next step", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_next_step(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error") or result.get("message"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error") or result.get("message"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -1141,15 +1224,15 @@ async def generate_video_prompts(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Video clip prompt generation in progress")
+    _set_task_status(video_id, "running", "Video clip prompt generation in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_video_scripts(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -1195,16 +1278,16 @@ async def orchestrate(
     executor = PipelineExecutor(tenant_id)
 
     async def _run():
-        _set_task_status(request.video_id, "running", "Claude is deciding...")
+        _set_task_status(request.video_id, "running", "Claude is deciding...", tenant_id=tenant_id)
         try:
             result = await executor.run_next_step(
                 request.video_id,
                 user_intent=request.user_intent,
             )
             status = "completed" if result.get("status") != "failed" else "failed"
-            _set_task_status(request.video_id, status, result.get("message"))
+            _set_task_status(request.video_id, status, result.get("message"), tenant_id=tenant_id)
         except Exception as e:
-            _set_task_status(request.video_id, "failed", str(e))
+            _set_task_status(request.video_id, "failed", str(e), tenant_id=tenant_id)
 
     background_tasks.add_task(_run)
     return {"status": "started", "video_id": request.video_id}

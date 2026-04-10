@@ -489,6 +489,7 @@ async def update_config(
 
         if updates:
             updates.append("updated_at = NOW()")
+            # SECURITY: column names are hardcoded per-field conditionals, values use $N params
             query = f"UPDATE autopilot_config SET {', '.join(updates)} WHERE tenant_id = $1"
             await execute(query, *params)
     else:
@@ -503,6 +504,7 @@ async def update_config(
             cols.append("thresholds")
             vals.append(_j.dumps(body.thresholds))
         placeholders = ", ".join(f"${i+1}::jsonb" if c in ("weights", "thresholds") else f"${i+1}" for i, c in enumerate(cols))
+        # SECURITY: column names from hardcoded cols list, values use $N params with explicit ::jsonb casts
         await execute(
             f"INSERT INTO autopilot_config ({', '.join(cols)}) VALUES ({placeholders})",
             *vals,

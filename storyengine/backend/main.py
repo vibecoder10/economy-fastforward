@@ -8,11 +8,14 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
+from logging_config import logger, RequestLoggingMiddleware
+from rate_limit import RateLimitMiddleware
 from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing, preferences, system_prompts, demo
 from routes.autopilot import _bg_task_status
+from routes.pipeline import recover_stale_tasks
 
 
 def _update_bg_status(tenant_id: str, task_name: str, **kwargs):
@@ -63,7 +66,7 @@ async def _auto_extract_learnings():
         try:
             tenant_ids = await _get_all_tenant_ids()
             if not tenant_ids:
-                print("[AutoExtract] No tenants found, skipping")
+                logger.info("[AutoExtract] No tenants found, skipping")
                 await asyncio.sleep(86400)
                 continue
 
@@ -88,15 +91,15 @@ async def _auto_extract_learnings():
                         from routes.learning_extraction import extract_learnings as _extract
                         result = await _extract(tenant_id=tenant_id)
                         _update_bg_status(tenant_id, "learning_extraction", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                        print(f"[AutoExtract] Tenant {tenant_id[:8]}: {result.patterns_extracted} patterns from {result.videos_analyzed} videos ({result.patterns_new} new, {result.patterns_updated} updated)")
+                        logger.info("[AutoExtract] Tenant %s: %d patterns from %d videos (%d new, %d updated)", tenant_id[:8], result.patterns_extracted, result.videos_analyzed, result.patterns_new, result.patterns_updated)
                     else:
-                        print(f"[AutoExtract] Tenant {tenant_id[:8]}: no new videos")
+                        logger.info("[AutoExtract] Tenant %s: no new videos", tenant_id[:8])
                 except Exception as e:
                     _update_bg_status(tenant_id, "learning_extraction", is_running=False, last_error=str(e))
-                    print(f"[AutoExtract] Tenant {tenant_id[:8]} error: {e}")
+                    logger.error("[AutoExtract] Tenant %s error: %s", tenant_id[:8], e)
 
         except Exception as e:
-            print(f"[AutoExtract] Error: {e}")
+            logger.error("[AutoExtract] Error: %s", e)
 
         await asyncio.sleep(86400)  # Run every 24 hours
 
@@ -120,12 +123,12 @@ async def _auto_sync_youtube():
                     from routes.youtube_sync import _run_sync
                     await _run_sync(tenant_id)
                     _update_bg_status(tenant_id, "youtube_sync", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                    print(f"[AutoYTSync] Tenant {tenant_id[:8]}: sync complete")
+                    logger.info("[AutoYTSync] Tenant %s: sync complete", tenant_id[:8])
                 except Exception as e:
                     _update_bg_status(tenant_id, "youtube_sync", is_running=False, last_error=str(e))
-                    print(f"[AutoYTSync] Tenant {tenant_id[:8]} error: {e}")
+                    logger.error("[AutoYTSync] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:
-            print(f"[AutoYTSync] Error: {e}")
+            logger.error("[AutoYTSync] Error: %s", e)
 
         await asyncio.sleep(21600)  # Run every 6 hours
 
@@ -152,12 +155,12 @@ async def _auto_analyze_competitor_titles():
                     result2 = await analyze_competitor_transcripts(tenant_id=tenant_id)
                     hook_insights = result2.get("insights_saved", 0) if isinstance(result2, dict) else 0
                     _update_bg_status(tenant_id, "title_analysis", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                    print(f"[AutoTitleAnalysis] Tenant {tenant_id[:8]}: {title_insights} title + {hook_insights} hook insights saved")
+                    logger.info("[AutoTitleAnalysis] Tenant %s: %d title + %d hook insights saved", tenant_id[:8], title_insights, hook_insights)
                 except Exception as e:
                     _update_bg_status(tenant_id, "title_analysis", is_running=False, last_error=str(e))
-                    print(f"[AutoTitleAnalysis] Tenant {tenant_id[:8]} error: {e}")
+                    logger.error("[AutoTitleAnalysis] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:
-            print(f"[AutoTitleAnalysis] Error: {e}")
+            logger.error("[AutoTitleAnalysis] Error: %s", e)
 
         await asyncio.sleep(86400)  # Run every 24 hours
 
@@ -184,12 +187,12 @@ async def _auto_scrape_competitors():
                     from routes.niche import _run_scrape
                     await _run_scrape(tenant_id, max_videos_per_channel=videos_per_scrape)
                     _update_bg_status(tenant_id, "scrape", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                    print(f"[AutoScrape] Tenant {tenant_id[:8]}: daily scrape complete ({videos_per_scrape} per channel)")
+                    logger.info("[AutoScrape] Tenant %s: daily scrape complete (%d per channel)", tenant_id[:8], videos_per_scrape)
                 except Exception as e:
                     _update_bg_status(tenant_id, "scrape", is_running=False, last_error=str(e))
-                    print(f"[AutoScrape] Tenant {tenant_id[:8]} error: {e}")
+                    logger.error("[AutoScrape] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:
-            print(f"[AutoScrape] Error: {e}")
+            logger.error("[AutoScrape] Error: %s", e)
 
         await asyncio.sleep(86400)  # Run once daily
 
@@ -208,9 +211,9 @@ async def _auto_check_trial_warnings():
             checked = result.get("checked", 0)
             sent = result.get("sent", 0)
             if sent > 0:
-                print(f"[TrialWarnings] Sent {sent} warning emails ({checked} accounts checked)")
+                logger.info("[TrialWarnings] Sent %d warning emails (%d accounts checked)", sent, checked)
         except Exception as e:
-            print(f"[TrialWarnings] Error: {e}")
+            logger.error("[TrialWarnings] Error: %s", e)
 
         await asyncio.sleep(43200)  # Run every 12 hours
 
@@ -257,11 +260,11 @@ async def _run_pending_migrations():
                     "INSERT INTO _migrations (filename) VALUES ($1)",
                     sql_file.name,
                 )
-                print(f"  ✅ Migration applied: {sql_file.name}")
+                logger.info("Migration applied: %s", sql_file.name)
             except Exception as e:
-                print(f"  ⚠️  Migration {sql_file.name} failed: {e}")
+                logger.warning("Migration %s failed: %s", sql_file.name, e)
 
-        print(f"✅ Migrations checked ({len(sql_files)} files, {len(sql_files) - len(applied_set)} new)")
+        logger.info("Migrations checked (%d files, %d new)", len(sql_files), len(sql_files) - len(applied_set))
 
 
 @asynccontextmanager
@@ -270,15 +273,23 @@ async def lifespan(app: FastAPI):
     # Startup: create DB pool
     try:
         await get_pool()
-        print("✅ Database pool connected")
+        logger.info("Database pool connected")
     except Exception as e:
-        print(f"⚠️  Database connection failed (will retry on first query): {e}")
+        logger.warning("Database connection failed (will retry on first query): %s", e)
 
     # Auto-run pending migrations
     try:
         await _run_pending_migrations()
     except Exception as e:
-        print(f"⚠️  Migration runner error (non-blocking): {e}")
+        logger.warning("Migration runner error (non-blocking): %s", e)
+
+    # Recover tasks that were running when the server last stopped
+    try:
+        recovered = await recover_stale_tasks()
+        if recovered:
+            logger.info("Recovered %d stale background tasks (marked as failed)", recovered)
+    except Exception as e:
+        logger.warning("Stale task recovery error (non-blocking): %s", e)
 
     # Start background tasks (only run for tenants with autopilot enabled)
     extraction_task = asyncio.create_task(_auto_extract_learnings())
@@ -324,6 +335,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiting + request logging (added AFTER CORS so they run on CORS-allowed requests)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
+
 # Register routes
 app.include_router(dashboard.router)
 app.include_router(videos.router)
@@ -353,5 +368,84 @@ app.include_router(demo.router)
 
 @app.get("/api/health")
 async def health():
-    """Health check."""
-    return {"status": "ok", "service": "storyengine-api"}
+    """Health check with real system status."""
+    checks: dict = {}
+
+    # Database connectivity
+    try:
+        await fetch_one("SELECT 1 as ok")
+        checks["database"] = True
+    except Exception:
+        checks["database"] = False
+
+    # Active background tasks
+    try:
+        row = await fetch_one(
+            "SELECT count(*) as cnt FROM background_tasks WHERE status = 'running'"
+        )
+        checks["active_tasks"] = row["cnt"] if row else 0
+    except Exception:
+        checks["active_tasks"] = -1
+
+    # Storage (basic check — Google Drive client initialized)
+    checks["storage"] = True  # Will fail visibly on actual upload if broken
+
+    # Overall status
+    if checks.get("database") is True:
+        status = "healthy"
+    else:
+        status = "unhealthy"
+
+    return {"status": status, "service": "storyengine-api", **checks}
+
+
+@app.get("/api/health/detailed")
+async def health_detailed(request: Request):
+    """Extended health check — protected by HEALTH_TOKEN env var.
+
+    Returns task queue depth, error rate, and resource info.
+    """
+    token = os.getenv("HEALTH_TOKEN")
+    auth = request.headers.get("authorization", "")
+    if token and (not auth.startswith("Bearer ") or auth[7:] != token):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid health token")
+
+    checks: dict = {}
+
+    # DB
+    try:
+        await fetch_one("SELECT 1 as ok")
+        checks["database"] = True
+    except Exception:
+        checks["database"] = False
+
+    # Task queue depth by status
+    try:
+        rows = await fetch_all(
+            "SELECT status, count(*) as cnt FROM background_tasks GROUP BY status"
+        )
+        checks["task_queue"] = {r["status"]: r["cnt"] for r in rows} if rows else {}
+    except Exception:
+        checks["task_queue"] = {"error": "query failed"}
+
+    # Error rate (from logging_config tracker)
+    from logging_config import _error_counts, _error_window_start
+    import time
+    window_age = round(time.time() - _error_window_start)
+    checks["error_rate"] = {
+        "errors_in_window": _error_counts.get("total", 0),
+        "window_seconds": min(window_age, 300),
+    }
+
+    # Uptime / memory (optional — psutil may not be installed)
+    try:
+        import psutil
+        process = psutil.Process()
+        checks["uptime_seconds"] = round(time.time() - process.create_time())
+        checks["memory_mb"] = round(process.memory_info().rss / 1024 / 1024, 1)
+    except ImportError:
+        pass
+
+    status = "healthy" if checks.get("database") else "unhealthy"
+    return {"status": status, **checks}

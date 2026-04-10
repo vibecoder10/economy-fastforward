@@ -201,6 +201,7 @@ async def _run_sync(tenant_id: str):
                     values.append(str(video["id"]))
                     param_idx = len(values)
 
+                    # SECURITY: column names from hardcoded update_fields dict keys + safe_column(), values use $N params
                     await execute(
                         f"UPDATE videos SET {', '.join(set_parts)} WHERE id = ${param_idx}",
                         *values,

@@ -324,6 +324,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     params.append(video_id)
     idx += 1
     params.append(tenant_id)
+    # SECURITY: column names filtered through allowed_fields allowlist + safe_column(), values use $N params
     query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${idx - 1} AND tenant_id = ${idx}"
     await execute(query, *params)
     return {"status": "updated", "video_id": video_id}
@@ -597,6 +598,7 @@ async def update_video_styles(
     params.append(video_id)
     params.append(tenant_id)
 
+    # SECURITY: column names are hardcoded per-field conditionals, values use $N params
     query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${param_idx} AND tenant_id = ${param_idx + 1}"
     await execute(query, *params)
 
@@ -649,6 +651,7 @@ async def accept_suggestion(video_id: str, request: dict, tenant_id: str = Depen
         "updated_at = NOW()",
     ])
 
+    # SECURITY: SET clauses are fully hardcoded strings (column = column or NULL/literal), no user input in clause text
     query = f"UPDATE videos SET {', '.join(set_clauses)} WHERE id = $1 AND tenant_id = $2"
     await execute(query, video_id, tenant_id)
 

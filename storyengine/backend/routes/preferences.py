@@ -162,6 +162,7 @@ async def update_notification_prefs(
 
         if sets:
             sets.append("updated_at = now()")
+            # SECURITY: column names from hardcoded allowlist loop, values use $N params
             query = f"UPDATE notification_preferences SET {', '.join(sets)} WHERE tenant_id = $1"
             await execute(query, tenant_id, *params)
 

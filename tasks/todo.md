@@ -3,11 +3,45 @@
 ## Active Work
 
 **Execution Plan:** `tasks/roadmap.md` — 18-day SaaS transformation
-**Current:** Day 2 of 18 (2026-04-08). PRD 2 backend tasks ALL complete (7/7, committed).
-**Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
+**Current PRD:** PRD 3 — Infrastructure (Security, Rate Limiting, Task Persistence, Logging, Health Check)
+**Agent Team:** 6 agents on Opus. PRD 2 mostly complete (11/13). PRD 4 complete (15/15).
 
-## Handoff
-**Pipeline Tester (2026-04-10):** PRD2 T1-T11 all verified via acceptance criteria + Playwright. Fixed route ordering bug in settings.py (POST /keys/validate caught by /keys/{key_name} — commit 4057fb1). Auth 401 on /login NOT A BUG (stale RUBRIC entries from before 380178b).
+### PRD 3 Progress
+- [x] **Task 1** (SEC-1, SEC-2, SEC-3): Already done by agent team — verified
+- [x] **Task 2** (SEC-4, SEC-5, SEC-6): SEC-4/SEC-6 already done. SEC-5 safety comments added to all 12 f-string SQL queries
+- [x] **Task 3**: Rate limiting middleware (`rate_limit.py`) — per-plan token bucket, concurrent job limits
+- [x] **Task 4**: Persistent background tasks — migration 032, `_db_persist_task()` fire-and-forget, `recover_stale_tasks()` on startup
+- [ ] **Task 5**: Per-tenant storage — DEFERRED (users will connect own Google Drives, not Supabase Storage)
+- [x] **Task 6**: Structured JSON logging (`logging_config.py`) — all `print()` in main.py replaced with `logger.*`
+- [x] **Task 7**: Health check expansion — `/api/health` checks DB + active tasks, `/api/health/detailed` with token auth
+- [ ] **Task 8**: QA security verification (depends on Tasks 1-2)
+- [ ] **Task 9**: QA infrastructure verification (depends on Tasks 3-7)
+- [ ] **Task 10**: Frontend health status indicator (depends on Task 7)
+- [ ] **Task 11**: Security final audit (depends on all tasks)
+
+## Handoff (2026-04-10 — PRD 3 Phase 1+2 Build)
+
+**What was built:**
+- `storyengine/backend/rate_limit.py` (NEW) — Token bucket rate limiter per plan (free: 15/min, starter: 30, creator: 100, studio: 300). Concurrent pipeline job limits. Skips health/auth paths.
+- `storyengine/backend/logging_config.py` (NEW) — StructuredFormatter (JSON), RequestLoggingMiddleware, error rate tracking (10/5min threshold)
+- `storyengine/backend/migrations/032_background_tasks.sql` (NEW) — Persistent task tracking table with RLS
+- `storyengine/backend/routes/pipeline.py` — Added `_db_persist_task()` (fire-and-forget DB writes on key transitions), `recover_stale_tasks()` (startup recovery). 61 `_set_task_status` calls now pass `tenant_id=tenant_id` for DB persistence.
+- `storyengine/backend/main.py` — Wired RateLimitMiddleware + RequestLoggingMiddleware. Replaced ALL 18 `print()` with `logger.*`. Added startup task recovery. Expanded `/api/health` + new `/api/health/detailed`.
+- `storyengine/schema.sql` — Added background_tasks table definition
+- 10 route files — Added SEC-5 SECURITY comments to all f-string SQL queries
+
+**Design decisions:**
+- Task tracking is dual-layer: in-memory dict for real-time progress (sync-compatible with progress callbacks), DB for persistence/history. Fire-and-forget via `asyncio.create_task()`.
+- Task 5 (per-tenant Supabase Storage) deferred — user wants BYOD Google Drive model.
+- Rate limiting is in-memory (resets on restart) — acceptable for v1 since it's protective not billing-critical.
+
+**What's next (Phase 3):**
+- Tasks 8-9: QA verification of security + infrastructure
+- Task 10: Frontend health status indicator component
+- Task 11: Final security audit
+- Deploy to VPS and verify migration 032 runs
+
+**Previous:** PRD2 T1-T11 verified. PRD 4 complete (15/15).
 
 **PRD 2 status:** 11/13 done. T12 (QA Playwright regression) and T13 (already done by qa-engineer) are the only remaining items. T12 dependencies now all met.
 

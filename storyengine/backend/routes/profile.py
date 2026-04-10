@@ -93,6 +93,7 @@ async def update_profile(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     sets.append("updated_at = now()")
+    # SECURITY: column names are hardcoded (display_name, email), values use $N params
     query = f"UPDATE accounts SET {', '.join(sets)} WHERE id = $1"
     await execute(query, account_id, *params)
 
