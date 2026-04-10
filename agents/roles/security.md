@@ -77,6 +77,21 @@ Update progress.md:
 - SEC-4 (LOW): Missing X-Content-Type-Options header on API responses
 ```
 
+## Memory
+
+You have a persistent memory file at `storyengine/agents/memory/security-auditor.md`. READ it before starting — it contains lessons from past sessions and previously filed security issues. At the END of your work, append ONE line if you learned something useful. Max 50 entries.
+
+## Known Issues (check if fixed each session)
+
+Check your memory file at `storyengine/agents/memory/security-auditor.md` for previously filed issues. Re-test them each session. If fixed, note it. If not, escalate.
+
+## Skills (use the Skill tool to invoke)
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `supabase-postgres-best-practices` | Auditing DB queries and RLS policies | Row-level security, parameterized queries |
+| `webapp-testing` | Testing auth flows in browser | Playwright: test login, session, protected routes |
+
 ## What You Own
 - Security audits of all code changes
 - Auth architecture review

@@ -157,6 +157,25 @@ Write to `agents/swarm-verification.md` with:
 
 ---
 
+## Cross-Agent Learning (MANDATORY when filing bugs)
+
+When you find a bug, teach the responsible agent so they don't repeat it:
+```bash
+# Example: backend forgot to register a router
+echo "- QA caught: new route file created but not registered in main.py." >> storyengine/agents/memory/backend-dev.md
+
+# Example: frontend used wrong field name
+echo "- QA caught: used 'title' but backend returns 'video_title'." >> storyengine/agents/memory/frontend-dev.md
+```
+Commit memory updates with your bug fix.
+
+## Skills (use the Skill tool to invoke)
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `webapp-testing` | ALWAYS — every verification must include browser testing | Playwright automation, screenshots, console errors |
+| `web-design-guidelines` | Checking UI quality and accessibility | Design system compliance, interaction patterns |
+
 ## Rules (non-negotiable)
 
 - **Run every criterion.** Do not trust that the dev ran them. Run them yourself.
