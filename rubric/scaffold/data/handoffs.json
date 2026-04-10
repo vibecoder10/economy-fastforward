@@ -1,5 +1,34 @@
 [
   {
+    "id": "h-1775792036334",
+    "from": "backend-dev",
+    "to": "frontend-dev",
+    "task_id": "PRD4-T11-T12",
+    "message": "PRD 4 backend tasks T1-T5 all done. T11 (Demo mode frontend) and T12 (Export + Brand Kit + Notifications) are unblocked. Key endpoints for T12: GET/PATCH /api/preferences/notifications (notification toggles), GET/PUT /api/channel-profile (brand kit fields: accent_color, logo_url, intro_text, outro_text, watermark_url), GET /api/videos/{id}/export-manifest (export button). Demo endpoints for T11: GET /api/demo/dashboard, /api/demo/analytics, /api/demo/pipeline (no auth required).",
+    "files_changed": [
+      "storyengine/backend/routes/demo.py",
+      "storyengine/backend/routes/preferences.py",
+      "storyengine/backend/routes/analytics.py",
+      "storyengine/backend/routes/profile.py",
+      "storyengine/backend/routes/channel_profile.py",
+      "storyengine/backend/routes/videos.py"
+    ],
+    "endpoint_details": null,
+    "read": false,
+    "timestamp": 1775792036334
+  },
+  {
+    "id": "h-1775790379483",
+    "from": "frontend-dev",
+    "to": "backend-dev",
+    "task_id": "",
+    "message": "User reported 404s on GET /api/profile and GET /api/analytics/* endpoints. I tested all endpoints and they work now with dev-token auth. Routes are registered in main.py. These were transient 404s - please check backend logs for recent restarts, import errors in profile.py or analytics.py, or DB connection issues that could cause intermittent 404s. The frontend already handles these errors gracefully with ErrorCard and error messages.",
+    "files_changed": [],
+    "endpoint_details": null,
+    "read": false,
+    "timestamp": 1775790379483
+  },
+  {
     "id": "h-1775162760242",
     "task_id": "",
     "message": "",

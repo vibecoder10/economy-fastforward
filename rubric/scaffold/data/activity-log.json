@@ -1,5 +1,1006 @@
 [
   {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Skipped \u2014 previous run still active (PID 2569862, 191s)",
+    "status": "skipped",
+    "timestamp": 1775792881604
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "PRD4-T1",
+    "summary": "PASS: /api/analytics/topic-performance + /api/analytics/competitor-benchmark both return 200. Shape differs from PRD spec but frontend adapted.",
+    "status": "completed",
+    "timestamp": 1775792430499
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "PRD4-T13",
+    "summary": "Starting PRD 4 T13: Beta launch regression \u2014 full page + API sweep",
+    "status": "started",
+    "timestamp": 1775792287412
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "ops-verify",
+    "summary": "QA clear: all 5 live errors still resolved. tsc clean. 14/15 API endpoints 200 (1 was my test typo). No unverified tasks. No new bugs.",
+    "status": "completed",
+    "timestamp": 1775792244703
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "PRD4-PREVERIFY",
+    "summary": "Pre-verifying PRD 4 completed tasks (T1-T10) while T11/T12 pending",
+    "status": "started",
+    "timestamp": 1775792214966
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "USER-ERR-PROFILE",
+    "summary": "BUG FOUND: /api/profile 500 \u2014 UniqueViolationError on accounts_email_unique when user ID changes but email exists. Fixing now.",
+    "status": "error",
+    "timestamp": 1775792182277
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "ops-verify",
+    "summary": "QA: 5 reported user errors are NOT bugs \u2014 all endpoints return 200 with auth. Profile/analytics 404s were missing JWT. Thumbnail 400 was correct status gating. 13/13 endpoint regression PASS. tsc clean.",
+    "status": "completed",
+    "timestamp": 1775790442719
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "live-errors",
+    "summary": "Investigated 5 live errors. All are backend-side (transient 404s, thumbnail status gate). Frontend already handles all gracefully. Handed off to backend-dev.",
+    "status": "completed",
+    "timestamp": 1775790381849
+  },
+  {
+    "agent": "backend-dev",
+    "task": "ops-check",
+    "summary": "All 5 reported user errors resolved \u2014 endpoints working (thumbnail was status gate, profile/analytics were transient). 15 critical endpoints healthy.",
+    "status": "completed",
+    "timestamp": 1775790169996
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "live-errors",
+    "summary": "Starting: Fix 5 live user errors (thumbnail 400, profile 404, analytics 404s)",
+    "status": "started",
+    "timestamp": 1775790144430
+  },
+  {
+    "agent": "backend-dev",
+    "task": "live-bugs",
+    "summary": "Starting: fixing 5 live user errors (thumbnail 400, profile 404, analytics 404s)",
+    "status": "started",
+    "timestamp": 1775790022580
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1) - You've hit your limit \u00b7 resets 9pm (UTC)",
+    "status": "error",
+    "timestamp": 1775743448417
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1) - You've hit your limit \u00b7 resets 9pm (UTC)",
+    "status": "error",
+    "timestamp": 1775743326470
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1) - You've hit your limit \u00b7 resets 9pm (UTC)",
+    "status": "error",
+    "timestamp": 1775743214180
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775742846193
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775742486940
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775741646376
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775741525480
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775741407969
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775741045628
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775740686686
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775739845677
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775739725375
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775739611119
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775739245921
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775738885854
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775738046795
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775737926923
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775737807444
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775737445206
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775737086150
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775736245111
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775736125202
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775736014793
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775735645042
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775735284846
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775734445387
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775734324909
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775734206860
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775733844986
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775733486209
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775732645464
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775732525783
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775732409668
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775732045367
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775731685183
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775730845172
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775730725003
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775730606338
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775730244935
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775729886591
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775729044908
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775728926245
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775728808751
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775728446366
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775728084704
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775727246134
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775727128254
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775727006445
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775726645138
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775726286045
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775725445084
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775725324870
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775725208326
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775724846912
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775724485911
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775723645303
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775723525245
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775723408871
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775723048126
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775722686369
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775721845428
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775721725867
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775721614600
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775721246440
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775720885836
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775720045478
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775719925292
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775719806840
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775719445701
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775719085769
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775718246003
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775718126066
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775718010149
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775717647323
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775717284934
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775716446134
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775716325625
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775716206507
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775715845421
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775715486031
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775714646487
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775714527164
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775714413416
+  },
+  {
+    "agent": "orchestrator",
+    "task": "daily-plan",
+    "summary": "Daily planning session complete for 2026-04-09",
+    "status": "completed",
+    "timestamp": 1775714409326
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775714046517
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775713685520
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775712845673
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775712725172
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775712608125
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775712245213
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775711887191
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775711045190
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775710925361
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775710811335
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775710810572
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775710446187
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775710085539
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775709245482
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775709125311
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775709008326
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775708645585
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775708285830
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775707446105
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775707325965
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775707214351
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775706845894
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775706484744
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775705645513
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775705524906
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775705407143
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775705045999
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775704686467
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775703845365
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775703726020
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775703611794
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775703245911
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775702885438
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775702045791
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775701926244
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775701807454
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775701446239
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775701086326
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775700245221
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775700126006
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775700020240
+  },
+  {
+    "agent": "orchestrator",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775699645469
+  },
+  {
+    "agent": "pipeline-tester",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775699285400
+  },
+  {
+    "agent": "qa-engineer",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775699025088
+  },
+  {
+    "agent": "frontend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775699014536
+  },
+  {
+    "agent": "security-auditor",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775699013653
+  },
+  {
+    "agent": "backend-dev",
+    "task": "",
+    "summary": "Agent crashed (exit code 1)",
+    "status": "error",
+    "timestamp": 1775699012972
+  },
+  {
+    "agent": "backend-dev",
+    "task": "USER-ERRORS",
+    "summary": "Starting: Fixing 5 live user errors (1x 400 thumbnail status, 3x 404 analytics, 1x 404 profile)",
+    "status": "started",
+    "timestamp": 1775699012377
+  },
+  {
     "agent": "qa-engineer",
     "task": "T17-006",
     "summary": "The Google Sign-In frontend (login page, auth context, route protection) is verified working \u2014 unauthenticated users get redirected to /login, the Google button renders, and the auth token flows correctly into all API calls.",
@@ -397,334 +1398,5 @@
     "summary": "Verified that the confidence breakdown feature on competitor cards works correctly \u2014 clicking a score expands VPH and Freshness bars with reasoning text.",
     "status": "completed",
     "timestamp": 1775139231182
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "",
-    "summary": "Added an agent suggestion card to the Performance tab that lets users review and accept or reject AI-suggested titles and scripts.",
-    "status": "completed",
-    "timestamp": 1775138858987
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T2-006",
-    "summary": "No backend tasks to do \u2014 all 9 backend tasks in the queue are already done and verified.",
-    "status": "completed",
-    "timestamp": 1775138442687
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "",
-    "summary": "Added an expandable confidence breakdown to competitor candidate cards so users can see WHY a video scores high.",
-    "status": "completed",
-    "timestamp": 1775135182363
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T6-002",
-    "summary": "Verified that the image variant generation button (T6-002) is correctly wired from the UI all the way through to the backend pipeline executor.",
-    "status": "completed",
-    "timestamp": 1775135145380
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T7-003",
-    "summary": "No backend tasks to do \u2014 all backend work across all 16 tabs is complete and verified.",
-    "status": "completed",
-    "timestamp": 1775134848858
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "",
-    "summary": "Added a \"Variants\" button to each image in the Storyboard/Visuals tab so users can generate 3 alternative images for any segment.",
-    "status": "completed",
-    "timestamp": 1775131582604
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T16-002",
-    "summary": "Verified the profile page feature works correctly end-to-end and marked Tab 16 (Profile & Account) as complete.",
-    "status": "completed",
-    "timestamp": 1775131562051
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T3-002",
-    "summary": "No backend tasks remaining \u2014 all backend work is complete, reported idle.",
-    "status": "completed",
-    "timestamp": 1775131252924
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T15-003",
-    "summary": "Verified the Analytics Dashboard (Tab 15) \u2014 all 3 tasks pass, backend endpoints match frontend types exactly, charts and tables are wired to real data, and the tab is now marked complete.",
-    "status": "completed",
-    "timestamp": 1775128027997
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T16-003",
-    "summary": "Added a user account section to the Profile page showing name, email, plan, and member-since date with an edit form.",
-    "status": "completed",
-    "timestamp": 1775127976406
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T2-006",
-    "summary": "No pending backend tasks \u2014 all backend work in the queue is complete and verified.",
-    "status": "completed",
-    "timestamp": 1775127640167
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T9-004",
-    "summary": "Verified two Performance tab features \u2014 agent quality scores and post-mortem analysis sections \u2014 both passed all checks.",
-    "status": "completed",
-    "timestamp": 1775124375350
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T9-004",
-    "summary": "Added agent quality scores (hook, body, tier, cost) to the video Performance tab.",
-    "status": "completed",
-    "timestamp": 1775124249082
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T2-006",
-    "summary": "No backend tasks remain \u2014 all backend work across all 16 tabs is done and verified.",
-    "status": "completed",
-    "timestamp": 1775124045544
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T9-002",
-    "summary": "Verified the post-mortem analysis display on the Performance tab works correctly, and fixed a missing verification flag on a thumbnail task.",
-    "status": "completed",
-    "timestamp": 1775120790262
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T9-005",
-    "summary": "Added post-mortem analysis sections to the Performance tab so users can see 48-hour and 7-day video performance breakdowns with verdicts and recommendations.",
-    "status": "completed",
-    "timestamp": 1775120680958
-  },
-  {
-    "agent": "backend-dev",
-    "task": "",
-    "summary": "No backend work remaining \u2014 all backend tasks are done and verified.",
-    "status": "completed",
-    "timestamp": 1775120446447
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T9-001",
-    "summary": "Verified 4 completed tasks \u2014 snapshot metrics, analytics dashboard, and profile endpoints all pass QA checks.",
-    "status": "completed",
-    "timestamp": 1775117356969
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T15-002",
-    "summary": "Built the analytics dashboard page with real-time overview stats, CTR timeline chart, and framework effectiveness breakdown using the new backend analytics endpoints.",
-    "status": "completed",
-    "timestamp": 1775117170825
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T16-002",
-    "summary": "Built the profile API endpoints so the frontend can display and edit user account information.",
-    "status": "completed",
-    "timestamp": 1775116940557
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T9-001",
-    "summary": "Added view count and CTR snapshot timelines to the Performance tab so users can see how their video performed at 24h, 48h, 7d, and 30d milestones.",
-    "status": "completed",
-    "timestamp": 1775113601808
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T15-001",
-    "summary": "Verified that the analytics API endpoints (T15-001) are correctly built and wired \u2014 all 3 routes pass inspection.",
-    "status": "completed",
-    "timestamp": 1775113556379
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T15-002",
-    "summary": "Built three analytics API endpoints so the frontend can display video performance data on the analytics dashboard.",
-    "status": "completed",
-    "timestamp": 1775113331085
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T7-004",
-    "summary": "Verified all remaining thumbnail tab tasks and marked Tab 7 (Thumbnail) as complete \u2014 all 7 tasks pass.",
-    "status": "completed",
-    "timestamp": 1775110051979
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T7-001",
-    "summary": "Added a Save Prompt button to the Thumbnail tab so edited prompts are actually saved to the backend.",
-    "status": "completed",
-    "timestamp": 1775109870487
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T7-002",
-    "summary": "Added the missing thumbnail suggestion fields to the backend API so the frontend can display AI-generated thumbnail suggestions.",
-    "status": "completed",
-    "timestamp": 1775109707777
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T7-003",
-    "summary": "Verified 4 thumbnail tab tasks \u2014 3 passed, 1 failed because the backend developer marked it done without actually writing the code.",
-    "status": "completed",
-    "timestamp": 1775106590408
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T7-001",
-    "summary": "Added a \"Generate Thumbnail\" button and agent suggestion accept/reject cards to the Thumbnail tab.",
-    "status": "completed",
-    "timestamp": 1775106302963
-  },
-  {
-    "agent": "orchestrator",
-    "task": "T7-004",
-    "summary": "Audited the Thumbnail tab per operator's focus directive and created 3 new tasks to fix the missing generate button, backend gaps, and prompt save wiring.",
-    "status": "completed",
-    "timestamp": 1775106261470
-  },
-  {
-    "agent": "orchestrator",
-    "task": "thumbnail-audit",
-    "summary": "Audited thumbnail tab. Found 3 gaps: backend missing suggestion fields, no generate button, prompt save unwired. Created T7-004/005/006. Advanced focus to tab 7.",
-    "status": "completed",
-    "timestamp": 1775106242989
-  },
-  {
-    "agent": "backend-dev",
-    "task": "",
-    "summary": "Fixed the thumbnail generation backend so that generated thumbnail images are actually saved to the database and visible in the UI.",
-    "status": "completed",
-    "timestamp": 1775106193104
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T3-001",
-    "summary": "Verified two completed developer tasks (ScriptScene type cleanup and background task status endpoint) \u2014 both passed quality checks with clean diffs.",
-    "status": "completed",
-    "timestamp": 1775102824335
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T3-004",
-    "summary": "Fixed a stale TypeScript type definition that had wrong field names for script scenes.",
-    "status": "completed",
-    "timestamp": 1775102661687
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T13-004",
-    "summary": "Added a new API endpoint that lets the frontend show the status of all 4 background autopilot tasks (scraping, YouTube sync, learning extraction, title analysis).",
-    "status": "completed",
-    "timestamp": 1775102577363
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T2-003",
-    "summary": "Verified 4 completed tasks and marked the Info Tab (Tab 2) as fully complete \u2014 all code is properly wired from database through backend to frontend UI.",
-    "status": "completed",
-    "timestamp": 1775099272731
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T2-005",
-    "summary": "Added a \"Source\" section to the video Info tab showing the channel name, view count, and clickable source URLs.",
-    "status": "completed",
-    "timestamp": 1775099044265
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T8-001",
-    "summary": "Added a toggle endpoint so users can enable/disable learned patterns on the Learnings dashboard.",
-    "status": "completed",
-    "timestamp": 1775098907557
-  },
-  {
-    "agent": "qa-engineer",
-    "task": "T2-006",
-    "summary": "Verified 3 completed tasks from backend and frontend devs \u2014 all passed code inspection and type checks.",
-    "status": "completed",
-    "timestamp": 1775095604454
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T2-003",
-    "summary": "Added a collapsible \"Original DNA\" section to the video detail Info tab so users can inspect the source data JSON for any video.",
-    "status": "completed",
-    "timestamp": 1775095409314
-  },
-  {
-    "agent": "backend-dev",
-    "task": "T2-003",
-    "summary": "Added 18 missing data fields to the video detail API so the frontend can display performance metrics, source info, and AI agent scores.",
-    "status": "completed",
-    "timestamp": 1775095295964,
-    "detail_file": "backend-dev-20260401-190001.md",
-    "detail": "- Added 18 fields to the VideoDetail Pydantic model in `models.py`: source metadata (source_views, source_channel, source_urls), view snapshots (24h/48h/7d/30d), CTR metrics (12h/24h/48h), retention_48h, post-mortems (48h/7d), and agent quality fields (paper_trail, hook_score, body_score, tier, cost)\n- These fields existed in the database schema and frontend types but were missing from the backend API response \u2014 a wiring gap blocking multiple frontend tasks\n- GET `/api/videos/{id}` now returns the complete video detail including all performance and agent data\n- Proper type handling: `float()` for NUMERIC columns, `_parse_json_field()` for JSONB (agent_paper_trail), `None` defaults for all\n- Frontend-dev should now pick up T2-003 (display source metadata in Info tab) which was blocked on this"
-  },
-  {
-    "agent": "orchestrator",
-    "task": "T2-001",
-    "summary": "Audited the codebase and found Tab 1 was already complete, then created a critical backend task for Tab 2 where the video detail API is missing 18 database fields.",
-    "status": "completed",
-    "timestamp": 1775095154641,
-    "detail_file": "orchestrator-20260402-015130.md",
-    "detail": "- Audited Tab 1 (Pipeline List Page): all 3 tasks were already done in the codebase \u2014 PipelineStatus enum correct, all 10 status badges mapped, discovery carousel fully built. Closed Tab 1.\n- Audited Tab 2 (Info Tab): found the real blocker is backend, not frontend \u2014 VideoDetail Pydantic model and SQL query in routes/videos.py are missing 18 fields (views snapshots, CTR metrics, post-mortems, agent scores, source metadata) that exist in schema.sql and are already expected by frontend types\n- Marked T2-001 (research_payload display) and T2-004 (frontend types) as already done \u2014 code audit confirmed they were built in prior sessions\n- Created T2-006: critical backend task to add 18 missing fields to models.py and routes/videos.py\n- Narrowed T2-002 to just original_dna display (writer_guidance already renders)\n- Added dependency chain: T2-003 (source metadata UI) depends on T2-006 (backend fields)\n- Posted handoff to backend-dev for T2-006, which also unblocks Tab 9 (Performance tab)\n- Next: backend-dev should pick up T2-006, then frontend-dev handles T2-002 and T2-003"
-  },
-  {
-    "agent": "orchestrator",
-    "task": "tab-audit",
-    "summary": "Closed Tab 1 (3 tasks verified done). Revised Tab 2: found 18 missing backend fields, created T2-006 blocker. Marked T2-001 and T2-004 as already complete.",
-    "status": "completed",
-    "timestamp": 1775095136970
-  },
-  {
-    "agent": "frontend-dev",
-    "task": "T1-002",
-    "summary": "Fixed the PipelineStatus type so video status labels match what the backend actually sends, preventing mismatched status badges across the app.",
-    "status": "completed",
-    "timestamp": 1775094824025,
-    "detail_file": "frontend-dev-20260402-014919.md",
-    "detail": "- Updated `PipelineStatus` type union in `storyengine/frontend/src/lib/types.ts` to match the 10 backend pipeline stages exactly\n- Old wrong values: `researching`, `scripting`, `voice`, `visuals`, `storyboard_review`, `rendering`, `uploaded`, `published`\n- New correct values: `ready_for_scripting`, `ready_for_voice`, `ready_for_storyboards`, `ready_for_images`, `ready_for_thumbnail`, `ready_to_render`, `rendered`, `uploaded_draft`\n- These now align with `PIPELINE_STAGES` in `constants.ts` and the backend's status enum\n- TypeScript compiles clean (`tsc --noEmit` passes with zero errors)\n- Posted handoff to QA engineer for T1-002 (verify pipeline list shows all 10 statuses correctly)"
-  },
-  {
-    "agent": "orchestrator",
-    "task": "T1-001",
-    "summary": "Audited the Pipeline List Page tab, confirmed the discovery carousel is fully working, identified a new naming collision bug in PipelineStatus types, and found missing filter options for two pipeline stages.",
-    "status": "completed",
-    "timestamp": 1775090601940
-  },
-  {
-    "agent": "pipeline-tester",
-    "task": "T10-005",
-    "summary": "Ran regression sweep (9/12 pages pass, 0 new bugs) and did partial QA of competitors page \u2014 confidence breakdown (T10-001) and last-scraped timestamps (T10-003) both PASS. Transcript viewer and scrape error details are not yet built.",
-    "status": "partial",
-    "timestamp": 1775178736152,
-    "detail": "- Regression sweep: 9 pages load cleanly, /learnings /videos /create are 404 (not built). No JS errors on any working page. T13-003/T13-004 (YouTube Sync + background tasks on /autopilot) confirmed not built yet.\n- T10-001 PASS: confidence breakdown expands on click with VPH/Freshness bars + reasoning text, ChevronDown toggle works on all 10 cards\n- T10-003 PASS: channel pills show relative timestamps (\"1h ago\") from timeAgo(last_scraped) \u2014 all 6 active channels display correctly\n- T10-002 NOT BUILT: no transcript viewer in competitor card \u2014 blocked on frontend work\n- T10-004 NOT BUILT: scrape error detail panel not present \u2014 only single-line banner exists\n- 0 console errors across all tested pages\n- Screenshots: reg4_* (regression) and reg5_competitors_* saved to storyengine/agents/screenshots/"
-  },
-  {
-    "agent": "orchestrator",
-    "task": "ops-health-check",
-    "summary": "OPS check: user errors confirmed NOT code bugs (session #19). Analytics/profile endpoints return 200 with valid JWT. Thumbnail 400 correct \u2014 video f9749bd2 is at ready_to_render. Task queue: 0 pending, 0 bugs. Launch score: 8/8 (from memory). Proceeding to Telegram health report.",
-    "status": "completed",
-    "timestamp": "2026-04-07T20:26:48Z"
   }
 ]

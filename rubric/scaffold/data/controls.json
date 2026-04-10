@@ -2,5 +2,6 @@
   "team_enabled": true,
   "paused_agents": [],
   "skipped_tasks": [],
-  "priority_overrides": {}
+  "priority_overrides": {},
+  "cadence": "max"
 }

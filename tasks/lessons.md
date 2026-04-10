@@ -204,3 +204,7 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-04-10 | security-auditor existed as agent file + standing orders but was never scheduled | When adding a new agent, wire it into ALL three places: (1) agent .md file, (2) scaffold config.json, (3) setCadence cron schedule. Missing any one = dead agent. |
 | 2026-04-10 | Backend health check only restarted on connection refused (000), not on 500 errors | Health checks must match the strictness of their counterparts. Frontend checked `!= 200`, backend only checked `= 000`. Use consistent thresholds — allow 200 and 401 (auth-gated), restart on anything else. |
 | 2026-04-10 | RUBRIC cron system: 7 features (concurrency guard, timeout, cost tracking, log viewer, crons-controls sync, runtime viz, toast notifications) | PID lock files + trap cleanup is the standard Unix concurrency pattern. Wrap long-running CLI with `timeout --signal=TERM --kill-after=60`. Duration-based cost heuristic (Opus ~$0.05/min, Sonnet ~$0.01/min) is good enough for dashboards. Always validate path params with regex before constructing file paths (prevent path traversal). |
+
+### StoryEngine / Agents
+- **Stash merge conflicts on profile.py**: When a git stash creates conflicts, the upstream (committed) version usually has the better code — keep it. Profile.py upstream has robust try/except for email uniqueness; stash had a simpler version without it.
+- **agents/progress.md**: This file was deleted upstream — accept the deletion, don't restore it.

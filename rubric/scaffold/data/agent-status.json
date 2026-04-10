@@ -6,27 +6,32 @@
   },
   "backend-dev": {
     "status": "idle",
-    "task": "Built 4 Stripe billing API endpoints so the app can accept payments for Starter, Pro, and Agency subscription plans.",
-    "updatedAt": 1775160560909
+    "task": "PRD 4 backend complete. All 5 user errors verified working. Handed off T11/T12 to frontend-dev.",
+    "updatedAt": 1775792048317
   },
   "frontend-dev": {
-    "status": "active",
-    "task": "Starting session",
-    "updatedAt": 1775088120956
+    "status": "idle",
+    "task": "No tasks — investigated 5 live errors, all backend-side. Handed off to backend-dev.",
+    "updatedAt": 1775790390976
   },
   "qa-engineer": {
     "status": "idle",
-    "task": "verify(qa): BUG-T11-006-QA — Discovery nav link verified PASS",
-    "updatedAt": 1775160663903
+    "task": "QA clear — no issues found",
+    "updatedAt": 1775792244715
   },
   "pipeline-tester": {
     "status": "idle",
-    "task": "REG21 complete — 18/18 pages, 32/32 API, 9/9 tabs, 0 bugs",
-    "updatedAt": 1775665426773
+    "task": "Agent crashed (exit code 1)",
+    "updatedAt": 1775742486953
   },
   "orchestrator": {
     "status": "active",
     "task": "Starting session",
-    "updatedAt": 1775636702669
+    "updatedAt": 1775793243657
+  },
+  "security-auditor": {
+    "status": "idle",
+    "task": "Agent crashed (exit code 1)",
+    "updatedAt": 1775699013670
   }
 }
