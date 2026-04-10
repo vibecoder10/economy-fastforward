@@ -1121,13 +1121,17 @@ window.__onTabShow = {};
     const status = document.getElementById('cadence-status');
     if (data.success) {
       status.style.display = 'block';
-      status.textContent = 'Cadence set to ' + data.label + '. Active now.';
-      // Highlight active button
+      status.style.color = '#50e3c2';
+      status.textContent = 'Active: ' + data.label;
+      // Highlight active button using index-based approach (avoids rgb() comparison issues)
       document.querySelectorAll('.cadence-btn').forEach(btn => {
         const isActive = btn.dataset.cadence === cadence;
         btn.style.borderColor = isActive ? '#1A8A7A' : '#222';
         btn.style.background = isActive ? 'rgba(26,138,122,0.1)' : '#111';
-        btn.querySelectorAll('div').forEach(d => { if (isActive) d.style.color = d.style.color === '#444' ? '#1A8A7A' : '#50e3c2'; });
+        const divs = btn.querySelectorAll('div');
+        if (divs[0]) divs[0].style.color = isActive ? '#50e3c2' : '#888';
+        if (divs[1]) divs[1].style.color = isActive ? '#50e3c2' : '#555';
+        if (divs[2]) divs[2].style.color = isActive ? '#1A8A7A' : '#444';
       });
     } else {
       status.style.display = 'block';
@@ -1138,6 +1142,7 @@ window.__onTabShow = {};
   };
 
   // Highlight current cadence on load
+  const cadenceLabels = { light: '6x/day (every 4h)', normal: '12x/day (every 2h)', fast: '24x/day (every 1h)', max: '48x/day (every 30m)', turbo: '96x/day (every 15m)', ultra: '180x/day (every 8m)' };
   function highlightCadence() {
     const c = currentControls.cadence || 'fast';
     document.querySelectorAll('.cadence-btn').forEach(btn => {
@@ -1150,7 +1155,8 @@ window.__onTabShow = {};
       if (divs[2]) divs[2].style.color = isActive ? '#1A8A7A' : '#444';
     });
     const status = document.getElementById('cadence-status');
-    if (status) { status.style.display = 'block'; status.textContent = 'Cadence set to ' + c + '/day. Active now.'; }
+    const label = cadenceLabels[c] || c;
+    if (status) { status.style.display = 'block'; status.style.color = '#50e3c2'; status.textContent = 'Active: ' + label; }
   }
 
   window.setFocus = async function() {
