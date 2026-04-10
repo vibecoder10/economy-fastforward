@@ -294,6 +294,14 @@ curl -s -X POST "$RUBRIC_URL/api/agent-status" \
 
 # ─── Read Inputs ────────────────────────────────────────────────────────────
 AGENT_PROMPT=$(cat "$AGENT_FILE")
+SHARED_PROTOCOLS=$(cat "$AGENTS_DIR/_shared-protocols.md" 2>/dev/null || echo "")
+# Inject screenshot policy for testing agents
+SCREENSHOT_POLICY=""
+case "$AGENT" in
+  qa-engineer|pipeline-tester)
+    SCREENSHOT_POLICY=$(cat "$AGENTS_DIR/_screenshot-policy.md" 2>/dev/null || echo "")
+    ;;
+esac
 # Filter task queue to only pending/in-progress tasks (prevent context bloat from done tasks)
 TASK_QUEUE=$(python3 -c "
 import json, sys
@@ -616,6 +624,18 @@ $PRODUCT_VISION
 
 ## Your Instructions
 $AGENT_PROMPT"
+
+if [ -n "$SHARED_PROTOCOLS" ]; then
+  PROMPT="$PROMPT
+
+$SHARED_PROTOCOLS"
+fi
+
+if [ -n "$SCREENSHOT_POLICY" ]; then
+  PROMPT="$PROMPT
+
+$SCREENSHOT_POLICY"
+fi
 
 if [ -n "$ORCH_SECTION" ]; then
   PROMPT="$PROMPT

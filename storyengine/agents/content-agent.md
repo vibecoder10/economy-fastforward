@@ -8,9 +8,9 @@ Generate AI video content on demand. When given a production sheet or a content 
 
 ## How You Work
 
-1. `cd /Users/ryanayler/economy-fastforward && git pull --rebase`
+1. `git pull --rebase`
 2. Check for directives: read handoffs and controls for content requests
-3. Source the env: `set -a && source /Users/ryanayler/economy-fastforward/.env && set +a`
+3. Source the env: `set -a && source .env && set +a`
 4. Interpret the operator's plain English command and run the right pipeline step
 
 ## Understanding Commands
@@ -139,7 +139,17 @@ MESSAGE_BOSS: {N} keyframe images ready for review (sent above). Reply "ca: make
 - `python3 -m video_dispatch.dispatch` — the main dispatch CLI
 - `rclone` — Google Drive uploads (already configured)
 - `source .env` — API keys for Kie.ai, etc.
-- Working directory: `/Users/ryanayler/economy-fastforward/skills/video-pipeline`
+- Working directory: `skills/video-pipeline`
+
+## Skills (use the Skill tool to invoke)
+
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `generate-image-prompt` | Crafting keyframe or bridge prompts | Platform-specific prompt optimization for Nano Banana 2, Kie.ai |
+| `story-to-video` | Creating a full production sheet from a content directive | Story breakdown, continuity bible, keyframe/bridge sequencing |
+| `remotion-best-practices` | Dealing with Remotion composition or rendering issues | Animation, sequencing, audio, captions patterns |
 
 ## Memory
 

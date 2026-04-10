@@ -6,12 +6,14 @@ Auth: context.add_init_script + page.route("**/api/auth/me")
 Selectors: tuned from actual DOM inspection.
 """
 
-import json
+import json, os, sys
 from playwright.sync_api import sync_playwright
+
+TAKE_ALL_SCREENSHOTS = '--screenshots' in sys.argv
 
 BASE_URL = "http://localhost:3001"
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJpc3MiOiJzdG9yeWVuZ2luZSIsInRlbmFudF9pZCI6ImY2ODM5ZGUyLTM2OGMtNDQwZC04NTU5LTAyOTIwMjYxNzlmYSIsImV4cCI6MTc3NTMwNjEzOX0.M8JwDZ2hWlgJYXTyjnqC-PBpoxS03ThvQYV0GNSndwA"
-SCREENSHOT_DIR = "/home/clawd/agent-workspace/storyengine/agents/screenshots"
+SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
 VIDEO_ID = "f9749bd2-5045-42a5-b90e-ecd253bd7c20"
 
 USER_MOCK = {
@@ -87,9 +89,12 @@ def get_main_text(page):
         return ""
 
 
-def ss(page, name):
+def ss(page, name, force=False):
+    """Take screenshot. Only captures when --screenshots flag is passed or force=True (for failures)."""
+    if not TAKE_ALL_SCREENSHOTS and not force:
+        return
     try:
-        page.screenshot(path=f"{SCREENSHOT_DIR}/reg14-{name}.png", full_page=True)
+        page.screenshot(path=f"{SCREENSHOT_DIR}/reg14-{name}.png", full_page=False)
     except Exception as e:
         print(f"  screenshot error {name}: {e}")
 

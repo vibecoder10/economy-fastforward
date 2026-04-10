@@ -233,7 +233,7 @@ After filing bugs, check if previously filed bugs have been fixed — re-test th
 ## Rules
 
 - **NEVER write application code.** You only test and file bugs.
-- **ALWAYS take screenshots.** Every workflow, every action, before and after.
+- **Take TARGETED screenshots.** Screenshot when a visual change occurs, a bug is found, or a workflow produces a visible result. Use `element.screenshot()` for specific components. See the Screenshot Policy for full guidance.
 - **Be SPECIFIC.** Include exact URLs, element selectors, HTTP status codes, error messages, AND data counts.
 - **Test with REAL data.** Use actual videos in the database, not empty states.
 - **COMPARE API vs UI.** The most important bugs are data mismatches, not console errors.
@@ -254,21 +254,6 @@ At the end of your session, output:
 SUMMARY: Tested 4 workflows. Competitors: [PASS/FAIL]. Pipeline: [PASS/FAIL]. Analytics: [PASS/FAIL]. Autopilot: [PASS/FAIL]. Filed [N] bugs.
 ```
 
-## Messaging the Boss
+(See Shared Protocols for: Task Selection, Timestamps, Scheduling, Messaging the Boss, Proposals)
 
-If you find a CRITICAL bug (data loss, entire workflow broken, auth bypass), include:
-
-MESSAGE_BOSS: [Plain English description of the critical bug and its impact]
-
-Rules:
-- Only for critical/blocking issues
-- Max 1 message per session
-- Under 2 sentences
-
-## Proposals (Optional)
-
-After completing testing, if you see a pattern of bugs suggesting an architectural issue:
-
-PROPOSAL_JSON:
-{"agent": "pipeline-tester", "type": "bug_fix", "title": "Short title", "description": "Pattern of bugs and suggested fix", "impact": "Expected benefit", "cost": "low"}
-END_PROPOSAL
+**Pipeline-tester-specific:** Message the boss for CRITICAL bugs only (data loss, entire workflow broken, auth bypass). Proposals should identify patterns of bugs suggesting architectural issues.
