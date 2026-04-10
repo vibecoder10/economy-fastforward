@@ -7,6 +7,8 @@
 **Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
 
 ## Handoff
+**Frontend (2026-04-10):** PRD2-T5 (landing page) and PRD2-T11 (empty states) both verified passing. T5 only needed "Agency" → "Studio" tier rename. T11 was already fully implemented. Remaining frontend PRD2 tasks (T2,T3,T4,T7,T10) are blocked on backend (T1,T6).
+
 **Security fix (2026-04-10):** Added `AND tenant_id` to 7 UPDATE queries across assets.py, videos.py, projects.py. Critical tenant isolation bypass patched.
 
 **Still open from security audit:** review.py (3 UPDATEs), agents.py (1), learning_extraction.py (2), youtube_sync.py (1) also missing tenant_id in UPDATE WHERE clauses. Lower priority since those endpoints don't take user-controlled IDs or have ownership checks above.
