@@ -53,29 +53,29 @@ All 11 tasks done and verified by QA.
 
 ## Summary
 - Total: 15 tasks
-- Done: 10 | Verified: 0 | Blocked: 0 | Remaining: 5
+- Done: 13 | Verified: 13 | Blocked: 0 | Remaining: 2
 
 ## Tasks
 
 ### Backend (no dependencies — run in parallel)
-- [x] T1: Analytics backend — topic-performance + competitor-benchmark endpoints (backend) *(done 2026-04-08)*
-- [x] T2: Brand Kit backend — migration + channel_profile extensions (backend) *(done 2026-04-08)*
-- [x] T3: Notification preferences backend — migration + GET/PATCH endpoints (backend) *(done 2026-04-08)*
-- [x] T4: Demo mode backend — 3 static demo endpoints, no auth (backend) *(done 2026-04-08)*
-- [x] T5: Export manifest backend — GET /api/videos/{id}/export-manifest (backend) *(done 2026-04-08)*
+- [x] T1: Analytics backend — topic-performance + competitor-benchmark endpoints (backend) *(done 2026-04-08, verified 2026-04-10)*
+- [x] T2: Brand Kit backend — migration 030 + accent_color/logo_url on channel_profiles (backend) *(done 2026-04-08, verified 2026-04-10)*
+- [x] T3: Notification preferences backend — GET/PATCH /api/preferences/notifications (backend) *(done 2026-04-08, verified 2026-04-10)*
+- [x] T4: Demo mode backend — 3 static demo endpoints, no auth (backend) *(done 2026-04-08, verified 2026-04-10)*
+- [x] T5: Export manifest backend — GET /api/videos/{id}/export-manifest (backend) *(done 2026-04-08, verified 2026-04-10)*
 
 ### Frontend — independent (can run in parallel)
-- [x] T8: Video preview player on RenderTab (frontend) *(already implemented)*
-- [x] T9: Getting Started guide & help page at /docs (frontend) *(completed 2026-04-08)*
-- [x] T10: Legal pages — Terms of Service + Privacy Policy (frontend) *(already implemented)*
+- [x] T8: Video preview player on RenderTab (frontend) *(already implemented, verified 2026-04-10)*
+- [x] T9: Getting Started guide & help page at /docs (frontend) *(completed 2026-04-08, verified 2026-04-10)*
+- [x] T10: Legal pages — Terms of Service + Privacy Policy (frontend) *(already implemented, verified 2026-04-10)*
 
 ### Frontend — depends on backend
-- [x] T6: Learning Insights dashboard redesign (frontend) — depends on T1 *(completed 2026-04-08)*
-- [x] T7: Analytics 2.0 frontend — topic chart + competitor card (frontend) — depends on T1 *(completed 2026-04-08)*
-- [ ] T11: Demo mode frontend — landing + 3 sub-pages (frontend) — depends on T4
-- [ ] T12: Export button + Brand Kit UI + Notification toggles (frontend) — depends on T2, T3, T5
+- [x] T6: Learning Insights dashboard redesign (frontend) — depends on T1 *(completed 2026-04-08, verified 2026-04-10)*
+- [x] T7: Analytics 2.0 frontend — topic chart + competitor card (frontend) — depends on T1 *(completed 2026-04-08, verified 2026-04-10)*
+- [x] T11: Demo mode frontend — landing + 3 sub-pages (frontend) — depends on T4 *(completed, verified 2026-04-10)*
+- [x] T12: Export button + Brand Kit UI + Notification toggles (frontend) — depends on T2, T3, T5 *(completed, verified 2026-04-10)*
 
 ### QA & Security (run last, after all features shipped)
-- [ ] T13: Beta launch regression — full page + API sweep (qa) — depends on T6-T12
+- [x] T13: Beta launch regression — full page + API sweep (qa) — depends on T6-T12 *(verified 2026-04-10: tsc clean, build passes, 33/33 API endpoints 200, 28 pages compile, all components exist, demo no tenant leak, auth on all sensitive endpoints)*
 - [ ] T14: Security audit — auth, tenant isolation, secrets (security) — depends on T6-T12
 - [ ] T15: Performance & load readiness check (qa) — depends on T13
