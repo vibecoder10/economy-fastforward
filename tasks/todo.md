@@ -109,8 +109,12 @@ Frontend tasks 8-12 are now unblocked. Task queue is empty.
 
 Previous handoffs archived in `tasks/archive/handoffs-2026-03-to-04.md`
 
-## Handoff (2026-04-10)
-PRD 4 complete. All 33 tabs shipped. OPS mode. Orchestrator running MICRO sweep.
-- Resolved stash merge conflict in storyengine/backend/routes/profile.py (kept upstream robust try/except)
-- Agent data files committed (activity-log, agent-status, controls, handoffs)
-- Next: Continue OPS reporting — monitor launch score, push health report to Telegram
+## Handoff (2026-04-10 — GRAND audit)
+PRD2 Pipeline UX: 11/13 tasks done+verified. Only T9 (wire trial warning scheduler) and T12/T13 (QA) remain.
+- Fixed auth 401 noise: frontend skips reporting expected 401s on /api/auth/ paths
+- Fixed task queue: mission-sync had overwritten 7 done tasks back to pending; restored with verification notes
+- T8 (email service) verified as already implemented — email_service.py + billing.py wired
+- T9 needs backend-dev: wire check_trial_warnings() into main.py lifespan background tasks
+- T13 (security audit) is UNBLOCKED — all deps met (T1, T6, T8 done)
+- T12 (full QA) blocked on T9 only
+- Next: backend-dev finishes T9 → QA runs T12+T13 → PRD2 complete

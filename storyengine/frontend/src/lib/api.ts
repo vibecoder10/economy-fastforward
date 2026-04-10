@@ -58,8 +58,8 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
       }
       throw new Error("Plan limit reached");
     }
-    // Only report non-auth errors to RUBRIC (skip when using fallback dev-token)
-    if (storedToken && storedToken !== "dev-token") {
+    // Only report non-auth errors to RUBRIC (skip dev-token and expected auth 401s)
+    if (storedToken && storedToken !== "dev-token" && !(res.status === 401 && path.includes("/api/auth/"))) {
       reportError(path, res.status, body, options?.method || "GET");
     }
     // Extract descriptive detail from JSON error responses

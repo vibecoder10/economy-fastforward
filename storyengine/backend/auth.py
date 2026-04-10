@@ -65,10 +65,10 @@ def verify_token(
         except jwt.InvalidTokenError:
             pass  # Not a session JWT, try Supabase next
 
-    # Fall back to Supabase JWT
+    # Fall back to Supabase JWT (legacy — only if SUPABASE_JWT_SECRET is configured)
     jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
     if not jwt_secret:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
 
     try:
         payload = jwt.decode(

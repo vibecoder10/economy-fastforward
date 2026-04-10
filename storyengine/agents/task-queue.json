@@ -1,8 +1,8 @@
 {
   "version": 2,
   "current_tab": 0,
-  "last_updated": "2026-04-10T04:37:08.916Z",
-  "last_updated_by": "mission-sync",
+  "last_updated": "2026-04-10T05:16:00Z",
+  "last_updated_by": "orchestrator",
   "completed_summary": "194 tasks across 33 tabs completed Apr 2-8. Archive: agents/archive/task-queue-2026-04-08.json",
   "tabs": [
     {
@@ -17,41 +17,39 @@
           "role": "backend-dev",
           "status": "done",
           "depends_on": [],
-          "verified": false,
-          "started_at": "2026-04-10T04:35:00Z",
-          "assigned_to": "backend-dev",
-          "completed_at": "2026-04-10T04:42:00Z"
+          "verified": true,
+          "completed_at": "2026-04-10T04:50:00Z",
+          "verification_notes": "Commit e8ac766. GET /api/pipeline/stream with EventSourceResponse, dual events (stage_change + task_progress), query-param auth, heartbeat. Registered in main.py."
         },
         {
           "id": "T2",
           "title": "SSE frontend hook: use-pipeline-sse.ts",
           "role": "frontend-dev",
-          "status": "pending",
-          "depends_on": [
-            1
-          ],
-          "verified": false
+          "status": "done",
+          "depends_on": [1],
+          "verified": true,
+          "completed_at": "2026-04-10T04:37:00Z",
+          "verification_notes": "File exists: hooks/use-pipeline-sse.ts. EventSource with query-param auth, dual event listeners (onmessage + stage_change), exponential backoff reconnection."
         },
         {
           "id": "T3",
           "title": "PipelineStepper component: 13-stage visual stepper",
           "role": "frontend-dev",
-          "status": "pending",
-          "depends_on": [
-            2
-          ],
-          "verified": false
+          "status": "done",
+          "depends_on": [2],
+          "verified": true,
+          "completed_at": "2026-04-10T04:37:00Z",
+          "verification_notes": "File exists: components/production/PipelineStepper.tsx. 13 stages defined, Framer Motion animations, compact mode, liveStatus prop for SSE."
         },
         {
           "id": "T4",
           "title": "Wire PipelineStepper to video detail + pipeline list SSE",
           "role": "frontend-dev",
-          "status": "pending",
-          "depends_on": [
-            2,
-            3
-          ],
-          "verified": false
+          "status": "done",
+          "depends_on": [2, 3],
+          "verified": true,
+          "completed_at": "2026-04-10T04:37:00Z",
+          "verification_notes": "PipelineStepper imported and rendered in pipeline/[videoId]/page.tsx with liveStatus from usePipelineSSE hook."
         },
         {
           "id": "T5",
@@ -65,47 +63,50 @@
           "id": "T6",
           "title": "Backend: POST /api/settings/keys/validate endpoint",
           "role": "backend-dev",
-          "status": "pending",
+          "status": "done",
           "depends_on": [],
-          "verified": false
+          "verified": true,
+          "completed_at": "2026-04-10T04:37:00Z",
+          "verification_notes": "Route exists in settings.py line 209. Tests 6 keys in parallel with asyncio.gather(), 15s timeout. Registered in main.py."
         },
         {
           "id": "T7",
           "title": "Frontend: settings key validation UI with test buttons",
           "role": "frontend-dev",
-          "status": "pending",
-          "depends_on": [
-            6
-          ],
-          "verified": false
+          "status": "done",
+          "depends_on": [6],
+          "verified": true,
+          "completed_at": "2026-04-10T04:37:00Z",
+          "verification_notes": "settings/keys/page.tsx has validateAllApiKeys mutation, Validate All button with RefreshCw icon, per-key test results, loading states."
         },
         {
           "id": "T8",
           "title": "Shared email utility + billing receipt email",
           "role": "backend-dev",
-          "status": "pending",
+          "status": "done",
           "depends_on": [],
-          "verified": false
+          "verified": true,
+          "completed_at": "2026-04-10T05:15:00Z",
+          "verification_notes": "email_service.py exists with send_email(), send_billing_receipt(), send_trial_warning(), send_welcome_email(), send_reset_email(). Billing receipt wired in billing.py webhook handler. Resend API with dev-mode console fallback."
         },
         {
           "id": "T9",
-          "title": "Trial warning migration + email task (3-day pre-expiry)",
+          "title": "Wire check_trial_warnings() into background scheduler",
           "role": "backend-dev",
           "status": "pending",
-          "depends_on": [
-            8
-          ],
-          "verified": false
+          "depends_on": [8],
+          "verified": false,
+          "description": "email_tasks.py exists with check_trial_warnings() and migrations 026+029 add trial_ends_at + trial_warning_sent columns. But the function is NEVER CALLED — not in main.py lifespan, not in any cron. Wire it into FastAPI lifespan background tasks (main.py ~line 263) or create a cron endpoint."
         },
         {
           "id": "T10",
           "title": "PipelineNotificationProvider: SSE-driven toast notifications",
           "role": "frontend-dev",
-          "status": "pending",
-          "depends_on": [
-            2
-          ],
-          "verified": false
+          "status": "done",
+          "depends_on": [2],
+          "verified": true,
+          "completed_at": "2026-04-10T04:37:00Z",
+          "verification_notes": "File exists: components/notifications/PipelineNotificationProvider.tsx. Uses usePipelineSSE, fires toasts on stage_change and activity events, 5s throttle. Wired in AuthenticatedShell.tsx."
         },
         {
           "id": "T11",
@@ -120,19 +121,7 @@
           "title": "QA: full PRD 2 regression — Playwright smoke tests",
           "role": "qa-engineer",
           "status": "pending",
-          "depends_on": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11
-          ],
+          "depends_on": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
           "verified": false
         },
         {
@@ -140,11 +129,7 @@
           "title": "Security audit: SSE auth, key validation input sanitization, email injection",
           "role": "qa-engineer",
           "status": "pending",
-          "depends_on": [
-            1,
-            6,
-            8
-          ],
+          "depends_on": [1, 6, 8],
           "verified": false
         }
       ]

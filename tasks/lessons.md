@@ -89,6 +89,8 @@
 - **System prompt ordering matters.** Voice/tone rules (like `_CINEMATIC_VOICE_RULES`) must come EARLY in the assembled system prompt — right after role identity, BEFORE structural rules. Claude prioritizes early instructions; rules appended at the end get deprioritized. Assembly order: (1) Role identity/preamble, (2) Voice/style rules, (3) Research brief, (4) Structural rules, (5) Act-specific rules, (6) Grounding rules.
 
 ### StoryEngine Frontend
+- **mission-sync overwrites task-queue.json.** The mission-sync process resets task statuses. Always re-read task-queue.json from disk before editing — never trust the injected context. If tasks were committed as done but show pending, check git log before re-doing work.
+- **401 on /api/auth/me is expected during token refresh.** Users with stale JWTs get 401 when AuthProvider calls getMe(). The catch block clears the token. Don't report this as a bug — skip error reporting for 401s on /api/auth/ paths.
 - **Spinner component is lowercase**: Import from `@/components/ui/spinner` (not `Spinner`). File is `spinner.tsx`.
 - **`as const` on plan arrays breaks optional properties**: If only one plan object has `popular: true`, TypeScript narrows the tuple type and the property doesn't exist on other entries. Remove `as const` or add `popular?: boolean` to all entries.
 - **Concurrent agent stash conflicts break imports**: When `git stash pop` restores changes from another agent, it may update imports (removing old, adding new) but NOT the body code that still references the old types. Always run `tsc --noEmit` after stash pop. The competitors page had imports updated to `NicheVideo` but the body still used `CompetitorCandidate` — would've been a runtime crash.
