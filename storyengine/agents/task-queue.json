@@ -1,8 +1,150 @@
 {
   "version": 2,
   "current_tab": 0,
-  "last_updated": "2026-04-08T20:00:00Z",
-  "last_updated_by": "manual-cleanup",
+  "last_updated": "2026-04-10T04:37:08.916Z",
+  "last_updated_by": "mission-sync",
   "completed_summary": "194 tasks across 33 tabs completed Apr 2-8. Archive: agents/archive/task-queue-2026-04-08.json",
-  "tabs": []
+  "tabs": [
+    {
+      "id": 1,
+      "name": "PRD 2: Pipeline UX — Real-time Progress, Landing Page, Notifications",
+      "status": "active",
+      "created_at": "2026-04-10T04:20:35.726Z",
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "SSE backend: dual event types + query-param auth fallback",
+          "role": "backend-dev",
+          "status": "pending",
+          "depends_on": [],
+          "verified": false
+        },
+        {
+          "id": "T2",
+          "title": "SSE frontend hook: use-pipeline-sse.ts",
+          "role": "frontend-dev",
+          "status": "pending",
+          "depends_on": [
+            1
+          ],
+          "verified": false
+        },
+        {
+          "id": "T3",
+          "title": "PipelineStepper component: 13-stage visual stepper",
+          "role": "frontend-dev",
+          "status": "pending",
+          "depends_on": [
+            2
+          ],
+          "verified": false
+        },
+        {
+          "id": "T4",
+          "title": "Wire PipelineStepper to video detail + pipeline list SSE",
+          "role": "frontend-dev",
+          "status": "pending",
+          "depends_on": [
+            2,
+            3
+          ],
+          "verified": false
+        },
+        {
+          "id": "T5",
+          "title": "Landing page upgrade: 7 sections with social proof + pricing",
+          "role": "frontend-dev",
+          "status": "done",
+          "depends_on": [],
+          "verified": true
+        },
+        {
+          "id": "T6",
+          "title": "Backend: POST /api/settings/keys/validate endpoint",
+          "role": "backend-dev",
+          "status": "pending",
+          "depends_on": [],
+          "verified": false
+        },
+        {
+          "id": "T7",
+          "title": "Frontend: settings key validation UI with test buttons",
+          "role": "frontend-dev",
+          "status": "pending",
+          "depends_on": [
+            6
+          ],
+          "verified": false
+        },
+        {
+          "id": "T8",
+          "title": "Shared email utility + billing receipt email",
+          "role": "backend-dev",
+          "status": "pending",
+          "depends_on": [],
+          "verified": false
+        },
+        {
+          "id": "T9",
+          "title": "Trial warning migration + email task (3-day pre-expiry)",
+          "role": "backend-dev",
+          "status": "pending",
+          "depends_on": [
+            8
+          ],
+          "verified": false
+        },
+        {
+          "id": "T10",
+          "title": "PipelineNotificationProvider: SSE-driven toast notifications",
+          "role": "frontend-dev",
+          "status": "pending",
+          "depends_on": [
+            2
+          ],
+          "verified": false
+        },
+        {
+          "id": "T11",
+          "title": "Empty states for dashboard, pipeline, competitors, analytics, learnings",
+          "role": "frontend-dev",
+          "status": "done",
+          "depends_on": [],
+          "verified": true
+        },
+        {
+          "id": "T12",
+          "title": "QA: full PRD 2 regression — Playwright smoke tests",
+          "role": "qa-engineer",
+          "status": "pending",
+          "depends_on": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "verified": false
+        },
+        {
+          "id": "T13",
+          "title": "Security audit: SSE auth, key validation input sanitization, email injection",
+          "role": "qa-engineer",
+          "status": "pending",
+          "depends_on": [
+            1,
+            6,
+            8
+          ],
+          "verified": false
+        }
+      ]
+    }
+  ]
 }
