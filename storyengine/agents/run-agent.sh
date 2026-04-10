@@ -96,6 +96,18 @@ fi
 echo "$$:$(date +%s)" > "$LOCK_FILE"
 trap 'rm -f "$LOCK_FILE"' EXIT INT TERM
 
+# ─── Playwright/Chromium Process Reaper ─────────────────────────────────────
+# Kill orphaned headless browser processes older than 20 minutes
+# Prevents the 10GB+ RAM leak from accumulating zombie Playwright sessions
+if command -v pgrep &>/dev/null; then
+  while IFS= read -r pid; do
+    age=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')
+    if [ -n "$age" ] && [ "$age" -gt 1200 ]; then
+      kill -9 "$pid" 2>/dev/null && echo "Reaped orphan chromium PID $pid (age: ${age}s)"
+    fi
+  done < <(pgrep -f 'chromium.*headless' 2>/dev/null || true)
+fi
+
 AGENT_FILE="$AGENTS_DIR/$AGENT.md"
 if [ ! -f "$AGENT_FILE" ]; then
   echo "Error: Agent file not found: $AGENT_FILE"
@@ -226,21 +238,27 @@ if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
   _PRD_ROLE=""
   case "$AGENT" in
     backend-dev) _PRD_ROLE="backend" ;; frontend-dev) _PRD_ROLE="frontend" ;;
-    qa-engineer) _PRD_ROLE="qa" ;; pipeline-tester) _PRD_ROLE="pipeline-tester" ;;
+    qa-engineer) _PRD_ROLE="qa" ;; pipeline-tester) _PRD_ROLE="any" ;;
     security-auditor) _PRD_ROLE="security" ;; orchestrator) _PRD_ROLE="lead" ;;
   esac
   _PRD_PENDING=$(python3 -c "
 import json, re
 try:
     prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
-    done_in_progress = set()
+    done_ids = set()
     try:
         with open('$PROJECT_ROOT/agents/progress.md') as f:
             for line in f:
-                m = re.search(r'T(\d+):.*✅', line)
-                if m: done_in_progress.add(int(m.group(1)))
+                # Match both [x] T1: and T1:...✅ formats
+                m = re.search(r'\[x\]\s*(?:T)?(\d+)[.:]', line) or re.search(r'T(\d+):.*✅', line)
+                if m: done_ids.add(int(m.group(1)))
     except: pass
-    print(len([t for t in prd.get('tasks', []) if t.get('role') == '$_PRD_ROLE' and t.get('id') not in done_in_progress and t.get('status') in ('pending', 'in_progress')]))
+    role = '$_PRD_ROLE'
+    tasks = [t for t in prd.get('tasks', [])
+             if (role == 'any' or t.get('role') == role)
+             and t.get('id') not in done_ids
+             and t.get('status') in ('pending', 'in_progress')]
+    print(len(tasks))
 except: print(0)
 " 2>/dev/null || echo "0")
   [ "$_PRD_PENDING" -gt 0 ] && HAS_PRD_WORK="true"
@@ -350,7 +368,7 @@ if [ -f "$PRD_JSON_FILE" ]; then
     backend-dev)       PRD_ROLE="backend" ;;
     frontend-dev)      PRD_ROLE="frontend" ;;
     qa-engineer)       PRD_ROLE="qa" ;;
-    pipeline-tester)   PRD_ROLE="pipeline-tester" ;;
+    pipeline-tester)   PRD_ROLE="any" ;;
     security-auditor)  PRD_ROLE="security" ;;
     orchestrator)      PRD_ROLE="lead" ;;
   esac
@@ -360,17 +378,17 @@ if [ -f "$PRD_JSON_FILE" ]; then
 import json, re
 try:
     prd = json.load(open('$PRD_JSON_FILE'))
-    # Read progress.md to find actually-done tasks (agents mark [x] there)
-    done_in_progress = set()
+    done_ids = set()
     try:
         with open('$PROJECT_ROOT/agents/progress.md') as f:
             for line in f:
-                m = re.search(r'T(\d+):.*✅', line)
-                if m: done_in_progress.add(int(m.group(1)))
+                m = re.search(r'\[x\]\s*(?:T)?(\d+)[.:]', line) or re.search(r'T(\d+):.*\u2705', line)
+                if m: done_ids.add(int(m.group(1)))
     except: pass
+    role = '$PRD_ROLE'
     tasks = [t for t in prd.get('tasks', [])
-             if t.get('role') == '$PRD_ROLE'
-             and t.get('id') not in done_in_progress
+             if (role == 'any' or t.get('role') == role)
+             and t.get('id') not in done_ids
              and t.get('status') in ('pending', 'in_progress')]
     print(len(tasks))
 except: print(0)
