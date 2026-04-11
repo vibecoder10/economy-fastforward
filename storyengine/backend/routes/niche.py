@@ -885,12 +885,26 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
             f"[Scrape] Done: {saved} saved ({new_count} new, {saved - new_count} updated), {with_transcripts} with transcripts"
         )
 
+        # Auto-distill new transcripts in background (non-blocking)
+        if with_transcripts > 0:
+            try:
+                from distillation.pipeline import backfill_competitor_transcripts
+                distill_result = await backfill_competitor_transcripts(tenant_id, batch_size=with_transcripts)
+                distilled_count = distill_result.get("processed", 0)
+                print(f"[Scrape] Auto-distilled {distilled_count} transcripts")
+            except Exception as e:
+                print(f"[Scrape] Auto-distillation failed (non-blocking): {e}")
+                distilled_count = 0
+        else:
+            distilled_count = 0
+
         _scrape_tasks[tenant_id] = {
             "running": False,
             "videos_found": len(all_video_stubs),
             "videos_saved": saved,
             "new_videos": new_count,
             "with_transcripts": with_transcripts,
+            "distilled": distilled_count,
             "finished": datetime.now(timezone.utc).isoformat(),
         }
 

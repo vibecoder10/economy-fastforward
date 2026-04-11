@@ -382,11 +382,48 @@ CREATE TABLE competitor_videos (
   duration_seconds INTEGER,
   description TEXT,
   likes INTEGER,
+  distilled_at TIMESTAMPTZ,  -- Set when transcript has been vectorized
 
   UNIQUE(tenant_id, video_id),
 
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- =============================================
+-- CONTENT INTELLIGENCE (distilled data + vectors)
+-- =============================================
+
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE content_intelligence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+
+  -- Source reference
+  source_type TEXT NOT NULL,   -- 'competitor_transcript', 'video_script', 'research_payload', 'agent_trail'
+  source_id UUID NOT NULL,     -- FK to the source table row
+  source_table TEXT NOT NULL,  -- 'competitor_videos', 'videos', etc.
+
+  -- Distilled intelligence
+  summary TEXT NOT NULL,
+  structured_metadata JSONB NOT NULL,
+
+  -- Vector embedding (OpenAI text-embedding-3-small = 1536 dimensions)
+  embedding vector(1536),
+
+  -- Provenance
+  model_used TEXT,
+  embedding_model TEXT,
+  raw_char_count INTEGER,
+
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_ci_tenant_source_type ON content_intelligence(tenant_id, source_type);
+CREATE INDEX idx_ci_source_id ON content_intelligence(source_id);
+CREATE UNIQUE INDEX idx_ci_unique_source ON content_intelligence(tenant_id, source_type, source_id);
+CREATE INDEX idx_ci_metadata ON content_intelligence USING gin (structured_metadata);
+CREATE INDEX idx_ci_embedding ON content_intelligence USING hnsw (embedding vector_cosine_ops);
 
 -- =============================================
 -- OSIRIS LEARNINGS (from Airtable)

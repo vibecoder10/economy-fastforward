@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
 from logging_config import logger, RequestLoggingMiddleware
 from rate_limit import RateLimitMiddleware
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing, preferences, system_prompts, demo
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks
 
@@ -364,6 +364,7 @@ app.include_router(billing.router)
 app.include_router(preferences.router)
 app.include_router(system_prompts.router)
 app.include_router(demo.router)
+app.include_router(intelligence.router)
 
 
 @app.get("/api/health")

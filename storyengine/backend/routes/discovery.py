@@ -358,16 +358,24 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             return
 
         # Fetch recent high-VPH competitor videos (not yet modeled)
-        # Include transcript for hook/structure analysis
+        # Use distilled intelligence when available, fall back to raw transcript
         competitors = await fetch_all(
-            """SELECT id, video_id, title, url, channel, vph, hours_old, published_date,
-                      transcript, thumbnail_url, duration_seconds
-               FROM competitor_videos
-               WHERE tenant_id = $1
-                 AND vph >= 50
-                 AND hours_old <= 720
-                 AND (modeled = false OR modeled IS NULL)
-               ORDER BY vph DESC
+            """SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.vph,
+                      cv.hours_old, cv.published_date, cv.thumbnail_url, cv.duration_seconds,
+                      cv.distilled_at,
+                      ci.summary as distilled_summary,
+                      ci.structured_metadata as distilled_metadata,
+                      CASE WHEN cv.distilled_at IS NOT NULL THEN NULL
+                           ELSE LEFT(cv.transcript, 500) END as transcript_hook
+               FROM competitor_videos cv
+               LEFT JOIN content_intelligence ci
+                   ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+                   AND ci.source_type = 'competitor_transcript'
+               WHERE cv.tenant_id = $1
+                 AND cv.vph >= 50
+                 AND cv.hours_old <= 720
+                 AND (cv.modeled = false OR cv.modeled IS NULL)
+               ORDER BY cv.vph DESC
                LIMIT 15""",
             tenant_id,
         )
@@ -397,7 +405,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             _refresh_tasks[tenant_id] = {"running": False, "error": msg}
             return
 
-        # Build competitor list for Claude (include transcript hooks)
+        # Build competitor list for Claude (prefer distilled intelligence over raw transcript)
         comp_list = []
         for c in competitors:
             entry = {
@@ -407,10 +415,27 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                 "hours_old": float(c.get("hours_old", 0)),
                 "url": c.get("url", ""),
             }
-            # Extract first ~300 chars of transcript as the competitor's hook
-            transcript = c.get("transcript") or ""
-            if transcript:
-                entry["opening_hook"] = transcript[:300].strip()
+            # Use distilled intelligence when available (richer + cheaper)
+            if c.get("distilled_summary"):
+                entry["summary"] = c["distilled_summary"]
+                metadata = c.get("distilled_metadata")
+                if metadata:
+                    import json
+                    if isinstance(metadata, str):
+                        metadata = json.loads(metadata)
+                    hook = metadata.get("hook", {})
+                    if hook.get("opening_line"):
+                        entry["opening_hook"] = hook["opening_line"]
+                    if hook.get("type"):
+                        entry["hook_type"] = hook["type"]
+                    topics = metadata.get("content", {}).get("topic_tags", [])
+                    if topics:
+                        entry["topics"] = topics
+            else:
+                # Fall back to raw transcript snippet (first 300 chars)
+                transcript_hook = c.get("transcript_hook") or ""
+                if transcript_hook:
+                    entry["opening_hook"] = transcript_hook.strip()
             comp_list.append(entry)
 
         # Call Claude to generate ideas

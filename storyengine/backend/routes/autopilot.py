@@ -346,13 +346,23 @@ async def get_candidates(
 @router.get("/candidates/{candidate_id}")
 async def get_candidate_detail(
     candidate_id: str,
+    include_transcript: bool = Query(default=False),
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Get a single competitor video with full details including transcript."""
+    """Get a single competitor video with full details.
+
+    Transcript is lazy-loaded only when include_transcript=true.
+    Prefers distilled intelligence (summary + metadata) over raw transcript.
+    """
+    # Base query without transcript (saves 10-20 KB egress)
+    cols = """id, video_id, title, url, channel, channel_url,
+              views, vph, hours_old, published_date, modeled,
+              thumbnail_url, description, duration_seconds, likes, distilled_at"""
+    if include_transcript:
+        cols += ", transcript"
+
     row = await fetch_one(
-        """SELECT id, video_id, title, url, channel, channel_url,
-                  views, vph, hours_old, published_date, modeled,
-                  transcript, thumbnail_url, description, duration_seconds, likes
+        f"""SELECT {cols}
            FROM competitor_videos
            WHERE id = $1 AND tenant_id = $2""",
         candidate_id, tenant_id,
@@ -364,7 +374,7 @@ async def get_candidate_detail(
     hours_old = float(row.get("hours_old") or 0)
     breakdown = calculate_confidence_with_breakdown(vph, hours_old)
 
-    return {
+    result = {
         "id": str(row["id"]),
         "title": row.get("title", "Unknown"),
         "source": row.get("channel", "Unknown"),
@@ -375,12 +385,38 @@ async def get_candidate_detail(
         "confidence_breakdown": breakdown,
         "published_date": row.get("published_date").isoformat() if row.get("published_date") else None,
         "modeled": row.get("modeled", False),
-        "transcript": row.get("transcript"),
         "thumbnail_url": row.get("thumbnail_url"),
         "description": row.get("description"),
         "duration_seconds": float(row["duration_seconds"]) if row.get("duration_seconds") else None,
         "likes": row.get("likes"),
     }
+
+    # Include distilled intelligence if available (cheap — ~1 KB vs 15 KB transcript)
+    if row.get("distilled_at"):
+        intel = await fetch_one(
+            """SELECT summary, structured_metadata
+               FROM content_intelligence
+               WHERE source_id = $1 AND tenant_id = $2 AND source_type = 'competitor_transcript'""",
+            candidate_id, tenant_id,
+        )
+        if intel:
+            import json
+            metadata = intel["structured_metadata"]
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            result["intelligence"] = {
+                "summary": intel["summary"],
+                "metadata": metadata,
+            }
+
+    # Only include raw transcript when explicitly requested
+    if include_transcript:
+        result["transcript"] = row.get("transcript")
+    else:
+        result["transcript"] = None
+        result["has_transcript"] = row.get("distilled_at") is not None or include_transcript
+
+    return result
 
 
 @router.get("/learnings", response_model=List[Learning])
@@ -582,9 +618,11 @@ async def launch_candidate(
     Creates a video record from the competitor video and triggers the full
     pipeline (research → script → voice → images → render → upload).
     """
-    # 1. Fetch candidate
+    # 1. Fetch candidate (only columns needed for launch — skip transcript)
     candidate = await fetch_one(
-        "SELECT * FROM competitor_videos WHERE id = $1 AND tenant_id = $2",
+        """SELECT id, video_id, title, url, channel, channel_url, views, vph,
+                  hours_old, published_date, modeled, our_video_id, thumbnail_url
+           FROM competitor_videos WHERE id = $1 AND tenant_id = $2""",
         candidate_id, tenant_id,
     )
     if not candidate:

@@ -6,6 +6,27 @@
 
 ---
 
+## 2026-04-11 — Three-Tier Data Architecture: Hot DB + Vectors + Cold Archive
+
+**Decision:** Implement content distillation pipeline that extracts structured intelligence from raw data (transcripts, research payloads) into a `content_intelligence` table with pgvector embeddings. Raw data stays in DB for now but is no longer selected in hot queries. Future: archive raw to GCS/R2.
+
+**Context:** Supabase free plan exceeded — 5.5 GB egress from competitor transcripts (10-20 KB each × 5000+), research payloads, and agent logs fetched on every page load. At 500-1000 SaaS customers, unoptimized Supabase costs ~$2,700/mo vs ~$250/mo with tiered architecture.
+
+**Alternatives:**
+1. Just upgrade Supabase Pro ($25/mo) — delays problem, doesn't build data moat
+2. Move everything to self-hosted Postgres — more ops work, no vector search built-in
+3. Distill + vectorize + tier (chosen) — solves egress, builds queryable intelligence layer, enables cross-tenant insights
+
+**Why this won:** Data is the product. Raw transcripts are expensive and useless at scale. Distilled intelligence (hook types, topic tags, structure patterns) + vector embeddings enable semantic search, trend detection, and cross-tenant learning. Each customer makes the intelligence better for all customers — network effect built on data.
+
+**Key choices:**
+- Embedding model: OpenAI text-embedding-3-small (1536 dims, $0.02/1M tokens) — cheapest, already have API key
+- Summarization: Claude Haiku (~$0.001/transcript) — cost-efficient extraction
+- Vector index: HNSW (no training required, works from row 1)
+- Storage: pgvector in Supabase (hot), GCS Nearline for raw archive (future)
+
+---
+
 ## 2026-04-06 — Thinking Partner + Structured Workflow over GSD installation
 
 **Decision:** Cherry-pick GSD patterns into custom Claude Code skills rather than installing GSD as a dependency.

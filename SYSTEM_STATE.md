@@ -418,6 +418,49 @@ When the task queue is complete (all tasks done + verified), agents enter **Ops 
 
 ---
 
+## 11a. Content Intelligence / Data Distillation (April 2026)
+
+Vectorization pipeline that distills raw data (transcripts, research) into structured intelligence + vector embeddings. Reduces Supabase egress by replacing large TEXT reads with compact summaries.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/distillation/__init__.py` | Module entry point |
+| `storyengine/backend/distillation/embeddings.py` | OpenAI text-embedding-3-small wrapper |
+| `storyengine/backend/distillation/distiller.py` | Claude Haiku summarization prompts |
+| `storyengine/backend/distillation/pipeline.py` | Orchestrator: raw → summarize → embed → store |
+| `storyengine/backend/routes/intelligence.py` | API: `/api/intelligence/*` (search, backfill, stats, insights) |
+| `storyengine/backend/migrations/036_enable_pgvector.sql` | Enable pgvector extension |
+| `storyengine/backend/migrations/037_content_intelligence.sql` | content_intelligence table + indexes |
+
+### New Table: `content_intelligence`
+| Column | Type | Purpose |
+|--------|------|---------|
+| source_type | TEXT | 'competitor_transcript', 'video_script', etc. |
+| source_id | UUID | FK to source row |
+| summary | TEXT | LLM-generated summary (~500 bytes) |
+| structured_metadata | JSONB | Extracted intelligence (hook type, topics, structure) |
+| embedding | vector(1536) | Semantic search vector |
+
+### API Endpoints
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/intelligence/backfill` | POST | Trigger bulk transcript distillation |
+| `/api/intelligence/backfill/status` | GET | Check backfill progress |
+| `/api/intelligence/search?q=...` | GET | Semantic similarity search |
+| `/api/intelligence/stats` | GET | Distillation progress + savings |
+| `/api/intelligence/record/{id}` | GET | Single record intelligence |
+| `/api/intelligence/insights/topics` | GET | Aggregated topic distribution |
+| `/api/intelligence/insights/hooks` | GET | Hook pattern distribution with VPH |
+
+### Modified Files
+- `routes/autopilot.py` — Candidate detail lazy-loads transcript, returns distilled intelligence
+- `routes/discovery.py` — Prefers distilled summaries over raw transcripts for idea generation
+- `routes/learning_extraction.py` — Uses distilled hook types before falling back to raw transcript analysis
+- `routes/niche.py` — Auto-distills new transcripts after scraping
+
+---
+
 ## 11. Known Issues / Tech Debt
 
 ### Critical

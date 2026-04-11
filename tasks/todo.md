@@ -1,5 +1,32 @@
 # Task Tracking
 
+## Handoff (2026-04-11 — Content Intelligence / Data Distillation)
+
+**What was built:**
+- `storyengine/backend/distillation/` (NEW module) — embeddings.py, distiller.py, pipeline.py
+- `storyengine/backend/routes/intelligence.py` (NEW) — 7 API endpoints for search, backfill, stats, insights
+- `storyengine/backend/migrations/036_enable_pgvector.sql` — Enable vector extension
+- `storyengine/backend/migrations/037_content_intelligence.sql` — content_intelligence table + HNSW index
+- `storyengine/schema.sql` — Updated with content_intelligence table + distilled_at on competitor_videos
+- `storyengine/backend/routes/autopilot.py` — Candidate detail lazy-loads transcript, returns distilled intelligence
+- `storyengine/backend/routes/discovery.py` — Uses distilled summaries over raw transcripts
+- `storyengine/backend/routes/learning_extraction.py` — Uses distilled hook types before raw fallback
+- `storyengine/backend/routes/niche.py` — Auto-distills new transcripts after scraping
+- `storyengine/backend/main.py` — Registered intelligence router
+
+**What's next (deploy + extend):**
+1. Run migrations 036 + 037 on Supabase
+2. Trigger backfill: `POST /api/intelligence/backfill?batch_size=50`
+3. Monitor progress: `GET /api/intelligence/stats`
+4. Extend distillation to video_scripts, research_payloads, agent_paper_trails
+5. Build frontend intelligence dashboard (topic insights, hook patterns, semantic search)
+6. Add GCS archival for raw transcripts after distillation
+7. Wire intelligence into autopilot scoring (prefer topics with proven patterns)
+
+**Design decisions:** See `tasks/decisions.md` — ADR 2026-04-11
+
+---
+
 ## Active Work
 
 **Execution Plan:** `tasks/roadmap.md` — 18-day SaaS transformation
