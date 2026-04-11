@@ -48,6 +48,50 @@ class PipelineStatus(BaseModel):
     airtable_synced: bool = False
 
 
+# --- Pipeline Readiness Check ---
+
+PIPELINE_REQUIRED_KEYS = [
+    {"key": "anthropic_api_key", "label": "Anthropic (Claude)", "reason": "Scripts, research, and analysis", "url": "https://console.anthropic.com"},
+    {"key": "elevenlabs_api_key", "label": "ElevenLabs API Key", "reason": "Voice narration synthesis", "url": "https://elevenlabs.io"},
+    {"key": "elevenlabs_voice_id", "label": "ElevenLabs Voice ID", "reason": "Voice selection for narration", "url": "https://elevenlabs.io"},
+    {"key": "kie_ai_api_key", "label": "Kie.ai", "reason": "Image and video generation", "url": "https://kie.ai"},
+    {"key": "openai_api_key", "label": "OpenAI (Whisper)", "reason": "Audio transcription for captions", "url": "https://platform.openai.com"},
+]
+
+PIPELINE_OPTIONAL_KEYS = [
+    {"key": "gemini_api_key", "label": "Gemini (optional)", "reason": "Thumbnail analysis — skipped without this", "url": "https://aistudio.google.com"},
+]
+
+
+@router.get("/readiness")
+async def check_pipeline_readiness(tenant_id: str = Depends(get_tenant_id)):
+    """Check if tenant has all required API keys for pipeline execution."""
+    from vault import get_secret_status
+
+    missing = []
+    configured = []
+
+    for key_info in PIPELINE_REQUIRED_KEYS:
+        status = await get_secret_status(key_info["key"], tenant_id)
+        if status.get("configured"):
+            configured.append(key_info["key"])
+        else:
+            missing.append(key_info)
+
+    warnings = []
+    for key_info in PIPELINE_OPTIONAL_KEYS:
+        status = await get_secret_status(key_info["key"], tenant_id)
+        if not status.get("configured"):
+            warnings.append(key_info)
+
+    return {
+        "ready": len(missing) == 0,
+        "missing_keys": missing,
+        "configured_keys": configured,
+        "warnings": warnings,
+    }
+
+
 # --- Background Task Tracking (dual-layer: dict + DB) ---
 import time as _time
 

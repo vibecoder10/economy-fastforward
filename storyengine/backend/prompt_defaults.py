@@ -414,3 +414,51 @@ PROMPT_DEFAULTS = {
     "sound_generation": SOUND_GENERATION_SYSTEM_PROMPT,
     "research": RESEARCH_SYSTEM_PROMPT,
 }
+
+# ---------------------------------------------------------------------------
+# Meta-prompt for generating all 6 system prompts from a style description
+# ---------------------------------------------------------------------------
+META_PROMPT_TEMPLATE = """You are a prompt engineer customizing AI system prompts for a YouTube video production platform.
+
+A user has described their channel:
+- Channel: {channel_name}
+- Niche: {niche}
+- Target audience: {target_audience}
+- Style description: {style_description}
+
+Below are 6 system prompt TEMPLATES. Each controls a different stage of the video pipeline. Your job:
+1. Keep ALL structural rules, technical constraints, and formatting requirements EXACTLY as they are
+2. Customize ONLY the voice, tone, personality, examples, and creative direction to match the user's style description
+3. If the template has placeholder variables like {{duration_note}} or {{word_limit}}, keep them as-is
+
+Return a JSON object with exactly these 6 keys. Each value is the FULL customized prompt text:
+{{
+  "script": "...",
+  "thumbnail": "...",
+  "video_motion": "...",
+  "sound_curation": "...",
+  "sound_generation": "...",
+  "research": "..."
+}}
+
+Also include a "summary" key with a 2-3 sentence plain-English description of the generated style.
+
+=== TEMPLATE: script ===
+{script_template}
+
+=== TEMPLATE: thumbnail ===
+{thumbnail_template}
+
+=== TEMPLATE: video_motion ===
+{video_motion_template}
+
+=== TEMPLATE: sound_curation ===
+{sound_curation_template}
+
+=== TEMPLATE: sound_generation ===
+{sound_generation_template}
+
+=== TEMPLATE: research ===
+{research_template}
+
+Return ONLY the JSON object. No markdown fencing, no explanation."""

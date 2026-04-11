@@ -436,6 +436,48 @@ class PipelineExecutor:
             video_id, self.tenant_id, from_status, to_status, triggered_by, cost, error_message,
         )
 
+    async def _load_prompt_overrides(self, video: dict):
+        """Load system prompt overrides onto the pipeline object.
+
+        Priority: per-video override > tenant override > None (bot uses built-in default).
+
+        Sets pipeline attributes like `script_system_prompt`, `thumbnail_system_prompt`, etc.
+        that bots read via `getattr(pipeline, '<key>_system_prompt', None)`.
+
+        Args:
+            video: Video row dict from Supabase (contains per-video override columns).
+        """
+        # Mapping: tenant prompt_key -> (video column, pipeline attribute)
+        PROMPT_MAP = {
+            "script":           ("script_system_prompt",       "script_system_prompt"),
+            "thumbnail":        ("thumbnail_system_prompt",    "thumbnail_system_prompt"),
+            "video_motion":     ("video_motion_system_prompt", "video_motion_system_prompt"),
+            "sound_curation":   ("sound_system_prompt",        "sound_curation_system_prompt"),
+            "sound_generation": ("sound_system_prompt",        "sound_generation_system_prompt"),
+            "research":         (None,                         "research_system_prompt"),
+        }
+
+        # Fetch tenant-level defaults
+        tenant_overrides = {}
+        try:
+            rows = await fetch_all(
+                "SELECT prompt_key, prompt_text FROM tenant_prompt_defaults WHERE tenant_id = $1",
+                self.tenant_id,
+            )
+            tenant_overrides = {r["prompt_key"]: r["prompt_text"] for r in rows}
+        except Exception as e:
+            _logger.warning("Failed to load tenant prompt overrides: %s", e)
+
+        # Resolve each prompt: per-video > tenant > None
+        for prompt_key, (video_col, pipeline_attr) in PROMPT_MAP.items():
+            # Per-video override (if column exists on the videos table)
+            per_video = video.get(video_col) if video_col else None
+            # Tenant override
+            tenant = tenant_overrides.get(prompt_key)
+            # Set on pipeline: per-video wins, then tenant, then None
+            resolved = per_video or tenant or None
+            setattr(self._pipeline, pipeline_attr, resolved)
+
     async def _persist_url(self, source_url: str, storage_path: str) -> str:
         """Re-upload a temporary URL to Google Drive for permanent access.
 
@@ -589,6 +631,9 @@ class PipelineExecutor:
 
             await self._log_activity(bot_name, video_id, "started", f"Researching: {topic}")
 
+            # Load system prompt overrides (tenant + per-video)
+            await self._load_prompt_overrides(video)
+
             # Import research agent
             from research.agent import run_research
 
@@ -720,6 +765,9 @@ class PipelineExecutor:
 
             # Inject performance learnings into writer_guidance BEFORE script generation
             await self._inject_learnings_into_writer_guidance(video_id)
+
+            # Load system prompt overrides (tenant + per-video)
+            await self._load_prompt_overrides(video)
 
             # Load idea into pipeline state from Supabase
             self._load_idea_from_video(video_id)
@@ -1728,6 +1776,9 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating sound prompts")
 
+            # Load system prompt overrides (tenant + per-video)
+            await self._load_prompt_overrides(video)
+
             self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_sound_prompt_bot()
@@ -1760,6 +1811,9 @@ class PipelineExecutor:
 
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating sound effects")
+
+            # Load system prompt overrides (tenant + per-video)
+            await self._load_prompt_overrides(video)
 
             self._load_idea_from_video(video_id)
 
@@ -1794,10 +1848,10 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating video scripts")
 
-            self._load_idea_from_video(video_id)
+            # Load system prompt overrides (tenant + per-video)
+            await self._load_prompt_overrides(video)
 
-            # Pass video motion system prompt override if set
-            self._pipeline.video_motion_system_prompt = video.get("video_motion_system_prompt")
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_video_script_bot()
 
@@ -1862,6 +1916,9 @@ class PipelineExecutor:
 
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating thumbnail")
+
+            # Load system prompt overrides (tenant + per-video)
+            await self._load_prompt_overrides(video)
 
             self._load_idea_from_video(video_id)
 

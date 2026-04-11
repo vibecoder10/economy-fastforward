@@ -174,33 +174,76 @@ async def get_calendar(
 
 @router.get("/onboarding/status")
 async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
-    """Derive onboarding completion from existing data — no new DB columns."""
+    """Rich onboarding status with per-step detail."""
     # Step 1: channel configured?
     cp = await fetch_one(
-        "SELECT channel_name FROM channel_profiles WHERE tenant_id = $1",
+        "SELECT channel_name, user_type, style_description FROM channel_profiles WHERE tenant_id = $1",
         tenant_id,
     )
     channel_configured = bool(cp and cp.get("channel_name"))
+    user_type = (cp.get("user_type") or "new_creator") if cp else "new_creator"
 
-    # Step 2: at least anthropic API key configured?
-    key_status = await get_secret_status("anthropic_api_key", tenant_id)
-    api_keys_configured = key_status.get("configured", False)
+    # Step 2: count configured API keys (5 required)
+    required_keys = [
+        "anthropic_api_key",
+        "elevenlabs_api_key",
+        "elevenlabs_voice_id",
+        "kie_ai_api_key",
+        "openai_api_key",
+    ]
+    configured_count = 0
+    for key_name in required_keys:
+        status = await get_secret_status(key_name, tenant_id)
+        if status.get("configured"):
+            configured_count += 1
 
-    # Step 3: any videos exist (proxy for baseline import / first use)?
+    # Step 3: style generated?
+    style_generated = bool(cp and cp.get("style_description"))
+    if not style_generated:
+        prompt_row = await fetch_one(
+            "SELECT id FROM tenant_prompt_defaults WHERE tenant_id = $1 LIMIT 1",
+            tenant_id,
+        )
+        style_generated = bool(prompt_row)
+
+    # Step 4: first video created?
     vid = await fetch_one(
         "SELECT COUNT(*) as count FROM videos WHERE tenant_id = $1",
         tenant_id,
     )
-    youtube_synced = (vid["count"] if vid else 0) > 0
+    first_video_created = (vid["count"] if vid else 0) > 0
 
-    steps = {
-        "channel_configured": channel_configured,
-        "api_keys_configured": api_keys_configured,
-        "youtube_synced": youtube_synced,
-    }
-    done = sum(1 for v in steps.values() if v)
+    # Step 5: display name from accounts via memberships
+    account_row = await fetch_one(
+        """SELECT a.display_name FROM accounts a
+           JOIN memberships m ON m.account_id = a.id
+           WHERE m.tenant_id = $1 LIMIT 1""",
+        tenant_id,
+    )
+    display_name = (account_row.get("display_name") or "") if account_row else ""
+
+    # Calculate percent complete (5 steps)
+    done = 1  # account_created always true
+    if channel_configured:
+        done += 1
+    if configured_count == 5:
+        done += 1
+    if style_generated:
+        done += 1
+    if first_video_created:
+        done += 1
+    percent = round(done / 5 * 100)
+
     return {
-        "completed": done == len(steps),
-        "steps": steps,
-        "percent_complete": round(done / len(steps) * 100),
+        "completed": done == 5,
+        "steps": {
+            "account_created": True,
+            "channel_configured": channel_configured,
+            "api_keys": {"configured": configured_count, "required": 5},
+            "style_generated": style_generated,
+            "first_video_created": first_video_created,
+        },
+        "percent_complete": percent,
+        "user_type": user_type,
+        "display_name": display_name,
     }

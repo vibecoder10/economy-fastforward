@@ -1,430 +1,443 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   updateChannelProfile,
   setApiKey,
   testApiKey,
   getOnboardingStatus,
-  type TestKeyResponse,
+  getReadinessStatus,
+  generateSystemPrompts,
+  getYouTubeConnectUrl,
+  getYouTubeStatus,
+  syncYouTubeMetrics,
+  getYouTubeSyncStatus,
+  type ReadinessKey,
 } from "@/lib/api";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Check,
-  ChevronRight,
-  Tv,
-  Key,
-  Rocket,
-  AlertCircle,
-} from "lucide-react";
+import { UserTypeStep } from "@/components/onboarding/UserTypeStep";
+import { ChannelIdentityStep } from "@/components/onboarding/ChannelIdentityStep";
+import { StyleSetupStep } from "@/components/onboarding/StyleSetupStep";
+import { ApiKeysStep } from "@/components/onboarding/ApiKeysStep";
+import { YouTubeConnectStep } from "@/components/onboarding/YouTubeConnectStep";
+import { ImportDataStep } from "@/components/onboarding/ImportDataStep";
+import { ReadyStep } from "@/components/onboarding/ReadyStep";
+import { Check, User, Palette, Key, Youtube, Download, Rocket } from "lucide-react";
 
-const STEPS = [
-  { label: "Channel", icon: Tv },
-  { label: "API Keys", icon: Key },
-  { label: "Ready!", icon: Rocket },
+// Step definitions per user type
+const FRESH_STEPS = [
+  { key: "type", label: "You", icon: User },
+  { key: "channel", label: "Channel", icon: User },
+  { key: "style", label: "Style", icon: Palette },
+  { key: "keys", label: "Tools", icon: Key },
+  { key: "ready", label: "Ready!", icon: Rocket },
+];
+
+const EXISTING_STEPS = [
+  { key: "type", label: "You", icon: User },
+  { key: "channel", label: "Channel", icon: Youtube },
+  { key: "style", label: "Style", icon: Palette },
+  { key: "keys", label: "Tools", icon: Key },
+  { key: "import", label: "Import", icon: Download },
+  { key: "ready", label: "Ready!", icon: Rocket },
 ];
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
   const [step, setStep] = useState(0);
+  const [userType, setUserType] = useState<"new_creator" | "existing_channel" | null>(null);
+  const [displayName, setDisplayName] = useState("");
 
-  // Redirect to dashboard if onboarding already complete
-  useEffect(() => {
-    getOnboardingStatus()
-      .then((status) => {
-        if (status.completed) router.replace("/dashboard");
-      })
-      .catch(() => {});
-  }, [router]);
-
-  // Step 1: Channel Identity
+  // Channel state
   const [channelName, setChannelName] = useState("");
   const [niche, setNiche] = useState("");
   const [audience, setAudience] = useState("");
   const [channelSaving, setChannelSaving] = useState(false);
   const [channelError, setChannelError] = useState<string | null>(null);
 
-  // Step 2: API Keys
-  const [anthropicKey, setAnthropicKey] = useState("");
-  const [keySaving, setKeySaving] = useState(false);
-  const [keyTesting, setKeyTesting] = useState(false);
-  const [keyResult, setKeyResult] = useState<TestKeyResponse | null>(null);
-  const [keyError, setKeyError] = useState<string | null>(null);
+  // YouTube state
+  const [ytConnected, setYtConnected] = useState(false);
+  const [ytChannelName, setYtChannelName] = useState<string | null>(null);
+  const [ytConnecting, setYtConnecting] = useState(false);
+
+  // Style state
+  const [styleDescription, setStyleDescription] = useState("");
+  const [styleGenerating, setStyleGenerating] = useState(false);
+  const [styleGenerated, setStyleGenerated] = useState(false);
+  const [styleSummary, setStyleSummary] = useState<string | null>(null);
+  const [styleError, setStyleError] = useState<string | null>(null);
+
+  // API keys state
+  const [apiKeys, setApiKeys] = useState<
+    { key: string; label: string; reason: string; url: string; configured: boolean }[]
+  >([]);
+
+  // Import state
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ videos_synced: number; videos_total: number } | null>(null);
+
+  const steps = userType === "existing_channel" ? EXISTING_STEPS : FRESH_STEPS;
+
+  // Check if onboarding is already complete
+  useEffect(() => {
+    getOnboardingStatus()
+      .then((status) => {
+        if (status.completed) {
+          router.replace("/dashboard");
+          return;
+        }
+        if (status.display_name) setDisplayName(status.display_name);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [router]);
+
+  // Load API key readiness when reaching keys step
+  const loadApiKeys = useCallback(async () => {
+    try {
+      const status = await getReadinessStatus();
+      const all: { key: string; label: string; reason: string; url: string; configured: boolean }[] = [];
+      for (const k of status.missing_keys) {
+        all.push({ ...k, configured: false });
+      }
+      for (const key of status.configured_keys) {
+        // Find the label from missing_keys or use key name
+        all.push({ key, label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), reason: "", url: "", configured: true });
+      }
+      // Sort: unconfigured first
+      all.sort((a, b) => (a.configured === b.configured ? 0 : a.configured ? 1 : -1));
+      setApiKeys(all);
+    } catch {
+      // Fallback with static list
+      setApiKeys([
+        { key: "anthropic_api_key", label: "Anthropic (Claude)", reason: "Scripts, research, analysis", url: "https://console.anthropic.com", configured: false },
+        { key: "elevenlabs_api_key", label: "ElevenLabs API Key", reason: "Voice narration", url: "https://elevenlabs.io", configured: false },
+        { key: "elevenlabs_voice_id", label: "ElevenLabs Voice ID", reason: "Voice selection", url: "https://elevenlabs.io", configured: false },
+        { key: "kie_ai_api_key", label: "Kie.ai", reason: "Image & video generation", url: "https://kie.ai", configured: false },
+        { key: "openai_api_key", label: "OpenAI (Whisper)", reason: "Audio transcription", url: "https://platform.openai.com", configured: false },
+      ]);
+    }
+  }, []);
+
+  // --- Handlers ---
+
+  function handleUserTypeSelect(type: "new_creator" | "existing_channel") {
+    setUserType(type);
+    updateChannelProfile({ user_type: type }).catch(() => {});
+    setStep(1);
+  }
 
   async function handleSaveChannel() {
-    if (!channelName.trim() || !niche.trim()) return;
+    if (!channelName.trim()) return;
     setChannelSaving(true);
     setChannelError(null);
     try {
       await updateChannelProfile({
         channel_name: channelName.trim(),
-        niche: niche.trim(),
+        niche: niche.trim() || undefined,
         target_audience: audience.trim() || undefined,
       });
-      setStep(1);
+      setStep(2);
     } catch (err) {
-      setChannelError(
-        err instanceof Error ? err.message : "Failed to save channel"
-      );
+      setChannelError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setChannelSaving(false);
     }
   }
 
-  async function handleSaveAndTestKey() {
-    if (!anthropicKey.trim()) return;
-    setKeySaving(true);
-    setKeyError(null);
-    setKeyResult(null);
+  async function handleConnectYouTube() {
+    setYtConnecting(true);
     try {
-      await setApiKey("anthropic_api_key", anthropicKey.trim());
-      setKeyTesting(true);
-      const result = await testApiKey("anthropic_api_key");
-      setKeyResult(result);
-    } catch (err) {
-      setKeyError(err instanceof Error ? err.message : "Failed to save key");
-    } finally {
-      setKeySaving(false);
-      setKeyTesting(false);
+      const { auth_url } = await getYouTubeConnectUrl();
+      window.location.href = auth_url;
+    } catch {
+      setYtConnecting(false);
     }
   }
 
-  const inputStyle = {
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "var(--text-primary)",
-  };
+  // Check YouTube status on mount (in case returning from OAuth)
+  useEffect(() => {
+    getYouTubeStatus()
+      .then((status) => {
+        if (status.connected) {
+          setYtConnected(true);
+          setYtChannelName(status.channel_name);
+          if (status.channel_name && !channelName) {
+            setChannelName(status.channel_name);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleGenerateStyle() {
+    if (!styleDescription.trim()) return;
+    setStyleGenerating(true);
+    setStyleError(null);
+    try {
+      const result = await generateSystemPrompts({
+        style_description: styleDescription.trim(),
+        channel_name: channelName || undefined,
+        niche: niche || undefined,
+        target_audience: audience || undefined,
+      });
+      setStyleGenerated(true);
+      setStyleSummary(result.summary || "Your custom style has been generated.");
+    } catch (err) {
+      setStyleError(err instanceof Error ? err.message : "Failed to generate style");
+    } finally {
+      setStyleGenerating(false);
+    }
+  }
+
+  async function handleSaveApiKey(keyName: string, value: string): Promise<boolean> {
+    try {
+      await setApiKey(keyName, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function handleTestApiKey(keyName: string): Promise<boolean> {
+    try {
+      const result = await testApiKey(keyName);
+      if (result.success) {
+        setApiKeys((prev) =>
+          prev.map((k) => (k.key === keyName ? { ...k, configured: true } : k))
+        );
+      }
+      return result.success === true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function handleSyncChannel() {
+    setSyncing(true);
+    try {
+      await syncYouTubeMetrics();
+      // Poll for completion
+      const poll = setInterval(async () => {
+        try {
+          const status = await getYouTubeSyncStatus();
+          if (!status.is_running) {
+            clearInterval(poll);
+            setSyncing(false);
+            setSyncResult({
+              videos_synced: status.videos_synced || 0,
+              videos_total: status.videos_total || 0,
+            });
+          }
+        } catch {
+          clearInterval(poll);
+          setSyncing(false);
+        }
+      }, 3000);
+    } catch {
+      setSyncing(false);
+    }
+  }
+
+  function handleNext() {
+    const nextStep = step + 1;
+    if (nextStep >= steps.length) {
+      router.replace("/dashboard");
+      return;
+    }
+
+    // Load API keys when reaching the keys step
+    const nextKey = steps[nextStep]?.key;
+    if (nextKey === "keys") {
+      loadApiKeys();
+    }
+
+    setStep(nextStep);
+  }
+
+  function handleSkip() {
+    handleNext();
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Spinner />
+      </div>
+    );
+  }
+
+  const currentStepKey = steps[step]?.key;
 
   return (
     <div className="flex items-center justify-center min-h-screen px-4 py-12">
-      <div className="w-full max-w-lg">
-        {/* Progress Bar */}
-        <div className="flex items-center justify-center gap-0 mb-10">
-          {STEPS.map((s, i) => {
-            const Icon = s.icon;
-            const done = i < step;
-            const active = i === step;
-            return (
-              <div key={s.label} className="flex items-center">
-                <div className="flex flex-col items-center">
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-all"
-                    style={{
-                      background: done
-                        ? "var(--turquoise)"
-                        : active
-                          ? "var(--gold)"
-                          : "rgba(255,255,255,0.08)",
-                      color: done || active ? "#000" : "var(--text-tertiary)",
-                    }}
-                  >
-                    {done ? <Check size={18} /> : <Icon size={18} />}
+      <div className="w-full max-w-xl">
+        {/* Progress Bar — hidden on user type selection */}
+        {step > 0 && (
+          <div className="flex items-center justify-center gap-0 mb-10">
+            {steps.slice(1).map((s, i) => {
+              const actualIdx = i + 1;
+              const Icon = s.icon;
+              const done = actualIdx < step;
+              const active = actualIdx === step;
+              return (
+                <div key={s.key} className="flex items-center">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-all"
+                      style={{
+                        background: done
+                          ? "var(--turquoise)"
+                          : active
+                            ? "var(--gold)"
+                            : "rgba(255,255,255,0.08)",
+                        color: done || active ? "#000" : "var(--text-tertiary)",
+                      }}
+                    >
+                      {done ? <Check size={18} /> : <Icon size={18} />}
+                    </div>
+                    <span
+                      className="text-[10px] mt-1.5 font-mono uppercase tracking-wider"
+                      style={{
+                        color: done
+                          ? "var(--turquoise)"
+                          : active
+                            ? "var(--gold)"
+                            : "var(--text-tertiary)",
+                      }}
+                    >
+                      {s.label}
+                    </span>
                   </div>
-                  <span
-                    className="text-[10px] mt-1.5 font-mono uppercase tracking-wider"
-                    style={{
-                      color: done
-                        ? "var(--turquoise)"
-                        : active
-                          ? "var(--gold)"
-                          : "var(--text-tertiary)",
-                    }}
-                  >
-                    {s.label}
-                  </span>
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div
-                    className="w-16 h-px mx-2 mb-5"
-                    style={{
-                      background: i < step ? "var(--turquoise)" : "rgba(255,255,255,0.1)",
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Card */}
-        <div
-          className="p-8 rounded-2xl"
-          style={{
-            background: "rgba(15,22,38,0.65)",
-            border: "1px solid rgba(0,212,170,0.12)",
-            backdropFilter: "blur(24px)",
-          }}
-        >
-          {/* Step 1: Channel Identity */}
-          {step === 0 && (
-            <div className="flex flex-col gap-5">
-              <div>
-                <h2
-                  className="font-display text-2xl mb-1"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  Your Channel
-                </h2>
-                <p
-                  className="text-sm"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Tell us about your YouTube channel so we can tailor your
-                  experience.
-                </p>
-              </div>
-
-              <div>
-                <label
-                  className="block text-[11px] uppercase tracking-wider mb-1.5 font-mono"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Channel Name *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Economy FastForward"
-                  value={channelName}
-                  onChange={(e) => setChannelName(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg text-sm outline-none"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label
-                  className="block text-[11px] uppercase tracking-wider mb-1.5 font-mono"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Niche *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Geopolitics & Economy"
-                  value={niche}
-                  onChange={(e) => setNiche(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg text-sm outline-none"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label
-                  className="block text-[11px] uppercase tracking-wider mb-1.5 font-mono"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Target Audience (optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Curious adults interested in global economics"
-                  value={audience}
-                  onChange={(e) => setAudience(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg text-sm outline-none"
-                  style={inputStyle}
-                />
-              </div>
-
-              {channelError && (
-                <p className="text-xs flex items-center gap-1" style={{ color: "var(--error)" }}>
-                  <AlertCircle size={12} /> {channelError}
-                </p>
-              )}
-
-              <button
-                onClick={handleSaveChannel}
-                disabled={channelSaving || !channelName.trim() || !niche.trim()}
-                className="w-full py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-opacity"
-                style={{
-                  background: "var(--accent)",
-                  color: "#000",
-                  opacity:
-                    channelSaving || !channelName.trim() || !niche.trim()
-                      ? 0.5
-                      : 1,
-                }}
-              >
-                {channelSaving ? (
-                  <Spinner size="sm" />
-                ) : (
-                  <>
-                    Continue <ChevronRight size={16} />
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={() => setStep(1)}
-                className="text-xs text-center py-1"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                Skip for now
-              </button>
-            </div>
-          )}
-
-          {/* Step 2: API Keys */}
-          {step === 1 && (
-            <div className="flex flex-col gap-5">
-              <div>
-                <h2
-                  className="font-display text-2xl mb-1"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  Connect Your AI
-                </h2>
-                <p
-                  className="text-sm"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  StoryEngine uses your own API keys. Start with Anthropic
-                  (Claude) — it powers scripts, research, and analysis.
-                </p>
-              </div>
-
-              <div>
-                <label
-                  className="block text-[11px] uppercase tracking-wider mb-1.5 font-mono"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Anthropic API Key
-                </label>
-                <input
-                  type="password"
-                  placeholder="sk-ant-..."
-                  value={anthropicKey}
-                  onChange={(e) => {
-                    setAnthropicKey(e.target.value);
-                    setKeyResult(null);
-                    setKeyError(null);
-                  }}
-                  className="w-full px-4 py-3 rounded-lg text-sm outline-none font-mono"
-                  style={inputStyle}
-                />
-                <p
-                  className="text-[10px] mt-1"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
-                  Get your key at console.anthropic.com → API Keys
-                </p>
-              </div>
-
-              {keyResult && (
-                <div
-                  className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg"
-                  style={{
-                    background: keyResult.success
-                      ? "rgba(0,230,138,0.1)"
-                      : "rgba(255,77,106,0.1)",
-                    color: keyResult.success ? "var(--green)" : "var(--red)",
-                  }}
-                >
-                  {keyResult.success ? (
-                    <Check size={14} />
-                  ) : (
-                    <AlertCircle size={14} />
+                  {i < steps.length - 2 && (
+                    <div
+                      className="w-12 h-px mx-1.5 mb-5"
+                      style={{
+                        background: actualIdx < step ? "var(--turquoise)" : "rgba(255,255,255,0.1)",
+                      }}
+                    />
                   )}
-                  {keyResult.message}
                 </div>
-              )}
+              );
+            })}
+          </div>
+        )}
 
-              {keyError && (
-                <p className="text-xs flex items-center gap-1" style={{ color: "var(--error)" }}>
-                  <AlertCircle size={12} /> {keyError}
-                </p>
-              )}
+        {/* Step Content */}
+        {currentStepKey === "type" && (
+          <UserTypeStep onSelect={handleUserTypeSelect} />
+        )}
 
-              <button
-                onClick={handleSaveAndTestKey}
-                disabled={keySaving || keyTesting || !anthropicKey.trim()}
-                className="w-full py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-opacity"
-                style={{
-                  background: "var(--gold)",
-                  color: "#000",
-                  opacity:
-                    keySaving || keyTesting || !anthropicKey.trim() ? 0.5 : 1,
-                }}
-              >
-                {keySaving || keyTesting ? (
-                  <>
-                    <Spinner size="sm" />{" "}
-                    {keyTesting ? "Testing..." : "Saving..."}
-                  </>
-                ) : (
-                  "Save & Test Key"
-                )}
-              </button>
+        {currentStepKey === "channel" && (
+          <div
+            className="p-8 rounded-2xl"
+            style={{
+              background: "rgba(15,22,38,0.65)",
+              border: "1px solid rgba(0,212,170,0.12)",
+              backdropFilter: "blur(24px)",
+            }}
+          >
+            <ChannelIdentityStep
+              channelName={channelName}
+              niche={niche}
+              audience={audience}
+              onChange={(field, value) => {
+                if (field === "channelName") setChannelName(value);
+                else if (field === "niche") setNiche(value);
+                else if (field === "audience") setAudience(value);
+              }}
+              onNext={handleSaveChannel}
+              onSkip={handleSkip}
+              saving={channelSaving}
+              error={channelError}
+              showYouTubeConnect={userType === "existing_channel"}
+              youtubeConnected={ytConnected}
+              youtubeChannelName={ytChannelName || undefined}
+              onConnectYouTube={handleConnectYouTube}
+            />
+          </div>
+        )}
 
-              <button
-                onClick={() => setStep(2)}
-                className="w-full py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-opacity"
-                style={{
-                  background: "transparent",
-                  color: "var(--accent)",
-                  border: "1px solid var(--accent)",
-                  opacity: 1,
-                }}
-              >
-                Continue <ChevronRight size={16} />
-              </button>
+        {currentStepKey === "style" && (
+          <div
+            className="p-8 rounded-2xl"
+            style={{
+              background: "rgba(15,22,38,0.65)",
+              border: "1px solid rgba(0,212,170,0.12)",
+              backdropFilter: "blur(24px)",
+            }}
+          >
+            <StyleSetupStep
+              styleDescription={styleDescription}
+              onChange={setStyleDescription}
+              onGenerate={handleGenerateStyle}
+              onNext={handleNext}
+              onSkip={handleSkip}
+              generating={styleGenerating}
+              generated={styleGenerated}
+              summary={styleSummary}
+              error={styleError}
+            />
+          </div>
+        )}
 
-              <button
-                onClick={() => setStep(2)}
-                className="text-xs text-center py-1"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                Skip for now
-              </button>
-            </div>
-          )}
+        {currentStepKey === "keys" && (
+          <div
+            className="p-8 rounded-2xl"
+            style={{
+              background: "rgba(15,22,38,0.65)",
+              border: "1px solid rgba(0,212,170,0.12)",
+              backdropFilter: "blur(24px)",
+            }}
+          >
+            <ApiKeysStep
+              keys={apiKeys}
+              onSaveKey={handleSaveApiKey}
+              onTestKey={handleTestApiKey}
+              onNext={handleNext}
+              onSkip={handleSkip}
+            />
+          </div>
+        )}
 
-          {/* Step 3: Done */}
-          {step === 2 && (
-            <div className="flex flex-col items-center gap-6 py-4">
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center"
-                style={{ background: "var(--turquoise)" }}
-              >
-                <Check size={32} color="#000" strokeWidth={3} />
-              </div>
-              <div className="text-center">
-                <h2
-                  className="font-display text-2xl mb-2"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  Your Studio is Ready
-                </h2>
-                <p
-                  className="text-sm"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  You can always update your channel settings and add more API
-                  keys later in Settings.
-                </p>
-              </div>
-              <button
-                onClick={() => router.replace("/dashboard")}
-                className="w-full py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
-                style={{
-                  background: "var(--accent)",
-                  color: "#000",
-                }}
-              >
-                <Rocket size={16} /> Start Creating
-              </button>
-            </div>
-          )}
-        </div>
+        {currentStepKey === "import" && (
+          <div
+            className="p-8 rounded-2xl"
+            style={{
+              background: "rgba(15,22,38,0.65)",
+              border: "1px solid rgba(0,212,170,0.12)",
+              backdropFilter: "blur(24px)",
+            }}
+          >
+            <ImportDataStep
+              onSync={handleSyncChannel}
+              onNext={handleNext}
+              onSkip={handleSkip}
+              syncing={syncing}
+              syncResult={syncResult}
+            />
+          </div>
+        )}
 
-        {/* Skip setup link — shown on all steps */}
-        <p
-          className="text-[11px] text-center mt-4 cursor-pointer"
-          style={{ color: "var(--text-tertiary)" }}
-          onClick={() => router.replace("/dashboard")}
-        >
-          Skip setup, go to Dashboard →
-        </p>
+        {currentStepKey === "ready" && (
+          <ReadyStep
+            displayName={displayName || channelName || "Creator"}
+            onStart={() => router.replace("/pipeline?first=true")}
+          />
+        )}
+
+        {/* Skip setup link — shown on all steps except ready */}
+        {currentStepKey !== "ready" && (
+          <p
+            className="text-[11px] text-center mt-4 cursor-pointer hover:underline"
+            style={{ color: "var(--text-tertiary)" }}
+            onClick={() => router.replace("/dashboard")}
+          >
+            Skip setup, go to Dashboard →
+          </p>
+        )}
       </div>
     </div>
   );

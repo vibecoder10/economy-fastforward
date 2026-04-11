@@ -636,3 +636,174 @@ async def google_drive_access_token(user: AuthUser = Depends(verify_token)):
 
     tokens = resp.json()
     return {"access_token": tokens["access_token"]}
+
+
+# ---------------------------------------------------------------------------
+# YouTube OAuth — server-side flow for per-user YouTube analytics access
+# ---------------------------------------------------------------------------
+
+YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly"
+
+
+@router.get("/youtube/connect")
+async def youtube_connect(user: AuthUser = Depends(verify_token)):
+    """Initiate Google OAuth for YouTube access.
+
+    Returns the authorization URL. Frontend redirects the user there.
+    Google redirects back to /settings/youtube-callback with an auth code.
+    """
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="GOOGLE_OAUTH_CLIENT_ID not configured")
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", f"{frontend_url}/settings/youtube-callback")
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": YOUTUBE_SCOPES,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": str(user.tenant_id),
+    }
+    qs = "&".join(f"{k}={httpx.URL('').copy_with(params={k: v}).params[k]}" for k, v in params.items())
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{qs}"
+
+    return {"auth_url": auth_url}
+
+
+class YouTubeCallbackRequest(BaseModel):
+    code: str
+
+
+@router.post("/youtube/callback")
+async def youtube_callback(
+    body: YouTubeCallbackRequest,
+    user: AuthUser = Depends(verify_token),
+):
+    """Exchange YouTube auth code for refresh token, fetch channel info, and store.
+
+    After OAuth, we:
+    1. Exchange code for tokens
+    2. Fetch the user's YouTube channel info (name, description, subscriber count)
+    3. Store refresh token + channel info on channel_profiles
+    """
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail="Google OAuth credentials not configured")
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", f"{frontend_url}/settings/youtube-callback")
+
+    # Exchange auth code for tokens
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": body.code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            timeout=15.0,
+        )
+
+    if resp.status_code != 200:
+        detail = resp.json().get("error_description", "Token exchange failed")
+        raise HTTPException(status_code=400, detail=detail)
+
+    tokens = resp.json()
+    refresh_token = tokens.get("refresh_token")
+    access_token = tokens.get("access_token")
+
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="No refresh token received. Try disconnecting the app in Google Account settings and reconnecting.",
+        )
+
+    # Fetch YouTube channel info using the access token
+    channel_id = None
+    channel_name = None
+    channel_description = None
+    try:
+        async with httpx.AsyncClient() as client:
+            yt_resp = await client.get(
+                "https://www.googleapis.com/youtube/v3/channels",
+                params={"part": "snippet,statistics", "mine": "true"},
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0,
+            )
+        if yt_resp.status_code == 200:
+            data = yt_resp.json()
+            items = data.get("items", [])
+            if items:
+                channel_id = items[0]["id"]
+                snippet = items[0].get("snippet", {})
+                channel_name = snippet.get("title", "")
+                channel_description = snippet.get("description", "")
+    except Exception:
+        pass  # Channel info is nice-to-have, not blocking
+
+    # Store on channel_profiles
+    tenant_id = str(user.tenant_id)
+    existing = await fetch_one(
+        "SELECT id FROM channel_profiles WHERE tenant_id = $1", tenant_id
+    )
+    if existing:
+        await execute(
+            """UPDATE channel_profiles
+               SET youtube_refresh_token = $1, youtube_channel_id = $2,
+                   youtube_channel_name = $3, updated_at = now()
+               WHERE tenant_id = $4""",
+            refresh_token, channel_id or "", channel_name or "", tenant_id,
+        )
+    else:
+        await execute(
+            """INSERT INTO channel_profiles (tenant_id, youtube_refresh_token, youtube_channel_id, youtube_channel_name)
+               VALUES ($1, $2, $3, $4)""",
+            tenant_id, refresh_token, channel_id or "", channel_name or "",
+        )
+
+    return {
+        "status": "connected",
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "channel_description": channel_description,
+    }
+
+
+@router.get("/youtube/status")
+async def youtube_status(user: AuthUser = Depends(verify_token)):
+    """Check if YouTube is connected for this tenant."""
+    tenant_id = str(user.tenant_id)
+    row = await fetch_one(
+        "SELECT youtube_refresh_token, youtube_channel_id, youtube_channel_name "
+        "FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    if not row or not row.get("youtube_refresh_token"):
+        return {"connected": False, "channel_id": None, "channel_name": None}
+
+    return {
+        "connected": True,
+        "channel_id": row.get("youtube_channel_id") or None,
+        "channel_name": row.get("youtube_channel_name") or None,
+    }
+
+
+@router.post("/youtube/disconnect")
+async def youtube_disconnect(user: AuthUser = Depends(verify_token)):
+    """Disconnect YouTube — removes stored refresh token and channel info."""
+    tenant_id = str(user.tenant_id)
+    await execute(
+        "UPDATE channel_profiles SET youtube_refresh_token = NULL, "
+        "youtube_channel_id = NULL, youtube_channel_name = NULL, "
+        "updated_at = now() WHERE tenant_id = $1",
+        tenant_id,
+    )
+    return {"status": "disconnected"}

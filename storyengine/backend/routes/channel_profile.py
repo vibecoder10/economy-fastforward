@@ -26,6 +26,11 @@ class ChannelProfile(BaseModel):
     logo_url: str = ""
     google_drive_folder_id: str = ""
     google_drive_folder_name: str = ""
+    user_type: str = ""
+    style_description: str = ""
+    youtube_channel_id: str = ""
+    youtube_channel_name: str = ""
+    onboarding_completed_at: Optional[str] = None
 
 
 class ChannelProfileUpdate(BaseModel):
@@ -38,6 +43,10 @@ class ChannelProfileUpdate(BaseModel):
     logo_url: Optional[str] = None
     google_drive_folder_id: Optional[str] = None
     google_drive_folder_name: Optional[str] = None
+    user_type: Optional[str] = None
+    style_description: Optional[str] = None
+    youtube_channel_id: Optional[str] = None
+    youtube_channel_name: Optional[str] = None
 
 
 class IntegrationStatus(BaseModel):
@@ -79,7 +88,9 @@ async def get_channel_profile(tenant_id: str = Depends(get_tenant_id)):
 
     row = await fetch_one(
         """SELECT channel_name, niche, target_audience, frameworks,
-                  accent_color, logo_url, google_drive_folder_id, google_drive_folder_name
+                  accent_color, logo_url, google_drive_folder_id, google_drive_folder_name,
+                  user_type, style_description, youtube_channel_id, youtube_channel_name,
+                  onboarding_completed_at::text
            FROM channel_profiles WHERE tenant_id = $1""",
         tenant_id,
     )
@@ -103,6 +114,11 @@ async def get_channel_profile(tenant_id: str = Depends(get_tenant_id)):
         logo_url=row.get("logo_url") or "",
         google_drive_folder_id=row.get("google_drive_folder_id") or "",
         google_drive_folder_name=row.get("google_drive_folder_name") or "",
+        user_type=row.get("user_type") or "",
+        style_description=row.get("style_description") or "",
+        youtube_channel_id=row.get("youtube_channel_id") or "",
+        youtube_channel_name=row.get("youtube_channel_name") or "",
+        onboarding_completed_at=row.get("onboarding_completed_at"),
     )
 
 
@@ -130,8 +146,9 @@ async def update_channel_profile(
         await execute(
             """INSERT INTO channel_profiles
                (tenant_id, channel_name, niche, target_audience, frameworks,
-                accent_color, logo_url, google_drive_folder_id, google_drive_folder_name)
-               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)""",
+                accent_color, logo_url, google_drive_folder_id, google_drive_folder_name,
+                user_type, style_description, youtube_channel_id, youtube_channel_name)
+               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)""",
             tenant_id,
             update.channel_name or "",
             update.niche or "",
@@ -141,6 +158,10 @@ async def update_channel_profile(
             update.logo_url or "",
             update.google_drive_folder_id or "",
             update.google_drive_folder_name or "",
+            update.user_type or "",
+            update.style_description or "",
+            update.youtube_channel_id or "",
+            update.youtube_channel_name or "",
         )
     else:
         # Build dynamic update
@@ -187,6 +208,26 @@ async def update_channel_profile(
             param_idx += 1
             sets.append(f"google_drive_folder_name = ${param_idx}")
             params.append(update.google_drive_folder_name)
+
+        if update.user_type is not None:
+            param_idx += 1
+            sets.append(f"user_type = ${param_idx}")
+            params.append(update.user_type)
+
+        if update.style_description is not None:
+            param_idx += 1
+            sets.append(f"style_description = ${param_idx}")
+            params.append(update.style_description)
+
+        if update.youtube_channel_id is not None:
+            param_idx += 1
+            sets.append(f"youtube_channel_id = ${param_idx}")
+            params.append(update.youtube_channel_id)
+
+        if update.youtube_channel_name is not None:
+            param_idx += 1
+            sets.append(f"youtube_channel_name = ${param_idx}")
+            params.append(update.youtube_channel_name)
 
         if sets:
             sets.append("updated_at = now()")

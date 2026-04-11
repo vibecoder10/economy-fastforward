@@ -19,10 +19,13 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { FirstRunDashboard } from "@/components/dashboard/FirstRunDashboard";
+import type { ChecklistItem } from "@/components/dashboard/SetupChecklist";
 import {
   getDashboardSummary,
   getPendingReview,
   getUsage,
+  getOnboardingStatus,
   type DashboardSummary,
 } from "@/lib/api";
 import { PIPELINE_STAGES, COMPLETED_STATUSES, getStageLabel } from "@/lib/constants";
@@ -62,6 +65,11 @@ function computeProgress(status: string | null): number {
 
 export default function DashboardPage() {
   const router = useRouter();
+
+  const { data: onboarding, isLoading: onboardingLoading } = useQuery({
+    queryKey: ["onboarding-status"],
+    queryFn: getOnboardingStatus,
+  });
 
   const { data: summary, isLoading: summaryLoading, error: summaryError } = useQuery({
     queryKey: ["dashboard-summary"],
@@ -145,7 +153,27 @@ export default function DashboardPage() {
     return items.slice(0, 6);
   }, [pendingReview]);
 
-  if (summaryLoading) {
+  // First-run experience: show onboarding dashboard if no videos created yet
+  const isFirstRun = onboarding && !onboarding.steps.first_video_created;
+
+  const checklistItems: ChecklistItem[] = useMemo(() => {
+    if (!onboarding) return [];
+    const s = onboarding.steps;
+    return [
+      { label: "Create your account", done: true },
+      { label: "Set up your channel", done: s.channel_configured, href: "/onboarding" },
+      {
+        label: "Configure API keys",
+        done: s.api_keys.configured === s.api_keys.required,
+        detail: `${s.api_keys.configured} of ${s.api_keys.required}`,
+        href: "/settings/keys",
+      },
+      { label: "Generate your AI style", done: s.style_generated, href: "/system-prompts" },
+      { label: "Create your first video", done: s.first_video_created },
+    ];
+  }, [onboarding]);
+
+  if (summaryLoading || onboardingLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size="lg" />
@@ -158,6 +186,20 @@ export default function DashboardPage() {
       <div className="py-12">
         <ErrorCard message={(summaryError as Error).message} onRetry={() => window.location.reload()} />
       </div>
+    );
+  }
+
+  if (isFirstRun) {
+    return (
+      <FirstRunDashboard
+        displayName={onboarding.display_name || "there"}
+        checklistItems={checklistItems}
+        percentComplete={onboarding.percent_complete}
+        onCreateVideo={(topic) =>
+          router.push(`/pipeline?first=true&topic=${encodeURIComponent(topic)}`)
+        }
+        onBrowseIdeas={() => router.push("/discovery")}
+      />
     );
   }
 

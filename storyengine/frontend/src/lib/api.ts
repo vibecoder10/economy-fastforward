@@ -128,11 +128,15 @@ export const getDashboardSummary = () => fetchApi<DashboardSummary>("/api/dashbo
 export type OnboardingStatus = {
   completed: boolean;
   steps: {
+    account_created: boolean;
     channel_configured: boolean;
-    api_keys_configured: boolean;
-    youtube_synced: boolean;
+    api_keys: { configured: number; required: number };
+    style_generated: boolean;
+    first_video_created: boolean;
   };
   percent_complete: number;
+  user_type: string | null;
+  display_name: string | null;
 };
 
 export const getOnboardingStatus = () =>
@@ -1306,6 +1310,11 @@ export interface ChannelProfile {
   logo_url?: string;
   google_drive_folder_id?: string;
   google_drive_folder_name?: string;
+  user_type: string;
+  style_description: string;
+  youtube_channel_id: string;
+  youtube_channel_name: string;
+  onboarding_completed_at: string | null;
 }
 
 export interface ChannelProfileUpdate {
@@ -1317,6 +1326,10 @@ export interface ChannelProfileUpdate {
   logo_url?: string;
   google_drive_folder_id?: string;
   google_drive_folder_name?: string;
+  user_type?: string;
+  style_description?: string;
+  youtube_channel_id?: string;
+  youtube_channel_name?: string;
 }
 
 export interface IntegrationStatusItem {
@@ -1436,6 +1449,73 @@ export interface DiscoveryStatus {
   fresh_count: number;
   learnings_applied: number;
 }
+
+// --- Pipeline Readiness ---
+export interface ReadinessKey {
+  key: string;
+  label: string;
+  reason: string;
+  url: string;
+}
+
+export interface ReadinessStatus {
+  ready: boolean;
+  missing_keys: ReadinessKey[];
+  configured_keys: string[];
+  warnings: ReadinessKey[];
+}
+
+export const getReadinessStatus = () =>
+  fetchApi<ReadinessStatus>("/api/pipeline/readiness");
+
+// --- System Prompts Generate ---
+export interface GenerateStyleRequest {
+  style_description: string;
+  channel_name?: string;
+  niche?: string;
+  target_audience?: string;
+}
+
+export interface GenerateStyleResponse {
+  status: string;
+  summary: string;
+  prompts: Record<string, { label: string; text: string }>;
+}
+
+export const generateSystemPrompts = (data: GenerateStyleRequest) =>
+  fetchApi<GenerateStyleResponse>("/api/system-prompts/generate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+// --- YouTube OAuth ---
+export const getYouTubeConnectUrl = () =>
+  fetchApi<{ auth_url: string }>("/api/auth/youtube/connect");
+
+export const youtubeOAuthCallback = (code: string) =>
+  fetchApi<{ status: string; channel_id: string | null; channel_name: string | null; channel_description: string | null }>("/api/auth/youtube/callback", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+
+export const getYouTubeStatus = () =>
+  fetchApi<{ connected: boolean; channel_id: string | null; channel_name: string | null }>("/api/auth/youtube/status");
+
+export const disconnectYouTube = () =>
+  fetchApi<{ status: string }>("/api/auth/youtube/disconnect", { method: "POST" });
+
+// --- Suggest Titles ---
+export interface TitleSuggestion {
+  title: string;
+  thumbnail_text: string;
+  score: number;
+}
+
+export const suggestTitles = (topic: string) =>
+  fetchApi<{ titles: TitleSuggestion[] }>("/api/videos/suggest-titles", {
+    method: "POST",
+    body: JSON.stringify({ topic }),
+  });
 
 // Export Manifest
 export interface ExportManifestFile {

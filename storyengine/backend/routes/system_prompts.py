@@ -1,10 +1,16 @@
 """Tenant-level system prompt defaults CRUD."""
 
+import json
+import logging
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute
-from prompt_defaults import PROMPT_DEFAULTS
+from prompt_defaults import PROMPT_DEFAULTS, META_PROMPT_TEMPLATE
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system-prompts", tags=["system-prompts"])
 
@@ -20,6 +26,13 @@ PROMPT_META = {
 
 class PromptUpdate(BaseModel):
     prompt_text: str
+
+
+class StyleGenerateRequest(BaseModel):
+    style_description: str
+    channel_name: Optional[str] = None
+    niche: Optional[str] = None
+    target_audience: Optional[str] = None
 
 
 @router.get("")
@@ -70,3 +83,114 @@ async def reset_prompt(key: str, tenant_id: str = Depends(get_tenant_id)):
         tenant_id, key,
     )
     return {"status": "reset", "key": key, "prompt": PROMPT_DEFAULTS[key]}
+
+
+PROMPT_KEYS = ["script", "thumbnail", "video_motion", "sound_curation", "sound_generation", "research"]
+
+
+@router.post("/generate")
+async def generate_prompts(body: StyleGenerateRequest, tenant_id: str = Depends(get_tenant_id)):
+    """Generate all 6 system prompts from a plain-English style description using Claude."""
+    from vault import get_secret
+
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Anthropic API key required. Configure it in Settings > API Keys.",
+        )
+
+    # Build the meta-prompt with default templates
+    meta_prompt = META_PROMPT_TEMPLATE.format(
+        channel_name=body.channel_name or "Not specified",
+        niche=body.niche or "Not specified",
+        target_audience=body.target_audience or "Not specified",
+        style_description=body.style_description,
+        script_template=PROMPT_DEFAULTS["script"],
+        thumbnail_template=PROMPT_DEFAULTS["thumbnail"],
+        video_motion_template=PROMPT_DEFAULTS["video_motion"],
+        sound_curation_template=PROMPT_DEFAULTS["sound_curation"],
+        sound_generation_template=PROMPT_DEFAULTS["sound_generation"],
+        research_template=PROMPT_DEFAULTS["research"],
+    )
+
+    # Call Claude API
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 8000,
+                    "messages": [{"role": "user", "content": meta_prompt}],
+                },
+            )
+
+        if resp.status_code != 200:
+            logger.error("Claude API error %s: %s", resp.status_code, resp.text[:500])
+            raise HTTPException(
+                status_code=502,
+                detail=f"Claude API error: {resp.status_code}",
+            )
+
+        data = resp.json()
+        raw_text = data["content"][0]["text"]
+    except httpx.HTTPError as exc:
+        logger.error("Claude API request failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Failed to reach Claude API")
+
+    # Parse Claude's JSON response
+    try:
+        generated = json.loads(raw_text)
+    except json.JSONDecodeError:
+        logger.error("Failed to parse Claude response as JSON: %s", raw_text[:500])
+        raise HTTPException(
+            status_code=502,
+            detail="Claude returned malformed JSON. Try again.",
+        )
+
+    # Validate all 6 keys are present
+    missing = [k for k in PROMPT_KEYS if k not in generated]
+    if missing:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Claude response missing prompt keys: {', '.join(missing)}",
+        )
+
+    summary = generated.pop("summary", "Custom style generated successfully.")
+
+    # Save all 6 prompts via upsert
+    for key in PROMPT_KEYS:
+        await execute(
+            """INSERT INTO tenant_prompt_defaults (tenant_id, prompt_key, prompt_text, updated_at)
+               VALUES ($1, $2, $3, now())
+               ON CONFLICT (tenant_id, prompt_key)
+               DO UPDATE SET prompt_text = $3, updated_at = now()""",
+            tenant_id, key, generated[key],
+        )
+
+    # Save style_description to channel_profiles
+    await execute(
+        "UPDATE channel_profiles SET style_description = $2 WHERE tenant_id = $1",
+        tenant_id, body.style_description,
+    )
+
+    return {
+        "status": "generated",
+        "summary": summary,
+        "prompts": {
+            key: {
+                "key": key,
+                "label": PROMPT_META[key]["label"],
+                "prompt": generated[key],
+            }
+            for key in PROMPT_KEYS
+        },
+    }

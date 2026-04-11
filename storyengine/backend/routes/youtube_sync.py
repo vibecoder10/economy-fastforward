@@ -11,6 +11,7 @@ This closes the learning feedback loop:
 Pipeline uploads → YouTube publishes → This sync pulls metrics →
 Learning extraction detects patterns → Discovery uses patterns
 """
+from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone, timedelta
@@ -84,18 +85,33 @@ async def sync_status(tenant_id: str = Depends(get_tenant_id)):
 async def _run_sync(tenant_id: str):
     """Background task: sync YouTube metrics to videos table."""
     try:
+        import os
         import httpx
         from vault import get_secret
 
-        # Get OAuth credentials
-        client_id = await get_secret("google_client_id", tenant_id)
-        client_secret = await get_secret("google_client_secret", tenant_id)
-        refresh_token = await get_secret("google_refresh_token", tenant_id)
+        # Try YouTube OAuth token from channel_profiles first (per-user OAuth flow)
+        yt_row = await fetch_one(
+            "SELECT youtube_refresh_token FROM channel_profiles WHERE tenant_id = $1",
+            tenant_id,
+        )
+        yt_refresh = yt_row.get("youtube_refresh_token") if yt_row else None
+
+        if yt_refresh:
+            # Use YouTube OAuth token with global OAuth client credentials
+            client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+            client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+            refresh_token = yt_refresh
+        else:
+            # Fallback: legacy vault-based credentials
+            client_id = await get_secret("google_client_id", tenant_id)
+            client_secret = await get_secret("google_client_secret", tenant_id)
+            refresh_token = await get_secret("google_refresh_token", tenant_id)
 
         if not all([client_id, client_secret, refresh_token]):
             _sync_tasks[tenant_id] = {
                 "running": False,
-                "error": "Google OAuth credentials not configured. Add google_client_id, google_client_secret, and google_refresh_token in Settings > Keys.",
+                "error": "YouTube not connected. Go to Settings to connect your YouTube channel.",
+                "error_type": "auth",
             }
             return
 

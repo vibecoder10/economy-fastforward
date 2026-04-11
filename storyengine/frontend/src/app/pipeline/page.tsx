@@ -3,7 +3,7 @@ import { Spinner } from "@/components/ui/spinner";
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
@@ -26,11 +26,14 @@ import {
   getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
   launchIdea, dismissIdea, getUserPreferences, setUserPreference,
+  getReadinessStatus, setApiKey, testApiKey,
   type VideoSummary, type DiscoveryIdea, type TitleOption,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Modal } from "@/components/ui/modal";
+import { ReadinessCheck } from "@/components/pipeline/ReadinessCheck";
+import { FirstVideoFlow } from "@/components/pipeline/FirstVideoFlow";
 
 const container = {
   hidden: { opacity: 0 },
@@ -186,13 +189,26 @@ function SortableTab({
   );
 }
 
+type ModalView = null | "readiness" | "firstVideo" | "existingCreate";
+
 export default function VideosPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<TabId>("active");
   const [statusFilter, setStatusFilter] = useState("");
+
+  // New video flow modal state
+  const [activeModal, setActiveModal] = useState<ModalView>(null);
+  const [readinessData, setReadinessData] = useState<{
+    ready: boolean;
+    missing_keys: { key: string; label: string; reason: string; url: string }[];
+    configured_keys: string[];
+    warnings: { key: string; label: string; reason: string; url: string }[];
+  } | null>(null);
+  const [pendingFlowTarget, setPendingFlowTarget] = useState<"firstVideo" | "existingCreate">("existingCreate");
 
   // Create modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -344,6 +360,81 @@ export default function VideosPage() {
     });
   };
 
+  // ---- New Video Flow: readiness check then first-video or existing create ----
+
+  const isFirstTime = searchParams.get("first") === "true";
+  const initialTopic = searchParams.get("topic") || "";
+  const hasNoVideos = !videosLoading && (!videos || videos.length === 0);
+
+  const handleNewVideoClick = useCallback(async () => {
+    // Determine which create flow to show after readiness
+    const target: "firstVideo" | "existingCreate" =
+      isFirstTime || hasNoVideos ? "firstVideo" : "existingCreate";
+    setPendingFlowTarget(target);
+
+    try {
+      const status = await getReadinessStatus();
+      setReadinessData(status);
+      if (!status.ready) {
+        setActiveModal("readiness");
+      } else {
+        setActiveModal(target);
+      }
+    } catch {
+      // If readiness check fails, proceed to create flow anyway
+      setActiveModal(target);
+    }
+  }, [isFirstTime, hasNoVideos]);
+
+  // Auto-open flow when arriving with ?first=true
+  useEffect(() => {
+    if (isFirstTime && !videosLoading) {
+      handleNewVideoClick();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFirstTime, videosLoading]);
+
+  const handleReadinessProceed = () => {
+    setActiveModal(pendingFlowTarget);
+  };
+
+  const handleReadinessClose = () => {
+    // Re-check readiness after user says they added keys
+    getReadinessStatus()
+      .then((status) => {
+        setReadinessData(status);
+        if (status.ready) {
+          setActiveModal(pendingFlowTarget);
+        }
+      })
+      .catch(() => {
+        setActiveModal(pendingFlowTarget);
+      });
+  };
+
+  const handleConfigureKey = async (keyName: string, value: string): Promise<boolean> => {
+    try {
+      await setApiKey(keyName, value);
+      const result = await testApiKey(keyName);
+      return result.success === true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleFirstVideoCreate = (title: string, videoLength: number, angle?: string) => {
+    createMutation.mutate({
+      title,
+      video_length_minutes: videoLength,
+      writer_guidance: angle || undefined,
+    });
+    setActiveModal(null);
+  };
+
+  const handleModalClose = () => {
+    setActiveModal(null);
+  };
+
   // Filtered videos
   const allVideos = (videos || []).filter((v: VideoSummary) =>
     (v.video_title || "").toLowerCase().includes(search.toLowerCase())
@@ -425,7 +516,7 @@ export default function VideosPage() {
 
           {/* New Video Button */}
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={handleNewVideoClick}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 shrink-0"
             style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
           >
@@ -735,8 +826,8 @@ export default function VideosPage() {
         )}
       </Modal>
 
-      {/* === NEW VIDEO MODAL === */}
-      <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="New Video" size="md">
+      {/* === NEW VIDEO MODAL (existing — for returning users) === */}
+      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); }} title="New Video" size="md">
         <div className="space-y-4">
           {/* Primary: Topic / Title */}
           <div>
@@ -1039,6 +1130,31 @@ export default function VideosPage() {
           </div>
         )}
       </Modal>
+
+      {/* === READINESS CHECK MODAL === */}
+      <AnimatePresence>
+        {activeModal === "readiness" && readinessData && (
+          <ReadinessCheck
+            missing={readinessData.missing_keys}
+            configured={readinessData.configured_keys}
+            warnings={readinessData.warnings}
+            onConfigureKey={handleConfigureKey}
+            onProceedAnyway={handleReadinessProceed}
+            onClose={handleReadinessClose}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* === FIRST VIDEO FLOW MODAL === */}
+      <AnimatePresence>
+        {activeModal === "firstVideo" && (
+          <FirstVideoFlow
+            onCreateVideo={handleFirstVideoCreate}
+            onClose={handleModalClose}
+            initialTopic={initialTopic}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
