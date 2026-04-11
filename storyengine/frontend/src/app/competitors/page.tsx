@@ -25,8 +25,10 @@ import {
   getScrapeStatus,
   cancelScrape,
   searchIntelligence,
+  distillFromURL,
   type NicheVideo,
   type IntelligenceSearchResult,
+  type DistillURLResult,
 } from "@/lib/api";
 import { formatNumber, timeAgo } from "@/lib/utils";
 
@@ -133,6 +135,12 @@ export default function CompetitorsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<IntelligenceSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
+
+  // Distill from URL
+  const [distillUrl, setDistillUrl] = useState("");
+  const [distilling, setDistilling] = useState(false);
+  const [distillResult, setDistillResult] = useState<DistillURLResult | null>(null);
+  const [distillError, setDistillError] = useState("");
 
   // "Model This" modal state
   const [modelVideo, setModelVideo] = useState<NicheVideo | null>(null);
@@ -610,6 +618,173 @@ export default function CompetitorsPage() {
               </GlassCard>
             ))}
           </div>
+        </motion.div>
+      )}
+
+      {/* Distill from URL */}
+      <motion.div variants={item}>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={distillUrl}
+            onChange={(e) => { setDistillUrl(e.target.value); setDistillError(""); }}
+            onKeyDown={async (e) => {
+              if (e.key === "Enter" && distillUrl.trim() && !distilling) {
+                setDistilling(true);
+                setDistillError("");
+                setDistillResult(null);
+                try {
+                  const res = await distillFromURL(distillUrl.trim());
+                  setDistillResult(res);
+                  if (res.status === "distilled" || res.status === "already_distilled") {
+                    queryClient.invalidateQueries({ queryKey: ["niche-videos"] });
+                  }
+                } catch (err: unknown) {
+                  setDistillError(err instanceof Error ? err.message : "Distillation failed");
+                } finally {
+                  setDistilling(false);
+                }
+              }
+            }}
+            placeholder="Paste any YouTube URL to distill... (e.g. https://youtu.be/...)"
+            className="flex-1 rounded-lg px-4 py-2 text-sm font-body outline-none placeholder:opacity-40"
+            style={{
+              background: "var(--bg-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+            }}
+          />
+          <button
+            onClick={async () => {
+              if (!distillUrl.trim() || distilling) return;
+              setDistilling(true);
+              setDistillError("");
+              setDistillResult(null);
+              try {
+                const res = await distillFromURL(distillUrl.trim());
+                setDistillResult(res);
+                if (res.status === "distilled" || res.status === "already_distilled") {
+                  queryClient.invalidateQueries({ queryKey: ["niche-videos"] });
+                }
+              } catch (err: unknown) {
+                setDistillError(err instanceof Error ? err.message : "Distillation failed");
+              } finally {
+                setDistilling(false);
+              }
+            }}
+            disabled={distilling || !distillUrl.trim()}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-opacity disabled:opacity-40"
+            style={{ background: "var(--amber)", color: "#000" }}
+          >
+            {distilling ? "Distilling..." : "Distill"}
+          </button>
+          {distillResult && (
+            <button
+              onClick={() => { setDistillResult(null); setDistillUrl(""); }}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {distillError && (
+          <p className="text-xs mt-1" style={{ color: "var(--rose)" }}>{distillError}</p>
+        )}
+      </motion.div>
+
+      {/* Distill result */}
+      {distillResult && (
+        <motion.div variants={item}>
+          <GlassCard className="!p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="text-[10px] font-mono px-2 py-0.5 rounded-full"
+                style={{
+                  background: distillResult.status === "distilled" ? "rgba(52,211,153,0.15)" : "rgba(251,191,36,0.15)",
+                  color: distillResult.status === "distilled" ? "var(--turquoise)" : "var(--amber)",
+                }}
+              >
+                {distillResult.status === "distilled" ? "DISTILLED" : distillResult.status === "already_distilled" ? "ALREADY DISTILLED" : "PARTIAL"}
+              </div>
+              {distillResult.vph != null && (
+                <span className="text-xs font-mono" style={{ color: "var(--turquoise)" }}>
+                  {formatNumber(distillResult.vph)} VPH
+                </span>
+              )}
+              {distillResult.views != null && (
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {formatNumber(distillResult.views)} views
+                </span>
+              )}
+              {distillResult.has_transcript && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full" style={{ background: "rgba(52,211,153,0.1)", color: "var(--turquoise)" }}>
+                  {formatNumber(distillResult.transcript_chars || 0)} chars
+                </span>
+              )}
+            </div>
+
+            <div>
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{distillResult.title}</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{distillResult.channel}</p>
+            </div>
+
+            {distillResult.summary && (
+              <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {distillResult.summary}
+              </p>
+            )}
+
+            {distillResult.dna && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {(distillResult.dna as Record<string, unknown>).hook_dna && (
+                  <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
+                    Hook: {((distillResult.dna as Record<string, Record<string, string>>).hook_dna)?.type || "—"}
+                  </span>
+                )}
+                {(distillResult.dna as Record<string, unknown>).content_dna && (
+                  <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(59,130,246,0.12)", color: "var(--blue)" }}>
+                    Tone: {((distillResult.dna as Record<string, Record<string, string>>).content_dna)?.tone || "—"}
+                  </span>
+                )}
+                {(distillResult.dna as Record<string, unknown>).title_dna && (
+                  <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(168,85,247,0.12)", color: "var(--purple)" }}>
+                    Title: {((distillResult.dna as Record<string, Record<string, string>>).title_dna)?.structure || "—"}
+                  </span>
+                )}
+                {(distillResult.dna as Record<string, unknown>).thumbnail_dna && (
+                  <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(52,211,153,0.12)", color: "var(--turquoise)" }}>
+                    Thumb: {((distillResult.dna as Record<string, Record<string, string>>).thumbnail_dna)?.overall_style || ((distillResult.dna as Record<string, Record<string, string>>).thumbnail_dna)?.face_emotion || "—"}
+                  </span>
+                )}
+                {(distillResult.dna as Record<string, unknown>).retention_dna && (
+                  <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(244,63,94,0.12)", color: "var(--rose)" }}>
+                    Retention: {((distillResult.dna as Record<string, Record<string, string>>).retention_dna)?.payoff_quality || "—"}
+                  </span>
+                )}
+                {(distillResult.dna as Record<string, unknown>).villain_dna && (
+                  <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(249,115,22,0.12)", color: "var(--orange)" }}>
+                    Villain: {((distillResult.dna as Record<string, Record<string, string>>).villain_dna)?.type || "—"}
+                  </span>
+                )}
+                {(distillResult.dna as Record<string, Record<string, unknown>>).content_dna?.topic_tags && (
+                  <>
+                    {((distillResult.dna as Record<string, Record<string, string[]>>).content_dna.topic_tags || []).slice(0, 5).map((t: string) => (
+                      <span key={t} className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)" }}>
+                        {t}
+                      </span>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {distillResult.error && (
+              <p className="text-xs" style={{ color: "var(--rose)" }}>
+                {distillResult.error}
+              </p>
+            )}
+          </GlassCard>
         </motion.div>
       )}
 

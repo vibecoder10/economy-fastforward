@@ -1740,3 +1740,24 @@ export const getBackfillStatus = () =>
   fetchApi<{ running: boolean; processed?: number; failed?: number; status?: string }>(
     "/api/intelligence/backfill/status"
   );
+
+export interface DistillURLResult {
+  status: string;
+  video_id: string;
+  title?: string;
+  channel?: string;
+  views?: number;
+  vph?: number;
+  has_transcript?: boolean;
+  transcript_chars?: number;
+  summary?: string;
+  dna?: Record<string, unknown>;
+  distillation_result?: Record<string, unknown>;
+  error?: string;
+}
+
+export const distillFromURL = (url: string) =>
+  fetchApi<DistillURLResult>("/api/intelligence/distill-url", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
