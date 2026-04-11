@@ -1,45 +1,55 @@
 # Task Tracking
 
-## Handoff (2026-04-11 — Content Intelligence Full Stack)
+## Handoff (2026-04-11 — Autopilot Intelligence + Second-Order Distillation)
 
-### Phase 1: Backend Pipeline (DONE)
-- `storyengine/backend/distillation/` (NEW module) — embeddings.py, distiller.py, pipeline.py, thumbnail_analyzer.py
-- `storyengine/backend/routes/intelligence.py` (NEW) — 10 API endpoints (search, backfill, stats, 5 insight types)
-- `storyengine/backend/migrations/036-039` — pgvector, content_intelligence table, extended video DNA columns, updated_at
-- Full video DNA extraction: hook, title, content, retention, villain, engagement, thumbnail (Gemini Vision)
-- Extended yt-dlp scraper: 12 new fields + derived metrics (like_ratio, views_per_sub_ratio, timing)
+### Phase 5: Intelligence Advisor (DONE)
+- `storyengine/backend/distillation/advisor.py` (NEW) — IntelligenceAdvisor class
+  - Queries content_intelligence aggregates for best-performing patterns
+  - Returns: best hook type, thumbnail style, title structure, publish timing, top topics
+  - `to_prompt_context()` formats for Claude prompt injection
+  - `to_dict()` serializes for API response
+  - Parallel async queries, confidence = min(1.0, sample_size / 50)
+- Wired into `routes/autopilot.py` — Intelligence scoring now matches candidate DNA against niche recommendations
+  - Candidates with matching hook_type get +15, title_structure +10, topics +10
+  - Candidates query LEFT JOINs content_intelligence for hook_type, title_structure, topic_tags
+  - New `GET /api/autopilot/recommendations` endpoint for dashboard
+- Wired into `routes/discovery.py` — `_get_learnings_context()` now includes niche intelligence recommendations section
 
-### Phase 2: Wiring Audit + Bug Fixes (DONE)
-- Fixed: `competitors` NameError in learning_extraction.py (would crash at runtime)
-- Fixed: semantic search JOIN using source_table instead of tenant_id
-- Fixed: UPSERT overwriting created_at (added updated_at column + migration 039)
-- Fixed: niche.py UPDATE missing published_date
-- Fixed: autopilot has_transcript misleading logic
+### Phase 6: Auto-Distillation + Meta-Analysis (DONE)
+- `_auto_distill_intelligence()` background task in main.py (12h cycle, 25 videos/batch)
+- `_auto_generate_meta_insights()` background task in main.py (24h cycle)
+- `storyengine/backend/distillation/meta_analyzer.py` (NEW) — Second-order distillation
+  - Gathers 10+ aggregated pattern queries (hooks, titles, thumbnails, topics, timing, controversy, tones, viral videos)
+  - Sends to Claude Haiku for meta-analysis
+  - Extracts: top_patterns, combination_insights, timing_strategy, contrarian_findings, niche_signature
+  - Stores in `niche_meta_insights` table (upserted per tenant)
+- `storyengine/backend/migrations/040_niche_meta_insights.sql` (NEW) — niche_meta_insights table
+- `routes/intelligence.py` — 3 new endpoints:
+  - `GET /api/intelligence/recommendations` — advisor recommendations
+  - `GET /api/intelligence/meta-insights` — latest meta-analysis report
+  - `POST /api/intelligence/meta-insights/generate` — trigger meta-analysis
 
-### Phase 3: Intelligence-Driven Scoring (DONE)
-- Autopilot scoring: VPH 45% + Freshness 35% + Intelligence 20% (engagement, virality, DNA, learnings match)
-- Discovery ideas: full DNA injection (hook, title, content, thumbnail, retention, controversy)
-- Autopilot launch: injects intelligence + learnings into `script_system_prompt` for script generation
+### Phase 7: Frontend Dashboard (DONE)
+- `api.ts`: New types + API functions (IntelligenceRecommendations, NicheMetaInsights, 4 new fetch functions)
+- `analytics/page.tsx`: Two new panels in Niche Intelligence section:
+  - **AI Recommendations** — 4-card grid: Best Hook, Best Title Structure, Best Thumbnail, Best Timing + top topics
+  - **Niche Meta-Analysis** — Claude-generated report with top patterns, contrarian findings, winning combinations
+  - Generate button for meta-analysis when 20+ videos distilled
 
-### Phase 4: Frontend Intelligence UI (DONE)
-- `api.ts`: All intelligence types + 9 API functions (search, stats, topics, hooks, thumbnails, timing, virality, backfill)
-- `playing-card.tsx`: Intelligence score row in confidence breakdown
-- `card-expanded.tsx`: Full DNA display (summary, hook/tone/title/thumbnail badges, topics, opening line)
-- `competitors/page.tsx`: DNA badges on every video card + semantic search bar with results
-- `discovery/page.tsx`: DNA badges (hook_type, tone, title_structure, thumbnail_style) on idea cards
-- `analytics/page.tsx`: Niche Intelligence section (hook patterns, thumbnail styles, publish timing, trending topics)
-- Backend: niche/videos + discovery/ideas endpoints return intelligence via LEFT JOIN
-
-### What's next (deploy + extend):
-1. Run migrations 036 + 037 + 038 + 039 on Supabase SQL Editor
-2. Trigger backfill: `POST /api/intelligence/backfill?batch_size=50`
-3. Monitor: `GET /api/intelligence/stats`
-4. **Autopilot autonomous decisions**: auto-select hook type, thumbnail style, title formula based on intelligence
-5. **Second-order distillation**: niche-level meta-analysis across all distilled videos
-6. Extend distillation to video_scripts, research_payloads, agent_paper_trails
-7. Add GCS archival for raw transcripts after distillation
+### What's next:
+1. **Deploy**: Restart backend to auto-apply migrations 036-040 + start background tasks
+2. **Trigger backfill**: `POST /api/intelligence/backfill?batch_size=50` (or wait 12h for auto-distillation)
+3. **Trigger meta-analysis**: `POST /api/intelligence/meta-insights/generate` (or wait 24h)
+4. Extend distillation to video_scripts, research_payloads, agent_paper_trails
+5. Add GCS archival for raw transcripts after distillation
+6. Autopilot auto-launch: use recommendations to auto-select which discovery idea to launch
 
 **Design decisions:** See `tasks/decisions.md` — ADR 2026-04-11
+
+### Previous: Phases 1-4 (Content Intelligence Full Stack) — DONE
+- Backend distillation pipeline (Haiku + Gemini Vision + OpenAI embeddings)
+- 10 intelligence API endpoints + frontend UI
+- Intelligence-driven scoring in autopilot + discovery
 
 ---
 

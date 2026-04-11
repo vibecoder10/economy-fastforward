@@ -267,6 +267,64 @@ async def _run_pending_migrations():
         logger.info("Migrations checked (%d files, %d new)", len(sql_files), len(sql_files) - len(applied_set))
 
 
+async def _auto_distill_intelligence():
+    """Background task: distill new competitor transcripts every 12h.
+
+    Only runs for tenants with autopilot ENABLED.
+    Extracts structured DNA (hook, title, content, retention, villain, thumbnail)
+    from competitor video transcripts and stores in content_intelligence table
+    with vector embeddings for semantic search.
+    """
+    await asyncio.sleep(120)  # Offset from other startup tasks
+    while True:
+        try:
+            tenant_ids = await _get_all_tenant_ids()
+            for tenant_id in tenant_ids:
+                try:
+                    if not await _is_autopilot_enabled(tenant_id):
+                        continue
+                    _update_bg_status(tenant_id, "distillation", is_running=True, last_error=None)
+                    from distillation.pipeline import backfill_competitor_transcripts
+                    result = await backfill_competitor_transcripts(tenant_id, batch_size=25)
+                    _update_bg_status(tenant_id, "distillation", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
+                    processed = result.get("processed", 0) if isinstance(result, dict) else 0
+                    logger.info("[AutoDistill] Tenant %s: %d videos distilled", tenant_id[:8], processed)
+                except Exception as e:
+                    _update_bg_status(tenant_id, "distillation", is_running=False, last_error=str(e))
+                    logger.error("[AutoDistill] Tenant %s error: %s", tenant_id[:8], e)
+        except Exception as e:
+            logger.error("[AutoDistill] Error: %s", e)
+
+        await asyncio.sleep(43200)  # Every 12 hours
+
+
+async def _auto_generate_meta_insights():
+    """Background task: generate niche meta-insights every 24h.
+
+    Only runs for tenants with autopilot ENABLED and 20+ distilled videos.
+    Produces second-order distillation: cross-video meta-analysis of niche patterns
+    stored in niche_meta_insights table.
+    """
+    await asyncio.sleep(180)  # Offset from other startup tasks
+    while True:
+        try:
+            tenant_ids = await _get_all_tenant_ids()
+            for tenant_id in tenant_ids:
+                try:
+                    if not await _is_autopilot_enabled(tenant_id):
+                        continue
+                    from distillation.meta_analyzer import generate_niche_meta_insights
+                    result = await generate_niche_meta_insights(tenant_id)
+                    if result:
+                        logger.info("[AutoMetaInsights] Tenant %s: generated (%d videos)", tenant_id[:8], result.get("sample_size", 0))
+                except Exception as e:
+                    logger.error("[AutoMetaInsights] Tenant %s error: %s", tenant_id[:8], e)
+        except Exception as e:
+            logger.error("[AutoMetaInsights] Error: %s", e)
+
+        await asyncio.sleep(86400)  # Every 24 hours
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
@@ -297,6 +355,8 @@ async def lifespan(app: FastAPI):
     title_analysis_task = asyncio.create_task(_auto_analyze_competitor_titles())
     scrape_task = asyncio.create_task(_auto_scrape_competitors())
     trial_warning_task = asyncio.create_task(_auto_check_trial_warnings())
+    distillation_task = asyncio.create_task(_auto_distill_intelligence())
+    meta_insights_task = asyncio.create_task(_auto_generate_meta_insights())
 
     yield
 
@@ -306,6 +366,8 @@ async def lifespan(app: FastAPI):
     title_analysis_task.cancel()
     scrape_task.cancel()
     trial_warning_task.cancel()
+    distillation_task.cancel()
+    meta_insights_task.cancel()
     await close_pool()
 
 

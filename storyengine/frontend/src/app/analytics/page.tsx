@@ -41,6 +41,9 @@ import {
   getHookInsights,
   getThumbnailInsights,
   getTimingInsights,
+  getIntelligenceRecommendations,
+  getNicheMetaInsights,
+  triggerMetaAnalysis,
   type VideoSummary,
   type LearningRecord,
   type AnalyticsOverview,
@@ -53,6 +56,7 @@ import {
   type HookInsight,
   type ThumbnailInsights,
   type TimingInsights,
+  type IntelligenceRecommendations,
 } from "@/lib/api";
 import { COMPLETED_STATUSES } from "@/lib/constants";
 import { formatNumber, timeAgo } from "@/lib/utils";
@@ -182,6 +186,18 @@ export default function AnalyticsPage() {
   const { data: nicheTiming } = useQuery({
     queryKey: ["intelligence-timing"],
     queryFn: getTimingInsights,
+  });
+  const { data: nicheRecs } = useQuery({
+    queryKey: ["intelligence-recommendations"],
+    queryFn: getIntelligenceRecommendations,
+  });
+  const { data: metaInsights } = useQuery({
+    queryKey: ["intelligence-meta-insights"],
+    queryFn: getNicheMetaInsights,
+  });
+  const metaAnalysisMutation = useMutation({
+    mutationFn: triggerMetaAnalysis,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intelligence-meta-insights"] }),
   });
 
   // YouTube sync status
@@ -1002,6 +1018,161 @@ export default function AnalyticsPage() {
             <span>{intelStats.compression_ratio}x compression</span>
             <span>{intelStats.estimated_savings_mb.toFixed(1)} MB saved</span>
           </div>
+
+          {/* Intelligence Recommendations */}
+          {nicheRecs?.status === "ok" && nicheRecs.recommendations && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Target size={14} style={{ color: "var(--emerald)" }} />
+                <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  AI Recommendations
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ background: "rgba(52,211,153,0.12)", color: "var(--emerald)" }}>
+                  {Math.round(nicheRecs.recommendations.confidence * 100)}% confidence
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Best Hook */}
+                {nicheRecs.recommendations.hook && (
+                  <GlassCard className="p-3 space-y-1">
+                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Hook</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {nicheRecs.recommendations.hook.type.replace(/_/g, " ")}
+                    </div>
+                    <div className="text-[11px]" style={{ color: "var(--amber)" }}>
+                      {nicheRecs.recommendations.hook.avg_vph.toLocaleString()} avg VPH · {nicheRecs.recommendations.hook.count} videos
+                    </div>
+                  </GlassCard>
+                )}
+                {/* Best Title Structure */}
+                {nicheRecs.recommendations.title_structure && (
+                  <GlassCard className="p-3 space-y-1">
+                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Title Structure</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {nicheRecs.recommendations.title_structure.structure.replace(/_/g, " ")}
+                    </div>
+                    <div className="text-[11px]" style={{ color: "var(--amber)" }}>
+                      {nicheRecs.recommendations.title_structure.avg_vph.toLocaleString()} avg VPH
+                    </div>
+                  </GlassCard>
+                )}
+                {/* Best Thumbnail */}
+                {nicheRecs.recommendations.thumbnail && (
+                  <GlassCard className="p-3 space-y-1">
+                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Thumbnail</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {nicheRecs.recommendations.thumbnail.style?.replace(/_/g, " ") || "—"}
+                    </div>
+                    <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      {nicheRecs.recommendations.thumbnail.layout?.replace(/_/g, " ") || "—"} layout
+                      {nicheRecs.recommendations.thumbnail.face_emotion && ` · ${nicheRecs.recommendations.thumbnail.face_emotion} face`}
+                    </div>
+                  </GlassCard>
+                )}
+                {/* Best Timing */}
+                {nicheRecs.recommendations.timing && (
+                  <GlassCard className="p-3 space-y-1">
+                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Timing</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {nicheRecs.recommendations.timing.best_day_name || "—"}
+                    </div>
+                    <div className="text-[11px]" style={{ color: "var(--amber)" }}>
+                      {nicheRecs.recommendations.timing.best_day_avg_vph.toLocaleString()} VPH
+                      {nicheRecs.recommendations.timing.best_hour != null && ` · ${nicheRecs.recommendations.timing.best_hour}:00`}
+                    </div>
+                  </GlassCard>
+                )}
+              </div>
+              {/* Top Topics */}
+              {nicheRecs.recommendations.top_topics.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>Top topics:</span>
+                  {nicheRecs.recommendations.top_topics.map((t) => (
+                    <span key={t.topic} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.10)", color: "var(--amber)" }}>
+                      {t.topic} ({t.avg_vph.toLocaleString()} VPH)
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Meta-Insights (Second-Order Distillation) */}
+          {metaInsights?.status === "ok" && metaInsights.insights && (
+            <GlassCard className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap size={14} style={{ color: "var(--violet)" }} />
+                  <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Niche Meta-Analysis</h3>
+                  <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                    {metaInsights.sample_size} videos · {metaInsights.generated_at ? new Date(metaInsights.generated_at).toLocaleDateString() : ""}
+                  </span>
+                </div>
+                <button
+                  onClick={() => metaAnalysisMutation.mutate()}
+                  disabled={metaAnalysisMutation.isPending}
+                  className="p-1 rounded hover:brightness-110 disabled:opacity-50"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {metaAnalysisMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                </button>
+              </div>
+
+              {metaInsights.insights.niche_summary && (
+                <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  {metaInsights.insights.niche_summary}
+                </p>
+              )}
+
+              {metaInsights.insights.top_patterns && metaInsights.insights.top_patterns.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Top Patterns</div>
+                  {metaInsights.insights.top_patterns.map((p, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <span className="shrink-0 w-1 h-1 mt-1.5 rounded-full" style={{ background: p.confidence === "high" ? "var(--emerald)" : p.confidence === "medium" ? "var(--amber)" : "var(--text-muted)" }} />
+                      <div>
+                        <span style={{ color: "var(--text-primary)" }}>{p.pattern}</span>
+                        <span className="ml-1.5" style={{ color: "var(--emerald)" }}>{p.performance}</span>
+                        {p.recommendation && (
+                          <span className="ml-1.5" style={{ color: "var(--text-muted)" }}>— {p.recommendation}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {metaInsights.insights.contrarian_findings && metaInsights.insights.contrarian_findings.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Contrarian Findings</div>
+                  {metaInsights.insights.contrarian_findings.map((f, i) => (
+                    <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>⚡ {f}</div>
+                  ))}
+                </div>
+              )}
+
+              {metaInsights.insights.combination_insights && metaInsights.insights.combination_insights.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Winning Combinations</div>
+                  {metaInsights.insights.combination_insights.map((c, i) => (
+                    <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>→ {c}</div>
+                  ))}
+                </div>
+              )}
+            </GlassCard>
+          )}
+
+          {/* Generate meta-insights button if none exist */}
+          {(!metaInsights || metaInsights.status === "not_generated") && intelStats.distilled >= 20 && (
+            <ActionButton
+              variant="outline"
+              onClick={() => metaAnalysisMutation.mutate()}
+              disabled={metaAnalysisMutation.isPending}
+            >
+              {metaAnalysisMutation.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : <Zap size={12} className="mr-1" />}
+              Generate Niche Meta-Analysis ({intelStats.distilled} videos)
+            </ActionButton>
+          )}
         </motion.div>
       )}
 

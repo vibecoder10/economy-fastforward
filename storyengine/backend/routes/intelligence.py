@@ -425,3 +425,99 @@ async def get_virality_insights(
         "viral_videos": [dict(r) for r in (rows or [])],
         "count": len(rows or []),
     }
+
+
+# ── Recommendations ─────────────────────────────────────────────
+
+@router.get("/recommendations")
+async def get_recommendations(
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Get data-backed niche intelligence recommendations.
+
+    Returns best-performing hook type, thumbnail style, title structure,
+    publish timing, and top topics — all correlated with VPH performance.
+    """
+    from distillation.advisor import get_advisor
+    advisor = get_advisor()
+    recs = await advisor.get_recommendations(tenant_id)
+
+    if recs.sample_size < 5:
+        return {
+            "status": "insufficient_data",
+            "message": f"Need at least 5 distilled videos (have {recs.sample_size})",
+            "recommendations": None,
+        }
+    return {
+        "status": "ok",
+        "recommendations": recs.to_dict(),
+    }
+
+
+# ── Meta-Insights ───────────────────────────────────────────────
+
+@router.get("/meta-insights")
+async def get_meta_insights(
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Get the latest niche-level meta-insights (second-order distillation).
+
+    Returns cross-video patterns, combination insights, timing strategy,
+    contrarian findings, and niche signature.
+    """
+    row = await fetch_one(
+        """SELECT id, generated_at, sample_size, meta_report, structured_insights,
+                  top_hook_types, top_thumbnail_patterns, top_title_structures,
+                  optimal_timing, niche_signature
+           FROM niche_meta_insights
+           WHERE tenant_id = $1
+           ORDER BY generated_at DESC
+           LIMIT 1""",
+        tenant_id,
+    )
+
+    if not row:
+        return {
+            "status": "not_generated",
+            "message": "No meta-insights yet. Run backfill + wait for auto-analysis (24h cycle).",
+            "insights": None,
+        }
+
+    # Parse JSONB fields
+    structured = row.get("structured_insights")
+    if isinstance(structured, str):
+        structured = json.loads(structured)
+
+    return {
+        "status": "ok",
+        "generated_at": row["generated_at"].isoformat() if row.get("generated_at") else None,
+        "sample_size": row.get("sample_size", 0),
+        "meta_report": row.get("meta_report"),
+        "insights": structured,
+        "top_hook_types": row.get("top_hook_types"),
+        "top_thumbnail_patterns": row.get("top_thumbnail_patterns"),
+        "top_title_structures": row.get("top_title_structures"),
+        "optimal_timing": row.get("optimal_timing"),
+        "niche_signature": row.get("niche_signature"),
+    }
+
+
+@router.post("/meta-insights/generate")
+async def trigger_meta_analysis(
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Trigger niche meta-analysis (second-order distillation).
+
+    Aggregates all distilled content intelligence and generates
+    a Claude-powered meta-analysis of niche patterns.
+    """
+    async def _run():
+        try:
+            from distillation.meta_analyzer import generate_niche_meta_insights
+            await generate_niche_meta_insights(tenant_id)
+        except Exception as e:
+            logger.error("[MetaInsights] Generation failed: %s", e)
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": "Meta-analysis generation started"}
