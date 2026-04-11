@@ -2,6 +2,7 @@
 
 Endpoints:
   POST /api/intelligence/backfill          — Process existing transcripts
+  POST /api/intelligence/distill-url       — Scrape + distill a single YouTube URL
   GET  /api/intelligence/search            — Semantic similarity search
   GET  /api/intelligence/stats             — Distillation progress stats
   GET  /api/intelligence/{source_id}       — Get distilled intelligence for a source
@@ -9,9 +10,13 @@ Endpoints:
   GET  /api/intelligence/insights/hooks    — Hook pattern distribution
 """
 
+import asyncio
 import json
 import logging
+import re
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from pydantic import BaseModel
 from typing import Optional
 from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute
@@ -56,6 +61,236 @@ async def _run_backfill(tenant_id: str, batch_size: int):
 async def get_backfill_status(tenant_id: str = Depends(get_tenant_id)):
     """Check backfill progress."""
     return _backfill_tasks.get(tenant_id, {"running": False, "status": "idle"})
+
+
+# ── Distill Single URL ──────────────────────────────────────────
+
+
+class DistillURLRequest(BaseModel):
+    url: str
+
+
+def _extract_video_id_from_url(url: str) -> Optional[str]:
+    """Extract YouTube video ID from various URL formats."""
+    patterns = [
+        r"(?:v=|/v/|youtu\.be/)([a-zA-Z0-9_-]{11})",
+        r"(?:embed/)([a-zA-Z0-9_-]{11})",
+        r"(?:shorts/)([a-zA-Z0-9_-]{11})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+
+@router.post("/distill-url")
+async def distill_from_url(
+    body: DistillURLRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Scrape a single YouTube URL via yt-dlp, store it, and distill full DNA.
+
+    End-to-end: URL → yt-dlp extract → competitor_videos INSERT → distillation → DNA result.
+    """
+    video_id = _extract_video_id_from_url(body.url)
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Could not extract video ID from URL")
+
+    # Check if already distilled
+    existing = await fetch_one(
+        """SELECT cv.id, cv.title, cv.distilled_at,
+                  ci.summary, ci.structured_metadata
+           FROM competitor_videos cv
+           LEFT JOIN content_intelligence ci
+               ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+               AND ci.source_type = 'competitor_transcript'
+           WHERE cv.video_id = $1 AND cv.tenant_id = $2""",
+        video_id, tenant_id,
+    )
+    if existing and existing.get("distilled_at"):
+        metadata = existing.get("structured_metadata")
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        return {
+            "status": "already_distilled",
+            "video_id": video_id,
+            "title": existing.get("title"),
+            "summary": existing.get("summary"),
+            "dna": metadata,
+        }
+
+    # Step 1: yt-dlp extraction (sync, run in thread pool)
+    logger.info("[Distill-URL] Extracting %s via yt-dlp...", video_id)
+    from routes.niche import _extract_video_info, _calculate_vph
+    try:
+        info = await asyncio.get_event_loop().run_in_executor(
+            None, _extract_video_info, video_id
+        )
+    except Exception as e:
+        logger.error("[Distill-URL] yt-dlp failed for %s: %s", video_id, e)
+        raise HTTPException(status_code=502, detail=f"yt-dlp extraction failed: {e}")
+
+    if not info:
+        raise HTTPException(status_code=404, detail="Video not found or unavailable")
+
+    # Calculate VPH
+    now = datetime.now(timezone.utc)
+    vph, hours_old = _calculate_vph(info.get("views", 0), info.get("published_at", ""), now)
+    info["vph"] = round(vph, 1)
+    info["hours_old"] = round(hours_old, 1)
+
+    # Step 2: Upsert into competitor_videos
+    pub_date = info.get("published_at") or None
+    vid = info.get("video_id", video_id)
+
+    existing_row = await fetch_one(
+        "SELECT id FROM competitor_videos WHERE video_id = $1 AND tenant_id = $2",
+        vid, tenant_id,
+    )
+
+    if existing_row:
+        # Update existing record with fresh data
+        await execute(
+            """UPDATE competitor_videos SET
+                title = $3, views = $4, vph = $5, hours_old = $6,
+                thumbnail_url = $7, transcript = $8, duration_seconds = $9,
+                description = $10, likes = $11, comment_count = $12,
+                channel_subscriber_count = $13, like_ratio = $14,
+                comment_ratio = $15, views_per_sub_ratio = $16,
+                published_day_of_week = $17, published_hour = $18,
+                has_chapters = $19, chapter_count = $20,
+                chapter_titles = $21, tags = $22, scrape_date = now()
+            WHERE video_id = $1 AND tenant_id = $2""",
+            vid, tenant_id,
+            info.get("title", ""),
+            info.get("views", 0),
+            info.get("vph", 0),
+            info.get("hours_old", 0),
+            info.get("thumbnail_url"),
+            info.get("transcript"),
+            info.get("duration_seconds"),
+            info.get("description"),
+            info.get("likes"),
+            info.get("comment_count"),
+            info.get("channel_subscriber_count"),
+            info.get("like_ratio"),
+            info.get("comment_ratio"),
+            info.get("views_per_sub_ratio"),
+            info.get("published_day_of_week"),
+            info.get("published_hour"),
+            info.get("has_chapters"),
+            info.get("chapter_count"),
+            info.get("chapter_titles"),
+            info.get("tags"),
+        )
+        cv_id = str(existing_row["id"])
+    else:
+        # Insert new record
+        new_row = await fetch_one(
+            """INSERT INTO competitor_videos (
+                tenant_id, video_id, title, url, channel, channel_url,
+                views, vph, hours_old, published_date, scrape_date,
+                thumbnail_url, transcript, duration_seconds, description, likes,
+                comment_count, channel_subscriber_count,
+                like_ratio, comment_ratio, views_per_sub_ratio,
+                published_day_of_week, published_hour,
+                has_chapters, chapter_count, chapter_titles, tags
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(),
+                      $11, $12, $13, $14, $15,
+                      $16, $17, $18, $19, $20, $21, $22,
+                      $23, $24, $25, $26)
+            RETURNING id""",
+            tenant_id,
+            vid,
+            info.get("title", ""),
+            info.get("url", ""),
+            info.get("channel", ""),
+            info.get("channel_url", ""),
+            info.get("views", 0),
+            info.get("vph", 0),
+            info.get("hours_old", 0),
+            pub_date,
+            info.get("thumbnail_url"),
+            info.get("transcript"),
+            info.get("duration_seconds"),
+            info.get("description"),
+            info.get("likes"),
+            info.get("comment_count"),
+            info.get("channel_subscriber_count"),
+            info.get("like_ratio"),
+            info.get("comment_ratio"),
+            info.get("views_per_sub_ratio"),
+            info.get("published_day_of_week"),
+            info.get("published_hour"),
+            info.get("has_chapters"),
+            info.get("chapter_count"),
+            info.get("chapter_titles"),
+            info.get("tags"),
+        )
+        cv_id = str(new_row["id"]) if new_row else None
+
+    if not cv_id:
+        raise HTTPException(status_code=500, detail="Failed to store video record")
+
+    has_transcript = bool((info.get("transcript") or "").strip())
+    transcript_chars = len(info.get("transcript") or "")
+
+    logger.info(
+        "[Distill-URL] Stored %s (%s) — %d views, %.1f VPH, %s transcript (%d chars)",
+        vid, info.get("title", "")[:40], info.get("views", 0), vph,
+        "has" if has_transcript else "no", transcript_chars,
+    )
+
+    # Step 3: Run distillation
+    from distillation.pipeline import distill_competitor_video
+    try:
+        result = await distill_competitor_video(tenant_id, cv_id)
+    except Exception as e:
+        logger.error("[Distill-URL] Distillation failed for %s: %s", cv_id[:8], e)
+        # Return partial result — at least the video is stored
+        return {
+            "status": "scraped_but_distillation_failed",
+            "video_id": vid,
+            "title": info.get("title"),
+            "channel": info.get("channel"),
+            "views": info.get("views"),
+            "vph": info.get("vph"),
+            "has_transcript": has_transcript,
+            "transcript_chars": transcript_chars,
+            "error": str(e),
+        }
+
+    # Step 4: Fetch the full DNA to return
+    intelligence = await fetch_one(
+        """SELECT summary, structured_metadata
+           FROM content_intelligence
+           WHERE source_id = $1 AND tenant_id = $2
+             AND source_type = 'competitor_transcript'""",
+        cv_id, tenant_id,
+    )
+
+    dna = None
+    summary = None
+    if intelligence:
+        dna = intelligence.get("structured_metadata")
+        if isinstance(dna, str):
+            dna = json.loads(dna)
+        summary = intelligence.get("summary")
+
+    return {
+        "status": "distilled",
+        "video_id": vid,
+        "title": info.get("title"),
+        "channel": info.get("channel"),
+        "views": info.get("views"),
+        "vph": info.get("vph"),
+        "has_transcript": has_transcript,
+        "transcript_chars": transcript_chars,
+        "summary": summary,
+        "dna": dna,
+        "distillation_result": result,
+    }
 
 
 # ── Semantic Search ───────────────────────────────────────────────
