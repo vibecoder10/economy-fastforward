@@ -849,8 +849,9 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                             has_chapters = COALESCE($16, has_chapters),
                             chapter_count = COALESCE($17, chapter_count),
                             chapter_titles = COALESCE($18, chapter_titles),
-                            tags = COALESCE($19, tags)
-                        WHERE tenant_id = $20 AND video_id = $21""",
+                            tags = COALESCE($19, tags),
+                            published_date = COALESCE($20, published_date)
+                        WHERE tenant_id = $21 AND video_id = $22""",
                         video.get("views", 0),
                         video.get("vph", 0),
                         video.get("hours_old", 0),
@@ -870,6 +871,7 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                         video.get("chapter_count") or None,
                         video.get("chapter_titles"),
                         video.get("tags"),
+                        pub_date,
                         tenant_id,
                         vid,
                     )

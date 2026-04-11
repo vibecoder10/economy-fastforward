@@ -423,14 +423,39 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                     import json
                     if isinstance(metadata, str):
                         metadata = json.loads(metadata)
-                    hook = metadata.get("hook", {})
+                    # Hook DNA
+                    hook = metadata.get("hook_dna") or metadata.get("hook", {})
                     if hook.get("opening_line"):
                         entry["opening_hook"] = hook["opening_line"]
                     if hook.get("type"):
                         entry["hook_type"] = hook["type"]
-                    topics = metadata.get("content", {}).get("topic_tags", [])
+                    # Content DNA
+                    content = metadata.get("content_dna") or metadata.get("content", {})
+                    topics = content.get("topic_tags", [])
                     if topics:
                         entry["topics"] = topics
+                    if content.get("tone"):
+                        entry["tone"] = content["tone"]
+                    # Title DNA
+                    title_dna = metadata.get("title_dna", {})
+                    if title_dna.get("structure"):
+                        entry["title_structure"] = title_dna["structure"]
+                    if title_dna.get("curiosity_mechanism"):
+                        entry["curiosity_mechanism"] = title_dna["curiosity_mechanism"]
+                    # Thumbnail DNA
+                    thumb = metadata.get("thumbnail_dna", {})
+                    if thumb.get("overall_style"):
+                        entry["thumbnail_style"] = thumb["overall_style"]
+                    if thumb.get("face_emotion"):
+                        entry["thumbnail_emotion"] = thumb["face_emotion"]
+                    # Retention DNA
+                    retention = metadata.get("retention_dna", {})
+                    if retention.get("first_hook_seconds"):
+                        entry["hook_duration"] = retention["first_hook_seconds"]
+                    # Engagement signals
+                    engagement = metadata.get("engagement_signals", {})
+                    if engagement.get("controversy_level"):
+                        entry["controversy"] = engagement["controversy_level"]
             else:
                 # Fall back to raw transcript snippet (first 300 chars)
                 transcript_hook = c.get("transcript_hook") or ""

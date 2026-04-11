@@ -32,6 +32,8 @@ class ConfidenceBreakdown(BaseModel):
     vph_reasoning: str = ""
     freshness_score: float = 0
     freshness_reasoning: str = ""
+    intelligence_score: float = 0
+    intelligence_reasoning: str = ""
     total_score: float = 0
 
 
@@ -93,17 +95,68 @@ class AutopilotSummary(BaseModel):
 
 # --- Helper Functions ---
 
-def calculate_confidence_with_breakdown(vph: float, hours_old: float) -> ConfidenceBreakdown:
-    """Calculate confidence score with detailed breakdown for explainability."""
-    MAX_VPH = 50000.0  # VPH above this gets max score (adjusted for real data)
-    MAX_HOURS = 168.0  # 7 days - older than this gets 0 freshness
+async def _get_proven_patterns(tenant_id: str) -> list[str]:
+    """Fetch proven title/hook patterns from learnings table (KEEP verdicts with decent confidence)."""
+    try:
+        rows = await fetch_all(
+            """SELECT pattern FROM learnings
+               WHERE tenant_id = $1 AND active = true
+                 AND category IN ('title', 'hook')
+                 AND confidence >= 55
+               ORDER BY confidence DESC LIMIT 20""",
+            tenant_id,
+        )
+        return [r["pattern"] for r in (rows or [])]
+    except Exception:
+        return []
 
-    # VPH score (log scale) - 55% weight
+
+def _title_matches_patterns(title: str, patterns: list[str]) -> bool:
+    """Check if a title matches any proven patterns (question, number, caps, formula keywords)."""
+    if not patterns or not title:
+        return False
+    title_lower = title.lower()
+    for pattern in patterns:
+        p = pattern.lower()
+        # Match pattern keywords against title
+        if "question" in p and "?" in title:
+            return True
+        if "number" in p and any(c.isdigit() for c in title):
+            return True
+        if "how" in p and title_lower.startswith("how "):
+            return True
+        if "why" in p and title_lower.startswith("why "):
+            return True
+        if "what" in p and title_lower.startswith("what "):
+            return True
+        if "list" in p and any(c.isdigit() for c in title):
+            return True
+        # Direct keyword overlap
+        pattern_words = set(p.split()) - {"the", "a", "an", "in", "of", "for", "with", "and", "or"}
+        title_words = set(title_lower.split())
+        if len(pattern_words & title_words) >= 2:
+            return True
+    return False
+
+def calculate_confidence_with_breakdown(
+    vph: float, hours_old: float,
+    intelligence: dict = None,
+    learnings_match: bool = False,
+) -> ConfidenceBreakdown:
+    """Calculate confidence score with detailed breakdown for explainability.
+
+    Scoring weights: VPH 45%, Freshness 35%, Intelligence 20%.
+    Intelligence score considers: distilled DNA quality, learnings pattern matches,
+    and engagement signals (like_ratio, views_per_sub_ratio).
+    """
+    MAX_VPH = 50000.0
+    MAX_HOURS = 168.0
+
+    # VPH score (log scale) - 45% weight
     if vph <= 0:
         vph_score = 0
         vph_reasoning = "No VPH data"
     else:
-        # Log scale: VPH 100 = ~37%, VPH 1000 = ~64%, VPH 10000 = ~85%, VPH 50000 = 100%
         vph_score = min(100, (math.log10(max(1, vph)) / math.log10(MAX_VPH)) * 100)
         if vph >= 10000:
             vph_reasoning = f"Excellent VPH ({vph:,.0f}) - viral potential"
@@ -114,7 +167,7 @@ def calculate_confidence_with_breakdown(vph: float, hours_old: float) -> Confide
         else:
             vph_reasoning = f"Low VPH ({vph:,.0f}) - limited traction"
 
-    # Freshness score (linear decay) - 45% weight
+    # Freshness score (linear decay) - 35% weight
     if hours_old >= MAX_HOURS:
         freshness_score = 0
         freshness_reasoning = f"Old ({hours_old:.0f}h) - topic may be stale"
@@ -132,14 +185,51 @@ def calculate_confidence_with_breakdown(vph: float, hours_old: float) -> Confide
         else:
             freshness_reasoning = f"Getting old ({hours_old:.0f}h) - urgency declining"
 
-    # Weighted combination
-    total_score = round(vph_score * 0.55 + freshness_score * 0.45, 1)
+    # Intelligence score - 20% weight
+    # Factors: has distilled DNA, engagement signals, learnings match
+    intel_score = 0
+    intel_reasons = []
+
+    if intelligence:
+        # Has distilled intelligence = we understand this video's DNA
+        if intelligence.get("has_dna"):
+            intel_score += 30
+            intel_reasons.append("distilled DNA available")
+
+        # High like ratio = strong audience resonance
+        like_ratio = intelligence.get("like_ratio")
+        if like_ratio and like_ratio > 0.04:
+            intel_score += 25
+            intel_reasons.append(f"high engagement ({like_ratio:.1%} like ratio)")
+        elif like_ratio and like_ratio > 0.02:
+            intel_score += 10
+
+        # Virality signal (views >> subscriber count)
+        vsr = intelligence.get("views_per_sub_ratio")
+        if vsr and vsr > 2.0:
+            intel_score += 25
+            intel_reasons.append(f"viral breakout ({vsr:.1f}x subs)")
+        elif vsr and vsr > 1.0:
+            intel_score += 15
+            intel_reasons.append(f"above-audience reach ({vsr:.1f}x subs)")
+
+    if learnings_match:
+        intel_score += 20
+        intel_reasons.append("matches proven patterns")
+
+    intel_score = min(100, intel_score)
+    intelligence_reasoning = ", ".join(intel_reasons) if intel_reasons else "No intelligence data"
+
+    # Weighted combination: VPH 45%, Freshness 35%, Intelligence 20%
+    total_score = round(vph_score * 0.45 + freshness_score * 0.35 + intel_score * 0.20, 1)
 
     return ConfidenceBreakdown(
         vph_score=round(vph_score, 1),
         vph_reasoning=vph_reasoning,
         freshness_score=round(freshness_score, 1),
         freshness_reasoning=freshness_reasoning,
+        intelligence_score=round(intel_score, 1),
+        intelligence_reasoning=intelligence_reasoning,
         total_score=total_score,
     )
 
@@ -213,22 +303,33 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
     try:
         min_vph = config.thresholds.get("min_competitor_vph", 50)
         rows = await fetch_all(
-            """SELECT id, video_id, title, url, channel, channel_url,
-                      views, vph, hours_old, published_date, modeled
-               FROM competitor_videos
-               WHERE tenant_id = $1
-                 AND (modeled = false OR modeled IS NULL)
-                 AND vph >= $2
-               ORDER BY vph DESC
+            """SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.channel_url,
+                      cv.views, cv.vph, cv.hours_old, cv.published_date, cv.modeled,
+                      cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at
+               FROM competitor_videos cv
+               WHERE cv.tenant_id = $1
+                 AND (cv.modeled = false OR cv.modeled IS NULL)
+                 AND cv.vph >= $2
+               ORDER BY cv.vph DESC
                LIMIT 20""",
             tenant_id, min_vph,
         )
+
+        # Fetch proven learnings patterns for matching
+        proven_patterns = await _get_proven_patterns(tenant_id)
 
         for row in rows:
             vph = float(row.get("vph") or 0)
             hours_old = float(row.get("hours_old") or 0)
 
-            breakdown = calculate_confidence_with_breakdown(vph, hours_old)
+            intel = {
+                "has_dna": row.get("distilled_at") is not None,
+                "like_ratio": float(row["like_ratio"]) if row.get("like_ratio") else None,
+                "views_per_sub_ratio": float(row["views_per_sub_ratio"]) if row.get("views_per_sub_ratio") else None,
+            }
+            learnings_match = _title_matches_patterns(row.get("title", ""), proven_patterns)
+
+            breakdown = calculate_confidence_with_breakdown(vph, hours_old, intel, learnings_match)
 
             candidates.append(CompetitorCandidate(
                 id=str(row["id"]),
@@ -299,14 +400,16 @@ async def get_candidates(
         # Build query based on include_modeled flag
         if include_modeled:
             query = """SELECT id, video_id, title, url, channel, channel_url,
-                              views, vph, hours_old, published_date, modeled
+                              views, vph, hours_old, published_date, modeled,
+                              like_ratio, views_per_sub_ratio, distilled_at
                        FROM competitor_videos
                        WHERE tenant_id = $1 AND vph >= $2
                        ORDER BY vph DESC
                        LIMIT $3"""
         else:
             query = """SELECT id, video_id, title, url, channel, channel_url,
-                              views, vph, hours_old, published_date, modeled
+                              views, vph, hours_old, published_date, modeled,
+                              like_ratio, views_per_sub_ratio, distilled_at
                        FROM competitor_videos
                        WHERE tenant_id = $1
                          AND vph >= $2
@@ -316,11 +419,21 @@ async def get_candidates(
 
         rows = await fetch_all(query, tenant_id, min_vph, limit * 2)
 
+        # Fetch proven learnings patterns for matching
+        proven_patterns = await _get_proven_patterns(tenant_id)
+
         for row in rows:
             vph = float(row.get("vph") or 0)
             hours_old = float(row.get("hours_old") or 0)
 
-            breakdown = calculate_confidence_with_breakdown(vph, hours_old)
+            intel = {
+                "has_dna": row.get("distilled_at") is not None,
+                "like_ratio": float(row["like_ratio"]) if row.get("like_ratio") else None,
+                "views_per_sub_ratio": float(row["views_per_sub_ratio"]) if row.get("views_per_sub_ratio") else None,
+            }
+            learnings_match = _title_matches_patterns(row.get("title", ""), proven_patterns)
+
+            breakdown = calculate_confidence_with_breakdown(vph, hours_old, intel, learnings_match)
 
             candidates.append(CompetitorCandidate(
                 id=str(row["id"]),
@@ -414,7 +527,10 @@ async def get_candidate_detail(
         result["transcript"] = row.get("transcript")
     else:
         result["transcript"] = None
-        result["has_transcript"] = row.get("distilled_at") is not None or include_transcript
+
+    # Signal whether content is available (distilled intelligence or raw transcript)
+    result["has_intelligence"] = row.get("distilled_at") is not None
+    result["has_transcript"] = include_transcript or row.get("distilled_at") is not None
 
     return result
 
@@ -630,22 +746,85 @@ async def launch_candidate(
     if candidate.get("our_video_id"):
         raise HTTPException(status_code=400, detail="Candidate already launched")
 
-    # 2. Get or create project
+    # 2. Fetch distilled intelligence to pass through pipeline
+    intel_context = None
+    try:
+        intel = await fetch_one(
+            """SELECT summary, structured_metadata
+               FROM content_intelligence
+               WHERE source_id = $1 AND tenant_id = $2 AND source_type = 'competitor_transcript'""",
+            candidate_id, tenant_id,
+        )
+        if intel:
+            import json as _json
+            metadata = intel["structured_metadata"]
+            if isinstance(metadata, str):
+                metadata = _json.loads(metadata)
+            # Build learning context for script generation
+            parts = []
+            hook = metadata.get("hook_dna") or metadata.get("hook", {})
+            if hook.get("type"):
+                parts.append(f"Proven hook type: {hook['type']}")
+            if hook.get("opening_line"):
+                parts.append(f"Competitor opening: {hook['opening_line']}")
+            content = metadata.get("content_dna") or metadata.get("content", {})
+            if content.get("tone"):
+                parts.append(f"Content tone: {content['tone']}")
+            if content.get("topic_tags"):
+                parts.append(f"Topics: {', '.join(content['topic_tags'][:5])}")
+            title_dna = metadata.get("title_dna", {})
+            if title_dna.get("curiosity_mechanism"):
+                parts.append(f"Curiosity mechanism: {title_dna['curiosity_mechanism']}")
+            retention = metadata.get("retention_dna", {})
+            if retention.get("key_retention_moments"):
+                parts.append(f"Retention triggers: {', '.join(str(m) for m in retention['key_retention_moments'][:3])}")
+            if parts:
+                intel_context = "\n".join(parts)
+    except Exception as e:
+        print(f"[Autopilot] Intel fetch for launch (non-blocking): {e}")
+
+    # 3. Get learnings context for this tenant
+    learnings_text = ""
+    try:
+        learnings_rows = await fetch_all(
+            """SELECT category, pattern, avg_ctr FROM learnings
+               WHERE tenant_id = $1 AND active = true AND confidence >= 55
+               ORDER BY confidence DESC LIMIT 10""",
+            tenant_id,
+        )
+        if learnings_rows:
+            lines = [f"- [{r['category']}] {r['pattern']} (CTR: {float(r['avg_ctr']):.1f}%)"
+                     for r in learnings_rows if r.get("avg_ctr")]
+            if lines:
+                learnings_text = "Proven patterns from your channel:\n" + "\n".join(lines)
+    except Exception:
+        pass
+
+    # 4. Get or create project
     from routes.projects import _get_or_create_project
     project = await _get_or_create_project(tenant_id)
     project_id = str(project["id"])
 
-    # 3. Create video record
+    # 5. Create video record with intelligence context
     video_title = candidate.get("title", "Untitled")
     channel = candidate.get("channel", "competitor")
+
+    # Combine intel + learnings into system prompt guidance for script generation
+    system_guidance = ""
+    if intel_context:
+        system_guidance += f"## Competitor DNA (from distilled intelligence)\n{intel_context}\n\n"
+    if learnings_text:
+        system_guidance += f"## Channel Learnings\n{learnings_text}\n\n"
+
     result = await fetch_one(
         """INSERT INTO videos (
             tenant_id, project_id, video_title, status, headline,
-            source, reference_url, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+            source, reference_url, script_system_prompt, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
         RETURNING id""",
         tenant_id, project_id, video_title, "idea_logged",
         video_title, f"autopilot_{channel}", candidate.get("url"),
+        system_guidance or None,
     )
     video_id = str(result["id"])
 

@@ -432,7 +432,8 @@ CREATE TABLE content_intelligence (
   embedding_model TEXT,
   raw_char_count INTEGER,
 
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX idx_ci_tenant_source_type ON content_intelligence(tenant_id, source_type);

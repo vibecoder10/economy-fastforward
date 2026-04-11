@@ -105,7 +105,7 @@ async def semantic_search(
                 cv.thumbnail_url as source_thumbnail_url
             FROM content_intelligence ci
             LEFT JOIN competitor_videos cv
-                ON ci.source_id = cv.id AND ci.source_table = 'competitor_videos'
+                ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
             WHERE ci.tenant_id = $1
               AND ci.embedding IS NOT NULL
               {type_filter}

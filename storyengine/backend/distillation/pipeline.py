@@ -196,7 +196,7 @@ async def distill_competitor_video(
             embedding = EXCLUDED.embedding,
             model_used = EXCLUDED.model_used,
             raw_char_count = EXCLUDED.raw_char_count,
-            created_at = now()
+            updated_at = now()
         RETURNING id""",
         tenant_id,
         "competitor_transcript",

@@ -643,6 +643,8 @@ async def analyze_competitor_transcripts(
     if not distilled and not raw_competitors:
         return {"status": "no_data", "message": "No competitor videos with transcripts found"}
 
+    total_analyzed = len(distilled or []) + len(raw_competitors or [])
+
     # Aggregate hook patterns across competitor transcripts
     pattern_stats: dict[str, dict] = {}
 
@@ -705,7 +707,7 @@ async def analyze_competitor_transcripts(
                 tenant_id, today, pattern_name,
                 f"Competitor hook pattern: {pattern_name.lower()}",
                 json.dumps(stats["examples"]),
-                avg_vph, stats["count"], confidence, len(competitors),
+                avg_vph, stats["count"], confidence, total_analyzed,
             )
             inserted += 1
         except Exception as e:
@@ -715,7 +717,7 @@ async def analyze_competitor_transcripts(
         "status": "ok",
         "patterns_found": len(pattern_stats),
         "insights_saved": inserted,
-        "videos_analyzed": len(competitors),
+        "videos_analyzed": total_analyzed,
     }
 
 
