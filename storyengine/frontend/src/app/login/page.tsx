@@ -21,7 +21,10 @@ export default function LoginPage() {
       const status = await getOnboardingStatus();
       router.replace(status.completed ? "/dashboard" : "/onboarding");
     } catch {
-      router.replace("/dashboard");
+      // Default to onboarding when status check fails (e.g. missing DB columns)
+      // A new user needs onboarding; a returning user will be redirected to dashboard
+      // by the onboarding page itself once it detects completion.
+      router.replace("/onboarding");
     }
   }
 

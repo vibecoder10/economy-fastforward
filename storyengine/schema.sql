@@ -601,9 +601,21 @@ CREATE TABLE channel_profiles (
   accent_color TEXT DEFAULT '#00D4AA',
   logo_url TEXT,
 
+  -- Onboarding wizard (migration 035)
+  user_type TEXT,
+  onboarding_step INTEGER DEFAULT 0,
+  onboarding_completed_at TIMESTAMPTZ,
+  style_description TEXT,
+
+  -- YouTube connection (migration 035)
+  youtube_channel_id TEXT,
+  youtube_channel_name TEXT,
+  youtube_refresh_token TEXT,
+
   -- Google Drive storage
   google_drive_folder_id TEXT,
   google_drive_folder_name TEXT,
+  google_drive_refresh_token TEXT,
 
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

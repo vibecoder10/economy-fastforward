@@ -176,10 +176,17 @@ async def get_calendar(
 async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     """Rich onboarding status with per-step detail."""
     # Step 1: channel configured?
-    cp = await fetch_one(
-        "SELECT channel_name, user_type, style_description FROM channel_profiles WHERE tenant_id = $1",
-        tenant_id,
-    )
+    # Try with onboarding columns first; fall back to base columns if migration 035 hasn't run
+    try:
+        cp = await fetch_one(
+            "SELECT channel_name, user_type, style_description FROM channel_profiles WHERE tenant_id = $1",
+            tenant_id,
+        )
+    except Exception:
+        cp = await fetch_one(
+            "SELECT channel_name FROM channel_profiles WHERE tenant_id = $1",
+            tenant_id,
+        )
     channel_configured = bool(cp and cp.get("channel_name"))
     user_type = (cp.get("user_type") or "new_creator") if cp else "new_creator"
 
@@ -216,7 +223,7 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     # Step 5: display name from accounts via memberships
     account_row = await fetch_one(
         """SELECT a.display_name FROM accounts a
-           JOIN memberships m ON m.account_id = a.id
+           JOIN memberships m ON m.user_id = a.id
            WHERE m.tenant_id = $1 LIMIT 1""",
         tenant_id,
     )
