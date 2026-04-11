@@ -36,6 +36,11 @@ import {
   getFrameworkPerformance,
   getTopicPerformance,
   getCompetitorBenchmark,
+  getIntelligenceStats,
+  getTopicInsights,
+  getHookInsights,
+  getThumbnailInsights,
+  getTimingInsights,
   type VideoSummary,
   type LearningRecord,
   type AnalyticsOverview,
@@ -43,6 +48,11 @@ import {
   type FrameworkPerformance,
   type TopicPerformance,
   type CompetitorBenchmark,
+  type IntelligenceStats,
+  type TopicInsight,
+  type HookInsight,
+  type ThumbnailInsights,
+  type TimingInsights,
 } from "@/lib/api";
 import { COMPLETED_STATUSES } from "@/lib/constants";
 import { formatNumber, timeAgo } from "@/lib/utils";
@@ -150,6 +160,28 @@ export default function AnalyticsPage() {
   const { data: learnings } = useQuery({
     queryKey: ["learnings"],
     queryFn: () => getLearnings(undefined, false),
+  });
+
+  // Niche Intelligence (from content_intelligence distillation)
+  const { data: intelStats } = useQuery({
+    queryKey: ["intelligence-stats"],
+    queryFn: getIntelligenceStats,
+  });
+  const { data: nicheTopics } = useQuery({
+    queryKey: ["intelligence-topics"],
+    queryFn: () => getTopicInsights(10),
+  });
+  const { data: nicheHooks } = useQuery({
+    queryKey: ["intelligence-hooks"],
+    queryFn: getHookInsights,
+  });
+  const { data: nicheThumbnails } = useQuery({
+    queryKey: ["intelligence-thumbnails"],
+    queryFn: getThumbnailInsights,
+  });
+  const { data: nicheTiming } = useQuery({
+    queryKey: ["intelligence-timing"],
+    queryFn: getTimingInsights,
   });
 
   // YouTube sync status
@@ -831,6 +863,148 @@ export default function AnalyticsPage() {
             </table>
           )}
         </GlassCard>
+      {/* ── Niche Intelligence (from distilled competitor DNA) ── */}
+      {intelStats && intelStats.distilled > 0 && (
+        <motion.div variants={item} className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Brain size={16} style={{ color: "var(--amber)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+              Niche Intelligence
+            </h2>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
+              {intelStats.distilled} videos analyzed
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Hook Patterns */}
+            {nicheHooks?.hooks && nicheHooks.hooks.length > 0 && (
+              <GlassCard>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                  Hook Patterns
+                </h3>
+                <div className="space-y-2">
+                  {nicheHooks.hooks.slice(0, 5).map((h) => (
+                    <div key={h.hook_type} className="flex items-center justify-between">
+                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{h.hook_type}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>{h.count}x</span>
+                        <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
+                          {formatNumber(h.avg_vph)} VPH
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            )}
+
+            {/* Thumbnail Styles */}
+            {nicheThumbnails?.styles && nicheThumbnails.styles.length > 0 && (
+              <GlassCard>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                  Thumbnail Styles
+                </h3>
+                <div className="space-y-2">
+                  {nicheThumbnails.styles.slice(0, 5).map((s) => (
+                    <div key={s.style} className="flex items-center justify-between">
+                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{s.style}</span>
+                      <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
+                        {formatNumber(s.avg_vph)} VPH
+                      </span>
+                    </div>
+                  ))}
+                  {nicheThumbnails.face_present && nicheThumbnails.face_present.length > 0 && (
+                    <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border)" }}>
+                      {nicheThumbnails.face_present.map((f) => (
+                        <div key={String(f.face_present)} className="flex items-center justify-between">
+                          <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                            {f.face_present ? "Face shown" : "No face"}
+                          </span>
+                          <span className="text-[10px] font-mono" style={{ color: "var(--turquoise)" }}>
+                            {formatNumber(f.avg_vph)} VPH ({f.count})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+            )}
+
+            {/* Best Publish Times */}
+            {nicheTiming?.by_day && nicheTiming.by_day.length > 0 && (
+              <GlassCard>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                  Best Publish Days
+                </h3>
+                <div className="space-y-1.5">
+                  {nicheTiming.by_day
+                    .sort((a, b) => b.avg_vph - a.avg_vph)
+                    .slice(0, 7)
+                    .map((d) => (
+                      <div key={d.day_name} className="flex items-center gap-2">
+                        <span className="text-xs w-16 shrink-0" style={{ color: "var(--text-secondary)" }}>
+                          {d.day_name.slice(0, 3)}
+                        </span>
+                        <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${Math.min(100, (d.avg_vph / Math.max(...nicheTiming.by_day.map(x => x.avg_vph))) * 100)}%`,
+                              background: "var(--turquoise)",
+                            }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-mono w-12 text-right" style={{ color: "var(--turquoise)" }}>
+                          {formatNumber(d.avg_vph)}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+                {nicheTiming.by_hour && nicheTiming.by_hour.length > 0 && (() => {
+                  const bestHour = nicheTiming.by_hour.sort((a, b) => b.avg_vph - a.avg_vph)[0];
+                  return (
+                    <p className="text-[10px] mt-3 pt-2" style={{ borderTop: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                      Best hour: <span style={{ color: "var(--amber)" }}>{bestHour.hour}:00</span> ({formatNumber(bestHour.avg_vph)} avg VPH)
+                    </p>
+                  );
+                })()}
+              </GlassCard>
+            )}
+
+            {/* Top Topics */}
+            {nicheTopics?.topics && nicheTopics.topics.length > 0 && (
+              <GlassCard>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                  Trending Topics
+                </h3>
+                <div className="space-y-2">
+                  {nicheTopics.topics.slice(0, 8).map((t) => (
+                    <div key={t.topic} className="flex items-center justify-between">
+                      <span className="text-xs truncate mr-2" style={{ color: "var(--text-secondary)" }}>{t.topic}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>{t.count}x</span>
+                        <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
+                          {formatNumber(t.avg_vph)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            )}
+          </div>
+
+          {/* Compression stats */}
+          <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+            <span>{intelStats.pending} pending distillation</span>
+            <span>{intelStats.compression_ratio}x compression</span>
+            <span>{intelStats.estimated_savings_mb.toFixed(1)} MB saved</span>
+          </div>
+        </motion.div>
+      )}
+
       </motion.div>
     </motion.div>
   );

@@ -643,6 +643,16 @@ export interface NicheVideo {
   duration_seconds: number | null;
   likes: number | null;
   description: string | null;
+  like_ratio: number | null;
+  views_per_sub_ratio: number | null;
+  distilled_at: string | null;
+  has_dna: boolean;
+  hook_type: string | null;
+  tone: string | null;
+  title_structure: string | null;
+  thumbnail_style: string | null;
+  face_emotion: string | null;
+  distilled_summary: string | null;
 }
 
 export interface NicheVideosResponse {
@@ -1201,6 +1211,8 @@ export interface ConfidenceBreakdown {
   vph_reasoning: string;
   freshness_score: number;
   freshness_reasoning: string;
+  intelligence_score: number;
+  intelligence_reasoning: string;
   total_score: number;
 }
 
@@ -1217,12 +1229,33 @@ export interface CompetitorCandidate {
   modeled: boolean;
 }
 
+export interface CandidateIntelligence {
+  summary: string;
+  metadata: {
+    hook_dna?: { type?: string; opening_line?: string; technique?: string };
+    content_dna?: { tone?: string; topic_tags?: string[]; complexity?: string };
+    title_dna?: { structure?: string; curiosity_mechanism?: string; power_words?: string[] };
+    thumbnail_dna?: {
+      face_present?: boolean; face_emotion?: string; overall_style?: string;
+      text_overlay?: { present?: boolean; text?: string };
+      composition?: { layout?: string };
+      colors?: { dominant?: string; mood?: string };
+    };
+    retention_dna?: { first_hook_seconds?: number; key_retention_moments?: number[] };
+    engagement_signals?: { controversy_level?: string; shareability?: string };
+    villain_dna?: { villain_type?: string; villain_entity?: string };
+  };
+}
+
 export interface CandidateDetail extends CompetitorCandidate {
   transcript: string | null;
   thumbnail_url: string | null;
   description: string | null;
   duration_seconds: number | null;
   likes: number | null;
+  has_intelligence: boolean;
+  has_transcript: boolean;
+  intelligence: CandidateIntelligence | null;
 }
 
 export interface Learning {
@@ -1433,6 +1466,10 @@ export interface DiscoveryIdea {
   status: string;
   batch_date: string | null;
   created_at: string | null;
+  hook_type: string | null;
+  tone: string | null;
+  title_structure: string | null;
+  thumbnail_style: string | null;
 }
 
 export interface TitleOption {
@@ -1595,3 +1632,111 @@ export interface HealthStatus {
 
 export const getHealthStatus = () =>
   fetchApi<HealthStatus>("/api/health");
+
+// ── Content Intelligence ─────────────────────────────────────────
+
+export interface IntelligenceStats {
+  distilled: number;
+  total_with_transcript: number;
+  pending: number;
+  progress_pct: number;
+  raw_bytes_processed: number;
+  distilled_bytes: number;
+  compression_ratio: number;
+  estimated_savings_mb: number;
+}
+
+export interface IntelligenceSearchResult {
+  id: string;
+  source_type: string;
+  source_id: string;
+  summary: string;
+  metadata: Record<string, unknown>;
+  similarity: number | null;
+  source_title: string | null;
+  source_vph: number | null;
+  source_channel: string | null;
+  source_url: string | null;
+  source_thumbnail_url: string | null;
+  raw_char_count: number | null;
+}
+
+export interface TopicInsight {
+  topic: string;
+  count: number;
+  avg_vph: number;
+}
+
+export interface HookInsight {
+  hook_type: string;
+  count: number;
+  avg_vph: number;
+  avg_like_ratio: number;
+}
+
+export interface ThumbnailInsights {
+  layouts: Array<{ layout: string; count: number; avg_vph: number }>;
+  face_emotions: Array<{ emotion: string; count: number; avg_vph: number }>;
+  face_present: Array<{ face_present: boolean; count: number; avg_vph: number }>;
+  styles: Array<{ style: string; count: number; avg_vph: number }>;
+}
+
+export interface TimingInsights {
+  by_day: Array<{ day: number; day_name: string; count: number; avg_vph: number; avg_like_ratio?: number }>;
+  by_hour: Array<{ hour: number; count: number; avg_vph: number }>;
+}
+
+export interface ViralVideo {
+  id: string;
+  title: string;
+  channel: string;
+  views: number;
+  vph: number;
+  views_per_sub_ratio: number;
+  channel_subscriber_count: number;
+  like_ratio: number;
+  comment_ratio: number;
+  thumbnail_url: string | null;
+  summary: string | null;
+  hook_type: string | null;
+  tone: string | null;
+  thumb_layout: string | null;
+  title_structure: string | null;
+}
+
+export const getIntelligenceStats = () =>
+  fetchApi<IntelligenceStats>("/api/intelligence/stats");
+
+export const searchIntelligence = (q: string, limit = 20, sourceType?: string) => {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  if (sourceType) params.set("source_type", sourceType);
+  return fetchApi<{ query: string; results: IntelligenceSearchResult[]; count: number }>(
+    `/api/intelligence/search?${params}`
+  );
+};
+
+export const getTopicInsights = (limit = 20) =>
+  fetchApi<{ topics: TopicInsight[] }>(`/api/intelligence/insights/topics?limit=${limit}`);
+
+export const getHookInsights = () =>
+  fetchApi<{ hooks: HookInsight[] }>("/api/intelligence/insights/hooks");
+
+export const getThumbnailInsights = () =>
+  fetchApi<ThumbnailInsights>("/api/intelligence/insights/thumbnails");
+
+export const getTimingInsights = () =>
+  fetchApi<TimingInsights>("/api/intelligence/insights/timing");
+
+export const getViralityInsights = (limit = 20) =>
+  fetchApi<{ viral_videos: ViralVideo[]; count: number }>(`/api/intelligence/insights/virality?limit=${limit}`);
+
+export const triggerBackfill = (batchSize = 50) =>
+  fetchApi<{ status: string; batch_size?: number }>("/api/intelligence/backfill", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+export const getBackfillStatus = () =>
+  fetchApi<{ running: boolean; processed?: number; failed?: number; status?: string }>(
+    "/api/intelligence/backfill/status"
+  );

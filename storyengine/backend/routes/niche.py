@@ -179,17 +179,17 @@ async def list_videos(
     offset = max(0, offset)
     order = _SORT_MAP.get(sort, "vph DESC")
 
-    conditions = ["tenant_id = $1"]
+    conditions = ["cv.tenant_id = $1"]
     params: list = [tenant_id]
     idx = 2
 
     if channel:
-        conditions.append(f"channel = ${idx}")
+        conditions.append(f"cv.channel = ${idx}")
         params.append(channel)
         idx += 1
 
     if min_vph is not None and min_vph > 0:
-        conditions.append(f"vph >= ${idx}")
+        conditions.append(f"cv.vph >= ${idx}")
         params.append(min_vph)
         idx += 1
 
@@ -197,7 +197,7 @@ async def list_videos(
 
     # Total count
     count_row = await fetch_one(
-        f"SELECT count(*) as cnt FROM competitor_videos WHERE {where}",
+        f"SELECT count(*) as cnt FROM competitor_videos cv WHERE {where}",
         *params,
     )
     total = (count_row or {}).get("cnt", 0)
@@ -205,12 +205,23 @@ async def list_videos(
     # Fetch page
     params.extend([limit, offset])
     rows = await fetch_all(
-        f"""SELECT id, video_id, title, url, channel, channel_url, views, vph,
-                   hours_old, published_date, scrape_date, thumbnail_url,
-                   duration_seconds, likes, description
-            FROM competitor_videos
+        f"""SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.channel_url,
+                   cv.views, cv.vph, cv.hours_old, cv.published_date, cv.scrape_date,
+                   cv.thumbnail_url, cv.duration_seconds, cv.likes, cv.description,
+                   cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at,
+                   ci.structured_metadata->>'hook_dna' IS NOT NULL as has_dna,
+                   ci.structured_metadata->'hook_dna'->>'type' as hook_type,
+                   ci.structured_metadata->'content_dna'->>'tone' as tone,
+                   ci.structured_metadata->'title_dna'->>'structure' as title_structure,
+                   ci.structured_metadata->'thumbnail_dna'->>'overall_style' as thumbnail_style,
+                   ci.structured_metadata->'thumbnail_dna'->>'face_emotion' as face_emotion,
+                   ci.summary as distilled_summary
+            FROM competitor_videos cv
+            LEFT JOIN content_intelligence ci
+                ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+                AND ci.source_type = 'competitor_transcript'
             WHERE {where}
-            ORDER BY {order}
+            ORDER BY cv.{order}
             LIMIT ${idx} OFFSET ${idx + 1}""",
         *params,
     )

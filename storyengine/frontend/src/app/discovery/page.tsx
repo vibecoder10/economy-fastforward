@@ -469,6 +469,32 @@ function IdeaCard({
           )}
         </div>
 
+        {/* DNA badges from competitor intelligence */}
+        {(idea.hook_type || idea.tone || idea.title_structure || idea.thumbnail_style) && (
+          <div className="flex flex-wrap gap-1">
+            {idea.hook_type && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
+                {idea.hook_type}
+              </span>
+            )}
+            {idea.tone && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}>
+                {idea.tone}
+              </span>
+            )}
+            {idea.title_structure && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(168,85,247,0.12)", color: "#c084fc" }}>
+                {idea.title_structure}
+              </span>
+            )}
+            {idea.thumbnail_style && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}>
+                {idea.thumbnail_style}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Appeal breakdown mini bars */}
         {idea.appeal_breakdown && Object.keys(idea.appeal_breakdown).length > 0 && (
           <div className="grid grid-cols-3 gap-x-3 gap-y-1">

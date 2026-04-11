@@ -43,6 +43,10 @@ class DiscoveryIdea(BaseModel):
     status: str = "fresh"
     batch_date: Optional[str] = None
     created_at: Optional[str] = None
+    hook_type: Optional[str] = None
+    tone: Optional[str] = None
+    title_structure: Optional[str] = None
+    thumbnail_style: Optional[str] = None
 
 
 class LaunchIdeaRequest(BaseModel):
@@ -74,34 +78,42 @@ async def get_discovery_ideas(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """List discovery ideas, sorted by appeal score."""
-    conditions = ["tenant_id = $1"]
+    conditions = ["di.tenant_id = $1"]
     params: list = [tenant_id]
     idx = 2
 
     if status:
-        conditions.append(f"status = ${idx}")
+        conditions.append(f"di.status = ${idx}")
         params.append(status)
         idx += 1
     else:
         # Default: show fresh ideas
-        conditions.append(f"status = ${idx}")
+        conditions.append(f"di.status = ${idx}")
         params.append("fresh")
         idx += 1
 
     if batch_date:
-        conditions.append(f"batch_date = ${idx}")
+        conditions.append(f"di.batch_date = ${idx}")
         params.append(batch_date)
         idx += 1
 
     where = " AND ".join(conditions)
     query = f"""
-        SELECT id, source_type, competitor_title, competitor_channel,
-               competitor_url, competitor_vph, competitor_thumbnail_url,
-               our_angle, hook, framework, estimated_appeal, appeal_breakdown,
-               title_options, status, batch_date::text, created_at::text
-        FROM discovery_ideas
+        SELECT di.id, di.source_type, di.competitor_title, di.competitor_channel,
+               di.competitor_url, di.competitor_vph, di.competitor_thumbnail_url,
+               di.our_angle, di.hook, di.framework, di.estimated_appeal, di.appeal_breakdown,
+               di.title_options, di.status, di.batch_date::text, di.created_at::text,
+               ci.structured_metadata->'hook_dna'->>'type' as hook_type,
+               ci.structured_metadata->'content_dna'->>'tone' as tone,
+               ci.structured_metadata->'title_dna'->>'structure' as title_structure,
+               ci.structured_metadata->'thumbnail_dna'->>'overall_style' as thumbnail_style
+        FROM discovery_ideas di
+        LEFT JOIN content_intelligence ci
+            ON ci.source_id = di.competitor_video_id
+            AND ci.tenant_id = di.tenant_id
+            AND ci.source_type = 'competitor_transcript'
         WHERE {where}
-        ORDER BY estimated_appeal DESC NULLS LAST, created_at DESC
+        ORDER BY di.estimated_appeal DESC NULLS LAST, di.created_at DESC
         LIMIT ${idx}
     """
     params.append(limit)
@@ -146,6 +158,10 @@ async def get_discovery_ideas(
             status=row.get("status", "fresh"),
             batch_date=row.get("batch_date"),
             created_at=row.get("created_at"),
+            hook_type=row.get("hook_type"),
+            tone=row.get("tone"),
+            title_structure=row.get("title_structure"),
+            thumbnail_style=row.get("thumbnail_style"),
         ))
 
     return ideas
