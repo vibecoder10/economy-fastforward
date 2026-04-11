@@ -1,20 +1,26 @@
 #!/bin/bash
-# Auto-rebuild StoryEngine frontend when code changes after git pull.
+# Auto-deploy StoryEngine frontend AND backend when code changes after git pull.
 #
 # Usage: bash infra/storyengine_deploy.sh
 #
 # How it works:
-#   1. Compares current HEAD with the commit hash from the last successful build
-#   2. If storyengine/frontend/ files changed between them: rebuild + restart
-#   3. Stores commit hash on success so it doesn't rebuild unnecessarily
+#   1. Compares current HEAD with the commit hash from the last successful deploy
+#   2. If storyengine/frontend/ files changed: rebuild + restart Next.js
+#   3. If storyengine/backend/ files changed: restart uvicorn
+#   4. Stores commit hash on success so it doesn't redeploy unnecessarily
 #
-# Deploy strategy:
+# Frontend deploy strategy:
 #   - Kill ALL Next.js processes and force-release port 3001
 #   - Verify nothing is listening on 3001
 #   - Build (site is briefly offline during ~60s build)
 #   - Start new server only after build completes
 #
-# Root cause of stale chunks:
+# Backend deploy strategy:
+#   - Kill uvicorn process (graceful SIGTERM → SIGKILL)
+#   - Start new uvicorn process
+#   - Verify health endpoint responds
+#
+# Root cause of stale chunks (frontend):
 #   Next.js loads chunk manifest INTO MEMORY at startup. If an old server
 #   process lingers while a new build changes chunk hashes, the old server
 #   serves HTML referencing chunks that no longer exist → 500 errors.
@@ -28,14 +34,51 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 FRONTEND_DIR="$REPO_DIR/storyengine/frontend"
+BACKEND_DIR="$REPO_DIR/storyengine/backend"
 STATE_FILE="/tmp/storyengine-last-build-commit"
 LOG_FILE="/tmp/storyengine-deploy.log"
 
+# Detect backend Python — prefer backend venv, fall back to repo venv, then system
+detect_backend_python() {
+    local candidates=(
+        "$BACKEND_DIR/venv/bin/python3"
+        "$REPO_DIR/venv/bin/python3"
+    )
+    for candidate in "${candidates[@]}"; do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return
+        fi
+    done
+    echo "python3"
+}
+
+BACKEND_PYTHON=$(detect_backend_python)
+
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
 
-# Ensure frontend dir exists
+slack_alert() {
+    local msg="$1"
+    if [ -f "$REPO_DIR/.env" ]; then
+        set -a; source "$REPO_DIR/.env"; set +a
+    fi
+    if [ -n "$SLACK_BOT_TOKEN" ]; then
+        curl -s -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg ch "${SLACK_CHANNEL_ID:-C0A9U1X8NSW}" \
+                --arg txt "$msg" \
+                '{channel: $ch, text: $txt}')" > /dev/null 2>&1 || true
+    fi
+}
+
+# Ensure dirs exist
 if [ ! -d "$FRONTEND_DIR" ]; then
     log "ERROR: Frontend dir not found at $FRONTEND_DIR"
+    exit 1
+fi
+if [ ! -d "$BACKEND_DIR" ]; then
+    log "ERROR: Backend dir not found at $BACKEND_DIR"
     exit 1
 fi
 
@@ -44,7 +87,7 @@ CURRENT_COMMIT=$(cd "$REPO_DIR" && git rev-parse HEAD 2>/dev/null)
 LAST_BUILD_COMMIT=$(cat "$STATE_FILE" 2>/dev/null || echo "")
 
 # First run — no state file yet. Record current commit, skip build
-# (assume the currently running server matches the current code)
+# (assume the currently running servers match the current code)
 if [ -z "$LAST_BUILD_COMMIT" ]; then
     echo "$CURRENT_COMMIT" > "$STATE_FILE"
     log "First run — recorded current commit $CURRENT_COMMIT as baseline"
@@ -56,19 +99,75 @@ if [ "$CURRENT_COMMIT" = "$LAST_BUILD_COMMIT" ]; then
     exit 0
 fi
 
-# Check if frontend files changed between last build and now
+# Check which parts changed between last build and now
 FRONTEND_CHANGES=$(cd "$REPO_DIR" && git diff --name-only "$LAST_BUILD_COMMIT" "$CURRENT_COMMIT" 2>/dev/null | grep "^storyengine/frontend/" | head -10)
+BACKEND_CHANGES=$(cd "$REPO_DIR" && git diff --name-only "$LAST_BUILD_COMMIT" "$CURRENT_COMMIT" 2>/dev/null | grep "^storyengine/backend/" | head -10)
 
-if [ -z "$FRONTEND_CHANGES" ]; then
-    # No frontend changes — update marker and skip
+if [ -z "$FRONTEND_CHANGES" ] && [ -z "$BACKEND_CHANGES" ]; then
+    # No StoryEngine changes — update marker and skip
     echo "$CURRENT_COMMIT" > "$STATE_FILE"
-    log "No frontend changes ($LAST_BUILD_COMMIT → $CURRENT_COMMIT), skipping build"
+    log "No StoryEngine changes ($LAST_BUILD_COMMIT → $CURRENT_COMMIT), skipping deploy"
     exit 0
 fi
 
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log "Frontend changes detected ($LAST_BUILD_COMMIT → $CURRENT_COMMIT):"
-echo "$FRONTEND_CHANGES" >> "$LOG_FILE"
+log "StoryEngine changes detected ($LAST_BUILD_COMMIT → $CURRENT_COMMIT):"
+[ -n "$FRONTEND_CHANGES" ] && { log "Frontend:"; echo "$FRONTEND_CHANGES" >> "$LOG_FILE"; }
+[ -n "$BACKEND_CHANGES" ] && { log "Backend:"; echo "$BACKEND_CHANGES" >> "$LOG_FILE"; }
+
+# ──────────────────────────────────────────────────────────────────
+# BACKEND DEPLOY (if backend files changed)
+# Restart uvicorn — no build step needed for Python
+# Done BEFORE frontend so both are restarting in parallel-ish
+# ──────────────────────────────────────────────────────────────────
+if [ -n "$BACKEND_CHANGES" ]; then
+    log "Restarting backend (uvicorn)..."
+
+    # Install new deps if requirements.txt changed
+    if echo "$BACKEND_CHANGES" | grep -q "requirements.txt"; then
+        log "requirements.txt changed — running pip install"
+        $BACKEND_PYTHON -m pip install -r "$BACKEND_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
+    fi
+
+    # Graceful shutdown
+    pkill -f "uvicorn main:app" 2>/dev/null || true
+
+    # Wait up to 5 seconds for graceful stop
+    for i in 1 2 3 4 5; do
+        if ! pgrep -f "uvicorn main:app" > /dev/null 2>&1; then
+            log "Backend stopped gracefully after ${i}s"
+            break
+        fi
+        sleep 1
+    done
+
+    # Force kill if still alive
+    pkill -9 -f "uvicorn main:app" 2>/dev/null || true
+    sleep 1
+
+    # Release port 8001
+    fuser -k 8001/tcp 2>/dev/null || true
+    sleep 1
+
+    # Start fresh
+    cd "$BACKEND_DIR"
+    nohup $BACKEND_PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8001 >> /tmp/storyengine-backend.log 2>&1 &
+    BACKEND_PID=$!
+    sleep 5
+
+    # Verify backend is up
+    if curl -sf http://localhost:8001/api/health > /dev/null 2>&1; then
+        log "Backend restarted successfully (PID $BACKEND_PID)"
+    else
+        log "WARNING: Backend may not be responding — check /tmp/storyengine-backend.log"
+        slack_alert ":warning: StoryEngine backend restart may have failed. Check /tmp/storyengine-backend.log"
+    fi
+fi
+
+# ──────────────────────────────────────────────────────────────────
+# FRONTEND DEPLOY (if frontend files changed)
+# ──────────────────────────────────────────────────────────────────
+if [ -n "$FRONTEND_CHANGES" ]; then
 
 # Install deps if package-lock changed
 if echo "$FRONTEND_CHANGES" | grep -q "package-lock.json"; then
@@ -113,25 +212,14 @@ fi
 log "Port 3001 confirmed free"
 
 # ──────────────────────────────────────────────────────────────────
-# STEP 2: Build (site is offline during this ~60s window)
+# STEP 2: Build (site is offline during this ~60s build window)
 # ──────────────────────────────────────────────────────────────────
 log "Running npm run build..."
 cd "$FRONTEND_DIR"
 if ! npm run build >> "$LOG_FILE" 2>&1; then
     log "BUILD FAILED — starting server with old build"
     nohup npm run start >> /tmp/storyengine-frontend.log 2>&1 &
-    # Send Slack alert
-    if [ -f "$REPO_DIR/.env" ]; then
-        set -a; source "$REPO_DIR/.env"; set +a
-    fi
-    if [ -n "$SLACK_BOT_TOKEN" ]; then
-        curl -s -X POST "https://slack.com/api/chat.postMessage" \
-            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg ch "${SLACK_CHANNEL_ID:-C0A9U1X8NSW}" \
-                --arg txt ":warning: StoryEngine frontend build failed. Check /tmp/storyengine-deploy.log" \
-                '{channel: $ch, text: $txt}')" > /dev/null 2>&1 || true
-    fi
+    slack_alert ":warning: StoryEngine frontend build failed. Check /tmp/storyengine-deploy.log"
     exit 1
 fi
 
@@ -146,9 +234,16 @@ sleep 8
 
 # Verify server is up
 if curl -sI http://localhost:3001/ 2>/dev/null | grep -q "200"; then
-    log "Server restarted successfully on port 3001"
-    echo "$CURRENT_COMMIT" > "$STATE_FILE"
+    log "Frontend restarted successfully on port 3001"
 else
-    log "WARNING: Server may not be responding — check /tmp/storyengine-frontend.log"
-    echo "$CURRENT_COMMIT" > "$STATE_FILE"
+    log "WARNING: Frontend may not be responding — check /tmp/storyengine-frontend.log"
+    slack_alert ":warning: StoryEngine frontend may not be responding after deploy. Check /tmp/storyengine-frontend.log"
 fi
+
+fi  # end frontend deploy
+
+# ──────────────────────────────────────────────────────────────────
+# Update state file — marks this commit as deployed
+# ──────────────────────────────────────────────────────────────────
+echo "$CURRENT_COMMIT" > "$STATE_FILE"
+log "Deploy complete ($CURRENT_COMMIT)"

@@ -1,0 +1,15 @@
+[Unit]
+Description=StoryEngine Backend (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=clawd
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+ExecStart=/home/clawd/projects/economy-fastforward/storyengine/backend/venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/clawd/projects/economy-fastforward/storyengine/.env
+
+[Install]
+WantedBy=multi-user.target
