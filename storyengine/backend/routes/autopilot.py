@@ -95,6 +95,27 @@ class AutopilotSummary(BaseModel):
 
 # --- Helper Functions ---
 
+# Cache niche recommendations per tenant (refreshed on each request cycle)
+_niche_recs_cache: Dict[str, dict] = {}
+
+
+async def _get_niche_recommendations(tenant_id: str) -> Optional[dict]:
+    """Get niche intelligence recommendations for scoring.
+
+    Returns serialized recommendations dict from IntelligenceAdvisor.
+    Cached per-request cycle (dict cleared after each endpoint call).
+    """
+    try:
+        from distillation.advisor import get_advisor
+        advisor = get_advisor()
+        recs = await advisor.get_recommendations(tenant_id)
+        return recs.to_dict() if recs.sample_size > 0 else None
+    except Exception as e:
+        import logging
+        logging.getLogger("storyengine").warning("Niche recommendations unavailable: %s", e)
+        return None
+
+
 async def _get_proven_patterns(tenant_id: str) -> list[str]:
     """Fetch proven title/hook patterns from learnings table (KEEP verdicts with decent confidence)."""
     try:
@@ -142,12 +163,18 @@ def calculate_confidence_with_breakdown(
     vph: float, hours_old: float,
     intelligence: dict = None,
     learnings_match: bool = False,
+    niche_recs: dict = None,
 ) -> ConfidenceBreakdown:
     """Calculate confidence score with detailed breakdown for explainability.
 
     Scoring weights: VPH 45%, Freshness 35%, Intelligence 20%.
-    Intelligence score considers: distilled DNA quality, learnings pattern matches,
-    and engagement signals (like_ratio, views_per_sub_ratio).
+    Intelligence score considers: distilled DNA quality, engagement signals,
+    learnings pattern matches, and niche intelligence alignment.
+
+    Args:
+        niche_recs: Niche recommendations dict from IntelligenceAdvisor.
+            Used to boost candidates whose DNA matches best-performing patterns.
+            Expected keys: hook_type, title_structure, topics (from candidate DNA).
     """
     MAX_VPH = 50000.0
     MAX_HOURS = 168.0
@@ -186,35 +213,59 @@ def calculate_confidence_with_breakdown(
             freshness_reasoning = f"Getting old ({hours_old:.0f}h) - urgency declining"
 
     # Intelligence score - 20% weight
-    # Factors: has distilled DNA, engagement signals, learnings match
+    # Factors: engagement signals, learnings match, niche intelligence alignment
     intel_score = 0
     intel_reasons = []
 
     if intelligence:
         # Has distilled intelligence = we understand this video's DNA
         if intelligence.get("has_dna"):
-            intel_score += 30
+            intel_score += 15
             intel_reasons.append("distilled DNA available")
 
         # High like ratio = strong audience resonance
         like_ratio = intelligence.get("like_ratio")
         if like_ratio and like_ratio > 0.04:
-            intel_score += 25
+            intel_score += 15
             intel_reasons.append(f"high engagement ({like_ratio:.1%} like ratio)")
         elif like_ratio and like_ratio > 0.02:
-            intel_score += 10
+            intel_score += 5
 
         # Virality signal (views >> subscriber count)
         vsr = intelligence.get("views_per_sub_ratio")
         if vsr and vsr > 2.0:
-            intel_score += 25
+            intel_score += 15
             intel_reasons.append(f"viral breakout ({vsr:.1f}x subs)")
         elif vsr and vsr > 1.0:
-            intel_score += 15
+            intel_score += 8
             intel_reasons.append(f"above-audience reach ({vsr:.1f}x subs)")
 
+        # Niche intelligence alignment — boost if candidate DNA matches best patterns
+        if niche_recs and intelligence.get("has_dna"):
+            candidate_hook = intelligence.get("hook_type")
+            candidate_title_struct = intelligence.get("title_structure")
+            candidate_topics = intelligence.get("topics") or []
+
+            best_hook = (niche_recs.get("hook") or {}).get("type")
+            best_title = (niche_recs.get("title_structure") or {}).get("structure")
+            best_topics = [t["topic"] for t in (niche_recs.get("top_topics") or [])]
+
+            if candidate_hook and best_hook and candidate_hook == best_hook:
+                intel_score += 15
+                intel_reasons.append(f"uses top hook ({best_hook})")
+
+            if candidate_title_struct and best_title and candidate_title_struct == best_title:
+                intel_score += 10
+                intel_reasons.append(f"uses top title structure ({best_title})")
+
+            if candidate_topics and best_topics:
+                matching = set(candidate_topics) & set(best_topics)
+                if matching:
+                    intel_score += 10
+                    intel_reasons.append(f"covers top topic{'s' if len(matching) > 1 else ''}")
+
     if learnings_match:
-        intel_score += 20
+        intel_score += 15
         intel_reasons.append("matches proven patterns")
 
     intel_score = min(100, intel_score)
@@ -305,8 +356,23 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
         rows = await fetch_all(
             """SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.channel_url,
                       cv.views, cv.vph, cv.hours_old, cv.published_date, cv.modeled,
-                      cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at
+                      cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at,
+                      COALESCE(
+                          ci.structured_metadata->'hook_dna'->>'type',
+                          ci.structured_metadata->'hook'->>'type'
+                      ) as hook_type,
+                      COALESCE(
+                          ci.structured_metadata->'title_dna'->>'structure',
+                          ci.structured_metadata->'title'->>'structure'
+                      ) as title_structure,
+                      COALESCE(
+                          ci.structured_metadata->'content_dna'->'topic_tags',
+                          ci.structured_metadata->'content'->'topic_tags'
+                      ) as topic_tags
                FROM competitor_videos cv
+               LEFT JOIN content_intelligence ci
+                   ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+                   AND ci.source_type = 'competitor_transcript'
                WHERE cv.tenant_id = $1
                  AND (cv.modeled = false OR cv.modeled IS NULL)
                  AND cv.vph >= $2
@@ -315,21 +381,34 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
             tenant_id, min_vph,
         )
 
-        # Fetch proven learnings patterns for matching
+        # Fetch proven learnings patterns + niche recommendations in parallel
         proven_patterns = await _get_proven_patterns(tenant_id)
+        niche_recs = await _get_niche_recommendations(tenant_id)
 
         for row in rows:
             vph = float(row.get("vph") or 0)
             hours_old = float(row.get("hours_old") or 0)
 
+            # Parse topic_tags from JSONB
+            topic_tags = row.get("topic_tags")
+            if isinstance(topic_tags, str):
+                import json as _j
+                try:
+                    topic_tags = _j.loads(topic_tags)
+                except (ValueError, TypeError):
+                    topic_tags = None
+
             intel = {
                 "has_dna": row.get("distilled_at") is not None,
                 "like_ratio": float(row["like_ratio"]) if row.get("like_ratio") else None,
                 "views_per_sub_ratio": float(row["views_per_sub_ratio"]) if row.get("views_per_sub_ratio") else None,
+                "hook_type": row.get("hook_type"),
+                "title_structure": row.get("title_structure"),
+                "topics": topic_tags if isinstance(topic_tags, list) else None,
             }
             learnings_match = _title_matches_patterns(row.get("title", ""), proven_patterns)
 
-            breakdown = calculate_confidence_with_breakdown(vph, hours_old, intel, learnings_match)
+            breakdown = calculate_confidence_with_breakdown(vph, hours_old, intel, learnings_match, niche_recs)
 
             candidates.append(CompetitorCandidate(
                 id=str(row["id"]),
@@ -394,46 +473,64 @@ async def get_candidates(
     include_modeled: bool = Query(False),
     tenant_id: str = Depends(get_tenant_id)
 ):
-    """Get competitor video candidates from Supabase."""
+    """Get competitor video candidates from Supabase with intelligence-enriched scoring."""
     candidates = []
     try:
-        # Build query based on include_modeled flag
-        if include_modeled:
-            query = """SELECT id, video_id, title, url, channel, channel_url,
-                              views, vph, hours_old, published_date, modeled,
-                              like_ratio, views_per_sub_ratio, distilled_at
-                       FROM competitor_videos
-                       WHERE tenant_id = $1 AND vph >= $2
-                       ORDER BY vph DESC
-                       LIMIT $3"""
-        else:
-            query = """SELECT id, video_id, title, url, channel, channel_url,
-                              views, vph, hours_old, published_date, modeled,
-                              like_ratio, views_per_sub_ratio, distilled_at
-                       FROM competitor_videos
-                       WHERE tenant_id = $1
-                         AND vph >= $2
-                         AND (modeled = false OR modeled IS NULL)
-                       ORDER BY vph DESC
-                       LIMIT $3"""
+        # Build query with LEFT JOIN for intelligence DNA
+        modeled_filter = "" if include_modeled else "AND (cv.modeled = false OR cv.modeled IS NULL)"
+        query = f"""SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.channel_url,
+                          cv.views, cv.vph, cv.hours_old, cv.published_date, cv.modeled,
+                          cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at,
+                          COALESCE(
+                              ci.structured_metadata->'hook_dna'->>'type',
+                              ci.structured_metadata->'hook'->>'type'
+                          ) as hook_type,
+                          COALESCE(
+                              ci.structured_metadata->'title_dna'->>'structure',
+                              ci.structured_metadata->'title'->>'structure'
+                          ) as title_structure,
+                          COALESCE(
+                              ci.structured_metadata->'content_dna'->'topic_tags',
+                              ci.structured_metadata->'content'->'topic_tags'
+                          ) as topic_tags
+                   FROM competitor_videos cv
+                   LEFT JOIN content_intelligence ci
+                       ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+                       AND ci.source_type = 'competitor_transcript'
+                   WHERE cv.tenant_id = $1 AND cv.vph >= $2
+                     {modeled_filter}
+                   ORDER BY cv.vph DESC
+                   LIMIT $3"""
 
         rows = await fetch_all(query, tenant_id, min_vph, limit * 2)
 
-        # Fetch proven learnings patterns for matching
+        # Fetch proven learnings patterns + niche recommendations
         proven_patterns = await _get_proven_patterns(tenant_id)
+        niche_recs = await _get_niche_recommendations(tenant_id)
 
         for row in rows:
             vph = float(row.get("vph") or 0)
             hours_old = float(row.get("hours_old") or 0)
 
+            topic_tags = row.get("topic_tags")
+            if isinstance(topic_tags, str):
+                import json as _j
+                try:
+                    topic_tags = _j.loads(topic_tags)
+                except (ValueError, TypeError):
+                    topic_tags = None
+
             intel = {
                 "has_dna": row.get("distilled_at") is not None,
                 "like_ratio": float(row["like_ratio"]) if row.get("like_ratio") else None,
                 "views_per_sub_ratio": float(row["views_per_sub_ratio"]) if row.get("views_per_sub_ratio") else None,
+                "hook_type": row.get("hook_type"),
+                "title_structure": row.get("title_structure"),
+                "topics": topic_tags if isinstance(topic_tags, list) else None,
             }
             learnings_match = _title_matches_patterns(row.get("title", ""), proven_patterns)
 
-            breakdown = calculate_confidence_with_breakdown(vph, hours_old, intel, learnings_match)
+            breakdown = calculate_confidence_with_breakdown(vph, hours_old, intel, learnings_match, niche_recs)
 
             candidates.append(CompetitorCandidate(
                 id=str(row["id"]),
@@ -899,4 +996,28 @@ async def get_background_task_status(tenant_id: str = Depends(get_tenant_id)):
         "youtube_sync": _task_info("youtube_sync", sync_user),
         "learning_extraction": _task_info("learning_extraction"),
         "title_analysis": _task_info("title_analysis"),
+        "distillation": _task_info("distillation"),
+    }
+
+
+@router.get("/recommendations")
+async def get_niche_recommendations(
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Get data-backed niche intelligence recommendations for the dashboard.
+
+    Returns best-performing hook type, thumbnail style, title structure,
+    publish timing, and top topics — all correlated with VPH performance.
+    Used by the autopilot dashboard to display intelligence-driven suggestions.
+    """
+    recs = await _get_niche_recommendations(tenant_id)
+    if not recs:
+        return {
+            "status": "insufficient_data",
+            "message": "Need at least 5 distilled competitor videos for recommendations",
+            "recommendations": None,
+        }
+    return {
+        "status": "ok",
+        "recommendations": recs,
     }

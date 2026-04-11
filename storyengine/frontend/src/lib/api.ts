@@ -1740,3 +1740,67 @@ export const getBackfillStatus = () =>
   fetchApi<{ running: boolean; processed?: number; failed?: number; status?: string }>(
     "/api/intelligence/backfill/status"
   );
+
+// ── Intelligence Recommendations & Meta-Insights ─────────────────
+
+export interface IntelligenceRecommendations {
+  sample_size: number;
+  confidence: number;
+  hook: { type: string; avg_vph: number; count: number; avg_like_ratio: number } | null;
+  thumbnail: {
+    layout: string | null; layout_avg_vph: number;
+    style: string | null; style_avg_vph: number;
+    face_emotion: string | null; face_emotion_avg_vph: number;
+    face_present: boolean | null; face_present_avg_vph: number;
+  } | null;
+  title_structure: { structure: string; avg_vph: number } | null;
+  timing: {
+    best_day: number | null; best_day_name: string | null; best_day_avg_vph: number;
+    best_hour: number | null; best_hour_avg_vph: number;
+  } | null;
+  top_topics: Array<{ topic: string; avg_vph: number }>;
+}
+
+export interface NicheMetaInsights {
+  generated_at: string | null;
+  sample_size: number;
+  meta_report: string | null;
+  insights: {
+    niche_summary?: string;
+    top_patterns?: Array<{
+      pattern: string; performance: string; recommendation: string; confidence: string;
+    }>;
+    combination_insights?: string[];
+    timing_strategy?: { best_days: string[]; best_hours: number[]; reasoning: string };
+    contrarian_findings?: string[];
+    niche_signature?: {
+      audience_type: string; content_preference: string;
+      visual_language: string; emotional_drivers: string[];
+    };
+  } | null;
+  top_hook_types: Array<{ hook_type: string; count: number; avg_vph: number }> | null;
+  top_thumbnail_patterns: Array<{ layout?: string; style?: string; count: number; avg_vph: number }> | null;
+  top_title_structures: Array<{ structure: string; count: number; avg_vph: number }> | null;
+  optimal_timing: Record<string, unknown> | null;
+  niche_signature: Record<string, unknown> | null;
+}
+
+export const getIntelligenceRecommendations = () =>
+  fetchApi<{ status: string; recommendations: IntelligenceRecommendations | null }>(
+    "/api/intelligence/recommendations"
+  );
+
+export const getNicheMetaInsights = () =>
+  fetchApi<{ status: string; insights: NicheMetaInsights["insights"] } & Partial<NicheMetaInsights>>(
+    "/api/intelligence/meta-insights"
+  );
+
+export const triggerMetaAnalysis = () =>
+  fetchApi<{ status: string; message: string }>("/api/intelligence/meta-insights/generate", {
+    method: "POST",
+  });
+
+export const getAutopilotRecommendations = () =>
+  fetchApi<{ status: string; recommendations: IntelligenceRecommendations | null }>(
+    "/api/autopilot/recommendations"
+  );

@@ -716,6 +716,17 @@ async def _get_learnings_context(tenant_id: str) -> str:
     except Exception as e:
         print(f"[Discovery] Error loading learnings context: {e}")
 
+    # 6. Niche intelligence recommendations (from distilled competitor DNA)
+    try:
+        from distillation.advisor import get_advisor
+        advisor = get_advisor()
+        recs = await advisor.get_recommendations(tenant_id)
+        intel_context = recs.to_prompt_context()
+        if intel_context:
+            sections.append(intel_context)
+    except Exception as e:
+        print(f"[Discovery] Error loading intelligence recommendations: {e}")
+
     if not sections:
         return ""
 
