@@ -1429,7 +1429,7 @@ async def pipeline_stream(
     Frontend connects via: new EventSource('/api/pipeline/stream?token=X&video_id=Y')
     """
     async def event_generator():
-        last_transition_at: Optional[str] = None
+        last_transition_at = None  # datetime from asyncpg (not string)
         last_task_snapshot: dict[str, str] = {}
 
         while True:
@@ -1440,11 +1440,11 @@ async def pipeline_stream(
                         """SELECT st.video_id, v.video_title, v.status AS current_status,
                                   st.from_status, st.to_status, st.triggered_by,
                                   st.cost, st.duration_seconds, st.error_message,
-                                  st.created_at::text AS created_at
+                                  st.created_at
                            FROM stage_transitions st
                            LEFT JOIN videos v ON v.id = st.video_id
                            WHERE st.tenant_id = $1 AND st.video_id = $2
-                             AND st.created_at > $3::timestamptz
+                             AND st.created_at > $3
                            ORDER BY st.created_at ASC LIMIT 10""",
                         tenant_id, video_id, last_transition_at,
                     )
@@ -1453,11 +1453,11 @@ async def pipeline_stream(
                         """SELECT st.video_id, v.video_title, v.status AS current_status,
                                   st.from_status, st.to_status, st.triggered_by,
                                   st.cost, st.duration_seconds, st.error_message,
-                                  st.created_at::text AS created_at
+                                  st.created_at
                            FROM stage_transitions st
                            LEFT JOIN videos v ON v.id = st.video_id
                            WHERE st.tenant_id = $1
-                             AND st.created_at > $2::timestamptz
+                             AND st.created_at > $2
                            ORDER BY st.created_at ASC LIMIT 10""",
                         tenant_id, last_transition_at,
                     )
@@ -1468,7 +1468,7 @@ async def pipeline_stream(
                         """SELECT st.video_id, v.video_title, v.status AS current_status,
                                   st.from_status, st.to_status, st.triggered_by,
                                   st.cost, st.duration_seconds, st.error_message,
-                                  st.created_at::text AS created_at
+                                  st.created_at
                            FROM stage_transitions st
                            LEFT JOIN videos v ON v.id = st.video_id
                            WHERE st.tenant_id = $1 AND st.video_id = $2
@@ -1480,7 +1480,7 @@ async def pipeline_stream(
                         """SELECT st.video_id, v.video_title, v.status AS current_status,
                                   st.from_status, st.to_status, st.triggered_by,
                                   st.cost, st.duration_seconds, st.error_message,
-                                  st.created_at::text AS created_at
+                                  st.created_at
                            FROM stage_transitions st
                            LEFT JOIN videos v ON v.id = st.video_id
                            WHERE st.tenant_id = $1
@@ -1489,6 +1489,7 @@ async def pipeline_stream(
                     )
 
             for t in transitions:
+                created_at = t.get("created_at")
                 event = {
                     "video_id": str(t["video_id"]) if t.get("video_id") else None,
                     "video_title": t.get("video_title"),
@@ -1499,10 +1500,10 @@ async def pipeline_stream(
                     "cost": float(t["cost"]) if t.get("cost") else None,
                     "duration_seconds": t.get("duration_seconds"),
                     "error_message": t.get("error_message"),
-                    "created_at": t.get("created_at"),
+                    "created_at": created_at.isoformat() if created_at else None,
                 }
                 yield f"event: stage_change\ndata: {json.dumps(event)}\n\n"
-                last_transition_at = t["created_at"]
+                last_transition_at = created_at
 
             # 2. Poll task progress (from in-memory _running_tasks)
             if video_id:
