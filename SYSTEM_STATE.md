@@ -418,6 +418,72 @@ When the task queue is complete (all tasks done + verified), agents enter **Ops 
 
 ---
 
+## 11a. Content Intelligence / Data Distillation (April 2026)
+
+Vectorization pipeline that distills raw data (transcripts, research) into structured intelligence + vector embeddings. Reduces Supabase egress by replacing large TEXT reads with compact summaries.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/distillation/__init__.py` | Module entry point |
+| `storyengine/backend/distillation/embeddings.py` | OpenAI text-embedding-3-small wrapper |
+| `storyengine/backend/distillation/distiller.py` | Claude Haiku summarization prompts |
+| `storyengine/backend/distillation/pipeline.py` | Orchestrator: raw → summarize → embed → store |
+| `storyengine/backend/routes/intelligence.py` | API: `/api/intelligence/*` (search, backfill, stats, insights) |
+| `storyengine/backend/migrations/036_enable_pgvector.sql` | Enable pgvector extension |
+| `storyengine/backend/migrations/037_content_intelligence.sql` | content_intelligence table + indexes |
+
+### New Table: `content_intelligence`
+| Column | Type | Purpose |
+|--------|------|---------|
+| source_type | TEXT | 'competitor_transcript', 'video_script', etc. |
+| source_id | UUID | FK to source row |
+| summary | TEXT | LLM-generated summary (~500 bytes) |
+| structured_metadata | JSONB | Extracted intelligence (hook type, topics, structure) |
+| embedding | vector(1536) | Semantic search vector |
+
+### API Endpoints
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/intelligence/backfill` | POST | Trigger bulk transcript distillation |
+| `/api/intelligence/backfill/status` | GET | Check backfill progress |
+| `/api/intelligence/search?q=...` | GET | Semantic similarity search |
+| `/api/intelligence/stats` | GET | Distillation progress + savings |
+| `/api/intelligence/record/{id}` | GET | Single record intelligence |
+| `/api/intelligence/insights/topics` | GET | Aggregated topic distribution |
+| `/api/intelligence/insights/hooks` | GET | Hook pattern distribution with VPH |
+| `/api/intelligence/insights/thumbnails` | GET | Thumbnail visual patterns (face, layout, style) |
+| `/api/intelligence/insights/timing` | GET | Best publish days/hours |
+| `/api/intelligence/insights/virality` | GET | Viral videos (high views/sub ratio) + their DNA |
+
+### Full Video DNA (extracted per competitor video)
+| DNA Component | Source | Fields |
+|---|---|---|
+| Title DNA | Claude Haiku | structure, curiosity_gap, power_words, clickability |
+| Hook DNA | Claude Haiku | type, opening_line, first_open_loop, time_to_hook |
+| Content DNA | Claude Haiku | topics, entities, tone, timeliness, niche_category |
+| Structure DNA | Claude Haiku | arc, pacing, words_per_minute |
+| Retention DNA | Claude Haiku | first_5min_summary, open_loops, payoff_quality |
+| Villain DNA | Claude Haiku | type, name, reveal_position, stakes_personal |
+| Engagement | Claude Haiku | comment_bait, share_trigger, polarizing |
+| Thumbnail DNA | Gemini Vision | face, emotion, text, colors, composition, clickbait signals |
+| Performance | Raw metrics | views, vph, like_ratio, comment_ratio, views_per_sub_ratio |
+| Timing | yt-dlp | published_day, published_hour, has_chapters |
+
+### Additional New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/distillation/thumbnail_analyzer.py` | Gemini Vision thumbnail analysis |
+| `storyengine/backend/migrations/038_extended_video_dna.sql` | Extended scraper columns |
+
+### Modified Files
+- `routes/autopilot.py` — Candidate detail lazy-loads transcript, returns distilled intelligence
+- `routes/discovery.py` — Prefers distilled summaries over raw transcripts for idea generation
+- `routes/learning_extraction.py` — Uses distilled hook types before falling back to raw transcript analysis
+- `routes/niche.py` — Extended scraper (comment_count, subs, chapters, tags, derived ratios) + auto-distills after scraping
+
+---
+
 ## 11. Known Issues / Tech Debt
 
 ### Critical

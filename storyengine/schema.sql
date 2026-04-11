@@ -383,10 +383,64 @@ CREATE TABLE competitor_videos (
   description TEXT,
   likes INTEGER,
 
+  -- Extended video DNA (migration 038)
+  comment_count INTEGER,
+  channel_subscriber_count INTEGER,
+  like_ratio NUMERIC,              -- likes / views
+  comment_ratio NUMERIC,           -- comments / views
+  views_per_sub_ratio NUMERIC,     -- views / channel_subs (virality signal)
+  published_day_of_week INTEGER,   -- 0=Monday, 6=Sunday
+  published_hour INTEGER,          -- 0-23 UTC
+  has_chapters BOOLEAN DEFAULT false,
+  chapter_count INTEGER DEFAULT 0,
+  chapter_titles TEXT,             -- JSON array of chapter names
+  tags TEXT,                       -- JSON array of video tags
+  thumbnail_analyzed_at TIMESTAMPTZ,
+
+  -- Distillation tracking
+  distilled_at TIMESTAMPTZ,  -- Set when transcript has been vectorized
+
   UNIQUE(tenant_id, video_id),
 
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- =============================================
+-- CONTENT INTELLIGENCE (distilled data + vectors)
+-- =============================================
+
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE content_intelligence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+
+  -- Source reference
+  source_type TEXT NOT NULL,   -- 'competitor_transcript', 'video_script', 'research_payload', 'agent_trail'
+  source_id UUID NOT NULL,     -- FK to the source table row
+  source_table TEXT NOT NULL,  -- 'competitor_videos', 'videos', etc.
+
+  -- Distilled intelligence
+  summary TEXT NOT NULL,
+  structured_metadata JSONB NOT NULL,
+
+  -- Vector embedding (OpenAI text-embedding-3-small = 1536 dimensions)
+  embedding vector(1536),
+
+  -- Provenance
+  model_used TEXT,
+  embedding_model TEXT,
+  raw_char_count INTEGER,
+
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_ci_tenant_source_type ON content_intelligence(tenant_id, source_type);
+CREATE INDEX idx_ci_source_id ON content_intelligence(source_id);
+CREATE UNIQUE INDEX idx_ci_unique_source ON content_intelligence(tenant_id, source_type, source_id);
+CREATE INDEX idx_ci_metadata ON content_intelligence USING gin (structured_metadata);
+CREATE INDEX idx_ci_embedding ON content_intelligence USING hnsw (embedding vector_cosine_ops);
 
 -- =============================================
 -- OSIRIS LEARNINGS (from Airtable)

@@ -613,26 +613,63 @@ async def analyze_competitor_transcripts(
 ):
     """Analyze competitor video transcripts for hook/structure patterns.
 
-    Reads high-VPH competitor videos WITH transcripts, detects opening hook
-    patterns, and writes results to the title_insights table (as 'hook' type).
-    This teaches the system what hook structures work in the niche.
+    Prefers distilled intelligence (content_intelligence table) over raw transcripts.
+    Falls back to raw transcript analysis for un-distilled videos.
+    Writes results to the title_insights table (as 'hook' type).
     """
-    competitors = await fetch_all(
-        """SELECT title, vph, channel, transcript
+    # First: use distilled hook data (no raw transcript needed — saves egress)
+    distilled = await fetch_all(
+        """SELECT cv.title, cv.vph, cv.channel,
+                  ci.structured_metadata
+           FROM content_intelligence ci
+           JOIN competitor_videos cv ON cv.id = ci.source_id AND cv.tenant_id = ci.tenant_id
+           WHERE ci.tenant_id = $1 AND ci.source_type = 'competitor_transcript'
+             AND cv.vph >= 50
+           ORDER BY cv.vph DESC LIMIT 50""",
+        tenant_id,
+    )
+
+    # Fall back to raw transcripts for un-distilled videos
+    raw_competitors = await fetch_all(
+        """SELECT title, vph, channel, LEFT(transcript, 2000) as transcript
            FROM competitor_videos
            WHERE tenant_id = $1 AND vph >= 50
+             AND distilled_at IS NULL
              AND transcript IS NOT NULL AND transcript != ''
            ORDER BY vph DESC LIMIT 50""",
         tenant_id,
     )
 
-    if not competitors:
+    if not distilled and not raw_competitors:
         return {"status": "no_data", "message": "No competitor videos with transcripts found"}
+
+    total_analyzed = len(distilled or []) + len(raw_competitors or [])
 
     # Aggregate hook patterns across competitor transcripts
     pattern_stats: dict[str, dict] = {}
 
-    for comp in competitors:
+    # Process distilled intelligence first (already extracted hook types)
+    import json
+    for comp in (distilled or []):
+        vph = float(comp.get("vph", 0))
+        title = comp.get("title", "")
+        metadata = comp.get("structured_metadata")
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        if metadata:
+            hook_type = (metadata.get("hook") or {}).get("type")
+            if hook_type:
+                pattern = f"hook_{hook_type}"
+                if pattern not in pattern_stats:
+                    pattern_stats[pattern] = {"count": 0, "total_vph": 0, "examples": []}
+                stats = pattern_stats[pattern]
+                stats["count"] += 1
+                stats["total_vph"] += vph
+                if len(stats["examples"]) < 5:
+                    stats["examples"].append(title)
+
+    # Process raw transcripts as fallback
+    for comp in (raw_competitors or []):
         transcript = comp.get("transcript", "")
         vph = float(comp.get("vph", 0))
         title = comp.get("title", "")
@@ -670,7 +707,7 @@ async def analyze_competitor_transcripts(
                 tenant_id, today, pattern_name,
                 f"Competitor hook pattern: {pattern_name.lower()}",
                 json.dumps(stats["examples"]),
-                avg_vph, stats["count"], confidence, len(competitors),
+                avg_vph, stats["count"], confidence, total_analyzed,
             )
             inserted += 1
         except Exception as e:
@@ -680,7 +717,7 @@ async def analyze_competitor_transcripts(
         "status": "ok",
         "patterns_found": len(pattern_stats),
         "insights_saved": inserted,
-        "videos_analyzed": len(competitors),
+        "videos_analyzed": total_analyzed,
     }
 
 

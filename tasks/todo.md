@@ -1,5 +1,48 @@
 # Task Tracking
 
+## Handoff (2026-04-11 — Content Intelligence Full Stack)
+
+### Phase 1: Backend Pipeline (DONE)
+- `storyengine/backend/distillation/` (NEW module) — embeddings.py, distiller.py, pipeline.py, thumbnail_analyzer.py
+- `storyengine/backend/routes/intelligence.py` (NEW) — 10 API endpoints (search, backfill, stats, 5 insight types)
+- `storyengine/backend/migrations/036-039` — pgvector, content_intelligence table, extended video DNA columns, updated_at
+- Full video DNA extraction: hook, title, content, retention, villain, engagement, thumbnail (Gemini Vision)
+- Extended yt-dlp scraper: 12 new fields + derived metrics (like_ratio, views_per_sub_ratio, timing)
+
+### Phase 2: Wiring Audit + Bug Fixes (DONE)
+- Fixed: `competitors` NameError in learning_extraction.py (would crash at runtime)
+- Fixed: semantic search JOIN using source_table instead of tenant_id
+- Fixed: UPSERT overwriting created_at (added updated_at column + migration 039)
+- Fixed: niche.py UPDATE missing published_date
+- Fixed: autopilot has_transcript misleading logic
+
+### Phase 3: Intelligence-Driven Scoring (DONE)
+- Autopilot scoring: VPH 45% + Freshness 35% + Intelligence 20% (engagement, virality, DNA, learnings match)
+- Discovery ideas: full DNA injection (hook, title, content, thumbnail, retention, controversy)
+- Autopilot launch: injects intelligence + learnings into `script_system_prompt` for script generation
+
+### Phase 4: Frontend Intelligence UI (DONE)
+- `api.ts`: All intelligence types + 9 API functions (search, stats, topics, hooks, thumbnails, timing, virality, backfill)
+- `playing-card.tsx`: Intelligence score row in confidence breakdown
+- `card-expanded.tsx`: Full DNA display (summary, hook/tone/title/thumbnail badges, topics, opening line)
+- `competitors/page.tsx`: DNA badges on every video card + semantic search bar with results
+- `discovery/page.tsx`: DNA badges (hook_type, tone, title_structure, thumbnail_style) on idea cards
+- `analytics/page.tsx`: Niche Intelligence section (hook patterns, thumbnail styles, publish timing, trending topics)
+- Backend: niche/videos + discovery/ideas endpoints return intelligence via LEFT JOIN
+
+### What's next (deploy + extend):
+1. Run migrations 036 + 037 + 038 + 039 on Supabase SQL Editor
+2. Trigger backfill: `POST /api/intelligence/backfill?batch_size=50`
+3. Monitor: `GET /api/intelligence/stats`
+4. **Autopilot autonomous decisions**: auto-select hook type, thumbnail style, title formula based on intelligence
+5. **Second-order distillation**: niche-level meta-analysis across all distilled videos
+6. Extend distillation to video_scripts, research_payloads, agent_paper_trails
+7. Add GCS archival for raw transcripts after distillation
+
+**Design decisions:** See `tasks/decisions.md` — ADR 2026-04-11
+
+---
+
 ## Active Work
 
 **Execution Plan:** `tasks/roadmap.md` — 18-day SaaS transformation

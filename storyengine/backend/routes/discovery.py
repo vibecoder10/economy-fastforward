@@ -43,6 +43,10 @@ class DiscoveryIdea(BaseModel):
     status: str = "fresh"
     batch_date: Optional[str] = None
     created_at: Optional[str] = None
+    hook_type: Optional[str] = None
+    tone: Optional[str] = None
+    title_structure: Optional[str] = None
+    thumbnail_style: Optional[str] = None
 
 
 class LaunchIdeaRequest(BaseModel):
@@ -74,34 +78,42 @@ async def get_discovery_ideas(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """List discovery ideas, sorted by appeal score."""
-    conditions = ["tenant_id = $1"]
+    conditions = ["di.tenant_id = $1"]
     params: list = [tenant_id]
     idx = 2
 
     if status:
-        conditions.append(f"status = ${idx}")
+        conditions.append(f"di.status = ${idx}")
         params.append(status)
         idx += 1
     else:
         # Default: show fresh ideas
-        conditions.append(f"status = ${idx}")
+        conditions.append(f"di.status = ${idx}")
         params.append("fresh")
         idx += 1
 
     if batch_date:
-        conditions.append(f"batch_date = ${idx}")
+        conditions.append(f"di.batch_date = ${idx}")
         params.append(batch_date)
         idx += 1
 
     where = " AND ".join(conditions)
     query = f"""
-        SELECT id, source_type, competitor_title, competitor_channel,
-               competitor_url, competitor_vph, competitor_thumbnail_url,
-               our_angle, hook, framework, estimated_appeal, appeal_breakdown,
-               title_options, status, batch_date::text, created_at::text
-        FROM discovery_ideas
+        SELECT di.id, di.source_type, di.competitor_title, di.competitor_channel,
+               di.competitor_url, di.competitor_vph, di.competitor_thumbnail_url,
+               di.our_angle, di.hook, di.framework, di.estimated_appeal, di.appeal_breakdown,
+               di.title_options, di.status, di.batch_date::text, di.created_at::text,
+               ci.structured_metadata->'hook_dna'->>'type' as hook_type,
+               ci.structured_metadata->'content_dna'->>'tone' as tone,
+               ci.structured_metadata->'title_dna'->>'structure' as title_structure,
+               ci.structured_metadata->'thumbnail_dna'->>'overall_style' as thumbnail_style
+        FROM discovery_ideas di
+        LEFT JOIN content_intelligence ci
+            ON ci.source_id = di.competitor_video_id
+            AND ci.tenant_id = di.tenant_id
+            AND ci.source_type = 'competitor_transcript'
         WHERE {where}
-        ORDER BY estimated_appeal DESC NULLS LAST, created_at DESC
+        ORDER BY di.estimated_appeal DESC NULLS LAST, di.created_at DESC
         LIMIT ${idx}
     """
     params.append(limit)
@@ -146,6 +158,10 @@ async def get_discovery_ideas(
             status=row.get("status", "fresh"),
             batch_date=row.get("batch_date"),
             created_at=row.get("created_at"),
+            hook_type=row.get("hook_type"),
+            tone=row.get("tone"),
+            title_structure=row.get("title_structure"),
+            thumbnail_style=row.get("thumbnail_style"),
         ))
 
     return ideas
@@ -358,16 +374,24 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             return
 
         # Fetch recent high-VPH competitor videos (not yet modeled)
-        # Include transcript for hook/structure analysis
+        # Use distilled intelligence when available, fall back to raw transcript
         competitors = await fetch_all(
-            """SELECT id, video_id, title, url, channel, vph, hours_old, published_date,
-                      transcript, thumbnail_url, duration_seconds
-               FROM competitor_videos
-               WHERE tenant_id = $1
-                 AND vph >= 50
-                 AND hours_old <= 720
-                 AND (modeled = false OR modeled IS NULL)
-               ORDER BY vph DESC
+            """SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.vph,
+                      cv.hours_old, cv.published_date, cv.thumbnail_url, cv.duration_seconds,
+                      cv.distilled_at,
+                      ci.summary as distilled_summary,
+                      ci.structured_metadata as distilled_metadata,
+                      CASE WHEN cv.distilled_at IS NOT NULL THEN NULL
+                           ELSE LEFT(cv.transcript, 500) END as transcript_hook
+               FROM competitor_videos cv
+               LEFT JOIN content_intelligence ci
+                   ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+                   AND ci.source_type = 'competitor_transcript'
+               WHERE cv.tenant_id = $1
+                 AND cv.vph >= 50
+                 AND cv.hours_old <= 720
+                 AND (cv.modeled = false OR cv.modeled IS NULL)
+               ORDER BY cv.vph DESC
                LIMIT 15""",
             tenant_id,
         )
@@ -397,7 +421,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             _refresh_tasks[tenant_id] = {"running": False, "error": msg}
             return
 
-        # Build competitor list for Claude (include transcript hooks)
+        # Build competitor list for Claude (prefer distilled intelligence over raw transcript)
         comp_list = []
         for c in competitors:
             entry = {
@@ -407,10 +431,52 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                 "hours_old": float(c.get("hours_old", 0)),
                 "url": c.get("url", ""),
             }
-            # Extract first ~300 chars of transcript as the competitor's hook
-            transcript = c.get("transcript") or ""
-            if transcript:
-                entry["opening_hook"] = transcript[:300].strip()
+            # Use distilled intelligence when available (richer + cheaper)
+            if c.get("distilled_summary"):
+                entry["summary"] = c["distilled_summary"]
+                metadata = c.get("distilled_metadata")
+                if metadata:
+                    import json
+                    if isinstance(metadata, str):
+                        metadata = json.loads(metadata)
+                    # Hook DNA
+                    hook = metadata.get("hook_dna") or metadata.get("hook", {})
+                    if hook.get("opening_line"):
+                        entry["opening_hook"] = hook["opening_line"]
+                    if hook.get("type"):
+                        entry["hook_type"] = hook["type"]
+                    # Content DNA
+                    content = metadata.get("content_dna") or metadata.get("content", {})
+                    topics = content.get("topic_tags", [])
+                    if topics:
+                        entry["topics"] = topics
+                    if content.get("tone"):
+                        entry["tone"] = content["tone"]
+                    # Title DNA
+                    title_dna = metadata.get("title_dna", {})
+                    if title_dna.get("structure"):
+                        entry["title_structure"] = title_dna["structure"]
+                    if title_dna.get("curiosity_mechanism"):
+                        entry["curiosity_mechanism"] = title_dna["curiosity_mechanism"]
+                    # Thumbnail DNA
+                    thumb = metadata.get("thumbnail_dna", {})
+                    if thumb.get("overall_style"):
+                        entry["thumbnail_style"] = thumb["overall_style"]
+                    if thumb.get("face_emotion"):
+                        entry["thumbnail_emotion"] = thumb["face_emotion"]
+                    # Retention DNA
+                    retention = metadata.get("retention_dna", {})
+                    if retention.get("first_hook_seconds"):
+                        entry["hook_duration"] = retention["first_hook_seconds"]
+                    # Engagement signals
+                    engagement = metadata.get("engagement_signals", {})
+                    if engagement.get("controversy_level"):
+                        entry["controversy"] = engagement["controversy_level"]
+            else:
+                # Fall back to raw transcript snippet (first 300 chars)
+                transcript_hook = c.get("transcript_hook") or ""
+                if transcript_hook:
+                    entry["opening_hook"] = transcript_hook.strip()
             comp_list.append(entry)
 
         # Call Claude to generate ideas

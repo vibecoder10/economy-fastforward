@@ -133,6 +133,9 @@ export function PlayingCard({ candidate, onModel }: PlayingCardProps) {
                 {[
                   { label: "VPH Score", score: breakdown.vph_score, reasoning: breakdown.vph_reasoning },
                   { label: "Freshness", score: breakdown.freshness_score, reasoning: breakdown.freshness_reasoning },
+                  ...(breakdown.intelligence_score > 0
+                    ? [{ label: "Intelligence", score: breakdown.intelligence_score, reasoning: breakdown.intelligence_reasoning }]
+                    : []),
                 ].map((item) => (
                   <div key={item.label}>
                     <div className="flex items-center justify-between mb-0.5">

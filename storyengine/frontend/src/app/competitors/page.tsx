@@ -24,7 +24,9 @@ import {
   scrapeCompetitorChannels,
   getScrapeStatus,
   cancelScrape,
+  searchIntelligence,
   type NicheVideo,
+  type IntelligenceSearchResult,
 } from "@/lib/api";
 import { formatNumber, timeAgo } from "@/lib/utils";
 
@@ -126,6 +128,11 @@ export default function CompetitorsPage() {
   const [addError, setAddError] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("vph_desc");
   const [page, setPage] = useState(0);
+
+  // Semantic search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<IntelligenceSearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   // "Model This" modal state
   const [modelVideo, setModelVideo] = useState<NicheVideo | null>(null);
@@ -526,6 +533,86 @@ export default function CompetitorsPage() {
         </motion.div>
       )}
 
+      {/* Semantic search */}
+      <motion.div variants={item}>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === "Enter" && searchQuery.trim().length >= 2) {
+                setSearching(true);
+                try {
+                  const res = await searchIntelligence(searchQuery.trim(), 12);
+                  setSearchResults(res.results);
+                } catch {
+                  setSearchResults([]);
+                } finally {
+                  setSearching(false);
+                }
+              }
+            }}
+            placeholder="Search competitor intelligence... (e.g. &quot;AI regulation&quot;, &quot;viral hooks&quot;)"
+            className="flex-1 rounded-lg px-4 py-2 text-sm font-body outline-none placeholder:opacity-40"
+            style={{
+              background: "var(--bg-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+            }}
+          />
+          {searching && <Loader2 size={16} className="animate-spin" style={{ color: "var(--amber)" }} />}
+          {searchResults && (
+            <button
+              onClick={() => { setSearchResults(null); setSearchQuery(""); }}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Search results */}
+      {searchResults && (
+        <motion.div variants={item} className="space-y-2">
+          <p className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+            {searchResults.length} results for &ldquo;{searchQuery}&rdquo;
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {searchResults.map((r) => (
+              <GlassCard key={r.id} className="!p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  {r.source_thumbnail_url && (
+                    <img src={r.source_thumbnail_url} alt="" className="w-16 h-10 rounded object-cover shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium line-clamp-2" style={{ color: "var(--text-primary)" }}>
+                      {r.source_title || "Untitled"}
+                    </p>
+                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{r.source_channel}</p>
+                  </div>
+                </div>
+                <p className="text-[11px] line-clamp-2" style={{ color: "var(--text-secondary)" }}>{r.summary}</p>
+                <div className="flex items-center gap-2">
+                  {r.similarity != null && (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
+                      {(r.similarity * 100).toFixed(0)}% match
+                    </span>
+                  )}
+                  {r.source_vph != null && (
+                    <span className="text-[9px] font-mono" style={{ color: "var(--turquoise)" }}>
+                      {formatNumber(r.source_vph)} VPH
+                    </span>
+                  )}
+                </div>
+              </GlassCard>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
       {/* Video cards grid */}
       {videos.length > 0 ? (
         <motion.div
@@ -570,6 +657,36 @@ export default function CompetitorsPage() {
                       </>
                     )}
                   </div>
+                  {/* DNA badges from distilled intelligence */}
+                  {video.has_dna && (
+                    <div className="flex flex-wrap gap-1">
+                      {video.hook_type && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
+                          {video.hook_type}
+                        </span>
+                      )}
+                      {video.tone && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}>
+                          {video.tone}
+                        </span>
+                      )}
+                      {video.thumbnail_style && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}>
+                          {video.thumbnail_style}
+                        </span>
+                      )}
+                      {video.face_emotion && video.face_emotion !== "none" && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(244,63,94,0.12)", color: "#fb7185" }}>
+                          {video.face_emotion}
+                        </span>
+                      )}
+                      {video.views_per_sub_ratio != null && video.views_per_sub_ratio > 1.0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(168,85,247,0.12)", color: "#c084fc" }}>
+                          {video.views_per_sub_ratio.toFixed(1)}x viral
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between pt-1">
                     <div className="flex items-center gap-2">
                       <StatusPill
