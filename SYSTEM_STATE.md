@@ -452,12 +452,35 @@ Vectorization pipeline that distills raw data (transcripts, research) into struc
 | `/api/intelligence/record/{id}` | GET | Single record intelligence |
 | `/api/intelligence/insights/topics` | GET | Aggregated topic distribution |
 | `/api/intelligence/insights/hooks` | GET | Hook pattern distribution with VPH |
+| `/api/intelligence/insights/thumbnails` | GET | Thumbnail visual patterns (face, layout, style) |
+| `/api/intelligence/insights/timing` | GET | Best publish days/hours |
+| `/api/intelligence/insights/virality` | GET | Viral videos (high views/sub ratio) + their DNA |
+
+### Full Video DNA (extracted per competitor video)
+| DNA Component | Source | Fields |
+|---|---|---|
+| Title DNA | Claude Haiku | structure, curiosity_gap, power_words, clickability |
+| Hook DNA | Claude Haiku | type, opening_line, first_open_loop, time_to_hook |
+| Content DNA | Claude Haiku | topics, entities, tone, timeliness, niche_category |
+| Structure DNA | Claude Haiku | arc, pacing, words_per_minute |
+| Retention DNA | Claude Haiku | first_5min_summary, open_loops, payoff_quality |
+| Villain DNA | Claude Haiku | type, name, reveal_position, stakes_personal |
+| Engagement | Claude Haiku | comment_bait, share_trigger, polarizing |
+| Thumbnail DNA | Gemini Vision | face, emotion, text, colors, composition, clickbait signals |
+| Performance | Raw metrics | views, vph, like_ratio, comment_ratio, views_per_sub_ratio |
+| Timing | yt-dlp | published_day, published_hour, has_chapters |
+
+### Additional New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/distillation/thumbnail_analyzer.py` | Gemini Vision thumbnail analysis |
+| `storyengine/backend/migrations/038_extended_video_dna.sql` | Extended scraper columns |
 
 ### Modified Files
 - `routes/autopilot.py` — Candidate detail lazy-loads transcript, returns distilled intelligence
 - `routes/discovery.py` — Prefers distilled summaries over raw transcripts for idea generation
 - `routes/learning_extraction.py` — Uses distilled hook types before falling back to raw transcript analysis
-- `routes/niche.py` — Auto-distills new transcripts after scraping
+- `routes/niche.py` — Extended scraper (comment_count, subs, chapters, tags, derived ratios) + auto-distills after scraping
 
 ---
 

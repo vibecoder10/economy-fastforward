@@ -1,6 +1,7 @@
 """Niche selection + competitor channel management + scraping via yt-dlp."""
 
 import asyncio
+import json
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -409,25 +410,71 @@ def _extract_video_info(video_id: str) -> Optional[dict]:
     # Extract transcript from automatic captions
     transcript = _extract_transcript(info)
 
-    # Published date
+    # Published date + timing
     upload_date = info.get("upload_date") or ""  # YYYYMMDD format
     published_at = ""
+    published_day_of_week = None
+    published_hour = None
     if upload_date and len(upload_date) == 8:
         published_at = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+        try:
+            from datetime import date as date_cls
+            d = date_cls(int(upload_date[:4]), int(upload_date[4:6]), int(upload_date[6:8]))
+            published_day_of_week = d.weekday()  # 0=Monday, 6=Sunday
+        except ValueError:
+            pass
+    # Try to get upload hour from timestamp
+    ts = info.get("timestamp") or info.get("release_timestamp")
+    if ts:
+        try:
+            from datetime import datetime as dt_cls, timezone as tz
+            published_hour = dt_cls.fromtimestamp(ts, tz=tz.utc).hour
+        except (ValueError, OSError):
+            pass
+
+    # Chapters
+    chapters = info.get("chapters") or []
+    has_chapters = len(chapters) > 0
+    chapter_titles = [ch.get("title", "") for ch in chapters] if chapters else []
+
+    # Tags
+    tags = info.get("tags") or []
+
+    # Engagement metrics
+    views = info.get("view_count") or 0
+    likes = info.get("like_count") or 0
+    comment_count = info.get("comment_count") or 0
+    channel_subs = info.get("channel_follower_count") or 0
+
+    # Derived ratios
+    like_ratio = round(likes / views, 6) if views > 0 else None
+    comment_ratio = round(comment_count / views, 6) if views > 0 else None
+    views_per_sub_ratio = round(views / channel_subs, 3) if channel_subs > 0 else None
 
     return {
         "video_id": info.get("id") or video_id,
         "title": info.get("title") or "",
         "url": url,
-        "views": info.get("view_count") or 0,
-        "likes": info.get("like_count") or 0,
+        "views": views,
+        "likes": likes,
+        "comment_count": comment_count,
         "channel": info.get("channel") or info.get("uploader") or "",
         "channel_url": info.get("channel_url") or info.get("uploader_url") or "",
+        "channel_subscriber_count": channel_subs or None,
         "published_at": published_at,
+        "published_day_of_week": published_day_of_week,
+        "published_hour": published_hour,
         "thumbnail_url": thumbnail_url,
         "transcript": transcript,
         "duration_seconds": info.get("duration") or 0,
-        "description": (info.get("description") or "")[:2000],  # Cap at 2000 chars
+        "description": (info.get("description") or "")[:2000],
+        "has_chapters": has_chapters,
+        "chapter_count": len(chapters),
+        "chapter_titles": json.dumps(chapter_titles) if chapter_titles else None,
+        "tags": json.dumps(tags[:30]) if tags else None,  # Cap at 30 tags
+        "like_ratio": like_ratio,
+        "comment_ratio": comment_ratio,
+        "views_per_sub_ratio": views_per_sub_ratio,
     }
 
 
@@ -783,7 +830,7 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                         pub_date = None
 
                 if vid in existing_ids:
-                    # UPDATE existing record
+                    # UPDATE existing record (always refresh metrics + enrich new fields)
                     await execute(
                         """UPDATE competitor_videos SET
                             views = $1, vph = $2, hours_old = $3, scrape_date = now(),
@@ -791,8 +838,19 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                             transcript = COALESCE($5, transcript),
                             duration_seconds = COALESCE($6, duration_seconds),
                             description = COALESCE($7, description),
-                            likes = COALESCE($8, likes)
-                        WHERE tenant_id = $9 AND video_id = $10""",
+                            likes = COALESCE($8, likes),
+                            comment_count = COALESCE($9, comment_count),
+                            channel_subscriber_count = COALESCE($10, channel_subscriber_count),
+                            like_ratio = COALESCE($11, like_ratio),
+                            comment_ratio = COALESCE($12, comment_ratio),
+                            views_per_sub_ratio = COALESCE($13, views_per_sub_ratio),
+                            published_day_of_week = COALESCE($14, published_day_of_week),
+                            published_hour = COALESCE($15, published_hour),
+                            has_chapters = COALESCE($16, has_chapters),
+                            chapter_count = COALESCE($17, chapter_count),
+                            chapter_titles = COALESCE($18, chapter_titles),
+                            tags = COALESCE($19, tags)
+                        WHERE tenant_id = $20 AND video_id = $21""",
                         video.get("views", 0),
                         video.get("vph", 0),
                         video.get("hours_old", 0),
@@ -801,18 +859,35 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                         video.get("duration_seconds") or None,
                         video.get("description"),
                         video.get("likes") or None,
+                        video.get("comment_count") or None,
+                        video.get("channel_subscriber_count") or None,
+                        video.get("like_ratio"),
+                        video.get("comment_ratio"),
+                        video.get("views_per_sub_ratio"),
+                        video.get("published_day_of_week"),
+                        video.get("published_hour"),
+                        video.get("has_chapters"),
+                        video.get("chapter_count") or None,
+                        video.get("chapter_titles"),
+                        video.get("tags"),
                         tenant_id,
                         vid,
                     )
                 else:
-                    # INSERT new record
+                    # INSERT new record with full video DNA
                     await execute(
                         """INSERT INTO competitor_videos (
                             tenant_id, video_id, title, url, channel, channel_url,
                             views, vph, hours_old, published_date, scrape_date,
-                            thumbnail_url, transcript, duration_seconds, description, likes
+                            thumbnail_url, transcript, duration_seconds, description, likes,
+                            comment_count, channel_subscriber_count,
+                            like_ratio, comment_ratio, views_per_sub_ratio,
+                            published_day_of_week, published_hour,
+                            has_chapters, chapter_count, chapter_titles, tags
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(),
-                                  $11, $12, $13, $14, $15)""",
+                                  $11, $12, $13, $14, $15,
+                                  $16, $17, $18, $19, $20, $21, $22,
+                                  $23, $24, $25, $26)""",
                         tenant_id,
                         vid,
                         video.get("title", ""),
@@ -828,6 +903,17 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                         video.get("duration_seconds") or None,
                         video.get("description"),
                         video.get("likes") or None,
+                        video.get("comment_count") or None,
+                        video.get("channel_subscriber_count") or None,
+                        video.get("like_ratio"),
+                        video.get("comment_ratio"),
+                        video.get("views_per_sub_ratio"),
+                        video.get("published_day_of_week"),
+                        video.get("published_hour"),
+                        video.get("has_chapters"),
+                        video.get("chapter_count") or None,
+                        video.get("chapter_titles"),
+                        video.get("tags"),
                     )
                 saved += 1
                 # Update progress every 20 saves

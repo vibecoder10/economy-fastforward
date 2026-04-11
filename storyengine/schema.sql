@@ -382,6 +382,22 @@ CREATE TABLE competitor_videos (
   duration_seconds INTEGER,
   description TEXT,
   likes INTEGER,
+
+  -- Extended video DNA (migration 038)
+  comment_count INTEGER,
+  channel_subscriber_count INTEGER,
+  like_ratio NUMERIC,              -- likes / views
+  comment_ratio NUMERIC,           -- comments / views
+  views_per_sub_ratio NUMERIC,     -- views / channel_subs (virality signal)
+  published_day_of_week INTEGER,   -- 0=Monday, 6=Sunday
+  published_hour INTEGER,          -- 0-23 UTC
+  has_chapters BOOLEAN DEFAULT false,
+  chapter_count INTEGER DEFAULT 0,
+  chapter_titles TEXT,             -- JSON array of chapter names
+  tags TEXT,                       -- JSON array of video tags
+  thumbnail_analyzed_at TIMESTAMPTZ,
+
+  -- Distillation tracking
   distilled_at TIMESTAMPTZ,  -- Set when transcript has been vectorized
 
   UNIQUE(tenant_id, video_id),

@@ -15,13 +15,14 @@
 - `storyengine/backend/main.py` — Registered intelligence router
 
 **What's next (deploy + extend):**
-1. Run migrations 036 + 037 on Supabase
+1. Run migrations 036 + 037 + 038 on Supabase SQL Editor
 2. Trigger backfill: `POST /api/intelligence/backfill?batch_size=50`
 3. Monitor progress: `GET /api/intelligence/stats`
-4. Extend distillation to video_scripts, research_payloads, agent_paper_trails
-5. Build frontend intelligence dashboard (topic insights, hook patterns, semantic search)
-6. Add GCS archival for raw transcripts after distillation
-7. Wire intelligence into autopilot scoring (prefer topics with proven patterns)
+4. Check insights: `/api/intelligence/insights/topics`, `/hooks`, `/thumbnails`, `/timing`, `/virality`
+5. Extend distillation to video_scripts, research_payloads, agent_paper_trails
+6. Build frontend intelligence dashboard
+7. Add GCS archival for raw transcripts after distillation
+8. Wire intelligence into autopilot scoring (prefer topics with proven patterns)
 
 **Design decisions:** See `tasks/decisions.md` — ADR 2026-04-11
 

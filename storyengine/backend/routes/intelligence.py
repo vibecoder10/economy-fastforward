@@ -221,11 +221,13 @@ async def get_topic_insights(
         """SELECT
             tag as topic,
             COUNT(*) as count,
-            ROUND(AVG((
-                SELECT cv.vph FROM competitor_videos cv WHERE cv.id = ci.source_id
-            ))::numeric, 1) as avg_vph
-        FROM content_intelligence ci,
-             jsonb_array_elements_text(ci.structured_metadata->'content'->'topic_tags') as tag
+            ROUND(AVG(cv.vph)::numeric, 1) as avg_vph
+        FROM content_intelligence ci
+        JOIN competitor_videos cv ON cv.id = ci.source_id AND cv.tenant_id = ci.tenant_id,
+             jsonb_array_elements_text(
+                 COALESCE(ci.structured_metadata->'content_dna'->'topic_tags',
+                          ci.structured_metadata->'content'->'topic_tags')
+             ) as tag
         WHERE ci.tenant_id = $1
           AND ci.source_type = 'competitor_transcript'
         GROUP BY tag
@@ -244,18 +246,182 @@ async def get_hook_insights(
     """Aggregate hook pattern distribution with performance correlation."""
     rows = await fetch_all(
         """SELECT
-            ci.structured_metadata->'hook'->>'type' as hook_type,
+            COALESCE(
+                ci.structured_metadata->'hook_dna'->>'type',
+                ci.structured_metadata->'hook'->>'type'
+            ) as hook_type,
             COUNT(*) as count,
-            ROUND(AVG((
-                SELECT cv.vph FROM competitor_videos cv WHERE cv.id = ci.source_id
-            ))::numeric, 1) as avg_vph
+            ROUND(AVG(cv.vph)::numeric, 1) as avg_vph,
+            ROUND(AVG(cv.like_ratio)::numeric, 5) as avg_like_ratio
         FROM content_intelligence ci
+        JOIN competitor_videos cv ON cv.id = ci.source_id AND cv.tenant_id = ci.tenant_id
         WHERE ci.tenant_id = $1
           AND ci.source_type = 'competitor_transcript'
-          AND ci.structured_metadata->'hook'->>'type' IS NOT NULL
-        GROUP BY ci.structured_metadata->'hook'->>'type'
+          AND COALESCE(
+                ci.structured_metadata->'hook_dna'->>'type',
+                ci.structured_metadata->'hook'->>'type'
+              ) IS NOT NULL
+        GROUP BY hook_type
         ORDER BY avg_vph DESC NULLS LAST""",
         tenant_id,
     )
 
     return {"hooks": [dict(r) for r in (rows or [])]}
+
+
+@router.get("/insights/thumbnails")
+async def get_thumbnail_insights(
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Aggregate thumbnail visual patterns with performance correlation."""
+    # Composition layout breakdown
+    layouts = await fetch_all(
+        """SELECT
+            ci.structured_metadata->'thumbnail_dna'->'composition'->>'layout' as layout,
+            COUNT(*) as count,
+            ROUND(AVG(cv.vph)::numeric, 1) as avg_vph
+        FROM content_intelligence ci
+        JOIN competitor_videos cv ON cv.id = ci.source_id AND cv.tenant_id = ci.tenant_id
+        WHERE ci.tenant_id = $1
+          AND ci.source_type = 'competitor_transcript'
+          AND ci.structured_metadata->'thumbnail_dna'->'composition'->>'layout' IS NOT NULL
+        GROUP BY layout
+        ORDER BY avg_vph DESC NULLS LAST""",
+        tenant_id,
+    )
+
+    # Face emotion breakdown
+    emotions = await fetch_all(
+        """SELECT
+            ci.structured_metadata->'thumbnail_dna'->>'face_emotion' as emotion,
+            COUNT(*) as count,
+            ROUND(AVG(cv.vph)::numeric, 1) as avg_vph
+        FROM content_intelligence ci
+        JOIN competitor_videos cv ON cv.id = ci.source_id AND cv.tenant_id = ci.tenant_id
+        WHERE ci.tenant_id = $1
+          AND ci.source_type = 'competitor_transcript'
+          AND ci.structured_metadata->'thumbnail_dna'->>'face_emotion' IS NOT NULL
+          AND ci.structured_metadata->'thumbnail_dna'->>'face_emotion' != 'none'
+        GROUP BY emotion
+        ORDER BY avg_vph DESC NULLS LAST""",
+        tenant_id,
+    )
+
+    # Face present vs not
+    face_stats = await fetch_all(
+        """SELECT
+            (ci.structured_metadata->'thumbnail_dna'->>'face_present')::boolean as face_present,
+            COUNT(*) as count,
+            ROUND(AVG(cv.vph)::numeric, 1) as avg_vph
+        FROM content_intelligence ci
+        JOIN competitor_videos cv ON cv.id = ci.source_id AND cv.tenant_id = ci.tenant_id
+        WHERE ci.tenant_id = $1
+          AND ci.source_type = 'competitor_transcript'
+          AND ci.structured_metadata->'thumbnail_dna'->>'face_present' IS NOT NULL
+        GROUP BY face_present
+        ORDER BY avg_vph DESC NULLS LAST""",
+        tenant_id,
+    )
+
+    # Overall style breakdown
+    styles = await fetch_all(
+        """SELECT
+            ci.structured_metadata->'thumbnail_dna'->>'overall_style' as style,
+            COUNT(*) as count,
+            ROUND(AVG(cv.vph)::numeric, 1) as avg_vph
+        FROM content_intelligence ci
+        JOIN competitor_videos cv ON cv.id = ci.source_id AND cv.tenant_id = ci.tenant_id
+        WHERE ci.tenant_id = $1
+          AND ci.source_type = 'competitor_transcript'
+          AND ci.structured_metadata->'thumbnail_dna'->>'overall_style' IS NOT NULL
+        GROUP BY style
+        ORDER BY avg_vph DESC NULLS LAST""",
+        tenant_id,
+    )
+
+    return {
+        "layouts": [dict(r) for r in (layouts or [])],
+        "face_emotions": [dict(r) for r in (emotions or [])],
+        "face_present": [dict(r) for r in (face_stats or [])],
+        "styles": [dict(r) for r in (styles or [])],
+    }
+
+
+@router.get("/insights/timing")
+async def get_timing_insights(
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Analyze best publish days and hours based on competitor performance."""
+    # Best days
+    days = await fetch_all(
+        """SELECT
+            published_day_of_week as day,
+            COUNT(*) as count,
+            ROUND(AVG(vph)::numeric, 1) as avg_vph,
+            ROUND(AVG(like_ratio)::numeric, 5) as avg_like_ratio
+        FROM competitor_videos
+        WHERE tenant_id = $1
+          AND published_day_of_week IS NOT NULL
+          AND vph > 0
+        GROUP BY published_day_of_week
+        ORDER BY published_day_of_week""",
+        tenant_id,
+    )
+
+    # Best hours
+    hours = await fetch_all(
+        """SELECT
+            published_hour as hour,
+            COUNT(*) as count,
+            ROUND(AVG(vph)::numeric, 1) as avg_vph
+        FROM competitor_videos
+        WHERE tenant_id = $1
+          AND published_hour IS NOT NULL
+          AND vph > 0
+        GROUP BY published_hour
+        ORDER BY published_hour""",
+        tenant_id,
+    )
+
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    return {
+        "by_day": [
+            {**dict(r), "day_name": day_names[r["day"]] if r.get("day") is not None else "Unknown"}
+            for r in (days or [])
+        ],
+        "by_hour": [dict(r) for r in (hours or [])],
+    }
+
+
+@router.get("/insights/virality")
+async def get_virality_insights(
+    limit: int = Query(default=20, le=100),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Find videos that went viral (high views_per_sub_ratio) and their DNA."""
+    rows = await fetch_all(
+        """SELECT
+            cv.id, cv.title, cv.channel, cv.views, cv.vph,
+            cv.views_per_sub_ratio, cv.channel_subscriber_count,
+            cv.like_ratio, cv.comment_ratio, cv.thumbnail_url,
+            ci.summary,
+            ci.structured_metadata->'hook_dna'->>'type' as hook_type,
+            ci.structured_metadata->'content_dna'->>'tone' as tone,
+            ci.structured_metadata->'thumbnail_dna'->'composition'->>'layout' as thumb_layout,
+            ci.structured_metadata->'title_dna'->>'structure' as title_structure
+        FROM competitor_videos cv
+        LEFT JOIN content_intelligence ci
+            ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+            AND ci.source_type = 'competitor_transcript'
+        WHERE cv.tenant_id = $1
+          AND cv.views_per_sub_ratio IS NOT NULL
+          AND cv.views_per_sub_ratio > 1.0
+        ORDER BY cv.views_per_sub_ratio DESC
+        LIMIT $2""",
+        tenant_id, limit,
+    )
+
+    return {
+        "viral_videos": [dict(r) for r in (rows or [])],
+        "count": len(rows or []),
+    }
