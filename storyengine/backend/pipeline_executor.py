@@ -71,7 +71,10 @@ class PipelineExecutor:
         import sys
         print("[INIT] Starting pipeline initialization...", flush=True)
 
-        # Load API keys from Vault into environment
+        # Load API keys from Vault into environment.
+        # SECURITY: Clear ALL known pipeline env vars first to prevent cross-tenant
+        # contamination. Without this, a previous tenant's keys persist in os.environ
+        # and get picked up by downstream pipeline code that reads env vars directly.
         keys_to_load = [
             "anthropic_api_key",
             "airtable_api_key",
@@ -80,6 +83,9 @@ class PipelineExecutor:
             "openai_api_key",
             "gemini_api_key",
         ]
+        env_names_to_clear = [k.upper() for k in keys_to_load] + ["WAVESPEED_API_KEY"]
+        for env_name in env_names_to_clear:
+            os.environ.pop(env_name, None)
 
         for key_name in keys_to_load:
             print(f"[INIT] Loading key: {key_name}...", flush=True)

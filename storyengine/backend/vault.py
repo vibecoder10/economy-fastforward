@@ -203,16 +203,17 @@ async def list_secrets(tenant_id: Optional[str] = None) -> list[dict]:
         # Table might not exist
         pass
 
-    # Also show which env vars are configured (even if not in database)
-    for secret_name, env_key in SECRET_ENV_MAP.items():
-        if os.getenv(env_key):
-            # Check if already in list
-            if not any(s["name"] == secret_name for s in secrets):
-                secrets.append({
-                    "name": secret_name,
-                    "description": f"From environment: {env_key}",
-                    "source": "env",
-                })
+    # SECURITY: Only show env vars when NO tenant_id is provided (pipeline bot context).
+    # Tenant-scoped callers must NEVER see server-side env var keys.
+    if not tenant_id:
+        for secret_name, env_key in SECRET_ENV_MAP.items():
+            if os.getenv(env_key):
+                if not any(s["name"] == secret_name for s in secrets):
+                    secrets.append({
+                        "name": secret_name,
+                        "description": f"From environment: {env_key}",
+                        "source": "env",
+                    })
 
     return secrets
 
