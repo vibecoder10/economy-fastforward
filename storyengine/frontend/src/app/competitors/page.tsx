@@ -757,12 +757,12 @@ export default function CompetitorsPage() {
                     Thumb: {((distillResult.dna as Record<string, Record<string, string>>).thumbnail_dna)?.overall_style || ((distillResult.dna as Record<string, Record<string, string>>).thumbnail_dna)?.face_emotion || "—"}
                   </span>
                 )}
-                {(distillResult.dna as Record<string, unknown>).retention_dna && (
+                {!!(distillResult.dna as Record<string, unknown>).retention_dna && (
                   <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(244,63,94,0.12)", color: "var(--rose)" }}>
                     Retention: {((distillResult.dna as Record<string, Record<string, string>>).retention_dna)?.payoff_quality || "—"}
                   </span>
                 )}
-                {(distillResult.dna as Record<string, unknown>).villain_dna && (
+                {!!(distillResult.dna as Record<string, unknown>).villain_dna && (
                   <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(249,115,22,0.12)", color: "var(--orange)" }}>
                     Villain: {((distillResult.dna as Record<string, Record<string, string>>).villain_dna)?.type || "—"}
                   </span>
