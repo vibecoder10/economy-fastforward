@@ -737,22 +737,22 @@ export default function CompetitorsPage() {
 
             {distillResult.dna && (
               <div className="flex flex-wrap gap-1.5 pt-1">
-                {(distillResult.dna as Record<string, unknown>).hook_dna && (
+                {!!(distillResult.dna as Record<string, unknown>).hook_dna && (
                   <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
                     Hook: {((distillResult.dna as Record<string, Record<string, string>>).hook_dna)?.type || "—"}
                   </span>
                 )}
-                {(distillResult.dna as Record<string, unknown>).content_dna && (
+                {!!(distillResult.dna as Record<string, unknown>).content_dna && (
                   <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(59,130,246,0.12)", color: "var(--blue)" }}>
                     Tone: {((distillResult.dna as Record<string, Record<string, string>>).content_dna)?.tone || "—"}
                   </span>
                 )}
-                {(distillResult.dna as Record<string, unknown>).title_dna && (
+                {!!(distillResult.dna as Record<string, unknown>).title_dna && (
                   <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(168,85,247,0.12)", color: "var(--purple)" }}>
                     Title: {((distillResult.dna as Record<string, Record<string, string>>).title_dna)?.structure || "—"}
                   </span>
                 )}
-                {(distillResult.dna as Record<string, unknown>).thumbnail_dna && (
+                {!!(distillResult.dna as Record<string, unknown>).thumbnail_dna && (
                   <span className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(52,211,153,0.12)", color: "var(--turquoise)" }}>
                     Thumb: {((distillResult.dna as Record<string, Record<string, string>>).thumbnail_dna)?.overall_style || ((distillResult.dna as Record<string, Record<string, string>>).thumbnail_dna)?.face_emotion || "—"}
                   </span>
