@@ -60,7 +60,11 @@ async def _ensure_secrets_table() -> bool:
 
 
 async def get_secret(name: str, tenant_id: Optional[str] = None) -> Optional[str]:
-    """Get a secret from database, falling back to environment variable.
+    """Get a secret from database, with env var fallback ONLY for non-tenant contexts.
+
+    SECURITY: When tenant_id is provided, only returns tenant-scoped secrets
+    from the database. Environment variables are NEVER exposed to tenant users.
+    Env var fallback only applies to pipeline bot calls (no tenant context).
 
     Args:
         name: Secret name (e.g., "anthropic_api_key")
@@ -83,12 +87,16 @@ async def get_secret(name: str, tenant_id: Optional[str] = None) -> Optional[str
         if row and row.get("value"):
             return row["value"]
     except Exception:
-        # Table might not exist - fall back to env vars
+        # Table might not exist - fall back to env vars only if no tenant
         pass
 
-    # Fall back to environment variable
-    env_key = SECRET_ENV_MAP.get(name, name.upper())
-    return os.getenv(env_key)
+    # SECURITY: Only fall back to env vars when NO tenant_id is provided.
+    # This prevents env var API keys from leaking to other tenants.
+    if not tenant_id:
+        env_key = SECRET_ENV_MAP.get(name, name.upper())
+        return os.getenv(env_key)
+
+    return None
 
 
 async def set_secret(
@@ -236,9 +244,11 @@ async def get_secret_status(name: str, tenant_id: Optional[str] = None) -> dict:
     except Exception:
         pass
 
-    # Check environment variable
-    env_key = SECRET_ENV_MAP.get(name, name.upper())
-    env_value = os.getenv(env_key)
+    # SECURITY: Only check env vars when NO tenant_id is provided.
+    env_value = None
+    if not tenant_id:
+        env_key = SECRET_ENV_MAP.get(name, name.upper())
+        env_value = os.getenv(env_key)
 
     # Determine source and value
     if db_value:
