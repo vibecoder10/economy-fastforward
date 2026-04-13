@@ -767,7 +767,7 @@ export default function CompetitorsPage() {
                     Villain: {((distillResult.dna as Record<string, Record<string, string>>).villain_dna)?.type || "—"}
                   </span>
                 )}
-                {(distillResult.dna as Record<string, Record<string, unknown>>).content_dna?.topic_tags && (
+                {!!(distillResult.dna as Record<string, Record<string, unknown>>).content_dna?.topic_tags && (
                   <>
                     {((distillResult.dna as Record<string, Record<string, string[]>>).content_dna.topic_tags || []).slice(0, 5).map((t: string) => (
                       <span key={t} className="text-[9px] px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)" }}>
