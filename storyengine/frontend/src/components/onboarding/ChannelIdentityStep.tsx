@@ -1,7 +1,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Youtube } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { TextInput } from "@/components/forms/text-input";
@@ -15,13 +14,8 @@ interface ChannelIdentityStepProps {
   audience: string;
   onChange: (field: string, value: string) => void;
   onNext: () => void;
-  onSkip: () => void;
   saving: boolean;
   error: string | null;
-  showYouTubeConnect?: boolean;
-  youtubeConnected?: boolean;
-  youtubeChannelName?: string;
-  onConnectYouTube?: () => void;
 }
 
 const nicheOptions = [
@@ -46,13 +40,8 @@ export function ChannelIdentityStep({
   audience,
   onChange,
   onNext,
-  onSkip,
   saving,
   error,
-  showYouTubeConnect,
-  youtubeConnected,
-  youtubeChannelName,
-  onConnectYouTube,
 }: ChannelIdentityStepProps) {
   return (
     <motion.div
@@ -76,30 +65,6 @@ export function ChannelIdentityStep({
             Tell us about the channel you want to build.
           </p>
         </div>
-
-        {showYouTubeConnect && (
-          <div className="flex items-center gap-3">
-            {youtubeConnected ? (
-              <div className="flex items-center gap-2">
-                <Check size={16} style={{ color: "var(--success)" }} />
-                <span
-                  className="text-sm font-body"
-                  style={{ color: "var(--success)" }}
-                >
-                  Connected: {youtubeChannelName}
-                </span>
-              </div>
-            ) : (
-              <ActionButton
-                variant="outline"
-                icon={Youtube}
-                onClick={onConnectYouTube}
-              >
-                Connect YouTube Channel
-              </ActionButton>
-            )}
-          </div>
-        )}
 
         <TextInput
           label="Channel Name"
@@ -144,14 +109,6 @@ export function ChannelIdentityStep({
               "Continue"
             )}
           </ActionButton>
-
-          <button
-            onClick={onSkip}
-            className="text-xs font-body hover:underline"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Skip for now
-          </button>
         </div>
       </GlassCard>
     </motion.div>

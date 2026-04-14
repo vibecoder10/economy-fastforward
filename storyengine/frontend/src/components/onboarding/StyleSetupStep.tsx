@@ -116,7 +116,7 @@ export function StyleSetupStep({
             className="text-xs font-body hover:underline"
             style={{ color: "var(--text-secondary)" }}
           >
-            Skip for now
+            Use default style
           </button>
         </div>
       </GlassCard>

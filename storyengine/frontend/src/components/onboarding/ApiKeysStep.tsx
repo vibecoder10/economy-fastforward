@@ -21,7 +21,6 @@ interface ApiKeysStepProps {
   onSaveKey: (keyName: string, value: string) => Promise<boolean>;
   onTestKey: (keyName: string) => Promise<boolean>;
   onNext: () => void;
-  onSkip: () => void;
 }
 
 function KeyRow({
@@ -175,7 +174,6 @@ export function ApiKeysStep({
   onSaveKey,
   onTestKey,
   onNext,
-  onSkip,
 }: ApiKeysStepProps) {
   const configuredCount = keys.filter((k) => k.configured).length;
   const total = keys.length;
@@ -240,15 +238,14 @@ export function ApiKeysStep({
         </div>
 
         <div className="flex flex-col items-center gap-3 pt-2">
-          <ActionButton onClick={onNext}>Continue</ActionButton>
-
-          <button
-            onClick={onSkip}
-            className="text-xs font-body hover:underline"
-            style={{ color: "var(--text-secondary)" }}
+          <ActionButton
+            onClick={onNext}
+            disabled={configuredCount < total}
           >
-            I&apos;ll do this later
-          </button>
+            {configuredCount < total
+              ? `Connect all ${total} tools to continue`
+              : "Continue"}
+          </ActionButton>
         </div>
       </GlassCard>
     </motion.div>

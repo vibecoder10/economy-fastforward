@@ -132,15 +132,20 @@ export type OnboardingStatus = {
     channel_configured: boolean;
     api_keys: { configured: number; required: number };
     style_generated: boolean;
+    youtube_connected: boolean;
     first_video_created: boolean;
   };
   percent_complete: number;
-  user_type: string | null;
   display_name: string | null;
 };
 
 export const getOnboardingStatus = () =>
   fetchApi<OnboardingStatus>("/api/dashboard/onboarding/status");
+
+export const completeOnboarding = () =>
+  fetchApi<{ completed: boolean }>("/api/dashboard/onboarding/complete", {
+    method: "POST",
+  });
 
 // Calendar
 export type CalendarVideo = {

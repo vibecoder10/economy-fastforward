@@ -15,7 +15,7 @@ import { PipelineNotificationProvider } from "@/components/notifications/Pipelin
 const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password", "/terms", "/privacy", "/demo"];
 
 // Routes that require Pro plan or above
-const PRO_PATHS = ["/autopilot", "/analytics", "/learnings", "/competitors", "/discovery"];
+const PRO_PATHS = ["/autopilot", "/learnings", "/competitors", "/discovery"];
 
 function isPlanAtLeast(plan: string | undefined, required: "starter" | "pro" | "agency"): boolean {
   const tiers: Record<string, number> = { free: 0, starter: 1, pro: 2, agency: 3 };

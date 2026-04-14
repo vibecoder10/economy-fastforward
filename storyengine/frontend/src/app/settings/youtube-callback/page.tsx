@@ -24,7 +24,16 @@ export default function YouTubeCallbackPage() {
       .then((data) => {
         setStatus("success");
         setChannelName(data.channel_name || "");
-        setTimeout(() => router.replace("/settings"), 1500);
+
+        // Redirect back to origin page (onboarding or settings)
+        const origin = localStorage.getItem("youtube_oauth_origin");
+        localStorage.removeItem("youtube_oauth_origin");
+
+        const redirectTo = origin === "/onboarding"
+          ? "/onboarding?yt_connected=true"
+          : "/settings";
+
+        setTimeout(() => router.replace(redirectTo), 1500);
       })
       .catch((err) => {
         setStatus("error");
@@ -58,7 +67,7 @@ export default function YouTubeCallbackPage() {
               </p>
             )}
             <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
-              Redirecting to settings...
+              Redirecting...
             </p>
           </>
         )}

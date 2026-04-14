@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -19,8 +19,6 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { FirstRunDashboard } from "@/components/dashboard/FirstRunDashboard";
-import type { ChecklistItem } from "@/components/dashboard/SetupChecklist";
 import {
   getDashboardSummary,
   getPendingReview,
@@ -153,25 +151,12 @@ export default function DashboardPage() {
     return items.slice(0, 6);
   }, [pendingReview]);
 
-  // First-run experience: show onboarding dashboard if no videos created yet
-  const isFirstRun = onboarding && !onboarding.steps.first_video_created;
-
-  const checklistItems: ChecklistItem[] = useMemo(() => {
-    if (!onboarding) return [];
-    const s = onboarding.steps;
-    return [
-      { label: "Create your account", done: true },
-      { label: "Set up your channel", done: s.channel_configured, href: "/onboarding" },
-      {
-        label: "Configure API keys",
-        done: s.api_keys.configured === s.api_keys.required,
-        detail: `${s.api_keys.configured} of ${s.api_keys.required}`,
-        href: "/settings/keys",
-      },
-      { label: "Generate your AI style", done: s.style_generated, href: "/system-prompts" },
-      { label: "Create your first video", done: s.first_video_created },
-    ];
-  }, [onboarding]);
+  // Redirect to onboarding if not completed
+  useEffect(() => {
+    if (!onboardingLoading && onboarding && !onboarding.completed) {
+      router.replace("/onboarding");
+    }
+  }, [onboardingLoading, onboarding, router]);
 
   if (summaryLoading || onboardingLoading) {
     return (
@@ -186,20 +171,6 @@ export default function DashboardPage() {
       <div className="py-12">
         <ErrorCard message={(summaryError as Error).message} onRetry={() => window.location.reload()} />
       </div>
-    );
-  }
-
-  if (isFirstRun) {
-    return (
-      <FirstRunDashboard
-        displayName={onboarding.display_name || "there"}
-        checklistItems={checklistItems}
-        percentComplete={onboarding.percent_complete}
-        onCreateVideo={(topic) =>
-          router.push(`/pipeline?first=true&topic=${encodeURIComponent(topic)}`)
-        }
-        onBrowseIdeas={() => router.push("/discovery")}
-      />
     );
   }
 

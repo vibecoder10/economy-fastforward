@@ -5,7 +5,7 @@ from datetime import date as date_type
 from fastapi import APIRouter, Depends, Query
 from auth import get_tenant_id
 from models import DashboardSummary, VideoSummary, PIPELINE_STAGES
-from database import fetch_all, fetch_one
+from database import fetch_all, fetch_one, execute
 from vault import get_secret_status
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -176,10 +176,10 @@ async def get_calendar(
 async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     """Rich onboarding status with per-step detail."""
     # Step 1: channel configured?
-    # Try with onboarding columns first; fall back to base columns if migration 035 hasn't run
     try:
         cp = await fetch_one(
-            "SELECT channel_name, user_type, style_description FROM channel_profiles WHERE tenant_id = $1",
+            "SELECT channel_name, user_type, style_description, youtube_refresh_token "
+            "FROM channel_profiles WHERE tenant_id = $1",
             tenant_id,
         )
     except Exception:
@@ -188,7 +188,6 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
             tenant_id,
         )
     channel_configured = bool(cp and cp.get("channel_name"))
-    user_type = (cp.get("user_type") or "new_creator") if cp else "new_creator"
 
     # Step 2: count configured API keys (5 required)
     required_keys = [
@@ -213,14 +212,17 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         )
         style_generated = bool(prompt_row)
 
-    # Step 4: first video created?
+    # Step 4: YouTube connected?
+    youtube_connected = bool(cp and cp.get("youtube_refresh_token"))
+
+    # Step 5: first video created?
     vid = await fetch_one(
         "SELECT COUNT(*) as count FROM videos WHERE tenant_id = $1",
         tenant_id,
     )
     first_video_created = (vid["count"] if vid else 0) > 0
 
-    # Step 5: display name from accounts via memberships
+    # Display name from accounts via memberships
     account_row = await fetch_one(
         """SELECT a.display_name FROM accounts a
            JOIN memberships m ON m.user_id = a.id
@@ -229,7 +231,10 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     )
     display_name = (account_row.get("display_name") or "") if account_row else ""
 
-    # Calculate percent complete (5 steps)
+    # Completion: channel + all 5 keys + first video (style + YouTube are optional)
+    completed = channel_configured and configured_count == 5 and first_video_created
+
+    # Progress out of 5 required + optional steps
     done = 1  # account_created always true
     if channel_configured:
         done += 1
@@ -242,15 +247,26 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     percent = round(done / 5 * 100)
 
     return {
-        "completed": done == 5,
+        "completed": completed,
         "steps": {
             "account_created": True,
             "channel_configured": channel_configured,
             "api_keys": {"configured": configured_count, "required": 5},
             "style_generated": style_generated,
+            "youtube_connected": youtube_connected,
             "first_video_created": first_video_created,
         },
         "percent_complete": percent,
-        "user_type": user_type,
         "display_name": display_name,
     }
+
+
+@router.post("/onboarding/complete")
+async def complete_onboarding(tenant_id: str = Depends(get_tenant_id)):
+    """Mark onboarding as completed for this tenant."""
+    await execute(
+        """UPDATE channel_profiles SET onboarding_completed_at = now(), updated_at = now()
+           WHERE tenant_id = $1""",
+        tenant_id,
+    )
+    return {"completed": True}
