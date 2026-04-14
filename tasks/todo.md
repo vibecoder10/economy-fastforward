@@ -1,5 +1,22 @@
 # Task Tracking
 
+## Handoff (2026-04-14 — PRD 3 T5 Storage + Bug Triage)
+
+### Completed
+- PRD 3 T5: Extended `storyengine/backend/storage.py` with Supabase Storage backend
+  - `STORAGE_BACKEND` env var: "google_drive" (default) or "supabase"
+  - Per-tenant path isolation: `{tenant_id}/{video_id}/{filename}`
+  - `create_signed_url()` for time-limited access
+  - All 4 acceptance criteria pass
+- Investigated 5 live user errors: all routes work, errors were transient
+
+### Next
+- T12 (QA): Storage isolation verification — ready for qa-engineer
+- T13 (Security): Final infrastructure audit — deps now met (T5 done)
+- Consider updating `pipeline_executor.py` and `extraction.py` callers to pass `tenant_id` when `STORAGE_BACKEND=supabase`
+
+---
+
 ## Handoff (2026-04-11 — Autopilot Intelligence + Second-Order Distillation)
 
 ### Phase 5: Intelligence Advisor (DONE)

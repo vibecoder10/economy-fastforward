@@ -2,6 +2,10 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-14 — Backend Dev
+- Frontend `.env.local` sets `NEXT_PUBLIC_API_URL=https://storyengine.dev` — reported 404s may be from remote server not matching local dev. Always check `.env.local` when debugging "route not found" in the browser.
+- When user reports transient 404s, check: (1) server restart? (2) `.env.local` pointing to different server? (3) stale browser cache? Don't assume code bugs.
+
 ## Patterns & Anti-Patterns
 
 ### Airtable
