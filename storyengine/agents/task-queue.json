@@ -1,7 +1,7 @@
 {
   "version": 2,
   "current_tab": 0,
-  "last_updated": "2026-04-10T14:09:05.082Z",
+  "last_updated": "2026-04-14T21:38:35.745Z",
   "last_updated_by": "mission-sync",
   "completed_summary": "194 tasks across 33 tabs completed Apr 2-8. Archive: agents/archive/task-queue-2026-04-08.json",
   "tabs": [
@@ -143,6 +143,173 @@
             8
           ],
           "verified": true
+        },
+        {
+          "id": "BUG-USER-202204",
+          "title": "BUG-USER: API error 400 on /pipeline/f9749bd2-5045-42a5-b90e-ecd253bd7c20: POST /api/pipeline/thumbnail/f9749b",
+          "role": "backend",
+          "status": "done",
+          "priority": "critical",
+          "description": "Investigated: status ready_for_storyboard_extraction IS past ready_for_voice. Not reproducible — video has advanced.",
+          "completed_at": "2026-04-14T22:00:00Z"
+        },
+        {
+          "id": "BUG-USER-202204",
+          "title": "BUG-USER: API error 404 on /profile",
+          "role": "backend",
+          "status": "done",
+          "priority": "critical",
+          "description": "Investigated: route exists and works on both local and production. Transient error (server restart).",
+          "completed_at": "2026-04-14T22:00:00Z"
+        },
+        {
+          "id": "BUG-USER-202204",
+          "title": "BUG-USER: API error 404 on /analytics endpoints",
+          "role": "backend",
+          "status": "done",
+          "priority": "critical",
+          "description": "Investigated: all 3 analytics routes exist and work on both local and production. Transient error.",
+          "completed_at": "2026-04-14T22:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "PRD 2: PRD 3: Infrastructure — Security, Rate Limiting, Task Persistence, Storage",
+      "status": "active",
+      "created_at": "2026-04-14T21:30:03.427Z",
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "SEC-1/SEC-2/SEC-3: Fix critical security issues (dev-token bypass, tenant isolation, key rate limiting)",
+          "role": "security",
+          "status": "done",
+          "depends_on": [],
+          "verified": true
+        },
+        {
+          "id": "T2",
+          "title": "SEC-4/SEC-5/SEC-6: Fix medium security issues (CORS env var, SQL audit comments, key audit logging)",
+          "role": "security",
+          "status": "done",
+          "depends_on": [],
+          "verified": true
+        },
+        {
+          "id": "T3",
+          "title": "Create rate_limit.py with token bucket middleware keyed by tenant and plan",
+          "role": "backend",
+          "status": "done",
+          "depends_on": [],
+          "verified": true
+        },
+        {
+          "id": "T4",
+          "title": "Create background_tasks migration and DB-backed task persistence",
+          "role": "backend",
+          "status": "done",
+          "depends_on": [],
+          "verified": true
+        },
+        {
+          "id": "T5",
+          "title": "Extend storage.py with per-tenant Supabase Storage backend",
+          "role": "backend",
+          "status": "done",
+          "depends_on": [],
+          "verified": false,
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-14T21:45:00Z",
+          "completed_at": "2026-04-14T22:05:00Z"
+        },
+        {
+          "id": "T6",
+          "title": "Create logging_config.py with structured JSON logging and request middleware",
+          "role": "backend",
+          "status": "done",
+          "depends_on": [],
+          "verified": true
+        },
+        {
+          "id": "T7",
+          "title": "Expand health check endpoint with real DB/storage checks and detailed internal endpoint",
+          "role": "backend",
+          "status": "done",
+          "depends_on": [
+            4
+          ],
+          "verified": true
+        },
+        {
+          "id": "T8",
+          "title": "Replace print() statements in main.py background tasks with structured logger",
+          "role": "backend",
+          "status": "done",
+          "depends_on": [
+            6
+          ],
+          "verified": true
+        },
+        {
+          "id": "T9",
+          "title": "Frontend health status indicator in sidebar with polling and tooltip",
+          "role": "frontend",
+          "status": "done",
+          "depends_on": [
+            7
+          ],
+          "verified": true
+        },
+        {
+          "id": "T10",
+          "title": "QA: Security verification — SEC-1 through SEC-6",
+          "role": "qa",
+          "status": "done",
+          "depends_on": [
+            1,
+            2
+          ],
+          "verified": true
+        },
+        {
+          "id": "T11",
+          "title": "QA: Infrastructure verification — rate limiting, task persistence, logging, health",
+          "role": "qa",
+          "status": "done",
+          "depends_on": [
+            3,
+            4,
+            6,
+            7,
+            9
+          ],
+          "verified": true
+        },
+        {
+          "id": "T12",
+          "title": "QA: Storage isolation verification (after Task 5 implementation)",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": [
+            5
+          ],
+          "verified": false
+        },
+        {
+          "id": "T13",
+          "title": "Security audit: final review of all infrastructure changes",
+          "role": "security",
+          "status": "pending",
+          "depends_on": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "verified": false
         }
       ]
     }

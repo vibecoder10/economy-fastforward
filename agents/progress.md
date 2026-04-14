@@ -57,3 +57,27 @@ T1-T11 all implemented, acceptance criteria pass, Playwright-verified. Fixed one
 ## Summary
 
 PRD 4 complete. All 15 tasks done and verified. Performance check passed with P1 recommendations (dashboard/summary and settings/keys slow due to sequential DB queries). See `storyengine/agents/reports/qa-engineer-performance-T15.md` for full report.
+
+---
+
+# PRD 3: Infrastructure — Security, Rate Limiting, Task Persistence, Storage — Progress
+
+**Total tasks:** 13
+**Done:** 12/13
+**Remaining:** 1 (T12 QA storage verification, T13 security audit)
+
+## Task Status
+
+- [x] T1: SEC-1/SEC-2/SEC-3 critical security fixes (security) — done, verified
+- [x] T2: SEC-4/SEC-5/SEC-6 medium security fixes (security) — done, verified
+- [x] T3: Rate limit middleware (backend) — done, verified
+- [x] T4: Background tasks migration + DB persistence (backend) — done, verified
+- [x] T5: Per-tenant Supabase Storage backend (backend) — done 2026-04-14
+- [x] T6: Structured JSON logging (backend) — done, verified
+- [x] T7: Health check with DB/storage checks (backend) — done, verified
+- [x] T8: Replace print() with structured logger (backend) — done, verified
+- [x] T9: Frontend health indicator (frontend) — done, verified
+- [x] T10: QA security verification (qa) — done, verified
+- [x] T11: QA infrastructure verification (qa) — done, verified
+- [ ] T12: QA storage isolation verification (qa) — pending, deps met
+- [ ] T13: Security audit final review (security) — pending, waiting on T5
