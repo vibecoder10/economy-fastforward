@@ -14,14 +14,95 @@ import {
   type TitleSuggestion,
 } from "@/lib/api";
 
+// Starter topics per niche — the user just spent 4 steps setting up; asking
+// them to invent a topic cold on Step 5 is blank-page cruelty. When the
+// topic field is empty we surface 3 starters tuned to their declared niche
+// from Step 1. They're prompts, not final titles — one click fills the
+// textarea, they can edit, then Suggest Titles or Use as Title as usual.
+//
+// Keys match `ChannelIdentityStep.tsx::nicheOptions` values.
+const TOPIC_STARTERS_BY_NICHE: Record<string, string[]> = {
+  economy_finance: [
+    "How the Fed's latest move affects your wallet",
+    "3 recession signals hiding in plain sight",
+    "What rising treasury yields mean for everyday Americans",
+  ],
+  technology: [
+    "Why the latest AI announcement actually matters",
+    "The state of open-source agent frameworks in 2026",
+    "5 hidden features in a tool you already use",
+  ],
+  science: [
+    "How a phenomenon you see every day actually works",
+    "The truth about a science myth you've heard a hundred times",
+    "A recent discovery that could reshape its field",
+  ],
+  health_wellness: [
+    "5 mobility drills to do while you drink coffee",
+    "How to actually read a nutrition label",
+    "The truth about a supplement everyone's taking",
+  ],
+  history: [
+    "The real story behind an event textbooks skim",
+    "5 things pop culture got wrong about a famous era",
+    "A historical figure we forgot — and why we shouldn't have",
+  ],
+  politics: [
+    "What a new bill actually does (in plain English)",
+    "The history behind a modern political fight",
+    "How a federal institution really works — no spin",
+  ],
+  education: [
+    "How to learn a new skill in 30 days",
+    "3 myths about a subject you were taught wrong",
+    "5 free resources that beat most paid courses",
+  ],
+  entertainment: [
+    "Why a recent hit actually works",
+    "The best scenes in a genre you love",
+    "Hidden themes in a show everyone's watching",
+  ],
+  sports: [
+    "How to read advanced stats without the jargon",
+    "Why an underrated team is about to break out",
+    "The truth about a long-running sports myth",
+  ],
+  cooking: [
+    "5 quick weeknight dinners under $15",
+    "How to season a cast iron once and for all",
+    "Pantry staples every home cook needs",
+  ],
+  travel: [
+    "Hidden gems in a region everyone visits wrong",
+    "How to plan a week abroad on a budget",
+    "Mistakes first-time travelers make (and how to avoid them)",
+  ],
+  gaming: [
+    "Every new player in a popular game should know this",
+    "Why a core mechanic everyone argues about is broken",
+    "The best starter build nobody talks about",
+  ],
+};
+
+// Fallback for "other" / niche-skipped users. Deliberately generic but
+// still shaped like real video concepts so the chip isn't wasted space.
+const GENERIC_TOPIC_STARTERS = [
+  "The one thing everyone gets wrong about my topic",
+  "5 things you're probably doing wrong",
+  "How I accomplished something in 30 days",
+];
+
 interface CreateVideoStepProps {
   onComplete: (videoId: string) => void;
+  niche?: string;
 }
 
-export function CreateVideoStep({ onComplete }: CreateVideoStepProps) {
+export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   const router = useRouter();
   const [innerStep, setInnerStep] = useState(1);
   const [topic, setTopic] = useState("");
+  const starters =
+    (niche && TOPIC_STARTERS_BY_NICHE[niche]) || GENERIC_TOPIC_STARTERS;
   const [selectedTitle, setSelectedTitle] = useState("");
   const [suggestions, setSuggestions] = useState<TitleSuggestion[] | null>(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -126,6 +207,43 @@ export function CreateVideoStep({ onComplete }: CreateVideoStepProps) {
                 onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
                 autoFocus
               />
+
+              <AnimatePresence>
+                {!topic.trim() && starters.length > 0 && (
+                  <motion.div
+                    key="starters"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex flex-col gap-2 overflow-hidden"
+                  >
+                    <p
+                      className="text-xs font-body"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      Or start with one of these:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {starters.map((starter, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setTopic(starter)}
+                          className="text-left text-xs font-body px-3 py-1.5 rounded-full border transition-all hover:brightness-110"
+                          style={{
+                            background: "rgba(0, 212, 170, 0.06)",
+                            borderColor: "rgba(0, 212, 170, 0.25)",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          {starter}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="flex gap-2">
                 <button

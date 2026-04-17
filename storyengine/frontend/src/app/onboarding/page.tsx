@@ -8,6 +8,7 @@ import {
   testApiKey,
   getOnboardingStatus,
   getReadinessStatus,
+  getChannelProfile,
   generateSystemPrompts,
   getYouTubeConnectUrl,
   getYouTubeStatus,
@@ -106,6 +107,24 @@ function OnboardingContent() {
           loadApiKeys();
         }
         if (landedStep > 0) setStep(landedStep);
+
+        // Hydrate local form state from the server when the user returns
+        // mid-flow (auto-advance landed them past Step 1). Without this,
+        // downstream surfaces that key off local state — niche-aware Step
+        // 5 starter chips, for example — have nothing to work with.
+        if (s.channel_configured) {
+          getChannelProfile()
+            .then((cp) => {
+              if (cp.channel_name) setChannelName((prev) => prev || cp.channel_name);
+              if (cp.niche) setNiche((prev) => prev || cp.niche);
+              if (cp.target_audience) {
+                setAudience((prev) => prev || cp.target_audience);
+              }
+            })
+            .catch(() => {
+              // Non-blocking — worst case the user sees generic starters.
+            });
+        }
 
         // Show the welcome screen only for a genuinely fresh-landing user:
         // they haven't started Step 1 yet, and haven't seen the welcome on
@@ -441,6 +460,7 @@ function OnboardingContent() {
 
           {currentStepKey === "video" && (
             <CreateVideoStep
+              niche={niche}
               onComplete={() => {
                 // Redirect handled inside CreateVideoStep
               }}

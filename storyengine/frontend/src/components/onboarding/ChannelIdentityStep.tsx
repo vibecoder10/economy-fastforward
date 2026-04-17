@@ -74,13 +74,21 @@ export function ChannelIdentityStep({
           required
         />
 
-        <Select
-          label="What topics will you cover? (optional)"
-          options={nicheOptions}
-          value={niche}
-          onChange={(e) => onChange("niche", e.target.value)}
-          placeholder="Select a niche..."
-        />
+        <div className="flex flex-col gap-1">
+          <Select
+            label="What topics will you cover? (optional)"
+            options={nicheOptions}
+            value={niche}
+            onChange={(e) => onChange("niche", e.target.value)}
+            placeholder="Select a niche..."
+          />
+          <p
+            className="text-xs font-body"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            We&apos;ll tune your scripts and visuals to this.
+          </p>
+        </div>
 
         <Textarea
           label="Who are you making videos for? (optional)"
