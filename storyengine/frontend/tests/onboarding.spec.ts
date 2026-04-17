@@ -133,4 +133,46 @@ test.describe("Onboarding UX — PRD acceptance criteria", () => {
     expect(resp.status(), `icon fetch status=${resp.status()}`).toBeGreaterThanOrEqual(200);
     expect(resp.status()).toBeLessThan(300);
   });
+
+  test("AC-W1: fresh user (no welcome-seen flag) sees the welcome screen with display name", async ({ page }) => {
+    await stubBackend(page);
+    // No localStorage seed — page starts with a clean slate.
+    await page.goto("/onboarding");
+
+    await expect(page.getByRole("heading", { name: /Hey\s+Test/ })).toBeVisible();
+    await expect(page.getByText(/5 quick steps/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /Let.?s go/i })).toBeVisible();
+    await expect(page.getByText(/takes about 15 minutes/i)).toBeVisible();
+  });
+
+  test("AC-W2: clicking Let's go dismisses welcome, lands on Step 1, and persists the flag", async ({ page }) => {
+    await stubBackend(page);
+    await page.goto("/onboarding");
+
+    await page.getByRole("button", { name: /Let.?s go/i }).click();
+
+    await expect(page.getByRole("heading", { name: "Your Channel" })).toBeVisible();
+
+    const flag = await page.evaluate(() =>
+      window.localStorage.getItem("onboarding_welcome_seen"),
+    );
+    expect(flag).toBe("1");
+  });
+
+  test("AC-W3: returning user with welcome-seen flag skips welcome and lands on Step 1 directly", async ({ page }) => {
+    await stubBackend(page);
+
+    // Seed localStorage before the app mounts. We need a context reload after
+    // seeding because localStorage is per-origin and set via addInitScript
+    // applies to subsequent navigations.
+    await page.addInitScript(() => {
+      window.localStorage.setItem("onboarding_welcome_seen", "1");
+    });
+
+    await page.goto("/onboarding");
+
+    await expect(page.getByRole("heading", { name: "Your Channel" })).toBeVisible();
+    // Welcome heading must not render.
+    await expect(page.getByRole("heading", { name: /Hey\s+/ })).toHaveCount(0);
+  });
 });
