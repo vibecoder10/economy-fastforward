@@ -189,13 +189,16 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         )
     channel_configured = bool(cp and cp.get("channel_name"))
 
-    # Step 2: count configured API keys (5 required)
+    # Step 2: count configured API keys. Keep this list in sync with
+    # `PIPELINE_REQUIRED_KEYS` in routes/pipeline.py — removing a key here
+    # without removing it there (or vice versa) will drift the onboarding
+    # gate from the readiness gate. `openai_api_key` is intentionally NOT
+    # here: Whisper powers captions, which are opt-in rather than core.
     required_keys = [
         "anthropic_api_key",
         "elevenlabs_api_key",
         "elevenlabs_voice_id",
         "kie_ai_api_key",
-        "openai_api_key",
     ]
     configured_count = 0
     for key_name in required_keys:
@@ -231,14 +234,18 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     )
     display_name = (account_row.get("display_name") or "") if account_row else ""
 
-    # Completion: channel + all 5 keys + first video (style + YouTube are optional)
-    completed = channel_configured and configured_count == 5 and first_video_created
+    # Completion: channel + all required keys + first video (style + YouTube are optional)
+    completed = (
+        channel_configured
+        and configured_count == len(required_keys)
+        and first_video_created
+    )
 
     # Progress out of 5 required + optional steps
     done = 1  # account_created always true
     if channel_configured:
         done += 1
-    if configured_count == 5:
+    if configured_count == len(required_keys):
         done += 1
     if style_generated:
         done += 1
@@ -251,7 +258,7 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         "steps": {
             "account_created": True,
             "channel_configured": channel_configured,
-            "api_keys": {"configured": configured_count, "required": 5},
+            "api_keys": {"configured": configured_count, "required": len(required_keys)},
             "style_generated": style_generated,
             "youtube_connected": youtube_connected,
             "first_video_created": first_video_created,
