@@ -55,11 +55,11 @@ PIPELINE_REQUIRED_KEYS = [
     {"key": "elevenlabs_api_key", "label": "ElevenLabs API Key", "reason": "Voice narration synthesis", "url": "https://elevenlabs.io"},
     {"key": "elevenlabs_voice_id", "label": "ElevenLabs Voice ID", "reason": "Voice selection for narration", "url": "https://elevenlabs.io"},
     {"key": "kie_ai_api_key", "label": "Kie.ai", "reason": "Image and video generation", "url": "https://kie.ai"},
-    {"key": "openai_api_key", "label": "OpenAI (Whisper)", "reason": "Audio transcription for captions", "url": "https://platform.openai.com"},
 ]
 
 PIPELINE_OPTIONAL_KEYS = [
-    {"key": "gemini_api_key", "label": "Gemini (optional)", "reason": "Thumbnail analysis — skipped without this", "url": "https://aistudio.google.com"},
+    {"key": "openai_api_key", "label": "OpenAI (Whisper)", "reason": "Audio transcription for captions — pipeline still runs without it", "url": "https://platform.openai.com"},
+    {"key": "gemini_api_key", "label": "Gemini", "reason": "Thumbnail analysis — skipped without this", "url": "https://aistudio.google.com"},
 ]
 
 
