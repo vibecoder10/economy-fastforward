@@ -20,7 +20,10 @@ import { StyleSetupStep } from "@/components/onboarding/StyleSetupStep";
 import { ApiKeysStep } from "@/components/onboarding/ApiKeysStep";
 import { YouTubeConnectStep } from "@/components/onboarding/YouTubeConnectStep";
 import { CreateVideoStep } from "@/components/onboarding/CreateVideoStep";
+import { WelcomeStep } from "@/components/onboarding/WelcomeStep";
 import { Check, User, Palette, Key, Youtube, Film } from "lucide-react";
+
+const WELCOME_SEEN_KEY = "onboarding_welcome_seen";
 
 // Single unified step sequence — no branching
 const STEPS = [
@@ -45,6 +48,11 @@ function OnboardingContent() {
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState(0);
   const [displayName, setDisplayName] = useState("");
+
+  // Welcome-screen gate. Renders once per browser on the very first landing
+  // in step 0. Skipped automatically if onboarding auto-advanced (user already
+  // did Step 1 on a prior session) or if localStorage says they've seen it.
+  const [showWelcome, setShowWelcome] = useState(false);
 
   // Channel state
   const [channelName, setChannelName] = useState("");
@@ -88,13 +96,24 @@ function OnboardingContent() {
         // Auto-advance past completed steps (order: channel → keys → style → youtube → video)
         const s = status.steps;
         const keysComplete = s.api_keys.configured === s.api_keys.required;
+        let landedStep = 0;
         if (s.channel_configured && keysComplete && s.style_generated) {
-          setStep(3); // YouTube step
+          landedStep = 3; // YouTube step
         } else if (s.channel_configured && keysComplete) {
-          setStep(2); // Style step
+          landedStep = 2; // Style step
         } else if (s.channel_configured) {
-          setStep(1); // Keys step
+          landedStep = 1; // Keys step
           loadApiKeys();
+        }
+        if (landedStep > 0) setStep(landedStep);
+
+        // Show the welcome screen only for a genuinely fresh-landing user:
+        // they haven't started Step 1 yet, and haven't seen the welcome on
+        // this browser. Skip when auto-advance sent them past Step 1.
+        if (landedStep === 0 && typeof window !== "undefined") {
+          const alreadySeen =
+            window.localStorage.getItem(WELCOME_SEEN_KEY) === "1";
+          if (!alreadySeen) setShowWelcome(true);
         }
       })
       .catch(() => {
@@ -263,10 +282,30 @@ function OnboardingContent() {
     handleNext();
   }
 
+  function handleDismissWelcome() {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(WELCOME_SEEN_KEY, "1");
+    }
+    setShowWelcome(false);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Spinner />
+      </div>
+    );
+  }
+
+  // Welcome screen renders on its own, without the stepper — it's the hug
+  // right after signup, before the first form shows up.
+  if (showWelcome) {
+    return (
+      <div className="flex items-center justify-center min-h-screen px-4 py-12">
+        <WelcomeStep
+          displayName={displayName}
+          onContinue={handleDismissWelcome}
+        />
       </div>
     );
   }
