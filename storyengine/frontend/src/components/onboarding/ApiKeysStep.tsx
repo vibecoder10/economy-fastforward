@@ -1,12 +1,27 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Circle, ExternalLink } from "lucide-react";
+import { Check, Circle, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+
+// Format hints per provider — gives users a visual template so they can
+// eyeball a paste before submitting. Keys not in this map fall back to the
+// generic "Paste your API key..." placeholder.
+const KEY_FORMAT_HINTS: Record<string, string> = {
+  anthropic_api_key: "sk-ant-xxxxxxxxxxxxxxxx…",
+  elevenlabs_api_key: "sk_xxxxxxxxxxxxxxxx…",
+  elevenlabs_voice_id: "e.g. 21m00Tcm4TlvDq8ikWAM",
+  kie_ai_api_key: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  openai_api_key: "sk-proj-xxxxxxxxxxxxxxxx…",
+  gemini_api_key: "AIzaxxxxxxxxxxxxxxxxxxxx…",
+};
+
+// Keys that are public identifiers, not secrets — shouldn't be masked.
+const UNMASKED_KEYS = new Set<string>(["elevenlabs_voice_id"]);
 
 interface ApiKeyConfig {
   key: string;
@@ -37,6 +52,10 @@ function KeyRow({
   const [saving, setSaving] = useState(false);
   const [connected, setConnected] = useState(config.configured);
   const [error, setError] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+
+  const isMasked = !UNMASKED_KEYS.has(config.key) && !revealed;
+  const placeholder = KEY_FORMAT_HINTS[config.key] ?? "Paste your API key…";
 
   async function handleSave() {
     if (!value.trim()) return;
@@ -132,19 +151,41 @@ function KeyRow({
           transition={{ duration: 0.2 }}
           className="flex items-center gap-2 pt-1"
         >
-          <input
-            type="password"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder="Paste your API key..."
-            className={cn(
-              "flex-1 rounded-lg border bg-[var(--bg-void)] px-3 py-1.5 text-sm",
-              "placeholder:text-[var(--text-secondary)]/50",
-              "focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]",
-              "border-[var(--border)]"
+          <div className="relative flex-1">
+            <input
+              type={isMasked ? "password" : "text"}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={placeholder}
+              aria-label={`${config.label} value`}
+              className={cn(
+                "w-full rounded-lg border bg-[var(--bg-void)] px-3 py-1.5 text-sm",
+                "placeholder:text-[var(--text-secondary)]/50",
+                "focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]",
+                "border-[var(--border)]",
+                // Leave room on the right for the eye toggle when it renders.
+                !UNMASKED_KEYS.has(config.key) && "pr-9"
+              )}
+              disabled={saving}
+            />
+            {!UNMASKED_KEYS.has(config.key) && (
+              <button
+                type="button"
+                onClick={() => setRevealed((v) => !v)}
+                aria-label={revealed ? "Hide key" : "Show key"}
+                aria-pressed={revealed}
+                disabled={saving}
+                className={cn(
+                  "absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded",
+                  "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+                  "focus:outline-none focus:ring-1 focus:ring-[var(--accent)]",
+                  "disabled:opacity-40 disabled:cursor-not-allowed"
+                )}
+              >
+                {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
             )}
-            disabled={saving}
-          />
+          </div>
           <ActionButton
             onClick={handleSave}
             disabled={!value.trim() || saving}
@@ -200,6 +241,13 @@ export function ApiKeysStep({
           >
             These API keys power your video pipeline. Each service handles a
             different part.
+          </p>
+          <p
+            className="text-xs font-body mt-2"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            BYOK — you pay providers directly. Weekly cadence runs ~$15–30/mo
+            across all four.
           </p>
         </div>
 
