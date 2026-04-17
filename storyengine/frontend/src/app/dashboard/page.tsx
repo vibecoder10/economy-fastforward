@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import Link from "next/link";
 import {
   Film,
   Eye,
@@ -11,7 +12,14 @@ import {
   Plus,
   ChevronRight,
   CalendarDays,
+  Key,
+  ArrowRight,
 } from "lucide-react";
+
+// Mirrors the key set in `app/onboarding/page.tsx`. Dashboard reads this
+// flag to allow partial-onboarding users into the app (with a Finish
+// setup banner) instead of bouncing them back to /onboarding.
+const STEP2_SKIPPED_KEY = "onboarding_step2_skipped";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -151,12 +159,31 @@ export default function DashboardPage() {
     return items.slice(0, 6);
   }, [pendingReview]);
 
-  // Redirect to onboarding if not completed
+  // Redirect to onboarding if not completed — UNLESS the user explicitly
+  // clicked "Skip for now" on Step 2. In that case let them into the
+  // dashboard and render a persistent FinishSetupBanner up top so they
+  // can come back on their own time.
+  //
+  // Also clear the skip flag the moment onboarding completes, so the
+  // banner disappears for good.
   useEffect(() => {
-    if (!onboardingLoading && onboarding && !onboarding.completed) {
+    if (onboardingLoading || !onboarding) return;
+    if (onboarding.completed) {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(STEP2_SKIPPED_KEY);
+      }
+      return;
+    }
+    const skipped =
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(STEP2_SKIPPED_KEY) === "1";
+    if (!skipped) {
       router.replace("/onboarding");
     }
   }, [onboardingLoading, onboarding, router]);
+
+  const showFinishSetupBanner =
+    !!onboarding && !onboarding.completed && !onboardingLoading;
 
   if (summaryLoading || onboardingLoading) {
     return (
@@ -178,6 +205,53 @@ export default function DashboardPage() {
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
+      {showFinishSetupBanner && (
+        <motion.div variants={item}>
+          <Link
+            href="/onboarding"
+            data-testid="finish-setup-banner"
+            className="flex items-center justify-between gap-4 px-5 py-4 rounded-xl transition-all hover:brightness-110"
+            style={{
+              background:
+                "linear-gradient(90deg, rgba(255, 180, 0, 0.08), rgba(0, 212, 170, 0.06))",
+              border: "1px solid rgba(255, 180, 0, 0.35)",
+            }}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                style={{
+                  background: "rgba(255, 180, 0, 0.12)",
+                  color: "var(--gold)",
+                }}
+              >
+                <Key size={16} />
+              </div>
+              <div className="min-w-0">
+                <p
+                  className="text-sm font-semibold font-body"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Finish setting up your account
+                </p>
+                <p
+                  className="text-xs font-body"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Connect your tools so StoryEngine can generate your first video.
+                </p>
+              </div>
+            </div>
+            <div
+              className="flex items-center gap-1 text-xs font-semibold font-body shrink-0"
+              style={{ color: "var(--gold)" }}
+            >
+              Finish setup <ArrowRight size={14} />
+            </div>
+          </Link>
+        </motion.div>
+      )}
+
       {/* Header */}
       <motion.div variants={item} className="flex items-center justify-between">
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>

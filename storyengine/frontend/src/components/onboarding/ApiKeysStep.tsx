@@ -36,6 +36,11 @@ interface ApiKeysStepProps {
   onSaveKey: (keyName: string, value: string) => Promise<boolean>;
   onTestKey: (keyName: string) => Promise<boolean>;
   onNext: () => void;
+  // Optional escape hatch — when present, a "Skip for now" link renders
+  // below the Continue button. Lets users who don't have all their API
+  // keys handy push into the dashboard and come back later. Parent is
+  // responsible for any flagging + navigation.
+  onSkipForNow?: () => void;
 }
 
 function KeyRow({
@@ -215,6 +220,7 @@ export function ApiKeysStep({
   onSaveKey,
   onTestKey,
   onNext,
+  onSkipForNow,
 }: ApiKeysStepProps) {
   const configuredCount = keys.filter((k) => k.configured).length;
   const total = keys.length;
@@ -285,7 +291,7 @@ export function ApiKeysStep({
           ))}
         </div>
 
-        <div className="flex flex-col items-center gap-3 pt-2">
+        <div className="flex flex-col items-center gap-2 pt-2">
           <ActionButton
             onClick={onNext}
             disabled={configuredCount < total}
@@ -294,6 +300,16 @@ export function ApiKeysStep({
               ? `Connect all ${total} tools to continue`
               : "Continue"}
           </ActionButton>
+          {onSkipForNow && configuredCount < total && (
+            <button
+              type="button"
+              onClick={onSkipForNow}
+              className="text-xs font-body underline-offset-4 hover:underline transition-colors"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              Skip for now — finish later in Settings
+            </button>
+          )}
         </div>
       </GlassCard>
     </motion.div>
