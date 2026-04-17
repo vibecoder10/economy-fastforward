@@ -68,14 +68,14 @@ export function ChannelIdentityStep({
 
         <TextInput
           label="Channel Name"
-          placeholder="e.g., Economy FastForward"
+          placeholder="Your channel name"
           value={channelName}
           onChange={(e) => onChange("channelName", e.target.value)}
           required
         />
 
         <Select
-          label="What topics will you cover?"
+          label="What topics will you cover? (optional)"
           options={nicheOptions}
           value={niche}
           onChange={(e) => onChange("niche", e.target.value)}
@@ -83,8 +83,8 @@ export function ChannelIdentityStep({
         />
 
         <Textarea
-          label="Who are you making videos for?"
-          placeholder="e.g., Busy professionals who want to understand global economics without reading 50 articles."
+          label="Who are you making videos for? (optional)"
+          placeholder="Describe your ideal viewer — what they care about, what they want to learn."
           value={audience}
           onChange={(e) => onChange("audience", e.target.value)}
           rows={3}

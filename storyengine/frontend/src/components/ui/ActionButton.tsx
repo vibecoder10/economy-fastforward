@@ -42,8 +42,11 @@ export function ActionButton({
     <button
       onClick={onClick}
       disabled={disabled}
+      aria-disabled={disabled || undefined}
       className={cn(
-        "inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed",
+        "inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all active:scale-[0.98]",
+        "enabled:hover:brightness-110",
+        "disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed disabled:pointer-events-none",
         className
       )}
       style={styles[variant]}

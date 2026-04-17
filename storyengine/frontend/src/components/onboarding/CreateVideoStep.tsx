@@ -114,7 +114,7 @@ export function CreateVideoStep({ onComplete }: CreateVideoStepProps) {
               <textarea
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g., Why the US dollar might lose its reserve currency status"
+                placeholder="A topic you want a video about — a question, a how-to, a hot take…"
                 rows={3}
                 className="w-full px-4 py-3 rounded-lg text-sm font-body outline-none resize-none transition-all"
                 style={{
@@ -315,7 +315,7 @@ export function CreateVideoStep({ onComplete }: CreateVideoStepProps) {
                 <textarea
                   value={angle}
                   onChange={(e) => setAngle(e.target.value)}
-                  placeholder="e.g., Focus on the geopolitical implications rather than economics"
+                  placeholder="Any specific angle, POV, or detail you want the video to take on?"
                   rows={2}
                   className="w-full px-4 py-3 rounded-lg text-sm font-body outline-none resize-none transition-all"
                   style={{

@@ -13,6 +13,7 @@ import {
   getYouTubeStatus,
   syncYouTubeMetrics,
 } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 import { Spinner } from "@/components/ui/spinner";
 import { ChannelIdentityStep } from "@/components/onboarding/ChannelIdentityStep";
 import { StyleSetupStep } from "@/components/onboarding/StyleSetupStep";
@@ -70,6 +71,10 @@ function OnboardingContent() {
     { key: string; label: string; reason: string; url: string; configured: boolean }[]
   >([]);
 
+  // Network-health banner: set when the initial status load fails, so the
+  // user sees "we couldn't load your progress" rather than an empty Step 1.
+  const [statusLoadFailed, setStatusLoadFailed] = useState(false);
+
   // Check if onboarding is already complete, and auto-advance past completed steps
   useEffect(() => {
     getOnboardingStatus()
@@ -92,7 +97,9 @@ function OnboardingContent() {
           loadApiKeys();
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        setStatusLoadFailed(true);
+      })
       .finally(() => setLoading(false));
   }, [router]);
 
@@ -166,7 +173,7 @@ function OnboardingContent() {
       loadApiKeys();
       setStep(1); // Keys step
     } catch (err) {
-      setChannelError(err instanceof Error ? err.message : "Failed to save");
+      setChannelError(humanizeError(err, "We couldn't save your channel. Please try again."));
     } finally {
       setChannelSaving(false);
     }
@@ -207,7 +214,7 @@ function OnboardingContent() {
       setStyleGenerated(true);
       setStyleSummary(result.summary || "Your custom style has been generated.");
     } catch (err) {
-      setStyleError(err instanceof Error ? err.message : "Failed to generate style");
+      setStyleError(humanizeError(err, "We couldn't generate your style. Please try again."));
     } finally {
       setStyleGenerating(false);
     }
@@ -269,6 +276,21 @@ function OnboardingContent() {
   return (
     <div className="flex items-center justify-center min-h-screen px-4 py-12">
       <div className="w-full max-w-xl">
+        {statusLoadFailed && (
+          <div
+            role="status"
+            data-testid="onboarding-network-banner"
+            className="mb-6 px-4 py-3 rounded-lg text-sm text-center"
+            style={{
+              background: "rgba(255, 180, 0, 0.08)",
+              border: "1px solid rgba(255, 180, 0, 0.35)",
+              color: "var(--gold)",
+            }}
+          >
+            We couldn&apos;t load your progress. Check your connection and refresh — any data you enter below may not save until we reconnect.
+          </div>
+        )}
+
         {/* Progress Bar */}
         <div className="flex items-center justify-center gap-0 mb-10">
           {STEPS.map((s, i) => {
