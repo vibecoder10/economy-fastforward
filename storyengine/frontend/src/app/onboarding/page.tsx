@@ -25,6 +25,11 @@ import { WelcomeStep } from "@/components/onboarding/WelcomeStep";
 import { Check, User, Palette, Key, Youtube, Film } from "lucide-react";
 
 const WELCOME_SEEN_KEY = "onboarding_welcome_seen";
+// Set when a user clicks "Skip for now" on Step 2. The dashboard reads
+// this to decide between "bounce back to /onboarding" (the strict default)
+// vs. "let them in + show a Finish setup banner" (the escape hatch).
+// Cleared automatically once `onboarding.completed` flips true.
+const STEP2_SKIPPED_KEY = "onboarding_step2_skipped";
 
 // Single unified step sequence — no branching
 const STEPS = [
@@ -308,6 +313,13 @@ function OnboardingContent() {
     setShowWelcome(false);
   }
 
+  function handleSkipOnboardingForNow() {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STEP2_SKIPPED_KEY, "1");
+    }
+    router.replace("/dashboard");
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -442,6 +454,7 @@ function OnboardingContent() {
               onSaveKey={handleSaveApiKey}
               onTestKey={handleTestApiKey}
               onNext={handleNext}
+              onSkipForNow={handleSkipOnboardingForNow}
             />
           )}
 
