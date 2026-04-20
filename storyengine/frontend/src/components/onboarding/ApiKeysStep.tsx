@@ -442,10 +442,26 @@ export function ApiKeysStep({
   onNext,
   onSkipForNow,
 }: ApiKeysStepProps) {
-  const configuredCount = keys.filter((k) => k.configured).length;
-  const total = keys.length;
-  const progress = total > 0 ? (configuredCount / total) * 100 : 0;
   const renderItems = groupByProvider(keys);
+
+  // Progress counts PROVIDERS (visual cards), not raw keys — matches what the
+  // user actually sees on the page. A provider is "connected" when every key
+  // it owns is configured. Previously we counted flat keys (ElevenLabs = 2,
+  // but shown as 1 card) so the "X of 4" never matched "3 cards rendered."
+  const providerCount = renderItems.length;
+  const providersConnected = renderItems.filter((item) =>
+    item.kind === "single"
+      ? item.config.configured
+      : item.configs.every((c) => c.configured),
+  ).length;
+  const progress =
+    providerCount > 0 ? (providersConnected / providerCount) * 100 : 0;
+
+  // Local tracking so the button enables the moment a card flips to connected
+  // without waiting for a parent refresh. Mirror the keys array on every
+  // render — child cards fire `onConnectedChange` as they save, but we also
+  // want the parent's source-of-truth to drive the gate.
+  const allConnected = providersConnected >= providerCount && providerCount > 0;
 
   return (
     <motion.div
@@ -484,7 +500,7 @@ export function ApiKeysStep({
               className="text-xs font-semibold font-body"
               style={{ color: "var(--text-secondary)" }}
             >
-              {configuredCount} of {total} connected
+              {providersConnected} of {providerCount} connected
             </span>
           </div>
           <div
@@ -526,15 +542,12 @@ export function ApiKeysStep({
         </div>
 
         <div className="flex flex-col items-center gap-2 pt-2">
-          <ActionButton
-            onClick={onNext}
-            disabled={configuredCount < total}
-          >
-            {configuredCount < total
-              ? `Connect all ${total} tools to continue`
-              : "Continue"}
+          <ActionButton onClick={onNext} disabled={!allConnected}>
+            {allConnected
+              ? "Continue"
+              : `Connect all ${providerCount} tools to continue`}
           </ActionButton>
-          {onSkipForNow && configuredCount < total && (
+          {onSkipForNow && !allConnected && (
             <button
               type="button"
               onClick={onSkipForNow}
