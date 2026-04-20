@@ -2,6 +2,10 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 3)
+- **`humanizeError()` already existed at `frontend/src/lib/errors.ts`** but wasn't wired everywhere. Grep for `err instanceof Error ? err.message` and `err.message ||` to find all leak sites. Current product had 11 raw-error sites that would have shown users "API error 500: …" or "Failed to fetch". All now route through `humanizeError(err, contextual_fallback)`.
+- **When a catch block needs substring checks** (e.g. "expired token" → specific copy), keep the `raw = err instanceof Error ? err.message : ""` for the check, then fall through to `humanizeError(err, fallback)` for the default branch. Don't discard the `err` object — humanizeError inspects its shape.
+
 ## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 2)
 - **Functional DB tests via Supabase MCP work great** when the local dev stack isn't up. Pattern: insert-sentinel-row → run target SQL → assert state → cleanup. Gives real-infra coverage without standing up a local PG. Example: `backend/tests/functional/test_trial_expired.sql`.
 - **Backend venv is at `storyengine/backend/.venv/`** — plain `python3` from the shell does NOT see asyncpg/etc. Always use `.venv/bin/python3` for any script that touches DB.

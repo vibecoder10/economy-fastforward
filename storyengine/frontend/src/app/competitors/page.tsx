@@ -31,6 +31,7 @@ import {
   type DistillURLResult,
 } from "@/lib/api";
 import { formatNumber, timeAgo } from "@/lib/utils";
+import { humanizeError } from "@/lib/errors";
 
 const container = {
   hidden: { opacity: 0 },
@@ -640,7 +641,7 @@ export default function CompetitorsPage() {
                     queryClient.invalidateQueries({ queryKey: ["niche-videos"] });
                   }
                 } catch (err: unknown) {
-                  setDistillError(err instanceof Error ? err.message : "Distillation failed");
+                  setDistillError(humanizeError(err, "We couldn't distill that URL. Try again."));
                 } finally {
                   setDistilling(false);
                 }
@@ -667,7 +668,7 @@ export default function CompetitorsPage() {
                   queryClient.invalidateQueries({ queryKey: ["niche-videos"] });
                 }
               } catch (err: unknown) {
-                setDistillError(err instanceof Error ? err.message : "Distillation failed");
+                setDistillError(humanizeError(err, "We couldn't distill that URL. Try again."));
               } finally {
                 setDistilling(false);
               }

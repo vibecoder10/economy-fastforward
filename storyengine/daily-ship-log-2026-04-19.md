@@ -50,3 +50,30 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 
 **Learned:** prod Supabase is reachable via MCP for functional SQL verification — that's the right pattern for DB-layer tests when the local dev stack isn't up.
 
+## Cycle 3 — 2026-04-19 ~20:30 CT
+**Goal:** kill every raw exception string the user can see. Route frontend errors through `humanizeError()`.
+
+**Shipped (11 files):**
+- `app/login/page.tsx` — auth errors
+- `app/forgot-password/page.tsx` — reset-link request errors
+- `app/reset-password/page.tsx` — token validation fallback routed through `humanizeError` (specific expired/invalid/used branches preserved)
+- `app/settings/drive-callback/page.tsx` — Google Drive OAuth errors
+- `app/settings/youtube-callback/page.tsx` — YouTube OAuth errors
+- `app/system-prompts/page.tsx` — prompt generation errors
+- `app/profile/page.tsx` — style analysis, character save (3 sites), character generation
+- `app/competitors/page.tsx` — distillation errors (2 sites)
+- `components/onboarding/CreateVideoStep.tsx` — title suggest + create video (2 sites)
+- `components/pipeline/FirstVideoFlow.tsx` — title suggest error
+- `components/video-detail/storyboard-viewer.tsx` — prompt gen / image gen / clear scene (3 sites)
+
+**Pattern applied:**
+- `setError(err instanceof Error ? err.message : "...")` → `setError(humanizeError(err, contextual_fallback))`
+- `setError(err.message || "...")` → `setError(humanizeError(err, contextual_fallback))`
+- Preserved substring-check branches (e.g. "expired token" → "This reset link has expired") — only the default branch was humanized.
+
+**Functional test:** `npx tsc --noEmit` exit 0 (clean). No runtime test yet — needs a browser session with the dev server up to verify the humanized strings render. Deferring to next cycle (will run Playwright against real /login and trigger bad creds).
+
+**Honest gap:** this is frontend-only. Backend still raises `raise HTTPException(500, str(e))` in several routes — those `str(e)` strings can include stack-trace fragments. Added to todo #3 for next cycle.
+
+**Learned:** the `humanizeError` utility already existed for 10+ days — nobody had wired it. Moral: grep for utility functions in `lib/` before writing new ones AND before shipping features that raise errors. Zero code added, 11 sites cleaned up.
+

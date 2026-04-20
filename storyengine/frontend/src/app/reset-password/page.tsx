@@ -4,6 +4,7 @@ import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { resetPassword } from "@/lib/api";
 import { Spinner } from "@/components/ui/spinner";
+import { humanizeError } from "@/lib/errors";
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
@@ -32,7 +33,7 @@ function ResetPasswordForm() {
       await resetPassword(token, newPassword);
       setSuccess(true);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Something went wrong";
+      const msg = err instanceof Error ? err.message : "";
       if (msg.includes("expired")) {
         setError("This reset link has expired. Please request a new one.");
       } else if (msg.includes("Invalid") || msg.includes("invalid")) {
@@ -40,7 +41,7 @@ function ResetPasswordForm() {
       } else if (msg.includes("already been used")) {
         setError("This reset link has already been used. Please request a new one.");
       } else {
-        setError(msg);
+        setError(humanizeError(err));
       }
     } finally {
       setSubmitting(false);

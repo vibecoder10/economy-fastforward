@@ -37,6 +37,7 @@ import {
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 import { useToast } from "@/components/ui/toast";
 
 const container = {
@@ -190,11 +191,11 @@ export default function ProfilePage() {
       .catch((err) => {
         console.error("[StyleAnalysis] Error:", err);
         setAnalysisResult(null);
-        const message = err instanceof Error ? err.message : "Analysis failed";
-        if (message.includes("timed out")) {
+        const raw = err instanceof Error ? err.message : "";
+        if (raw.includes("timed out")) {
           setAnalysisError("Analysis timed out. Try again with a different image.");
         } else {
-          setAnalysisError(message);
+          setAnalysisError(humanizeError(err, "We couldn't analyze that image. Try another one."));
         }
       })
       .finally(() => {
@@ -280,8 +281,7 @@ export default function ProfilePage() {
       setTimeout(() => setCharSaveStatus("idle"), 2000);
     } catch (err) {
       setCharSaveStatus("idle");
-      const msg = err instanceof Error ? err.message : "Failed to save character";
-      toast.error(`Character save failed: ${msg}`);
+      toast.error(`Character save failed: ${humanizeError(err, "We couldn't save your character. Try again.")}`);
     }
   };
 
@@ -295,11 +295,11 @@ export default function ProfilePage() {
       const result = await generateCharacterImage(generatePrompt.trim(), activeStyle.id);
       setGeneratedImageUrl(result.image_url);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Generation failed";
-      if (msg.includes("Kie.ai API key not configured") || msg.includes("400")) {
+      const raw = err instanceof Error ? err.message : "";
+      if (raw.includes("Kie.ai API key not configured") || raw.includes("400")) {
         setGenerateError("Configure your Kie.ai API key in Settings → API Keys to generate characters.");
       } else {
-        setGenerateError(msg);
+        setGenerateError(humanizeError(err, "We couldn't generate that character. Try again."));
       }
     } finally {
       setIsGenerating(false);
@@ -322,8 +322,7 @@ export default function ProfilePage() {
       setTimeout(() => setCharSaveStatus("idle"), 2000);
     } catch (err) {
       setCharSaveStatus("idle");
-      const msg = err instanceof Error ? err.message : "Failed to save character";
-      toast.error(`Character save failed: ${msg}`);
+      toast.error(`Character save failed: ${humanizeError(err, "We couldn't save your character. Try again.")}`);
     }
   };
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Spinner } from "@/components/ui/spinner";
 import { getOnboardingStatus } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 
 export default function LoginPage() {
   const { user, isLoading, loginWithEmail, register } = useAuth();
@@ -46,7 +47,7 @@ export default function LoginPage() {
       }
       // redirect handled by useEffect when user state updates
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(humanizeError(err));
     } finally {
       setSubmitting(false);
     }

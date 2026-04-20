@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { suggestTitles, type TitleSuggestion } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 
 interface FirstVideoFlowProps {
   onCreateVideo: (title: string, videoLength: number, angle?: string) => void;
@@ -45,7 +46,7 @@ export function FirstVideoFlow({
       const result = await suggestTitles(topic.trim());
       setSuggestions(result.titles);
     } catch (err) {
-      setSuggestError(err instanceof Error ? err.message : "Failed to generate titles");
+      setSuggestError(humanizeError(err, "We couldn't generate titles. Try again in a moment."));
     } finally {
       setSuggestLoading(false);
     }

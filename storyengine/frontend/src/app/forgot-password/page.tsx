@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { forgotPassword } from "@/lib/api";
 import { Spinner } from "@/components/ui/spinner";
+import { humanizeError } from "@/lib/errors";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -18,7 +19,7 @@ export default function ForgotPasswordPage() {
       await forgotPassword(email);
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(humanizeError(err));
     } finally {
       setSubmitting(false);
     }

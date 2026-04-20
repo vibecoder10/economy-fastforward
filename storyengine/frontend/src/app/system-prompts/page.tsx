@@ -15,6 +15,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { Textarea } from "@/components/forms/textarea";
 import { Loader2, Wand2, Sparkles } from "lucide-react";
+import { humanizeError } from "@/lib/errors";
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } };
@@ -61,7 +62,7 @@ export default function SystemPromptsPage() {
       setGenerated(true);
       queryClient.invalidateQueries({ queryKey: ["system-prompts"] });
     } catch (err) {
-      setGenError(err instanceof Error ? err.message : "Failed to generate prompts. Please try again.");
+      setGenError(humanizeError(err, "We couldn't generate prompts. Please try again."));
     } finally {
       setGenerating(false);
     }

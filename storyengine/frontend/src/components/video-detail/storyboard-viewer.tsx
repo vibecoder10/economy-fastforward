@@ -11,6 +11,7 @@ import {
   runPipelineStage,
   clearSceneStoryboard,
 } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { VoicePlayer } from "./voice-player";
 import { PanelMagnifier } from "./panel-magnifier";
@@ -92,7 +93,7 @@ export function StoryboardViewer({ scene, assets, videoId, videoStatus, onRefres
       setSceneTaskType("prompts");
     } catch (err: any) {
       setSceneResult("error");
-      setSceneError(err.message || "Failed to start");
+      setSceneError(humanizeError(err, "We couldn't start prompt generation. Try again."));
     }
   }, [videoId, sceneNum]);
 
@@ -105,7 +106,7 @@ export function StoryboardViewer({ scene, assets, videoId, videoStatus, onRefres
       setSceneTaskType("images");
     } catch (err: any) {
       setSceneResult("error");
-      setSceneError(err.message || "Failed to start");
+      setSceneError(humanizeError(err, "We couldn't start image generation. Try again."));
     }
   }, [videoId, sceneNum]);
 
@@ -117,7 +118,7 @@ export function StoryboardViewer({ scene, assets, videoId, videoStatus, onRefres
       onRefresh();
     } catch (err: any) {
       setSceneResult("error");
-      setSceneError(err.message || "Failed to clear");
+      setSceneError(humanizeError(err, "We couldn't clear this scene. Try again."));
     }
   }, [videoId, sceneNum, queryClient, onRefresh]);
 

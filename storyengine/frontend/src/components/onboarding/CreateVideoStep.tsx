@@ -13,6 +13,7 @@ import {
   completeOnboarding,
   type TitleSuggestion,
 } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 
 // Starter topics per niche — the user just spent 4 steps setting up; asking
 // them to invent a topic cold on Step 5 is blank-page cruelty. When the
@@ -121,7 +122,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
       const result = await suggestTitles(topic.trim());
       setSuggestions(result.titles);
     } catch (err) {
-      setSuggestError(err instanceof Error ? err.message : "Failed to generate titles");
+      setSuggestError(humanizeError(err, "We couldn't generate titles. Try again in a moment."));
     } finally {
       setSuggestLoading(false);
     }
@@ -151,7 +152,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
       onComplete(video.id);
       router.push(`/pipeline/${video.id}`);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Failed to create video");
+      setCreateError(humanizeError(err, "We couldn't create your video. Give it another try."));
       setCreating(false);
     }
   };

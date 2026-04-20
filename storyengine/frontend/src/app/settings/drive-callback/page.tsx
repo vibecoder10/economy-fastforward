@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { humanizeError } from "@/lib/errors";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -50,7 +51,7 @@ export default function DriveCallbackPage() {
       })
       .catch((err) => {
         setStatus("error");
-        setError(err.message);
+        setError(humanizeError(err, "We couldn't connect Google Drive. Try again."));
       });
   }, [searchParams, router]);
 
