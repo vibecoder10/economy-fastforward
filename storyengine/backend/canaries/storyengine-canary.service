@@ -8,7 +8,7 @@ Type=oneshot
 User=clawd
 WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/home/clawd/projects/economy-fastforward/storyengine/backend/.venv/bin/python -m canaries.validator_drift
+ExecStart=/home/clawd/projects/economy-fastforward/storyengine/backend/venv/bin/python3 -m canaries.validator_drift
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=storyengine-canary
