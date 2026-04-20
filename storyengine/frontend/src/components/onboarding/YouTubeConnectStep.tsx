@@ -18,6 +18,11 @@ interface YouTubeConnectStepProps {
   connecting: boolean;
   syncing?: boolean;
   onStartSync?: () => void;
+  // Voice-learn step (Flow B slice 2): parent fires learn-voice when user
+  // advances, these props drive the "learning your voice..." UI inline.
+  voiceLearning?: boolean;
+  voiceLearned?: boolean;
+  voiceSourceCount?: number;
 }
 
 function formatCount(n: number): string {
@@ -35,6 +40,9 @@ export function YouTubeConnectStep({
   connecting,
   syncing,
   onStartSync,
+  voiceLearning = false,
+  voiceLearned = false,
+  voiceSourceCount = 0,
 }: YouTubeConnectStepProps) {
   // Flow B: after OAuth succeeds, fetch the user's top-performing videos.
   // Presence of videos tells us they're an existing-channel user (not a
@@ -219,6 +227,27 @@ export function YouTubeConnectStep({
                 </span>
               </div>
             )}
+
+            {voiceLearning && (
+              <div className="flex items-center justify-center gap-2 pt-1">
+                <Spinner size="sm" />
+                <span className="text-xs font-body" style={{ color: "var(--accent)" }}>
+                  Learning your voice from your top videos...
+                </span>
+              </div>
+            )}
+
+            {voiceLearned && voiceSourceCount > 0 && (
+              <div
+                className="flex items-center justify-center gap-2 text-xs font-body pt-1"
+                style={{ color: "var(--success)" }}
+              >
+                <Check size={14} />
+                <span>
+                  Voice learned from your top {voiceSourceCount} video{voiceSourceCount === 1 ? "" : "s"} — we'll pre-fill your style
+                </span>
+              </div>
+            )}
           </motion.div>
         ) : (
           <>
@@ -243,7 +272,15 @@ export function YouTubeConnectStep({
         )}
 
         <div className="flex flex-col items-center gap-3 pt-2">
-          <ActionButton onClick={onNext}>Continue</ActionButton>
+          <ActionButton onClick={onNext} disabled={voiceLearning}>
+            {voiceLearning ? (
+              <span className="flex items-center gap-2">
+                <Spinner size="sm" /> Learning your voice...
+              </span>
+            ) : (
+              "Continue"
+            )}
+          </ActionButton>
 
           {!connected && (
             <button

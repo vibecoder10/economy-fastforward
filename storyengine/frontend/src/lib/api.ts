@@ -1563,6 +1563,19 @@ export const getMyYouTubeVideos = (limit = 5, sort: "views" | "recent" = "views"
     `/api/youtube/my-videos?limit=${limit}&sort=${sort}`,
   );
 
+export interface VoiceLearnSource {
+  video_id: string;
+  title: string;
+  views: number;
+}
+
+export const learnVoiceFromYouTube = () =>
+  fetchApi<{
+    status: string;
+    style_description: string;
+    source_videos: VoiceLearnSource[];
+  }>("/api/youtube/learn-voice", { method: "POST" });
+
 // --- Suggest Titles ---
 export interface TitleSuggestion {
   title: string;

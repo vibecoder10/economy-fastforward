@@ -17,6 +17,7 @@ interface StyleSetupStepProps {
   generated: boolean;
   summary: string | null;
   error: string | null;
+  prefilledFromVoice?: boolean;
 }
 
 export function StyleSetupStep({
@@ -29,6 +30,7 @@ export function StyleSetupStep({
   generated,
   summary,
   error,
+  prefilledFromVoice = false,
 }: StyleSetupStepProps) {
   return (
     <motion.div
@@ -52,6 +54,22 @@ export function StyleSetupStep({
             Describe how you want your videos to sound and feel.
           </p>
         </div>
+
+        {prefilledFromVoice && (
+          <div
+            className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs font-body"
+            style={{
+              background: "rgba(0,212,170,0.08)",
+              border: "1px solid rgba(0,212,170,0.3)",
+              color: "var(--accent)",
+            }}
+          >
+            <Sparkles size={14} className="flex-shrink-0 mt-0.5" />
+            <span>
+              We drafted this from your top YouTube videos. Edit anything that doesn&apos;t sound right, then generate.
+            </span>
+          </div>
+        )}
 
         <Textarea
           placeholder="e.g., I want to sound like a curious friend explaining complex economics to smart people who don't have time to read 50 articles."

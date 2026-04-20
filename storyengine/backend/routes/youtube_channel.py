@@ -9,15 +9,25 @@ Endpoints:
     GET /api/youtube/my-videos — user's top-performing videos from their
         connected YouTube channel. Uses their OAuth refresh token. Returns
         title, views, published_at, thumbnail, video_id for up to N videos.
+
+    POST /api/youtube/learn-voice — analyzes the user's top videos
+        (titles + descriptions) with Claude to produce a voice/style
+        description suitable for feeding into the system-prompt generator.
+        Flow B slice 2.
 """
 from __future__ import annotations
 
+import json
+import logging
 import os
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_tenant_id
 from database import fetch_one
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube-channel"])
 
@@ -209,3 +219,165 @@ async def my_videos(
         "channel_id": row.get("youtube_channel_id", "") if row else "",
         "total_scanned": len(videos),
     }
+
+
+VOICE_LEARN_PROMPT = """You are analyzing a YouTube creator's own content to infer their unique voice and style. Below are the titles and descriptions of their top-performing videos. Your job: produce a rich, specific style description that will be used to customize AI-generated scripts to match their real voice.
+
+Focus on:
+- Voice & tone (e.g. authoritative, conversational, sarcastic, energetic, calm)
+- Vocabulary patterns (signature phrases, jargon, slang, reading level)
+- Hook/opening style (how they start videos, how they grab attention)
+- Structural tendencies (list-based, story-based, analytical, emotional)
+- Target audience (inferred from language + topics)
+- Any recurring themes or framing devices
+
+Do NOT:
+- Quote entire titles back at me
+- Use vague adjectives alone ("engaging", "compelling") without specifics
+- Exceed 300 words
+
+Output format: a single cohesive paragraph (150-300 words) written as direct style guidance for an AI script writer. Start with the voice/tone, then cover vocabulary + structure + audience. No bullet points, no headers.
+
+CHANNEL NAME: {channel_name}
+TOP VIDEOS:
+{video_list}
+
+Write the style description now."""
+
+
+async def _claude_summarize_voice(
+    api_key: str, channel_name: str, videos: list[dict]
+) -> str:
+    """Send titles + descriptions to Claude, return a voice/style description."""
+    lines = []
+    for i, v in enumerate(videos, 1):
+        desc = (v.get("description") or "").strip()
+        # Trim descriptions — the boilerplate (links, hashtags) past the
+        # first ~400 chars is usually noise, not voice signal.
+        if len(desc) > 400:
+            desc = desc[:400] + "..."
+        lines.append(
+            f"{i}. [{v.get('views', 0):,} views] {v.get('title', '')}\n   {desc}"
+        )
+    video_list = "\n\n".join(lines)
+
+    prompt = VOICE_LEARN_PROMPT.format(
+        channel_name=channel_name or "Unknown", video_list=video_list
+    )
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1200,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+    if resp.status_code != 200:
+        logger.error("Claude voice-learn failed %s: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(
+            status_code=502,
+            detail=f"Voice analysis failed (Claude returned {resp.status_code})",
+        )
+    body = resp.json()
+    try:
+        return body["content"][0]["text"].strip()
+    except (KeyError, IndexError):
+        raise HTTPException(status_code=502, detail="Claude returned empty voice analysis")
+
+
+@router.post("/learn-voice")
+async def learn_voice(tenant_id: str = Depends(get_tenant_id)):
+    """Infer a voice/style description from the user's top YouTube videos.
+
+    Pulls their top 5 videos (same logic as /my-videos), sends titles +
+    descriptions to Claude, returns a ready-to-use `style_description`
+    suitable for the /system-prompts/generate endpoint.
+
+    Also persists the result to `channel_profiles.style_description` so
+    the Style step of onboarding can pre-fill the field.
+
+    Why no body params: v1 is an opinionated "learn from top 5 by views."
+    If we need control later (pick specific videos, pick by recency),
+    add a body — but for onboarding UX, zero-config beats choice.
+
+    Errors:
+        400 — Anthropic API key not configured
+        404 — YouTube not connected OR no videos found on channel
+        502 — YouTube or Claude API failure
+    """
+    row = await fetch_one(
+        "SELECT youtube_refresh_token, youtube_channel_id, youtube_channel_name FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    refresh_token = row.get("youtube_refresh_token") if row else None
+    if not refresh_token:
+        raise HTTPException(status_code=404, detail="YouTube not connected")
+
+    # Get Anthropic API key (same path as system_prompts.generate)
+    from vault import get_secret
+
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Anthropic API key required. Configure it in Settings > API Keys.",
+        )
+
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=503, detail="Google OAuth not configured")
+
+    access_token = await _refresh_access_token(client_id, client_secret, refresh_token)
+    if not access_token:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not refresh YouTube access. Reconnect YouTube in Settings.",
+        )
+
+    # Fetch top 5 by views — same plumbing as /my-videos
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        uploads = await _fetch_uploads_playlist_id(client, access_token)
+        if not uploads:
+            raise HTTPException(status_code=502, detail="Could not locate uploads playlist")
+        ids = await _fetch_playlist_video_ids(client, access_token, uploads, max_videos=50)
+        if not ids:
+            raise HTTPException(status_code=404, detail="No videos found on your channel yet")
+        videos = await _fetch_video_details(client, access_token, ids)
+
+    videos.sort(key=lambda v: v["views"], reverse=True)
+    top5 = videos[:5]
+
+    channel_name = row.get("youtube_channel_name", "") if row else ""
+    style_description = await _claude_summarize_voice(api_key, channel_name, top5)
+
+    # Persist to channel_profiles so Style step can pre-fill
+    await execute_safely(tenant_id, style_description)
+
+    return {
+        "status": "learned",
+        "style_description": style_description,
+        "source_videos": [
+            {"video_id": v["video_id"], "title": v["title"], "views": v["views"]}
+            for v in top5
+        ],
+    }
+
+
+async def execute_safely(tenant_id: str, style_description: str) -> None:
+    """Persist the learned style_description. Import locally so the
+    module stays testable without a DB connection."""
+    from database import execute
+
+    await execute(
+        "UPDATE channel_profiles SET style_description = $2, updated_at = now() WHERE tenant_id = $1",
+        tenant_id,
+        style_description,
+    )

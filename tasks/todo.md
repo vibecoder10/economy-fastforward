@@ -9,12 +9,13 @@ Ryan granted full-autonomy ship-while-sleep mandate (see `~/.claude/projects/-Us
 - **Trial-downgrade cron (fix-roadmap 3.2)** — migration 041, `send_trial_expired` email, `check_trial_expired` task, `_auto_check_trial_expired` wired in lifespan @ 6h interval. Functional test in `backend/tests/functional/test_trial_expired.sql` green against prod Supabase.
 - **Humanize error strings (frontend)** — 11 raw-error leak sites routed through `humanizeError()`. Pages: login, forgot-password, reset-password, settings/drive-callback, settings/youtube-callback, system-prompts, profile, competitors. Components: CreateVideoStep, FirstVideoFlow, storyboard-viewer. `npx tsc --noEmit` clean. Users no longer see "API error 500" or "Failed to fetch".
 - **Flow B slice 1 — existing-channel detection** — new `GET /api/youtube/my-videos` endpoint fetches user's top uploads via OAuth + uploads-playlist pattern. Frontend `YouTubeConnectStep` auto-fetches + renders "We found N top-performing videos on your channel" card after OAuth succeeds. Backend functional tests (4/4 ✅) including live contract check against googleapis.com.
+- **Flow B slice 2 — voice auto-learn** — new `POST /api/youtube/learn-voice` endpoint: top-5 videos → Claude Sonnet 4 voice summarization → persists `channel_profiles.style_description`. **Reordered onboarding steps** to `channel → keys → youtube → style → video` so voice-learn can pre-fill the Style step. `StyleSetupStep` shows "We drafted this from your top YouTube videos" banner when pre-filled. Backend functional test `test_learn_voice.py` (3/3 ✅) including LIVE 401 contract test against api.anthropic.com. `npx tsc --noEmit` clean.
 
 ### Next in queue (priority order)
-1. Flow B slice 2: voice-auto-learn — fetch transcripts from top videos + Claude-summarize voice + feed into `generateSystemPrompts`
-2. Grandma-mode A/B render verification — prove generated system prompts actually change output
-3. Humanize backend exception strings too (this cycle only did frontend — backend still raises raw `Exception("…")` in some routes)
-4. First real end-to-end customer-style render (Ryan as dogfood)
+1. Grandma-mode A/B render verification — prove generated system prompts actually change output
+2. First real end-to-end customer-style render (Ryan as dogfood)
+3. Humanize backend exception strings too (last cycle only did frontend — backend still raises raw `Exception("…")` in some routes)
+4. Slice 3 voice-learn upgrade: yt-dlp transcripts for richer voice extraction (current slice uses titles + descriptions only)
 5. Fresh fix-roadmap.md rewrite against ground truth (drop items already shipped)
 
 ### Open questions for Ryan

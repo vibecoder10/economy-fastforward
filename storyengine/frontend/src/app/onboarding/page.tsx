@@ -13,6 +13,7 @@ import {
   getYouTubeConnectUrl,
   getYouTubeStatus,
   syncYouTubeMetrics,
+  learnVoiceFromYouTube,
 } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
 import { Spinner } from "@/components/ui/spinner";
@@ -31,12 +32,14 @@ const WELCOME_SEEN_KEY = "onboarding_welcome_seen";
 // Cleared automatically once `onboarding.completed` flips true.
 const STEP2_SKIPPED_KEY = "onboarding_step2_skipped";
 
-// Single unified step sequence — no branching
+// Single unified step sequence — no branching.
+// YouTube comes BEFORE Style so the voice-learn step can pre-fill the
+// style description for existing-channel creators (Flow B).
 const STEPS = [
   { key: "channel", label: "Channel", icon: User },
   { key: "keys", label: "Tools", icon: Key },
-  { key: "style", label: "Style", icon: Palette },
   { key: "youtube", label: "YouTube", icon: Youtube },
+  { key: "style", label: "Style", icon: Palette },
   { key: "video", label: "First Video", icon: Film },
 ];
 
@@ -80,6 +83,13 @@ function OnboardingContent() {
   const [styleSummary, setStyleSummary] = useState<string | null>(null);
   const [styleError, setStyleError] = useState<string | null>(null);
 
+  // Voice-learn state (Flow B slice 2): after YouTube connect, we ask Claude
+  // to distill the user's voice from their top videos and pre-fill styleDescription
+  // so the Style step starts with something tuned to their real content.
+  const [voiceLearning, setVoiceLearning] = useState(false);
+  const [voiceLearned, setVoiceLearned] = useState(false);
+  const [voiceSourceCount, setVoiceSourceCount] = useState<number>(0);
+
   // API keys state
   const [apiKeys, setApiKeys] = useState<
     { key: string; label: string; reason: string; url: string; configured: boolean }[]
@@ -99,14 +109,14 @@ function OnboardingContent() {
         }
         if (status.display_name) setDisplayName(status.display_name);
 
-        // Auto-advance past completed steps (order: channel → keys → style → youtube → video)
+        // Auto-advance past completed steps (order: channel → keys → youtube → style → video)
         const s = status.steps;
         const keysComplete = s.api_keys.configured === s.api_keys.required;
         let landedStep = 0;
         if (s.channel_configured && keysComplete && s.style_generated) {
-          landedStep = 3; // YouTube step
+          landedStep = 4; // Video step (style implies youtube was seen / skipped)
         } else if (s.channel_configured && keysComplete) {
-          landedStep = 2; // Style step
+          landedStep = 2; // YouTube step
         } else if (s.channel_configured) {
           landedStep = 1; // Keys step
           loadApiKeys();
@@ -242,6 +252,27 @@ function OnboardingContent() {
       // Sync runs in background, non-blocking
     }
   }, [ytSyncing]);
+
+  // Called when the user advances past the YouTube step. If they're connected
+  // and we haven't learned their voice yet, ask the backend to distill it and
+  // pre-fill styleDescription. Non-blocking: failure just advances the user
+  // with an empty style field and they type it themselves.
+  const handleLearnVoice = useCallback(async () => {
+    if (!ytConnected || voiceLearned || voiceLearning) return;
+    setVoiceLearning(true);
+    try {
+      const result = await learnVoiceFromYouTube();
+      if (result.style_description) {
+        setStyleDescription(result.style_description);
+        setVoiceSourceCount(result.source_videos?.length ?? 0);
+        setVoiceLearned(true);
+      }
+    } catch {
+      // Graceful degrade — user will write style manually on next step.
+    } finally {
+      setVoiceLearning(false);
+    }
+  }, [ytConnected, voiceLearned, voiceLearning]);
 
   async function handleGenerateStyle() {
     if (!styleDescription.trim()) return;
@@ -445,6 +476,7 @@ function OnboardingContent() {
               generated={styleGenerated}
               summary={styleSummary}
               error={styleError}
+              prefilledFromVoice={voiceLearned}
             />
           )}
 
@@ -463,11 +495,17 @@ function OnboardingContent() {
               connected={ytConnected}
               channelName={ytChannelName}
               onConnect={handleConnectYouTube}
-              onNext={handleNext}
+              onNext={async () => {
+                await handleLearnVoice();
+                handleNext();
+              }}
               onSkip={handleSkip}
               connecting={ytConnecting}
               syncing={ytSyncing}
               onStartSync={handleStartSync}
+              voiceLearning={voiceLearning}
+              voiceLearned={voiceLearned}
+              voiceSourceCount={voiceSourceCount}
             />
           )}
 

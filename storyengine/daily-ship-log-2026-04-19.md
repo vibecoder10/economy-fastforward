@@ -111,3 +111,52 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 
 **Next:** Cycle 5 will add the voice-learn step: fetch transcripts from the top N videos + Claude-summarize the voice (vocab, pacing, phrasing) + auto-feed into `generateSystemPrompts` so their personalized system prompts come out of the box tuned to their real existing content. The scaffolding is now in place — the UI already tells the user "we'll use these to learn your voice in the next step."
 
+## Cycle 5 — 2026-04-19 ~21:30 CT
+**Goal:** Flow B slice 2 — auto-learn the creator's voice from their YouTube top videos and pre-fill the Style step. Close the loop from slice 1.
+
+**Design call:** extract voice from **titles + descriptions first** (data already in-hand from slice 1's `/my-videos`). Defer transcript-based extraction to slice 3. Rationale: Claude call on titles+descriptions completes in ~5-10s vs 30-75s for yt-dlp transcript fetching per video × 5 videos. For a zero-friction onboarding step, speed > richness; we can upgrade later.
+
+**Shipped — backend:**
+- `backend/routes/youtube_channel.py` extended with:
+  - `VOICE_LEARN_PROMPT` — tight template instructing Claude to produce a 150-300 word cohesive paragraph focused on voice/tone, vocabulary, hook style, structure, audience. Explicit "do NOT" list to prevent vague filler output.
+  - `_claude_summarize_voice(api_key, channel_name, videos)` — builds the prompt, POSTs to Claude Sonnet 4, returns the plain-text style description. Trims descriptions past 400 chars.
+  - `POST /api/youtube/learn-voice` — no body params (v1 opinionated: top 5 by views). Reuses slice-1 plumbing: reads `youtube_refresh_token` + Anthropic key, refreshes access token, fetches uploads → playlist items → video details, sorts by views desc, takes top 5, calls `_claude_summarize_voice`, persists result via `execute_safely` helper that UPDATEs `channel_profiles.style_description`.
+  - Errors: 400 (no Anthropic key), 404 (not connected / no videos), 502 (YT/Claude fail), 503 (OAuth misconfig).
+
+**Shipped — frontend:**
+- `frontend/src/lib/api.ts` — `learnVoiceFromYouTube()` client + `VoiceLearnSource` type.
+- `frontend/src/app/onboarding/page.tsx`:
+  - **Reordered steps** to `channel → keys → youtube → style → video` (was: `…style → youtube → video`). YouTube now precedes Style so the voice-learn result can pre-fill the style description.
+  - Updated `landedStep` math for the new indices.
+  - Added `voiceLearning`/`voiceLearned`/`voiceSourceCount` state.
+  - `handleLearnVoice` handler called when user advances past YouTube — fires `learnVoiceFromYouTube()`, pre-fills `styleDescription` state. Graceful degrade: failure just lets the user type style manually on the next screen.
+- `frontend/src/components/onboarding/YouTubeConnectStep.tsx`:
+  - New props `voiceLearning`, `voiceLearned`, `voiceSourceCount`.
+  - "Continue" button flips to "Learning your voice..." during the call, stays disabled to prevent double-fires.
+  - Success copy: "Voice learned from your top N videos — we'll pre-fill your style".
+- `frontend/src/components/onboarding/StyleSetupStep.tsx`:
+  - New `prefilledFromVoice` prop renders an accent banner: "We drafted this from your top YouTube videos. Edit anything that doesn't sound right, then generate."
+
+**Functional tests (all green):**
+- `backend/tests/functional/test_learn_voice.py` — 3 tests:
+  - Prompt-template regression check: asserts `VOICE_LEARN_PROMPT` contains the required guidance strings (voice, style description, 150-300 words, {channel_name}, {video_list}, paragraph). Future mangles caught.
+  - Prompt-shape transform: feeds a 3-video fixture (one with 600-char description → must trim to 400, one with empty description → must not crash), asserts every title, trimmed description, and view count renders correctly; asserts request shape matches Anthropic's documented contract (model, max_tokens=1200, x-api-key, anthropic-version header).
+  - **LIVE contract check:** POSTs to `api.anthropic.com/v1/messages` with a junk key, expects 401 (auth fail, NOT 400 which would mean bad shape). Got 401 — confirmed.
+- `test_youtube_my_videos.py` — re-ran, 4/4 still green (no regression on slice-1).
+- Frontend: `npx tsc --noEmit` → exit 0.
+
+**Honest gaps:**
+- Backend still can't run E2E against prod DB from this Mac (PG proxy on :55432 isn't up). Live E2E deferred to VPS deploy OR Ryan re-running onboarding on prod. Contract + transform + live Anthropic shape are all proven.
+- Descriptions are often mostly boilerplate (links, sponsor copy, hashtags). The 400-char trim helps but doesn't fully solve this. Slice 3 upgrade (transcripts) will dramatically improve voice fidelity for channels with skinny descriptions.
+- Didn't auto-regenerate `generateSystemPrompts` after voice-learn — the user still has to click "Generate My Style" on the next screen. That's intentional: they should be able to edit the draft first. Could add a "keep & generate now" one-click button later if friction shows up in real users.
+
+**Learned:**
+- Step-ordering is a product decision, not just a UI sequence. Original order (`style → youtube`) was hostile to existing-channel users because their voice-learning data arrived AFTER they'd already typed their style. Swapping two lines in an array unlocked the whole slice.
+- The LIVE-401 contract test is a cheap, high-signal check. Three lines of code, zero cost, catches "did someone rename the header?" and "did we break the JSON shape?" the instant it ships. Adding this pattern everywhere new external API calls go in.
+
+**Next:** Cycle 6 candidates in priority order:
+1. Grandma-mode A/B render verification — prove the current prompts actually produce different outputs for "formal" vs "casual" (the open unverified item from last night's audit)
+2. First E2E customer-style render — Ryan as dogfood, create a real video through the full pipeline tonight
+3. Humanize backend exception strings (raw `str(e)` in several routes) — parity with cycle 3's frontend work
+4. Slice 3 voice-learn: yt-dlp transcripts → richer voice extraction, upgrade from titles-only
+

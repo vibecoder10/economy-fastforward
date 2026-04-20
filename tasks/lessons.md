@@ -2,6 +2,12 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 5)
+- **Onboarding step-order is product, not UI.** Original sequence put `style` before `youtube` — hostile to existing-channel users because the voice-learning data arrived AFTER they'd typed their style manually. Swapping the two steps (`channel → keys → youtube → style → video`) unlocked the whole voice-learn slice. Always check: does the data this step needs arrive BEFORE this step?
+- **Anthropic LIVE-401 contract test:** `POST https://api.anthropic.com/v1/messages` with junk key + real body shape → expect 401 (auth fail). NOT 400 (bad shape) and NOT 404 (wrong URL). Three lines of code, cheap to run on every push, catches header/body drift instantly. Same pattern as the YouTube-403 test in cycle 4. Apply this to every external API we integrate.
+- **v1 opinionated API > configurable API.** The `/learn-voice` endpoint takes zero body params: it just learns from top 5 by views. If we need control later (pick videos, pick by recency) add a body. For an onboarding flow, zero choices beats "set your preferences" friction.
+- **Persist the learned artifact on the backend, pre-fill the frontend from its own state.** The voice-learn endpoint writes `channel_profiles.style_description` AND returns the string. Frontend pre-fills local state from the API response (not a reload). That way: server always has the truth, client doesn't need to re-fetch, and if the user edits before generating, the Style step's `generateSystemPrompts` call picks up the edits.
+
 ## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 4)
 - **YouTube "list a channel's own videos" canonical pattern:** `channels?part=contentDetails&mine=true` → extract `contentDetails.relatedPlaylists.uploads` → `playlistItems?part=contentDetails&playlistId=<uploads>` → extract videoIds → `videos?part=snippet,statistics&id=<ids>`. Do NOT use `search?forMine=true` (flaky for some channels, returns search snippets not canonical video data). The uploads-playlist approach is what Google's docs recommend for programmatic access.
 - **YouTube /videos endpoint caps at 50 IDs per call.** If you have more than 50, batch. Our `_fetch_video_details` does this; test `test_fetch_video_details_batches_over_50` validates it.
