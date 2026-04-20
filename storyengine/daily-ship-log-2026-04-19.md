@@ -617,3 +617,39 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **"No guidance after onboarding" is not a bug — it's a missing product surface.** The fix wasn't a patch, it was a net-new component. Framed that way, scope is clearer (what the panel IS, where it lives, when it shows/hides) instead of trying to extend the linear onboarding wizard.
 - **Data-driven quest state is worth the backend extension.** Three new COUNT(*)s on the existing onboarding endpoint is cheap and means the component stays stateless client-side — done flags come from the server, dismissal is local. Next quest (e.g. "connect YouTube for auto-upload") drops into the same pattern.
 - **BYOK + dogfood = no-paywall teaser for free.** Because the tenant has already entered their own Anthropic+Kie keys during onboarding, the intelligence-distillation teaser in step 2 is genuinely free to StoryEngine without any billing work. This is a real moat — BYOK lets product decisions that would otherwise require paywall architecture (a free first-pass hook) ship in hours instead of days.
+
+## Cycle 19 — 2026-04-19 ~23:15 CT — Validator audit for all 4 remaining providers
+**Trigger:** Cycle 3 (Kie.ai) and Cycle 16 (ElevenLabs) each revealed the same bug class — upstream returns a rich 4xx body, validator ignored it, user saw "API error 401". Obvious generalization: the other 4 providers (Anthropic, OpenAI, Gemini, Tavily) almost certainly have the same gap. Confirmed by re-reading `vault.test_api_key`: every non-Kie/non-ElevenLabs branch uses a single `f"{name} API error {resp.status_code}"` fallback with no body parsing.
+
+**Investigation:**
+- Wrote `/tmp/probe_validators.py` — hits each upstream with a deliberately-invalid key `sk-fake-invalid-key-for-validator-probing`, captures real error bodies.
+- Live-probed 2026-04-19. Shapes captured:
+  - Anthropic: `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`
+  - OpenAI: `{"error":{"message":"Incorrect API key provided...","type":"invalid_request_error","code":"invalid_api_key"}}`
+  - Gemini: `{"error":{"code":400,"message":"API key not valid...","details":[{"reason":"API_KEY_INVALID"}]}}`
+  - Tavily: `{"detail":{"error":"Unauthorized: missing or invalid API key."}}`
+- None of them match the generic fallback path — each needs its own path walker.
+
+**Fix — `backend/vault.py`:**
+- Added `_extract_upstream_error(resp, path)` helper — walks a JSON path tuple safely, tolerates non-JSON bodies.
+- Rewrote four validator branches:
+  - **Anthropic**: branches on `error.type`. `authentication_error` → "rejected the key — double-check it starts with `sk-ant-`". `permission_error` → "valid but lacks permission for this workspace — check the key's workspace assignment in Anthropic Console".
+  - **OpenAI**: branches on `error.code`. `invalid_api_key` → "rejected the key — double-check it starts with `sk-`". `insufficient_quota` → "valid but the account has no remaining quota — add billing credits at platform.openai.com".
+  - **Gemini**: walks `error.details[].reason`. `API_KEY_INVALID` → "rejected the key — generate a new one at aistudio.google.com/apikey". `API_KEY_SERVICE_BLOCKED` → "key is valid but Generative Language API is not enabled for this Google project".
+  - **Tavily**: parses `detail.error`. 401 → "rejected the key — regenerate at tavily.com/account". 429 → "rate-limited — wait a minute and retry".
+
+**Ship:**
+- Wrote `tests/functional/test_validator_error_parsing.py` — 11 tests. 3 unit tests for `_extract_upstream_error` (nested walk, missing-key safety, non-JSON safety) + 8 per-validator tests using the real probed bodies as fixtures. Each asserts the returned message contains actionable copy AND does NOT contain the raw status code (which would mean the generic fallback fired).
+- 11/11 green.
+- Committed `0754963a`, pushed, VPS pulled (via prior in-flight deploy), `storyengine-backend` restarted, `systemctl is-active` → active.
+
+**Honest gaps:**
+- **Fixtures are point-in-time snapshots.** They'll stay accurate as long as upstream error shapes don't change. If Anthropic rewrites their error schema, one of these tests fails loudly — which is the point — but it'll surface AFTER the first customer hits it unless a synthetic canary is also running. Canary is next queue item.
+- **Real probes only covered Anthropic, OpenAI, Gemini, Tavily.** Didn't re-probe Kie.ai or ElevenLabs in this session because their fixtures are already in Cycles 3 and 16's regression tests. Added ElevenLabs regression guard to the new suite anyway — belt and suspenders.
+- **No Playwright test driving the UI side of this.** A user seeing "Anthropic rejected the key — double-check it starts with `sk-ant-`" in the ApiKeysStep is the actual customer outcome, and that path involves the frontend rendering whatever `test_api_key()` returns. Manually verified the prop plumbing earlier this cycle chain but no spec locks it.
+- **Tavily probe burned 1 search credit.** Real probes cost real money on paid APIs. Fine at this volume, but a recurring synthetic canary hitting every validator hourly would burn ~720 Tavily credits/month. Worth a cost/cadence review before wiring the canary cron.
+
+**Learned:**
+- **Bug classes, not bug instances, are the right unit of work.** Cycle 3 fixed Kie.ai. Cycle 16 fixed ElevenLabs. Both are specific files. Cycle 19 fixed the *pattern* — by treating the structured-error-body gap as a class, the remaining 4 providers got fixed in one cycle with one test file that also serves as a living schema contract with each upstream. Cheaper and more durable than 4 separate cycles.
+- **Live-probing with a deliberately-bad key is the cheapest way to capture ground-truth fixtures.** No SDKs, no guessing, no reading docs that might be stale. 30 seconds of `httpx` per provider gives you the exact bytes the validator will see in prod, and those bytes become your test fixtures directly.
+- **`_extract_upstream_error(resp, path)` is a tiny helper but it turned 4 validator branches from "grab the body, hope, fall back to status code" into "declare the path, get the value or None." Code volume dropped and the test surface got sharper.
