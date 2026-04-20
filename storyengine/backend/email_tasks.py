@@ -1,7 +1,48 @@
-"""Background email tasks — trial warnings, etc."""
+"""Background email tasks — trial warnings, expiry downgrades, etc."""
 
 from database import fetch_all, execute
-from email_service import send_trial_warning
+from email_service import send_trial_warning, send_trial_expired
+
+
+async def check_trial_expired():
+    """Downgrade accounts with expired trials to Starter plan + send notice.
+
+    Only targets accounts that:
+    - Have a trial_ends_at in the past
+    - Haven't been processed yet (trial_expired_handled IS NOT TRUE)
+    - Don't have a paid Stripe subscription (otherwise they're on a paid plan already)
+
+    Sets plan='starter', marks trial_expired_handled=true, sends email.
+    Idempotent — rerunning is safe.
+    """
+    rows = await fetch_all(
+        """SELECT a.id, a.email, a.display_name, a.plan
+           FROM accounts a
+           WHERE a.trial_ends_at IS NOT NULL
+             AND a.trial_ends_at < now()
+             AND a.trial_expired_handled IS NOT TRUE
+             AND a.stripe_subscription_id IS NULL""",
+    )
+
+    downgraded = 0
+    emailed = 0
+    for row in rows:
+        await execute(
+            """UPDATE accounts
+               SET plan = 'starter',
+                   trial_expired_handled = TRUE,
+                   updated_at = now()
+               WHERE id = $1""",
+            row["id"],
+        )
+        downgraded += 1
+
+        if row.get("email"):
+            ok = await send_trial_expired(row["email"], row.get("display_name") or "")
+            if ok:
+                emailed += 1
+
+    return {"checked": len(rows), "downgraded": downgraded, "emailed": emailed}
 
 
 async def check_trial_warnings():

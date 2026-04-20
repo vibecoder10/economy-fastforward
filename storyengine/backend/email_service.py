@@ -113,3 +113,22 @@ async def send_trial_warning(email: str, display_name: str, days_left: int) -> b
             f'<p><a href="{frontend_url}/pricing">View plans</a></p>'
         ),
     )
+
+
+async def send_trial_expired(email: str, display_name: str) -> bool:
+    """Send email when trial has expired and account has been downgraded."""
+    import html as html_lib
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    safe_name = html_lib.escape(display_name or "there")
+    return await send_email(
+        to=email,
+        subject="Your StoryEngine trial has ended",
+        html=(
+            f"<h2>Hey {safe_name},</h2>"
+            f"<p>Your free trial just ended. Your account is still active on the <strong>Starter</strong> plan — "
+            f"you can still log in, view your videos, and pick up where you left off.</p>"
+            f"<p>To keep generating new videos with Autopilot + Analytics, upgrade anytime:</p>"
+            f'<p><a href="{frontend_url}/pricing">See plans</a></p>'
+            f"<p>Questions? Just reply to this email.</p>"
+        ),
+    )

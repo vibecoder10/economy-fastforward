@@ -218,6 +218,29 @@ async def _auto_check_trial_warnings():
         await asyncio.sleep(43200)  # Run every 12 hours
 
 
+async def _auto_check_trial_expired():
+    """Background task: downgrade expired-trial accounts to Starter + email them.
+
+    Runs every 6 hours. Idempotent (trial_expired_handled flag prevents repeats).
+    Targets accounts with trial_ends_at < now() and no paid subscription.
+    """
+    await asyncio.sleep(180)  # Offset from trial-warnings task
+    while True:
+        try:
+            from email_tasks import check_trial_expired
+            result = await check_trial_expired()
+            downgraded = result.get("downgraded", 0)
+            if downgraded > 0:
+                logger.info(
+                    "[TrialExpired] Downgraded %d accounts, emailed %d (%d checked)",
+                    downgraded, result.get("emailed", 0), result.get("checked", 0),
+                )
+        except Exception as e:
+            logger.error("[TrialExpired] Error: %s", e)
+
+        await asyncio.sleep(21600)  # Run every 6 hours
+
+
 async def _run_pending_migrations():
     """Auto-run SQL migration files on startup.
 
@@ -355,6 +378,7 @@ async def lifespan(app: FastAPI):
     title_analysis_task = asyncio.create_task(_auto_analyze_competitor_titles())
     scrape_task = asyncio.create_task(_auto_scrape_competitors())
     trial_warning_task = asyncio.create_task(_auto_check_trial_warnings())
+    trial_expired_task = asyncio.create_task(_auto_check_trial_expired())
     distillation_task = asyncio.create_task(_auto_distill_intelligence())
     meta_insights_task = asyncio.create_task(_auto_generate_meta_insights())
 
@@ -366,6 +390,7 @@ async def lifespan(app: FastAPI):
     title_analysis_task.cancel()
     scrape_task.cancel()
     trial_warning_task.cancel()
+    trial_expired_task.cancel()
     distillation_task.cancel()
     meta_insights_task.cancel()
     await close_pool()
