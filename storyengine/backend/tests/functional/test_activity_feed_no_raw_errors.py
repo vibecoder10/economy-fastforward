@@ -140,6 +140,7 @@ def test_write_boundary_round_trip():
         import auth  # type: ignore
         auth.require_auth = lambda: None
         auth.get_current_user_id = lambda: None
+        auth.get_tenant_id = lambda *a, **k: None
         import pipeline_executor  # type: ignore
 
         class _StubExec:
