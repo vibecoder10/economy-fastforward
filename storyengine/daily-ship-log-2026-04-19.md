@@ -834,3 +834,53 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **Required keyword-only args are a surprisingly lightweight safety net.** Switching `tenant_id: Optional[str] = None` → `tenant_id: str` + `*,` separator means the 70 call sites that previously missed it became runtime TypeErrors at deploy-test time. The noisy failure mode is exactly what you want — silent correctness is the enemy of secure multi-tenancy.
 - **The `for (tid, vid), task in ...` destructure is more readable than a nested `if _running_tasks[k][0] == tenant_id`.** Tuple keys + destructuring at iteration is the idiomatic Python; using it is free and the intent ("filter to my tenant") is self-documenting.
 - **The SSE `else` branch (no-video_id-filter) is a privilege-escalation surface I didn't know existed.** The endpoint was documented as "omit video_id to see all videos for this user" but implemented as "omit video_id to see everyone's firehose." That drift between intent and implementation is exactly the class of bug the fix-roadmap flagged as HIGH — and why a doc comment is not a substitute for a test.
+
+---
+
+## Cycle 26 — SEC-EMAIL-001: escape user strings in email HTML templates (2026-04-20)
+
+**Shipped:** commit `80a3fd6c`, deployed to VPS.
+
+### The bug
+`email_service.py` interpolates `display_name`, `plan`, and `amount_display` directly into HTML templates via f-strings. A user with `display_name = "<script>alert(1)</script>"` gets that payload rendered verbatim in the welcome + trial_warning emails. Most mail clients strip `<script>`, but `<img onerror=>`, `<a href="javascript:...">`, CSS positioning — all still work for phishing. Roadmap flagged as HIGH.
+
+### The fix
+`html.escape()` at the template boundary for every user-originated string. Only 4 templates affected; 2 (`send_trial_expired`) were already escaped — used that as the reference pattern.
+
+- `send_welcome_email` — escape `display_name`, fallback "there" when empty
+- `send_trial_warning` — escape `display_name`
+- `send_billing_receipt` — escape `plan` and `amount_display` (defense-in-depth; Stripe-originated but still)
+- `send_trial_expired` — already correct; pinned via test
+
+Moved `import html as html_lib` to module-level (was inline in `send_trial_expired`).
+
+### Functional tests (`tests/functional/test_email_html_escape.py`)
+
+7 tests, 5 XSS payloads each, covering every affected template:
+
+1. `test_welcome_email_escapes_display_name` — 5 payloads, raw tag must never appear
+2. `test_welcome_email_empty_display_name_uses_fallback` — empty string renders "Welcome to StoryEngine, there!", not "Welcome to StoryEngine, !"
+3. `test_trial_warning_escapes_display_name` — same XSS sweep
+4. `test_trial_warning_pluralization_still_works` — escape logic mustn't break "1 day" vs "3 days" branching
+5. `test_trial_expired_escapes_display_name` — pin the pre-existing escape so it can't silently regress
+6. `test_billing_receipt_escapes_plan_and_amount` — both fields sweep
+7. `test_html_escape_actually_applied` — **positive check**: assert `&lt;b&gt;Ryan&lt;/b&gt;` appears in output. Catches "forgot to escape at all" where the raw-tag-absent test would false-negative.
+
+Pattern: monkeypatch `email_service.send_email` with a capturing stub; inspect the `html` arg that would have been POSTed to Resend. No network, no API key, no mock library — runs standalone in ~30ms.
+
+### Verification
+- All 7 new tests: green locally + on VPS
+- Regression run: `test_error_humanization` (10/10), `test_cross_tenant_task_isolation` (7/7), `test_distill_url` (12/12), `test_email_html_escape` (7/7) — 36 total green, no suite broken
+- VPS `storyengine-backend` restarted, `systemctl is-active` → `active`, uvicorn clean startup
+
+### Honest gaps
+- **Only 4 templates audited.** If someone adds a 5th template and forgets to escape, no test fails. A `grep -rn "f\".*{display_name}\"" backend/` lint guard would close this, but I didn't add it — it's YAGNI until there's a 5th template.
+- **No test for Resend API interaction.** The fix is at the template-assembly boundary, which is what matters; Resend receives the already-escaped HTML. Integration test against a Resend sandbox would prove end-to-end but isn't functional-test-shaped.
+- **No test that `send_reset_email` is safe.** It is, because it only interpolates a server-generated token, not user input — but I didn't add a pinning test for that invariant. If a future PR ever adds `display_name` to reset emails, nothing stops it.
+- **`from_address` and `to` aren't escaped.** Those go to Resend's JSON API, not rendered as HTML — Resend handles sanitization. Not a concern, but worth noting for a future auditor.
+
+### Learned
+- **The "positive escape check" (`&lt;b&gt;...` must appear) is a cheap way to catch "forgot to escape at all" regressions.** A pure "raw tag absent" assertion can false-negative if the payload happens to contain only characters that a future refactor's broken escape function still passes through unchanged. Asserting the escaped entity appears in output is 3x the signal for 0 extra cost.
+- **Test both presence and absence at the security boundary.** "Payload isn't there" + "escaped form IS there" → a broken-escape regression can't hide between them.
+- **XSS payload sweeps are fast to write and catch unexpected bypasses.** 5 payloads × 4 templates = 20 assertions in under 50 lines of test code. The `XSS_PAYLOADS` list is module-level so expanding future audits is one-line-add.
+- **Pre-existing safe code deserves a pinning test too.** `send_trial_expired` was already escaping — nothing technically required me to test it, but pinning it means a future refactor that "simplifies" escape logic can't silently drop coverage. That's the same philosophy as Cycle 25's `test_pipeline_dict_keys_are_tuples_not_strings` — assert the invariant, not just the current behavior.
