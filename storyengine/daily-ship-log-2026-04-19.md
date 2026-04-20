@@ -1554,3 +1554,11 @@ Ship plan: commit + push, VPS pull + run test to mirror, no VPS-side migration s
 **Still-open Stage 2.2 drift** (won't fix this cycle — keeps scope tight):
 - Several tables use memberships-only (no GUC fallback): assets, bot_activity, channel_profiles, competitor_channels, scripts, stage_transitions, title_tests, videos. Inconsistent with the tables that have BOTH. Low severity — memberships-only is safe for both server and client paths. Worth a consistency pass at some point but not urgent.
 - Migration 015 history: title_insights shipped GUC-only like niche_meta_insights, but prod has the combined pattern — someone already upgraded it. No migration file in the repo records that change. Whoever did it didn't check in the migration. Schema.sql has the combined pattern too, so source of truth matches prod. Leaving alone.
+
+### Cycle 40 — SHIPPED ✅
+- Commit e4b82482 pushed
+- Migration 044 applied to prod via Supabase MCP
+- `pg_policies` confirms combined pattern, cmd=ALL, roles={authenticated}
+- VPS: 4/4 Cycle 40 tests + 5/5 Cycle 39 regression green
+- Task #45 closed
+- Stage 2.2 is effectively closed for the high-signal drift — remaining inconsistency (memberships-only vs combined on ~8 tables) noted but not urgent
