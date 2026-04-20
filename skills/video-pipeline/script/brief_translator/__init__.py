@@ -71,6 +71,7 @@ class BriefTranslator:
         google_client=None,
         script_model: str = Models.CLAUDE_SONNET,
         video_config=None,
+        script_system_prompt_override: Optional[str] = None,
     ):
         self.anthropic = anthropic_client
         self.airtable = airtable_client
@@ -78,6 +79,7 @@ class BriefTranslator:
         self.google = google_client
         self.script_model = script_model
         self.video_config = video_config
+        self.script_system_prompt_override = script_system_prompt_override
 
         # Load script profile (editorial voice, validation thresholds)
         self.profile = None
@@ -172,6 +174,7 @@ class BriefTranslator:
                 self.anthropic, brief, model=self.script_model,
                 config=self.video_config,
                 profile=self.profile,
+                system_prompt_override=self.script_system_prompt_override,
             )
             script = script_result["script"]
             result["script"] = script
@@ -650,6 +653,7 @@ async def translate_brief(
     project_folder_id: str = None,
     script_model: str = Models.CLAUDE_SONNET,
     video_config=None,
+    script_system_prompt_override: Optional[str] = None,
     # Legacy params kept for backward compat — ignored
     total_images: int = 25,
     scene_output_dir: Optional[str] = None,
@@ -665,6 +669,7 @@ async def translate_brief(
         google_client=google_client,
         script_model=script_model,
         video_config=video_config,
+        script_system_prompt_override=script_system_prompt_override,
     )
     return await translator.translate(
         idea_record_id, brief,

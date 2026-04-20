@@ -2,6 +2,12 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 6)
+- **Claims from prior audits are hypotheses, not facts.** Cycle 1 reported "prompt-override wiring in 7 places." Cycle 6 tested and found **1 of 6 bots** actually reading its attribute. If the claim spans many files and nobody's exercised the code path end-to-end, it should be assumed unverified until an audit test proves it. Write the test before trusting the summary.
+- **"Wired but not plugged in" is a real failure mode.** The LOAD path (DB rows → pipeline attributes) can be fully tested and green while the CONSUME path (bots reading the attribute → LLM system_prompt) is missing entirely. Scanning consumer source files with a static audit test (`getattr(pipeline, "<attr>", ...)` regex) catches this. Without it, the feature passes review, ships, and silently does nothing in production.
+- **One-shot audit test = progress tracker.** `test_audit_bot_consumer_wiring` prints WIRED/UNWIRED per bot and asserts a floor (`video_motion` + `script` can't regress). As each bot gets wired, tighten the assertion. One file is both a regression guard AND a dashboard.
+- **Pragmatic override semantics: blended, not replaced (first cut).** When a tenant override is attached, it lands as Claude's `system_prompt` while the existing profile-derived voice preamble still lives in the user-prompt body. So Claude blends the two. Not a full replacement, but meaningfully different from "override silently dropped." Clean-replacement comes later once we measure output variation.
+
 ## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 5)
 - **Onboarding step-order is product, not UI.** Original sequence put `style` before `youtube` — hostile to existing-channel users because the voice-learning data arrived AFTER they'd typed their style manually. Swapping the two steps (`channel → keys → youtube → style → video`) unlocked the whole voice-learn slice. Always check: does the data this step needs arrive BEFORE this step?
 - **Anthropic LIVE-401 contract test:** `POST https://api.anthropic.com/v1/messages` with junk key + real body shape → expect 401 (auth fail). NOT 400 (bad shape) and NOT 404 (wrong URL). Three lines of code, cheap to run on every push, catches header/body drift instantly. Same pattern as the YouTube-403 test in cycle 4. Apply this to every external API we integrate.

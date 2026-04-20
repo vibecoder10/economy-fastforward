@@ -1341,6 +1341,7 @@ async def generate_script(
     model: str = Models.CLAUDE_SONNET,
     config: Optional["VideoConfig"] = None,
     profile: Optional["ScriptProfile"] = None,
+    system_prompt_override: Optional[str] = None,
 ) -> dict:
     """Generate a full narration script from a validated research brief.
 
@@ -1377,6 +1378,7 @@ async def generate_script(
         model=model,
         max_tokens=8000,
         temperature=0.8,
+        system_prompt=system_prompt_override or "",
     )
 
     # Parse and strip self-validation JSON from the response

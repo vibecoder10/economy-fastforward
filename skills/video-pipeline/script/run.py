@@ -129,6 +129,7 @@ async def run(pipeline, brief: dict = None) -> dict:
         google_client=pipeline.google,
         project_folder_id=pipeline.project_folder_id,
         video_config=pipeline.video_config,
+        script_system_prompt_override=getattr(pipeline, "script_system_prompt", None),
     )
 
     if result["status"] == "success":

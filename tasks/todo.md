@@ -10,16 +10,17 @@ Ryan granted full-autonomy ship-while-sleep mandate (see `~/.claude/projects/-Us
 - **Humanize error strings (frontend)** — 11 raw-error leak sites routed through `humanizeError()`. Pages: login, forgot-password, reset-password, settings/drive-callback, settings/youtube-callback, system-prompts, profile, competitors. Components: CreateVideoStep, FirstVideoFlow, storyboard-viewer. `npx tsc --noEmit` clean. Users no longer see "API error 500" or "Failed to fetch".
 - **Flow B slice 1 — existing-channel detection** — new `GET /api/youtube/my-videos` endpoint fetches user's top uploads via OAuth + uploads-playlist pattern. Frontend `YouTubeConnectStep` auto-fetches + renders "We found N top-performing videos on your channel" card after OAuth succeeds. Backend functional tests (4/4 ✅) including live contract check against googleapis.com.
 - **Flow B slice 2 — voice auto-learn** — new `POST /api/youtube/learn-voice` endpoint: top-5 videos → Claude Sonnet 4 voice summarization → persists `channel_profiles.style_description`. **Reordered onboarding steps** to `channel → keys → youtube → style → video` so voice-learn can pre-fill the Style step. `StyleSetupStep` shows "We drafted this from your top YouTube videos" banner when pre-filled. Backend functional test `test_learn_voice.py` (3/3 ✅) including LIVE 401 contract test against api.anthropic.com. `npx tsc --noEmit` clean.
+- **Grandma-mode override audit + script bot wired (Cycle 6)** — Cycle 1's "wiring in 7 places" claim was wrong. `test_prompt_override_wiring.py` (3 tests ✅) audits via runtime + static grep. Found 1/6 bots reading their override (video_motion only). Wired the `script` bot end-to-end: `script_generator.py` (`system_prompt_override` param → `anthropic_client.generate(system_prompt=...)`) + `brief_translator/__init__.py` (both `BriefTranslator.__init__` and `translate_brief` convenience func) + `script/run.py` (passes `getattr(pipeline, "script_system_prompt", None)`). Now **2/6 wired** with regression guards pinning both. Follow-up task #10 for remaining 4 bots.
 
 ### Next in queue (priority order)
-1. Grandma-mode A/B render verification — prove generated system prompts actually change output
-2. First real end-to-end customer-style render (Ryan as dogfood)
+1. Wire remaining 4 bots' grandma-mode overrides (thumbnail, sound_curation, sound_generation, research) — same pattern as script. ~20 lines each. Task #10.
+2. First real end-to-end customer-style render (Ryan as dogfood) — proves live output variation between two overrides end-to-end.
 3. Humanize backend exception strings too (last cycle only did frontend — backend still raises raw `Exception("…")` in some routes)
 4. Slice 3 voice-learn upgrade: yt-dlp transcripts for richer voice extraction (current slice uses titles + descriptions only)
 5. Fresh fix-roadmap.md rewrite against ground truth (drop items already shipped)
 
 ### Open questions for Ryan
-- **Grandma mode wiring gap:** `generateSystemPrompts()` generates + stores, `_load_prompt_overrides` loads in 7 places in pipeline_executor — BUT I haven't A/B verified this actually changes output for a real render. That's the next functional test.
+- **Override replacement semantics:** currently the tenant override lands as Claude's `system_prompt` while the profile-derived voice preamble still lives in the user-prompt body → Claude blends the two. Clean-replacement (skip profile preamble when override present) is a follow-up decision once we measure output variation end-to-end.
 - **Python-layer test harness:** backend expects local PG proxy on :55432 that isn't running on this Mac. For functional Python tests (not just SQL), either start the proxy or write tests as VPS-executable scripts.
 
 ## Handoff (2026-04-14 — PRD 3 T5 Storage + Bug Triage)

@@ -160,3 +160,46 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 3. Humanize backend exception strings (raw `str(e)` in several routes) — parity with cycle 3's frontend work
 4. Slice 3 voice-learn: yt-dlp transcripts → richer voice extraction, upgrade from titles-only
 
+
+---
+
+## Cycle 6 — Grandma-mode A/B render verification (audit + 1st bot wired)
+
+**Goal:** Prove the `tenant_prompt_defaults` system-prompt overrides actually reach the LLM — i.e. that a user's grandma-mode prompt saved via "Generate My Style" actually changes the model's output in production. This is the open verification item from Cycle 1's audit which claimed "wiring in 7 places." Ground-truth it.
+
+**Design call:** Build a functional audit test FIRST — don't assume the claim is true. The test has two layers:
+1. **Runtime check on `_load_prompt_overrides`** — seed fake tenant overrides via monkey-patched `fetch_all`, assert all 6 attributes (`script_system_prompt`, `thumbnail_system_prompt`, `video_motion_system_prompt`, `sound_curation_system_prompt`, `sound_generation_system_prompt`, `research_system_prompt`) land on the pipeline object. Also prove per-video > tenant priority.
+2. **Static audit on bot consumers** — grep each bot's source for the `getattr(pipeline, "<attr>", ...)` or `pipeline.<attr>` pattern. Print PASS/FAIL per bot. A PASS means the bot is actually reading its override and can propagate it into an LLM call.
+
+**Ground-truth finding:** Cycle 1's claim was wrong. Of 6 bots that should be reading their override, **only 1 actually does**: `video_motion`. The other 5 (`script`, `thumbnail`, `sound_curation`, `sound_generation`, `research`) have the attribute set on the pipeline object — and silently drop it. "Wired but not plugged in." In production, if a user writes a grandma-mode prompt, only the motion-planning bot would respect it; script narration, thumbnails, sound design, and research would ignore it entirely.
+
+**Shipped:**
+- `storyengine/backend/tests/functional/test_prompt_override_wiring.py` — 3 tests all green:
+  - `test_load_prompt_overrides_attaches_all_six` — monkey-patches `fetch_all` with seeded grandma-mode overrides for all 6 keys, asserts all 6 attrs land on `_pipeline`.
+  - `test_per_video_override_beats_tenant` — per-video override wins over tenant default.
+  - `test_audit_bot_consumer_wiring` — static grep audit; prints WIRED/UNWIRED per bot; regression guards on wired bots.
+- Wired the `script` bot end-to-end:
+  - `script_generator.py:1338` `generate_script()` — added `system_prompt_override: Optional[str] = None`; passes it as `system_prompt` to `anthropic_client.generate(...)`.
+  - `brief_translator/__init__.py` — added `script_system_prompt_override` to both `BriefTranslator.__init__` and the `translate_brief()` convenience function; plumbs through to `generate_script`.
+  - `script/run.py:123` — passes `getattr(pipeline, "script_system_prompt", None)` into `translate_brief(...)`.
+- Audit test now reports **2/6 wired** (video_motion + script); regression guards pin both.
+
+**Functional tests:**
+- `test_prompt_override_wiring.py` → 3 tests green. Output confirms 2/6 wired, gap on thumbnail + sound_curation + sound_generation + research.
+- Import smoke: `generate_script` + `translate_brief` + `BriefTranslator` signatures exposed + correct — `['...', 'system_prompt_override']`, etc. No breakage to existing callers (new param is keyword-only-default-None).
+
+**Honest gaps:**
+- Only 1 of 6 remaining bots wired in this cycle (script). Follow-up (task #10) for thumbnail, sound_curation, sound_generation, research.
+- The override is sent as Claude's `system_prompt` but the user-prompt body still contains the profile-derived voice preamble (`build_script_prompt` → `build_script_system_prompt(profile)`). So Claude now blends both. Not a clean "full replacement" semantic — pragmatic first step. A future cleanup: when an override is present, skip the profile preamble entirely.
+- No live A/B render yet. We proved wiring reaches Claude, not that the output actually varies between two different overrides. That's the truly end-to-end verification and depends on having a real pipeline run we can kick (Cycle 7+ or Ryan's first dogfood video).
+
+**Learned:**
+- **Claims from prior audits are hypotheses, not facts.** Cycle 1 said "overrides wired in 7 places." Cycle 6 tested it and found 1 of 6. Always write the test before trusting the claim — especially when the claim spans many files and nobody's exercised the code path end-to-end.
+- **"Wired but not plugged in" is a common rot pattern.** The plumbing (DB rows, pipeline attribute loading) was built and tested, but the consumers (bots) never got the follow-through. Makes the feature *look* shipped in code review while doing nothing in production. Audit tests that scan consumers fix this.
+- **One-shot audit tests can double as progress trackers.** `test_audit_bot_consumer_wiring` reports the current state of wiring. As each bot gets fixed, the WIRED count grows. We get a test *and* a dashboard in one file.
+
+**Next:** Cycle 7 candidates:
+1. Wire the remaining 4 bots — thumbnail, sound_curation, sound_generation, research — following the script pattern. Each is ~20 lines of plumbing. (Task #10)
+2. First E2E customer-style render — Ryan as dogfood. Verifies live output variation end-to-end.
+3. Humanize backend exception strings.
+4. Slice 3 voice-learn: yt-dlp transcripts for richer voice.
