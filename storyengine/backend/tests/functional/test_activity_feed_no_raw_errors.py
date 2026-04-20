@@ -152,13 +152,14 @@ def test_write_boundary_round_trip():
         # Seed a real background_tasks row so _set_task_status has something to UPDATE
         import uuid
         test_video_id = str(uuid.uuid4())
+        test_tenant_id = str(uuid.uuid4())
         conn = await asyncpg.connect(os.environ["DATABASE_URL"])
         try:
             await conn.execute(
                 """INSERT INTO background_tasks
-                   (video_id, task_type, status, started_at)
-                   VALUES ($1, 'test', 'running', NOW())""",
-                test_video_id,
+                   (tenant_id, video_id, task_type, status, started_at)
+                   VALUES ($1, $2, 'test', 'running', NOW())""",
+                test_tenant_id, test_video_id,
             )
             from routes.pipeline import _set_task_status
             raw = "HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded with url: /api/task"
