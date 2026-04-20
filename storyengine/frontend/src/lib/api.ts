@@ -678,6 +678,7 @@ export const getNicheVideos = (params?: {
   offset?: number;
   channel?: string;
   min_vph?: number;
+  max_hours_old?: number;
   sort?: string;
 }) => {
   const searchParams = new URLSearchParams();
@@ -685,6 +686,7 @@ export const getNicheVideos = (params?: {
   if (params?.offset) searchParams.set("offset", String(params.offset));
   if (params?.channel) searchParams.set("channel", params.channel);
   if (params?.min_vph) searchParams.set("min_vph", String(params.min_vph));
+  if (params?.max_hours_old) searchParams.set("max_hours_old", String(params.max_hours_old));
   if (params?.sort) searchParams.set("sort", params.sort);
   const qs = searchParams.toString();
   return fetchApi<NicheVideosResponse>(`/api/niche/videos${qs ? `?${qs}` : ""}`);

@@ -1290,3 +1290,55 @@ Scraping competitor videos via yt-dlp costs us nothing (no API, no tokens), so u
 ### Ship plan
 - `git add` main.py + new test + ship log, commit, push
 - VPS: pull → run functional test → restart backend → watch journalctl for `[AutoScrape]` lines to confirm the loop is running
+
+---
+
+## Cycle 35 — Stage 6.4 sub-fix #3: frontend age-filter UI
+
+**Time:** 2026-04-20
+**Task:** Wire the backend `max_hours_old` filter (shipped Cycle 33) and the now-fresh scrape cadence (shipped Cycle 34) into a user-visible control on the Competitors page. Without the UI, the backend capability is dark — a user has no way to say "show me only videos from the last 24h".
+
+### What I changed
+
+**`storyengine/frontend/src/lib/api.ts`**
+- Extended `getNicheVideos` param interface with `max_hours_old?: number`
+- Added the matching `searchParams.set("max_hours_old", ...)` branch
+
+**`storyengine/frontend/src/app/competitors/page.tsx`**
+- Added `const [maxHoursOld, setMaxHoursOld] = useState<number | undefined>(undefined)` — undefined = "All" (no filter), so first-load behavior is unchanged
+- Added `maxHoursOld` to the `queryKey` (otherwise React Query would never refetch when the user clicks a pill — the classic silent-filter bug)
+- Passed `max_hours_old: maxHoursOld` into the `getNicheVideos` call
+- Extended the existing filter-change `useEffect` dep array with `maxHoursOld` so the grid snaps back to page 0 on filter change
+- Rendered a 4-pill row (`24h` / `3d` / `7d` / `All`) next to the existing FilterSelect components. Active pill uses turquoise glass background; inactive is transparent with subtle border. Clicking sets `maxHoursOld` to 24 / 72 / 168 / undefined respectively
+
+### Why the specific pill breakpoints
+
+- **24h** — "what broke in the last day" — primary use case for daily-scraped channels
+- **3d** — "this week so far" — middle ground
+- **7d** — rolling week — standard reporting cadence; also matches the backend default's "relevance decay" horizon (Stage 6.4 sub #5, not yet shipped)
+- **All** — escape hatch; preserves current behavior as the default
+
+Could have done a numeric input or a slider. Pills are one-click, discoverable, and match the aesthetic of the existing filter bar. Slider would've been overkill for a 4-option set and a pain on mobile.
+
+### Functional test (`test_competitors_age_filter_ui.py`)
+
+6 tests, source-audit pattern (no live browser — VPS smoke test covers the render):
+
+1. **files_exist** — sanity on both paths
+2. **api_getNicheVideos_accepts_max_hours_old** — param type AND URLSearchParams branch. Dropping one silently breaks the wire
+3. **page_has_maxHoursOld_state** — `useState<number | undefined>(undefined)` specifically. A plain `useState(24)` default would apply a filter on first load — behavior change
+4. **page_passes_max_hours_old_to_query** — queryKey includes `maxHoursOld` (→ refetch) AND the getNicheVideos call forwards it (→ actual request). Both required
+5. **page_reset_effect_includes_maxHoursOld** — useEffect dep array includes maxHoursOld, else changing filter on page 3/5 shows empty grid
+6. **page_renders_age_filter_pills** — all four labels (`24h`/`3d`/`7d`/`All`) and the numeric mapping (24/72/168) and `value: undefined` for All
+
+6/6 pass locally. TS compile clean.
+
+### Honest gaps
+
+- **No browser-level test.** The source audit proves the props thread through; it doesn't prove the pill visually renders or that clicking actually fires a refetch. Relying on VPS smoke — pull up `/competitors`, click a pill, confirm the grid changes. If a Playwright e2e harness lands later this is an easy candidate to promote
+- **No loading state on pill click.** The grid has its own `isLoading` spinner from React Query already, so the transition is fine, but there's no explicit "filter applied" confirmation. Acceptable for v1
+- **Doesn't hide pills when no videos exist.** If a tenant has zero videos ever, the pill bar still renders but does nothing. Negligible UX issue — pills just no-op
+
+### Ship plan
+- `git add` api.ts + page.tsx + new test + ship log, commit, push
+- VPS: pull → run functional test → rebuild frontend → restart frontend service → curl `/api/niche/videos?max_hours_old=24&limit=1` with dev-token to confirm backend still accepts the param (regression guard for any accidental route-signature change in Cycle 33 that this Cycle depends on)

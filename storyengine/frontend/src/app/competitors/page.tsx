@@ -130,6 +130,7 @@ export default function CompetitorsPage() {
   const [channelUrl, setChannelUrl] = useState("");
   const [addError, setAddError] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("vph_desc");
+  const [maxHoursOld, setMaxHoursOld] = useState<number | undefined>(undefined);
   const [page, setPage] = useState(0);
 
   // Semantic search
@@ -162,13 +163,14 @@ export default function CompetitorsPage() {
 
   // Server-side paginated + filtered + sorted videos
   const { data: videosData, isLoading } = useQuery({
-    queryKey: ["niche-videos", channelFilter, sortBy, page],
+    queryKey: ["niche-videos", channelFilter, sortBy, maxHoursOld, page],
     queryFn: () =>
       getNicheVideos({
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         channel: channelFilter !== "all" ? channelFilter : undefined,
         sort: sortBy,
+        max_hours_old: maxHoursOld,
       }),
   });
 
@@ -180,7 +182,7 @@ export default function CompetitorsPage() {
   // Reset page when filter/sort changes
   useEffect(() => {
     setPage(0);
-  }, [channelFilter, sortBy]);
+  }, [channelFilter, sortBy, maxHoursOld]);
 
   const addChannelMutation = useMutation({
     mutationFn: async (url: string) => {
@@ -488,6 +490,30 @@ export default function CompetitorsPage() {
           value={sortBy}
           onChange={(v) => setSortBy(v as SortOption)}
         />
+        <div className="flex items-center gap-1" data-testid="age-filter-pills">
+          {([
+            { label: "24h", value: 24 },
+            { label: "3d", value: 72 },
+            { label: "7d", value: 168 },
+            { label: "All", value: undefined },
+          ] as const).map((opt) => {
+            const active = maxHoursOld === opt.value;
+            return (
+              <button
+                key={opt.label}
+                onClick={() => setMaxHoursOld(opt.value)}
+                className="px-2 py-1 text-xs rounded-md font-mono transition-colors"
+                style={{
+                  background: active ? "var(--glass-turquoise)" : "transparent",
+                  color: active ? "var(--text-primary)" : "var(--text-tertiary)",
+                  border: `1px solid ${active ? "var(--border-turquoise)" : "var(--border-subtle)"}`,
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex-1" />
         <span className="text-xs font-body" style={{ color: "var(--text-tertiary)" }}>
           {totalVideos} video{totalVideos !== 1 ? "s" : ""}
