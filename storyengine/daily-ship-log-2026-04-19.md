@@ -338,3 +338,28 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 
 **Next:**
 - Cycle 11 candidates: (a) first E2E customer-style render (needs Ryan), (b) audit `/orchestrator/execute` for OrchestratorResult.error leak, (c) slice 3 voice-learn yt-dlp transcripts, (d) clean-replacement override semantics, (e) fresh fix-roadmap.md rewrite, (f) runtime end-to-end test that proves `/api/activity` never returns a raw-error substring.
+
+## Cycle 11 — 2026-04-20 ~00:25 CT
+**Goal:** close the last leak surface flagged in Cycle 10's honest-gap section — `claude_orchestrator.py:ClaudeOrchestrator.execute` returns an `OrchestratorResult` whose `.error` field was set to raw `str(e)` on exception. This result flows out through `/orchestrator/execute` and any other caller, meaning a bare exception string could surface in a tenant-facing response.
+
+**Shipped:**
+- **`claude_orchestrator.py:execute`** — the generic `except Exception as e:` branch now builds `error=humanize_error(e, context=f"Executing {decision.skill_id} hit an error")` instead of `error=humanize_error(e, context=...)` with no humanization. Import is local (inside the except) to avoid a hard import-time dep for this module; pattern matches `agents.py`.
+- All 4 leak funnels are now humanized at the write boundary: (1) `HTTPException(detail=...)`, (2) `_set_task_status` → `background_tasks.error_message`, (3) `_log_activity` → `bot_activity.message`, (4) `OrchestratorResult.error`.
+
+**Functional tests:**
+- No new test — the existing `test_context_never_leaks_raw_exception` + the humanize_error pattern tests prove the helper's output is safe; adding a `claude_orchestrator`-specific runtime test would require stubbing anthropic + registry + DB, and the value-add is low since the single-line change literally is `humanize_error(e, context=...)`.
+- Full suite: 10/10 green (unchanged).
+- AST syntax check on `claude_orchestrator.py` passes.
+
+**Honest gaps:**
+- The `OrchestratorResult.error` field is not typed as `UserFacingMessage` — anyone writing to it from another code path (say, a new fallback branch) could still leak. A cleaner long-term fix would be a Pydantic validator on the `error` field that auto-humanizes. Deferred — the write-boundary coverage is the 80%.
+- No runtime E2E test yet. A test that actually POSTs to `/orchestrator/execute`, causes a failure, and asserts no raw substrings in the response needs a live backend + DB. Queued for when we have the functional test infra stood up (task #5).
+
+**Learned:**
+- **4 leak surfaces in 4 cycles, one helper, zero changes to the helper.** Cycles 8-11 together: HTTPException (sync response), `_set_task_status` (async task state), `_log_activity` (activity feed), `OrchestratorResult.error` (chat UI). Each one discovered by reading the prior cycle's honest-gap section. `humanize_error(err, context=..., fallback=...)` never needed new parameters. If the helper interface is right the first time, scaling it means finding new call sites, not growing the API.
+- **"Audit for leaks" converges.** Starting Cycle 8 I expected 2-3 leak surfaces and one fix. By Cycle 11 I've touched 4 surfaces across 10+ files. The pattern held: every cycle's honest-gap section named the next surface; the audit scope shrank each cycle until this one had exactly one line to fix.
+- **Small fixes don't need big ceremony.** This cycle was a 2-line code change + zero new tests. The ship log + commit still happen, because the contract with Ryan is "every cycle documented" — but not every cycle needs to be 200 LOC. A honest gap closed in 5 minutes still counts.
+
+**Next:**
+- Cycle 12 primary: slice 3 voice-learn upgrade — swap titles+descriptions for yt-dlp transcripts so `/learn-voice` extracts voice from actual spoken content. Additive, low-risk, directly improves Flow B voice-learn quality.
+- Alternates: (a) clean-replacement override semantics (strip profile preamble from user body when override present), (b) fresh fix-roadmap.md rewrite, (c) functional test infra (task #5) to enable runtime E2E tests.

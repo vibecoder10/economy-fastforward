@@ -337,8 +337,9 @@ Respond with a JSON object:
             )
 
         except Exception as e:
+            from error_utils import humanize_error
             return OrchestratorResult(
                 success=False,
                 decision=decision,
-                error=str(e),
+                error=humanize_error(e, context=f"Executing {decision.skill_id} hit an error"),
             )

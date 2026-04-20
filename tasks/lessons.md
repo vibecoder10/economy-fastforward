@@ -2,6 +2,11 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19/20 — Osiris overnight ship-while-sleep (Cycle 11)
+- **Four leak surfaces, one helper, zero API growth.** Cycles 8-11 collectively plugged (1) HTTPException, (2) `_set_task_status` background-task state, (3) `_log_activity` activity feed, (4) `OrchestratorResult.error`. Across all four, `humanize_error(err, context=..., fallback=...)` didn't grow a single parameter. Evidence that getting the helper interface right up-front pays for itself 4× over. Rule: when a helper is pure string-in/string-out, side-effect-free except logging, it travels freely across sync/async, response/dict/DB-write boundaries.
+- **Honest-gap sections as a todo queue — converges.** Cycle 8 expected 2-3 leak surfaces; ended with 4. Each cycle's honest-gap section named exactly one next surface, shrinking as the audit completed. This is the compounding effect of writing what you DIDN'T fix: next-cycle-you has a precise, pre-ranked todo list.
+- **Small-fix cycles still deserve the full ceremony.** Cycle 11 was a 2-line code change. Still wrote a ship-log entry, still committed with a clear message, still updated todo.md + lessons.md. The contract with Ryan is "every cycle documented" — ceremony is cheap once the muscle memory exists, and future-you (or the next agent) needs the trail.
+
 ## Session 2026-04-19/20 — Osiris overnight ship-while-sleep (Cycle 10)
 - **Leak surfaces discover each other.** Cycle 8 fixed HTTPException leaks; Cycle 9's honest-gap section named the background-task path; auditing that this cycle uncovered `pipeline_executor._log_activity` (writes to `bot_activity.message`, read by `/api/activity`) as a THIRD independent leak surface. The honest-gap section IS the todo list. Always write it; audit it next cycle.
 - **"Humanize at the funnel" works across multiple funnel types.** HTTPException (outgoing-response funnel), `_set_task_status` (in-memory-dict + DB-write funnel), `_log_activity` (DB-write-read-at-/api/activity funnel). Same one-liner pattern works because `humanize_error` is pure: raw-in, safe-out, side-effect-free except for WARN-level logging. Design helpers to be funnel-friendly — pure, string-in/string-out, no async, no DB.
