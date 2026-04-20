@@ -653,3 +653,29 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **Bug classes, not bug instances, are the right unit of work.** Cycle 3 fixed Kie.ai. Cycle 16 fixed ElevenLabs. Both are specific files. Cycle 19 fixed the *pattern* — by treating the structured-error-body gap as a class, the remaining 4 providers got fixed in one cycle with one test file that also serves as a living schema contract with each upstream. Cheaper and more durable than 4 separate cycles.
 - **Live-probing with a deliberately-bad key is the cheapest way to capture ground-truth fixtures.** No SDKs, no guessing, no reading docs that might be stale. 30 seconds of `httpx` per provider gives you the exact bytes the validator will see in prod, and those bytes become your test fixtures directly.
 - **`_extract_upstream_error(resp, path)` is a tiny helper but it turned 4 validator branches from "grab the body, hope, fall back to status code" into "declare the path, get the value or None." Code volume dropped and the test surface got sharper.
+
+## Cycle 20 — 2026-04-19 ~23:55 CT — Validator-drift canary
+**Trigger:** Direct follow-up to Cycle 19. Functional tests protect us from OUR code regressing — they freeze fixtures captured at one moment in time. They do NOT notice when upstream silently changes its error body schema. That's exactly how the original Kie.ai / ElevenLabs / Anthropic / OpenAI / Gemini / Tavily gaps got to prod in the first place — nobody was watching for drift.
+
+**Design:**
+- New file: `backend/canaries/validator_drift.py`.
+- For each of the 5 active upstreams (Anthropic, OpenAI, Gemini, Tavily, ElevenLabs), hit the endpoint our validator actually uses with a deliberately invalid key (`sk-fake-canary-drift-probe-do-not-use`).
+- Assert the JSON paths our parsers depend on resolve: `error.type`, `error.code`, `error.details[].reason`, `detail.error`, etc. Per-provider assertions, not a single generic check.
+- On drift: print the diff to stderr and exit 1. On transport error: exit 2. On all-green: exit 0.
+- Cost: zero — invalid keys short-circuit at auth before any paid work on all 5 providers.
+
+**Ship:**
+- `python3 -m canaries.validator_drift` → 5/5 schemas intact. Runs against live APIs in ~3s.
+- Committed + pushed.
+- Runnable today manually; VPS cron wiring deferred to Cycle 21 (separates "canary exists and works" from "canary runs on a schedule + alerts Ryan" — two distinct risks).
+
+**Honest gaps:**
+- **Not wired to a cron yet.** Canary exists and runs clean but nothing fires it. Next cycle: add a systemd timer on the VPS + Telegram webhook on failure. Without that wiring, this file is just documentation-as-code — you have to remember to run it.
+- **Kie.ai not included.** We don't yet have a cheap endpoint to probe on Kie.ai that doesn't risk queuing a job. Need to check their API for a zero-cost auth-probe endpoint before adding.
+- **No alerting path yet.** Exit 1 + stderr is fine for an operator running it manually. Needs a Telegram webhook before cron wiring (done next cycle).
+- **Assertion-strictness tradeoff.** I assert on specific error codes ("authentication_error", "invalid_api_key", "API_KEY_INVALID"). If a provider adds a NEW code that's still semantically the same (e.g. Anthropic starts returning "auth_error" in some cases), the canary fires a false positive. That's the correct bias — a false positive prompts us to read the actual body and update both the validator and the canary together — but it means Ryan might see an alert when the fix is just a one-line string update.
+
+**Learned:**
+- **Upstream-schema monitoring is a distinct layer from validator-body parsing.** Cycle 19 fixed the parsing; Cycle 20 adds the watchdog. Splitting these is worth it — each owns one failure mode and each is small.
+- **Zero-cost canaries exist at every provider.** Because auth failures don't consume billable work, we can hit `/v1/messages`, `/v1/voices`, `/search` etc. hourly for free as long as the key is invalid. That flips canary cost analysis from "budget item" to "no-brainer."
+- **Exit-code discipline matters for cron.** Distinguishing 0/1/2 (OK / drift / transport) lets the eventual cron wrapper differentiate "page Ryan" from "retry in 5 min" — a single sys.exit(1) for everything would make the alerting noisy.
