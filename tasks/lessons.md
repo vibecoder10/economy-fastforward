@@ -2,6 +2,13 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 2)
+- **Functional DB tests via Supabase MCP work great** when the local dev stack isn't up. Pattern: insert-sentinel-row → run target SQL → assert state → cleanup. Gives real-infra coverage without standing up a local PG. Example: `backend/tests/functional/test_trial_expired.sql`.
+- **Backend venv is at `storyengine/backend/.venv/`** — plain `python3` from the shell does NOT see asyncpg/etc. Always use `.venv/bin/python3` for any script that touches DB.
+- **Local DB connection is via PG proxy on `127.0.0.1:55432`** (not Supabase direct). Running backend scripts locally without the proxy up = "Connect call failed". For functional tests that exercise the Python ORM layer, either start the proxy or use Supabase MCP for the SQL-level verification.
+- **The pre-push hook (`.githooks/pre-push`) hard-blocks if ≥3 files changed and tasks/lessons.md + tasks/todo.md aren't updated in the SAME last commit.** Plan for this up front — either include them in the feature commit or make a second "session notes" commit before pushing.
+- **fix-roadmap.md is stale** (dated 2026-04-10, ~10 days behind). YouTube OAuth (6.3), system-prompts/generate (6.6 part 2), and pipeline prompt-override wiring (6.6 part 1) are already shipped. Don't trust the doc — grep the code first.
+
 ## Session 2026-04-14 — Backend Dev
 - Frontend `.env.local` sets `NEXT_PUBLIC_API_URL=https://storyengine.dev` — reported 404s may be from remote server not matching local dev. Always check `.env.local` when debugging "route not found" in the browser.
 - When user reports transient 404s, check: (1) server restart? (2) `.env.local` pointing to different server? (3) stale browser cache? Don't assume code bugs.

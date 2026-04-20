@@ -1,5 +1,24 @@
 # Task Tracking
 
+## Handoff (2026-04-19 — Osiris full-autonomy overnight ship mode started)
+
+### Context
+Ryan granted full-autonomy ship-while-sleep mandate (see `~/.claude/projects/-Users-osiris-claude-agent/memory/project_storyengine_full_autonomy.md`). Single-agent (Osiris) continuous builder, Karpathy build-test-learn loop, functional tests only (no smoke-test ship gate). Daily ship log at `storyengine/daily-ship-log-YYYY-MM-DD.md`.
+
+### Completed this cycle
+- **Trial-downgrade cron (fix-roadmap 3.2)** — migration 041, `send_trial_expired` email, `check_trial_expired` task, `_auto_check_trial_expired` wired in lifespan @ 6h interval. Functional test in `backend/tests/functional/test_trial_expired.sql` green against prod Supabase.
+
+### Next in queue (priority order)
+1. Flow B onboarding: detect existing-channel path + auto-learn voice from YouTube top videos
+2. Grandma-mode A/B render verification — prove generated system prompts actually change output
+3. Humanize every "Internal Server Error" / raw exception string in frontend + backend
+4. First real end-to-end customer-style render (Ryan as dogfood)
+5. Fresh fix-roadmap.md rewrite against ground truth (drop items already shipped)
+
+### Open questions for Ryan
+- **Grandma mode wiring gap:** `generateSystemPrompts()` generates + stores, `_load_prompt_overrides` loads in 7 places in pipeline_executor — BUT I haven't A/B verified this actually changes output for a real render. That's the next functional test.
+- **Python-layer test harness:** backend expects local PG proxy on :55432 that isn't running on this Mac. For functional Python tests (not just SQL), either start the proxy or write tests as VPS-executable scripts.
+
 ## Handoff (2026-04-14 — PRD 3 T5 Storage + Bug Triage)
 
 ### Completed
