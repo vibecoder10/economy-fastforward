@@ -24,19 +24,22 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
 # --- In-memory task tracking ---
-_running_tasks: dict = {}
+# Keyed by (tenant_id, video_id) to prevent cross-tenant task state leaks
+# (SEC-SSE-001). Previously keyed by video_id alone, so two tenants who
+# happened to process videos with the same id would see each other's state.
+_running_tasks: dict[tuple[str, str], dict] = {}
 
 
-def _set_task(video_id: str, status: str, message: str = ""):
-    _running_tasks[video_id] = {"status": status, "message": message}
+def _set_task(video_id: str, status: str, message: str = "", *, tenant_id: str):
+    _running_tasks[(tenant_id, video_id)] = {"status": status, "message": message}
 
 
-def _get_task(video_id: str) -> Optional[dict]:
-    return _running_tasks.get(video_id)
+def _get_task(video_id: str, tenant_id: str) -> Optional[dict]:
+    return _running_tasks.get((tenant_id, video_id))
 
 
-def _clear_task(video_id: str):
-    _running_tasks.pop(video_id, None)
+def _clear_task(video_id: str, tenant_id: str):
+    _running_tasks.pop((tenant_id, video_id), None)
 
 
 # --- Request/Response Models ---
@@ -85,10 +88,11 @@ async def run_agent_pipeline(
         raise HTTPException(status_code=404, detail="Video not found")
 
     # Check not already running
-    if _get_task(video_id) and _get_task(video_id)["status"] == "running":
+    existing = _get_task(video_id, tenant_id)
+    if existing and existing["status"] == "running":
         return {"status": "already_running", "video_id": video_id}
 
-    _set_task(video_id, "running", "Agent pipeline starting...")
+    _set_task(video_id, "running", "Agent pipeline starting...", tenant_id=tenant_id)
 
     async def _run():
         try:
@@ -136,11 +140,11 @@ async def run_agent_pipeline(
                 output.total_cost,
             )
 
-            _set_task(video_id, "completed", f"Hook: {output.hook.final_scores.aggregate:.0f}/100")
+            _set_task(video_id, "completed", f"Hook: {output.hook.final_scores.aggregate:.0f}/100", tenant_id=tenant_id)
 
         except Exception as e:
             friendly = humanize_error(e, context="The agent pipeline hit an error")
-            _set_task(video_id, "failed", friendly)
+            _set_task(video_id, "failed", friendly, tenant_id=tenant_id)
             await execute(
                 """INSERT INTO bot_activity (tenant_id, bot_name, video_id, status, message)
                    VALUES ($1, $2, $3, $4, $5)""",
@@ -183,7 +187,7 @@ async def get_task_status(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Poll background task status."""
-    task = _get_task(video_id)
+    task = _get_task(video_id, tenant_id)
     if not task:
         return {"status": "idle"}
     return task

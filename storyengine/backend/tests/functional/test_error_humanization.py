@@ -181,16 +181,17 @@ def test_set_task_status_humanizes_failure_errors():
 
     # Simulate: caller passes raw exception string (typical str(e) pattern)
     raw = "HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded"
-    pipeline_mod._set_task_status("test-vid-999", "failed", raw, tenant_id=None)
+    test_tenant = "11111111-1111-1111-1111-111111111111"
+    pipeline_mod._set_task_status("test-vid-999", "failed", raw, tenant_id=test_tenant)
 
-    state = pipeline_mod._running_tasks["test-vid-999"]
+    state = pipeline_mod._running_tasks[(test_tenant, "test-vid-999")]
     assert state["status"] == "failed"
     assert "api.kie.ai" not in (state["error"] or ""), (
         f"Raw upstream URL leaked into _running_tasks['error']: {state['error']!r}"
     )
     assert "HTTPSConnectionPool" not in (state["error"] or "")
     # Cleanup
-    pipeline_mod._running_tasks.pop("test-vid-999", None)
+    pipeline_mod._running_tasks.pop((test_tenant, "test-vid-999"), None)
     print("✅ test_set_task_status_humanizes_failure_errors")
 
 

@@ -96,7 +96,7 @@ async def check_pipeline_readiness(tenant_id: str = Depends(get_tenant_id)):
 # --- Background Task Tracking (dual-layer: dict + DB) ---
 import time as _time
 
-_running_tasks: dict[str, dict] = {}
+_running_tasks: dict[tuple[str, str], dict] = {}
 
 # Tasks older than 10 minutes are considered stale (server restart, crash, etc.)
 _STALE_TASK_SECONDS = 600
@@ -168,10 +168,14 @@ def _set_task_status(
     message: Optional[str] = None,
     error: Optional[str] = None,
     *,
-    tenant_id: Optional[str] = None,
+    tenant_id: str,
     task_type: str = "pipeline",
 ):
     """Update task status in dict. Fire-and-forget DB persistence for key transitions.
+
+    Keyed by (tenant_id, video_id) to prevent cross-tenant task state leaks
+    (SEC-SSE-001). tenant_id is now required; a missing tenant is a program
+    bug, not a recoverable runtime state.
 
     Normalizes status to: running | completed | failed
     """
@@ -190,15 +194,16 @@ def _set_task_status(
     # inside humanize_error() for dev debugging.
     if normalized == "failed" and resolved_error:
         resolved_error = humanize_error(resolved_error)
-    _running_tasks[video_id] = {
+    key = (tenant_id, video_id)
+    _running_tasks[key] = {
         "status": normalized,
         "message": resolved_message,
         "error": resolved_error,
-        "started_at": _running_tasks.get(video_id, {}).get("started_at", _time.time()),
+        "started_at": _running_tasks.get(key, {}).get("started_at", _time.time()),
     }
 
     # Persist key transitions to DB (fire-and-forget)
-    if tenant_id and normalized in ("running", "completed", "failed"):
+    if normalized in ("running", "completed", "failed"):
         try:
             asyncio.get_running_loop().create_task(
                 _db_persist_task(
@@ -210,21 +215,22 @@ def _set_task_status(
             pass  # No event loop — skip DB write
 
 
-def _get_task_status(video_id: str) -> Optional[dict]:
-    """Get task status for a video. Auto-clears stale tasks."""
-    task = _running_tasks.get(video_id)
+def _get_task_status(video_id: str, tenant_id: str) -> Optional[dict]:
+    """Get task status for a video within a tenant. Auto-clears stale tasks."""
+    key = (tenant_id, video_id)
+    task = _running_tasks.get(key)
     if not task:
         return None
     # Auto-clear stale tasks (older than 10 minutes and still "running")
     if task["status"] == "running" and _time.time() - task.get("started_at", 0) > _STALE_TASK_SECONDS:
-        _running_tasks.pop(video_id, None)
+        _running_tasks.pop(key, None)
         return None
     return task
 
 
-def _clear_task_status(video_id: str):
+def _clear_task_status(video_id: str, tenant_id: str):
     """Clear task status after completion (dict only — DB row stays for history)."""
-    _running_tasks.pop(video_id, None)
+    _running_tasks.pop((tenant_id, video_id), None)
 
 
 # --- Endpoints ---
@@ -277,7 +283,7 @@ async def run_research(
         raise HTTPException(status_code=404, detail="Video not found")
 
     # Check not already running
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running for this video")
 
     _set_task_status(video_id, "running", "Research in progress", tenant_id=tenant_id)
@@ -296,22 +302,22 @@ async def run_research(
                     status = (video or {}).get("status", "")
                     if status in terminal:
                         break
-                    _set_task_status(video_id, "running", f"Running: {status}")
+                    _set_task_status(video_id, "running", f"Running: {status}", tenant_id=tenant_id)
                     step_result = await executor.run_next_step(video_id)
                     step_status = step_result.get("status", "")
                     if step_status == "failed":
                         _set_task_status(video_id, "failed", step_result.get("error"), tenant_id=tenant_id)
                         break
                     if step_status in ("needs_approval", "idle"):
-                        _set_task_status(video_id, "completed", step_result.get("message", "Waiting for approval"))
+                        _set_task_status(video_id, "completed", step_result.get("message", "Waiting for approval"), tenant_id=tenant_id)
                         break
-                    _set_task_status(video_id, step_status)
+                    _set_task_status(video_id, step_status, tenant_id=tenant_id)
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             # Clear after a delay so frontend can poll final status
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -345,7 +351,7 @@ async def run_script(
             detail=f"Video not ready for scripting (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Script generation in progress", tenant_id=tenant_id)
@@ -359,7 +365,7 @@ async def run_script(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -391,7 +397,7 @@ async def run_voice(
             detail=f"Video not ready for voice (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Voice generation in progress", tenant_id=tenant_id)
@@ -405,7 +411,7 @@ async def run_voice(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -483,7 +489,7 @@ async def run_prompts(
             detail=f"Video not ready for prompts (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Prompt generation in progress", tenant_id=tenant_id)
@@ -497,7 +503,7 @@ async def run_prompts(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -536,14 +542,14 @@ async def run_storyboards(
             detail=f"Video not ready for storyboards (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" Scene {scene}" if scene else ""
     _set_task_status(video_id, "running", f"Generating storyboard prompts{scene_label}...", tenant_id=tenant_id)
 
     def progress_callback(msg: str):
-        _set_task_status(video_id, "running", msg)
+        _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
 
     async def _run():
         try:
@@ -562,7 +568,7 @@ async def run_storyboards(
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -583,7 +589,7 @@ async def run_story_bible(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Story Bible generation in progress", tenant_id=tenant_id)
@@ -603,7 +609,7 @@ async def run_story_bible(
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -639,14 +645,14 @@ async def run_storyboard_images(
             detail=f"Video not ready for storyboard images — voice must be generated first (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" Scene {scene}" if scene else ""
     _set_task_status(video_id, "running", f"Generating storyboard images{scene_label}...", tenant_id=tenant_id)
 
     def progress_callback(msg: str):
-        _set_task_status(video_id, "running", msg)
+        _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
 
     async def _run():
         try:
@@ -665,7 +671,7 @@ async def run_storyboard_images(
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -692,7 +698,7 @@ async def run_storyboard_extract(
             detail=f"Video not ready for storyboard extraction (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Storyboard extraction in progress", tenant_id=tenant_id)
@@ -702,7 +708,7 @@ async def run_storyboard_extract(
             executor = PipelineExecutor(tenant_id)
 
             async def _progress(msg: str):
-                _set_task_status(video_id, "running", msg)
+                _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
 
             result = await executor.run_storyboard_extract(video_id, progress_callback=_progress)
             _set_task_status(
@@ -716,7 +722,7 @@ async def run_storyboard_extract(
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -737,7 +743,7 @@ async def run_upscale_panels(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Panel upscaling in progress", tenant_id=tenant_id)
@@ -747,7 +753,7 @@ async def run_upscale_panels(
             executor = PipelineExecutor(tenant_id)
 
             async def _progress(msg: str):
-                _set_task_status(video_id, "running", msg)
+                _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
 
             result = await executor.run_upscale_panels(video_id, progress_callback=_progress)
             _set_task_status(
@@ -761,7 +767,7 @@ async def run_upscale_panels(
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -801,7 +807,7 @@ async def run_images(
             detail=f"Video not ready for images (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Image generation in progress", tenant_id=tenant_id)
@@ -818,7 +824,7 @@ async def run_images(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -854,7 +860,7 @@ async def run_sound_prompts(
             detail=f"Video not ready for sound design (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Sound prompt generation in progress", tenant_id=tenant_id)
@@ -868,7 +874,7 @@ async def run_sound_prompts(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -895,7 +901,7 @@ async def run_sound_effects(
             detail=f"Video not ready for sound effects (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Sound effects generation in progress", tenant_id=tenant_id)
@@ -909,7 +915,7 @@ async def run_sound_effects(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -937,7 +943,7 @@ async def run_video_scripts(
             detail=f"Video not ready for video scripts — needs images first (status: {status})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Video script generation in progress", tenant_id=tenant_id)
@@ -951,7 +957,7 @@ async def run_video_scripts(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -979,7 +985,7 @@ async def run_video_generation(
             detail=f"Video not ready for video generation (status: {status})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Video clip generation in progress", tenant_id=tenant_id)
@@ -993,7 +999,7 @@ async def run_video_generation(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -1028,7 +1034,7 @@ async def run_thumbnail(
             detail=f"Video not ready for thumbnail — needs at least a script (status: {status})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Thumbnail generation in progress", tenant_id=tenant_id)
@@ -1042,7 +1048,7 @@ async def run_thumbnail(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -1072,7 +1078,7 @@ async def run_render(
             detail=f"Video not ready to render (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Rendering in progress", tenant_id=tenant_id)
@@ -1086,7 +1092,7 @@ async def run_render(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -1113,7 +1119,7 @@ async def run_upload(
             detail=f"Video not ready for upload (status: {video['status']})",
         )
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Upload in progress", tenant_id=tenant_id)
@@ -1127,7 +1133,7 @@ async def run_upload(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -1151,7 +1157,7 @@ async def run_next_step(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Running next step", tenant_id=tenant_id)
@@ -1165,7 +1171,7 @@ async def run_next_step(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -1191,7 +1197,7 @@ async def get_pipeline_status(
     status = video["status"]
 
     # Check if a task is running
-    task_status = _get_task_status(video_id)
+    task_status = _get_task_status(video_id, tenant_id)
     if task_status and task_status["status"] == "running":
         return PipelineStatus(
             video_id=video_id,
@@ -1247,7 +1253,7 @@ async def get_task_status(
 
     Used for polling while a stage is running.
     """
-    task = _get_task_status(video_id)
+    task = _get_task_status(video_id, tenant_id)
     if not task:
         return {"status": "idle", "message": None, "error": None}
     return {
@@ -1275,7 +1281,7 @@ async def generate_video_prompts(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id):
+    if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Video clip prompt generation in progress", tenant_id=tenant_id)
@@ -1289,7 +1295,7 @@ async def generate_video_prompts(
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
-            _clear_task_status(video_id)
+            _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
 
@@ -1305,7 +1311,7 @@ async def clear_task_status(
 
     Used when a 409 is returned but the task is actually dead.
     """
-    _clear_task_status(video_id)
+    _clear_task_status(video_id, tenant_id)
     return {"status": "cleared"}
 
 
@@ -1559,9 +1565,12 @@ async def pipeline_stream(
                 yield f"event: stage_change\ndata: {json.dumps(event)}\n\n"
                 last_transition_at = created_at
 
-            # 2. Poll task progress (from in-memory _running_tasks)
+            # 2. Poll task progress (from in-memory _running_tasks).
+            # Every path MUST filter by tenant_id — _running_tasks is keyed by
+            # (tenant_id, video_id) and iterating without a tenant filter used
+            # to leak other tenants' task state (SEC-SSE-001).
             if video_id:
-                task = _get_task_status(video_id)
+                task = _get_task_status(video_id, tenant_id)
                 task_key = json.dumps(task, sort_keys=True, default=str) if task else "idle"
                 if task_key != last_task_snapshot.get(video_id):
                     event = {
@@ -1573,7 +1582,9 @@ async def pipeline_stream(
                     yield f"event: task_progress\ndata: {json.dumps(event)}\n\n"
                     last_task_snapshot[video_id] = task_key
             else:
-                for vid, task in list(_running_tasks.items()):
+                for (tid, vid), task in list(_running_tasks.items()):
+                    if tid != tenant_id:
+                        continue
                     task_key = json.dumps(task, sort_keys=True, default=str)
                     if task_key != last_task_snapshot.get(vid):
                         event = {
