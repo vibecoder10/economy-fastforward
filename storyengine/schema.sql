@@ -902,6 +902,106 @@ CREATE POLICY niche_meta_insights_tenant_isolation ON niche_meta_insights
 
 
 -- =============================================
+-- VISUAL STYLES (migration 010 — user-creatable visual style presets)
+-- =============================================
+
+CREATE TABLE visual_styles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE NOT NULL,
+
+  name TEXT NOT NULL,
+  style_profile JSONB NOT NULL,
+  reference_image_url TEXT,
+  is_active BOOLEAN DEFAULT false,
+  is_default BOOLEAN DEFAULT false,
+
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_visual_styles_project ON visual_styles(project_id);
+CREATE INDEX idx_visual_styles_active ON visual_styles(project_id, is_active) WHERE is_active = true;
+
+ALTER TABLE visual_styles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Project owner access" ON visual_styles FOR ALL TO authenticated
+  USING (project_id IN (
+    SELECT p.id FROM projects p
+    WHERE p.account_id = (SELECT auth.uid())
+       OR p.tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid()))
+  ));
+
+
+-- =============================================
+-- STYLE CHARACTERS (migration 010 — characters within a visual style)
+-- =============================================
+
+CREATE TABLE style_characters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  visual_style_id UUID REFERENCES visual_styles(id) ON DELETE CASCADE NOT NULL,
+
+  name TEXT NOT NULL,
+  image_url TEXT NOT NULL,
+  sort_order INTEGER DEFAULT 0,
+
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_style_characters_style ON style_characters(visual_style_id);
+
+ALTER TABLE style_characters ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Style owner access" ON style_characters FOR ALL TO authenticated
+  USING (visual_style_id IN (
+    SELECT vs.id FROM visual_styles vs
+    JOIN projects p ON vs.project_id = p.id
+    WHERE p.account_id = (SELECT auth.uid())
+       OR p.tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid()))
+  ));
+
+
+-- =============================================
+-- NOTIFICATION PREFERENCES (migration 031 — per-tenant email toggles)
+-- =============================================
+
+CREATE TABLE notification_preferences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE UNIQUE NOT NULL,
+    email_weekly_digest BOOLEAN DEFAULT true,
+    email_video_complete BOOLEAN DEFAULT true,
+    email_error_alerts BOOLEAN DEFAULT true,
+    email_ctr_alerts BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- =============================================
+-- BACKGROUND TASKS (migration 032 — persistent pipeline task tracking)
+-- =============================================
+
+CREATE TABLE background_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+    video_id UUID REFERENCES videos(id) ON DELETE SET NULL,
+    task_type TEXT NOT NULL DEFAULT 'pipeline',
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+    message TEXT,
+    error_message TEXT,
+    started_at TIMESTAMPTZ DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_bg_tasks_tenant ON background_tasks(tenant_id);
+CREATE INDEX idx_bg_tasks_status ON background_tasks(status) WHERE status IN ('pending', 'running');
+CREATE INDEX idx_bg_tasks_video ON background_tasks(video_id, status);
+
+ALTER TABLE background_tasks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY bg_tasks_tenant_read ON background_tasks
+    FOR SELECT USING (tenant_id = auth.uid());
+
+
+-- =============================================
 -- SEED DATA
 -- =============================================
 

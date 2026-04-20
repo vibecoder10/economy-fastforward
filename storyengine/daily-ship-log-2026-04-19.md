@@ -1071,3 +1071,46 @@ Same class as SEC-KEYS-001 (Cycle 27, vault.py). Fix is the same shape: route th
 - **Attribute-replace vs mock.patch is a real choice.** Python's `from X import Y` binds Y as a NAME in the importer's module, not a LINK to X.Y. To mock Y as seen by the importer, patch the importer's binding. `mock.patch("X.Y", fake)` does NOTHING useful for importer. Same shape as the subtle import-binding traps in the Cycle 15 `OrchestratorResult.error` work.
 - **Per-cycle shape is converging.** Every recent security cycle (26, 27, 28, 30) has the same 3-test structure: functional sweep of malicious inputs, dev-diagnosability gate, static grep audit. Essentially a template. Could lift into a shared helper — the YAGNI bar says wait for a 4th, but this IS the 4th. Next same-shape cycle, extract.
 - **humanize_error with `context=...` is the right default, not context=None.** context=None returns pattern-matched copy IF the raw string matches a known network/auth/timeout keyword. If it doesn't match, raw is silently discarded and you get generic fallback. Curated context is always-on, deterministic, user-tested.
+
+---
+
+## Cycle 31 — Stage 2.1: schema.sql drift resolved + drift-detection test
+
+**Target:** Stage 2.1 from fix-roadmap. `storyengine/schema.sql` is documented as the canonical source of truth — "what the DB looks like after all migrations have run." In reality, every time a new migration adds a table, schema.sql has to be hand-updated, and that step gets skipped. Over time schema.sql becomes a stale fiction. Fresh installs (new dev machines, CI databases, recovery deploys) use schema.sql and miss the drifted tables entirely.
+
+Ground-truth diff today: 4 tables in migrations, not in schema.sql.
+  - `visual_styles` (migration 010, 2025-vintage)
+  - `style_characters` (migration 010)
+  - `notification_preferences` (migration 031)
+  - `background_tasks` (migration 032)
+
+The roadmap flagged 3 of those. I added the 4th (`background_tasks`) after the diff showed it.
+
+### Changes
+- `storyengine/schema.sql` — +108 lines: 4 `CREATE TABLE` blocks with their indexes, RLS enablement, and policies, inserted before the SEED DATA section. Definitions lifted verbatim from the originating migrations, minus the idempotency (`IF NOT EXISTS`) and the one-shot seed `DO $$` blocks (schema.sql creates fresh empty tables, no seed needed).
+- `storyengine/backend/tests/functional/test_schema_sql_migrations_drift.py` — new, 4 tests
+
+### Tests
+1. `test_schema_sql_and_migrations_dirs_exist` — sanity: both paths exist. If the repo layout changes and schema.sql moves, the test fails with "not at /path" instead of silently passing with an empty diff.
+2. `test_every_migration_table_is_in_schema_sql` — **the gate.** Regex-extracts `CREATE TABLE [IF NOT EXISTS] <name>` from every file in `backend/migrations/*.sql`, same from `schema.sql`, asserts migrations ⊆ schema.sql. Found 18 migration tables, all present. An `ALLOWED_DRIFT` whitelist exists (empty today) for intentional exceptions, so a future genuinely-migration-only table doesn't force-fail.
+3. `test_every_schema_table_came_from_somewhere` — informational counter for bootstrap tables (10 today: assets, bot_activity, competitor_channels, memberships, scripts, stage_transitions, tenants, title_tests, + 2 more). These exist in schema.sql but not in any migration — they predate the migrations system. The test logs the count and names but doesn't fail. If someone hand-edits schema.sql to add a table but never writes the migration, the count jumps and it's visible in CI output.
+4. `test_the_four_backfilled_tables_are_present` — explicit positive check for Cycle 31's additions. Redundant with (2) but gives a clearer failure message if one of the 4 gets lost in a future merge.
+
+### Verification
+- 4/4 new tests green locally
+- Regression: 30/30 tests across 6 other suites green (discovery-no-leak, discovery-status, supabase-adapter, vault, email, schema-drift)
+- No VPS code change needed — schema.sql affects fresh installs only, migrations 031+032 already applied on prod
+- Deploy step runs the test on VPS to confirm the check behaves identically in the production Python environment
+
+### Honest gaps
+- **schema.sql is still drift-capable in the REVERSE direction.** If someone writes an ALTER TABLE migration (add column, change type, drop column), the migrations folder is authoritative but schema.sql's `CREATE TABLE` block is not updated. Test only compares table NAMES, not column-level schema. A column drift test would need a real SQL parser or a "start empty DB, apply migrations, compare to `psql < schema.sql`" diff — more infra than this cycle wants to build. Noted for a future cycle.
+- **`ALLOWED_DRIFT` is a soft escape hatch.** If someone wants to skip the gate for a table (legitimate or not), they just add the name to the whitelist and the test passes. No comment requirement, no pr-level review enforced. The honor-system approach is typical for repo hygiene tests — escalating to stricter enforcement (e.g., requiring a commit-message tag) is diminishing returns.
+- **The test catches missing `CREATE TABLE`, not missing `CREATE POLICY` or missing `CREATE INDEX`.** schema.sql could still be missing RLS policies and indexes that exist in migrations — the test doesn't know. I manually copied policies+indexes for the 4 Cycle 31 tables to match, but a future migration that adds an RLS policy to an existing table won't show up as drift.
+- **Bootstrap-table count (10) is printed, not asserted.** If it grows, no one notices unless they read the test output. That's intentional — locking it at 10 would break every legitimate addition of a NEW table to schema.sql that also gets a migration. But it does mean this particular drift shape is unprotected.
+- **schema.sql's `visual_styles` RLS policy uses `auth.uid()`** (Supabase-specific), while most other schema.sql tables use `current_setting('app.tenant_id')::uuid`. I preserved the migration's pattern rather than "harmonizing" — that's scope creep, and it might subtly change the auth behavior of the policy. A future cycle can unify the RLS style if it's confusing maintainers.
+
+### Learned
+- **"Source of truth" is a claim, not a fact.** schema.sql is called the source of truth in repo docs, but the only thing that enforces that claim is a habit ("remember to update schema.sql"). Habits rot. The test written today is what actually moves "source of truth" from aspiration to contract. Every claim-of-truth in a codebase deserves a test, OR an explicit acknowledgement that it's vibes-based.
+- **Ground-truth diff first, plan second.** The roadmap said 3 tables; the diff showed 4. If I'd gone off the roadmap alone, `background_tasks` would have stayed drifted until someone else noticed. Cycle 4 of this series (fix-roadmap ground-truth audit) already taught this lesson at the roadmap level; it applies fractally. Always diff before you trust.
+- **Adding test infra with zero production exposure is a pure win.** This cycle ships ONLY test code + a SQL file that affects future fresh installs. Zero risk to running prod. That's a great candidate shape for ship-while-sleep: high value (schema integrity), zero blast radius. If more of this shape appears in the roadmap, prioritize.
+- **Whitelist-with-empty-default is the right escape-hatch pattern.** Start with an empty `ALLOWED_DRIFT = set()`. Future dev who hits a legitimate exception adds the entry + a comment justifying it; reviewer sees it in the diff; decision is made once, then forgotten. Strict enforcement with no escape hatch invites people to disable the test entirely when they hit a wall. The soft escape hatch keeps the test alive AND usable.
