@@ -899,7 +899,14 @@ CREATE UNIQUE INDEX idx_nmi_tenant_unique ON niche_meta_insights(tenant_id);
 
 ALTER TABLE niche_meta_insights ENABLE ROW LEVEL SECURITY;
 CREATE POLICY niche_meta_insights_tenant_isolation ON niche_meta_insights
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+    OR tenant_id = current_setting('app.tenant_id', true)::uuid
+  );
 
 
 -- =============================================

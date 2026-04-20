@@ -1531,3 +1531,26 @@ Lesson: when auditing schema drift, query `pg_policies` on the live DB first —
 - `pg_policies` confirms only `"Tenant isolation" FOR ALL` (memberships-based) remains on background_tasks
 - VPS: 5/5 Cycle 39 tests green + 5/5 Cycle 38 regression green
 - Task #44 closed
+
+## Cycle 40 — Stage 2.2 follow-up: niche_meta_insights RLS upgrade
+
+**Scope:** The follow-up I flagged at end of Cycle 39 — niche_meta_insights RLS policy was GUC-only, inconsistent with every other tenant-scoped table which uses the combined `(memberships OR GUC)` pattern.
+
+**Why it matters:** GUC-only means an authenticated client session with `app.tenant_id` unset matches NOTHING — same class of bug as the background_tasks one from Cycle 39, just less severe because the table isn't client-read today. Still defense-in-depth: if any future UI starts reading `niche_meta_insights` client-side, they'd get empty without the memberships fallback.
+
+**Fix:**
+- `backend/migrations/044_niche_meta_insights_rls_upgrade.sql` — DROP + CREATE the same-named policy with combined `(memberships OR GUC)` USING clause, explicit `FOR ALL TO authenticated` target.
+- `schema.sql` — updated the matching policy block so schema stays source of truth.
+- Applied to prod via Supabase MCP. `pg_policies` now shows `cmd=ALL`, `roles={authenticated}`, qual = combined pattern.
+
+**Tests:** `test_niche_meta_insights_rls_upgrade.py` — 4/4 local:
+- migration 044 exists
+- migration drops old policy + creates combined (both clauses present, ORed)
+- migration targets `authenticated` role
+- schema.sql policy block has memberships + GUC + FOR ALL TO authenticated
+
+Ship plan: commit + push, VPS pull + run test to mirror, no VPS-side migration step (prod already applied via MCP).
+
+**Still-open Stage 2.2 drift** (won't fix this cycle — keeps scope tight):
+- Several tables use memberships-only (no GUC fallback): assets, bot_activity, channel_profiles, competitor_channels, scripts, stage_transitions, title_tests, videos. Inconsistent with the tables that have BOTH. Low severity — memberships-only is safe for both server and client paths. Worth a consistency pass at some point but not urgent.
+- Migration 015 history: title_insights shipped GUC-only like niche_meta_insights, but prod has the combined pattern — someone already upgraded it. No migration file in the repo records that change. Whoever did it didn't check in the migration. Schema.sql has the combined pattern too, so source of truth matches prod. Leaving alone.
