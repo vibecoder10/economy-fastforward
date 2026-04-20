@@ -66,10 +66,16 @@ _Database source of truth is out of sync. Fix before building new features._
 ## Stage 3: Wiring Gaps
 _Features that exist in parts but aren't fully connected end-to-end._
 
-### 3.1 Suggest-Titles Not in Create Video Flow
-- **What:** Backend `POST /api/videos/suggest-titles` exists and works. Frontend has `TitleOption[]` type. But the create-video UI does NOT have a "suggest titles" button — titles only appear in the discovery ideas modal.
-- **Fix:** Add title suggestion step to the create-video flow: user enters topic → clicks "Suggest Titles" → picks from 3 AI-generated options → pipeline starts.
-- **Files:** `frontend/src/app/pipeline/page.tsx` or create flow component, `frontend/src/lib/api.ts` (function exists)
+### 3.1 Suggest-Titles Not in Create Video Flow ✅ SHIPPED (Cycle 41, 2026-04-20)
+- **Status:** Already fully wired end-to-end; Cycle 41 found this on audit and added regression coverage.
+- **Wire-up (6 links):**
+  1. Backend: `backend/routes/videos.py:1006` — `@router.post("/suggest-titles")` / `async def suggest_titles(body: SuggestTitlesRequest, ...)`
+  2. Pydantic: `SuggestTitlesRequest` with `topic: str` field
+  3. Frontend API: `frontend/src/lib/api.ts:1596` — `export const suggestTitles = (topic: string) => ...` + `interface TitleSuggestion`
+  4. Pipeline entry: `frontend/src/components/pipeline/FirstVideoFlow.tsx:39-53` — handler `await suggestTitles(topic); setSuggestions(result.titles)`
+  5. Onboarding entry: `frontend/src/components/onboarding/CreateVideoStep.tsx:116-129` — same `await suggestTitles(...)` pattern
+  6. Mounts: `frontend/src/app/pipeline/page.tsx:1151` renders `<FirstVideoFlow>`; `frontend/src/app/onboarding/page.tsx` renders `<CreateVideoStep>`
+- **Regression lock:** `backend/tests/functional/test_suggest_titles_wire.py` (6 tests) — pins each link. If a refactor cuts the button out, this test flags it.
 
 ### 3.2 Free Trial Lifecycle Incomplete
 - **What:** `trial_ends_at` column exists on `accounts`. Trial countdown badge + banner exist on frontend. Trial warning email is wired (12h check in main.py lifespan). BUT: no cron/job that actually downgrades expired trials to free plan.
