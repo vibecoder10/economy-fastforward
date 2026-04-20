@@ -322,13 +322,25 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
                 return {"success": False, "message": f"OpenAI API error: {resp.status_code}"}
 
             elif name == "kie_ai_api_key":
-                # Test Kie.ai by checking balance/status
+                # Kie.ai uses 200-OK-with-error-body style: the HTTP status is
+                # 200 even on auth failure; the real status lives in JSON `code`.
+                # Endpoint `/api/v1/user/balance` was deprecated (404s) — current
+                # balance endpoint is `/api/v1/chat/credit` which returns
+                # {"code":200,"msg":"success","data":<credit_amount>}.
                 resp = await client.get(
-                    "https://api.kie.ai/api/v1/user/balance",
+                    "https://api.kie.ai/api/v1/chat/credit",
                     headers={"Authorization": f"Bearer {value}"},
                 )
                 if resp.status_code == 200:
-                    return {"success": True, "message": "Kie.ai API key valid"}
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        return {"success": False, "message": "Kie.ai returned unparseable response"}
+                    if body.get("code") == 200:
+                        credit = body.get("data")
+                        suffix = f" (credit: {credit})" if credit is not None else ""
+                        return {"success": True, "message": f"Kie.ai API key valid{suffix}"}
+                    return {"success": False, "message": f"Kie.ai rejected key: {body.get('msg') or 'unknown'}"}
                 return {"success": False, "message": f"Kie.ai API error: {resp.status_code}"}
 
             elif name == "gemini_api_key":
