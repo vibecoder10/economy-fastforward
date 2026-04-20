@@ -3,6 +3,7 @@ import { API_URL, RUBRIC_URL } from "./env";
 // Auto-report failed API calls to RUBRIC dashboard (silent, non-blocking)
 function reportError(path: string, status: number, body: string, method: string) {
   if (typeof window === "undefined") return;
+  if (!RUBRIC_URL) return; // prod: no RUBRIC endpoint configured, skip silently
   const page = window.location.pathname;
   try {
     fetch(`${RUBRIC_URL}/api/activity-log`, {
