@@ -11,11 +11,10 @@ Each stage is a self-contained PRD. Work them in order — later stages depend o
 ## Stage 1: Build Blockers & Security (CRITICAL)
 _Must fix before any other work. These are broken right now._
 
-### 1.1 TypeScript Won't Compile
+### 1.1 TypeScript Won't Compile — ✅ SHIPPED (verified Cycle 37, 2026-04-20)
 - **What:** `npx tsc --noEmit` fails with 19 errors
 - **Root cause:** `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities` declared in package.json but not installed. Pipeline page imports them for drag-drop reordering.
-- **Fix:** `cd storyengine/frontend && npm install` — then verify tsc passes
-- **Also:** 19 type errors in `tests/dashboard-fixes.spec.ts` (missing param types, implicit `any`)
+- **Status:** `npx tsc --noEmit -p tsconfig.json` on `frontend/` is clean (exit 0, no output). `dashboard-fixes.spec.ts` covered by the main tsconfig (`**/*.ts` include) — also passes. VPS build succeeds repeatedly across Cycles 32/35/36 deploys.
 - **Files:** `frontend/src/app/pipeline/page.tsx`, `frontend/package.json`
 
 ### 1.2 SEC-SSE-001 — Cross-Tenant Task Leak (HIGH)
@@ -212,7 +211,17 @@ _Real user-facing issues. These are what people hit when they actually use the p
   3. Improve error messages in `backend/routes/discovery.py` to be user-friendly (e.g., "No competitor videos found — add competitor channels first" instead of raw exception text)
 - **Files:** `frontend/src/lib/api.ts`, `frontend/src/app/discovery/page.tsx`, `frontend/src/app/pipeline/page.tsx`, `backend/routes/discovery.py`
 
-### 6.6 System Prompts — Unusable for Normal Users + Mostly Not Wired
+### 6.6 System Prompts — Unusable for Normal Users + Mostly Not Wired — ✅ SHIPPED (verified Cycle 37, 2026-04-20)
+
+**Status summary:**
+- **Part 1 (wire all 6 prompts into pipeline):** shipped Cycle 7. `pipeline_executor.py:452 _load_prompt_overrides` maps all 6 tenant_prompt_defaults keys (script, thumbnail, video_motion, sound_curation, sound_generation, research) onto `self._pipeline` attrs with per-video > tenant > None priority. Pinned by `test_prompt_override_wiring.py` (runtime + static bot-consumer audit).
+- **Part 2 (/api/system-prompts/generate endpoint):** shipped. `routes/system_prompts.py:92 @router.post("/generate")` — accepts style_description + channel fields, builds a meta-prompt with all 6 default templates, calls Claude, returns all 6 generated prompts. Pinned by `test_system_prompts_generate.py` (Cycle 37) — 7 source-audit tests: route registered, PROMPT_KEYS matches pipeline PROMPT_MAP, meta-prompt covers all 6, vault key lookup, 400 on missing key, cross-file key consistency.
+- **Part 3 (redesigned UI):** shipped. `frontend/src/app/system-prompts/page.tsx` has the style-description-first design with `generateSystemPrompts` call, pre-fill from channel profile, summary of generated output, and the 6 per-prompt editors collapsed as "Advanced."
+
+Original roadmap text retained below for historical context.
+
+---
+
 - **What:** Two compounding problems:
   1. **Most prompts aren't wired to the pipeline.** Only `video_motion_system_prompt` is actually used during video generation (in `pipeline_executor.py`). The other 5 prompts (script, thumbnail, sound curation, sound generation, research) are stored but NEVER passed to the pipeline. Users can edit them all day — their videos won't change.
   2. **The UI assumes expert-level prompt engineering.** Users see 6 collapsed accordions, each hiding a 1000-3000 word wall of jargon ("verb-first motion design", "emotional motion dictionary", "STRUCTURAL RATIO (NON-NEGOTIABLE)"). No guidance, no examples, no explanation of what each prompt does or why you'd change it. A new user would be completely lost.
