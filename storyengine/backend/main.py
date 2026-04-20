@@ -168,10 +168,16 @@ async def _auto_analyze_competitor_titles():
 async def _auto_scrape_competitors():
     """Background task: scrape competitor channels daily.
 
-    Only runs for tenants with autopilot ENABLED.
-    Uses the configurable videos_per_scrape setting from autopilot_config.
-    Scrapes top-performing videos from competitor channels, extracts
-    transcripts and metadata for the learning system.
+    Cycle 34 (Stage 6.4 #2): removed the autopilot-enabled gate. Any
+    tenant with at least one active competitor_channel row gets a daily
+    scrape — otherwise the competitors tab data goes stale within 24h
+    (a video scraped today is "24 hours old"; tomorrow it's 48h old but
+    we never re-pulled its current view count / VPH). Previously only
+    autopilot-enabled tenants benefited.
+
+    Uses `videos_per_scrape` from autopilot_config if set, else defaults
+    to 10. Tenants with zero active competitor channels are skipped
+    (scraping them would be a no-op + wasted DB round-trip).
     """
     await asyncio.sleep(120)  # Offset from other tasks
     while True:
@@ -179,9 +185,16 @@ async def _auto_scrape_competitors():
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
                 try:
-                    config = await _get_autopilot_config(tenant_id)
-                    if not config.get("enabled"):
+                    # Skip tenants with no competitor channels — scraping
+                    # them has no effect and spams the log.
+                    ch_count_row = await fetch_one(
+                        "SELECT COUNT(*) AS cnt FROM competitor_channels "
+                        "WHERE tenant_id = $1 AND active = true",
+                        tenant_id,
+                    )
+                    if int((ch_count_row or {}).get("cnt", 0) or 0) == 0:
                         continue
+                    config = await _get_autopilot_config(tenant_id)
                     videos_per_scrape = config.get("videos_per_scrape", 10)
                     _update_bg_status(tenant_id, "scrape", is_running=True, last_error=None)
                     from routes.niche import _run_scrape

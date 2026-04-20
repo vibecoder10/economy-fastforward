@@ -1247,3 +1247,46 @@ Final deploy: `e8d2d2cc` built clean, service active, HTTPS /discovery → 200.
 - Whether the SQL actually executes against prod data without errors (the unit-style test doesn't prove this)
 - Whether any downstream consumer of the `/videos` response is sensitive to `hours_old` being a computed float vs the previously-stored (likely rounded) float
 
+
+---
+
+## Cycle 34 — Stage 6.4 sub-fix #2: remove autopilot gate from auto-scrape
+**Date:** 2026-04-20 (local cycle; ship-while-sleep)
+**Status:** ✅ Shipped locally; VPS deploy pending
+**Scope:** Daily competitor scrape now runs for every tenant with ≥1 active channel
+**Effort:** ~15 min
+
+### Problem
+Cycle 33 made `hours_old` dynamic at query time — so a video shows its real current age instead of a frozen snapshot. But the underlying view count / VPH data was still set at scrape time. If scrape never re-runs, a video scraped 3 days ago still shows its Day-0 view count, and the VPH looks artificially low as days pass without new views landing.
+
+`main.py:_auto_scrape_competitors` gated on `autopilot_config.enabled = true`. Autopilot is an explicit user opt-in that very few tenants have on. So for ~99% of users the daily scrape literally never ran, and the competitors tab kept showing stale metrics forever.
+
+### Fix
+Dropped the `if not config.get("enabled"): continue` gate from `_auto_scrape_competitors`. Added a cheap precondition: `SELECT COUNT(*) FROM competitor_channels WHERE tenant_id = $1 AND active = true` → skip if zero, so tenants with no channels configured don't log a no-op.
+
+Deliberately did NOT ungate the other autopilot-gated tasks:
+- `_auto_sync_youtube` — hits YouTube API, subject to tenant quotas and cost considerations
+- `_auto_analyze_competitor_titles` — fires Claude analysis per tenant (paid tokens)
+- `_auto_extract_learnings` — fires Claude analysis per tenant (paid tokens)
+
+Scraping competitor videos via yt-dlp costs us nothing (no API, no tokens), so ungating it is safe. The 3 paid tasks remain opt-in via autopilot — correct default.
+
+### Functional test (`test_auto_scrape_ungated.py`)
+6 tests, source-audit pattern:
+1. **main_py_exists** — sanity
+2. **scrape_no_longer_gates_on_autopilot_enabled** — regex refuses the old `config.get("enabled") → continue` pattern AND refuses the `_is_autopilot_enabled(` helper call (same bug in different clothing)
+3. **scrape_skips_tenants_with_zero_competitor_channels** — positive check that the `competitor_channels WHERE active = true` precondition + `== 0 → continue` exists
+4. **videos_per_scrape_default_preserved** — the `config.get("videos_per_scrape", 10)` default still intact (regression guard)
+5. **other_autopilot_gates_remain_intact** — `_auto_sync_youtube`, `_auto_analyze_competitor_titles`, `_auto_extract_learnings` all still reference `_is_autopilot_enabled` or `config.get("enabled")`. If Cycle 34 accidentally stripped the gate from a paid task, this fails.
+6. **scrape_interval_still_daily** — `asyncio.sleep(86400)` still present; pins the cadence
+
+6/6 pass locally.
+
+### Honest gaps
+- **No live-behavior test.** The test proves the gate is gone and the precondition is there; it does NOT prove the scraper actually runs tomorrow for a non-autopilot tenant. That only verifies once the 24h cron cycle elapses. Acceptable — the alternative (monkey-patch `asyncio.sleep` and run a fake loop iteration) is a flaky integration test shape I don't want to maintain.
+- **First run after deploy takes 2min (sleep 120 offset), then one iteration, then 24h wait.** So the first real "did it work" evidence arrives ~2 min post-restart via log line `[AutoScrape] Tenant <id>: daily scrape complete`. Will check that in deploy logs.
+- **Doesn't add "last_scraped_at" tenant column or similar.** If the scrape takes 10 minutes per tenant and we have 100 tenants, the cron would queue for ~16h — could tail into the next day. Not a problem today (< 10 tenants, < 1 min per tenant). Flag for scale: if tenant count passes ~50 with 10+ channels each, convert to per-tenant jittered scheduling.
+
+### Ship plan
+- `git add` main.py + new test + ship log, commit, push
+- VPS: pull → run functional test → restart backend → watch journalctl for `[AutoScrape]` lines to confirm the loop is running
