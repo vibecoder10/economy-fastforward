@@ -150,7 +150,8 @@ def test_write_boundary_round_trip():
         status_map.map_pipeline_status = lambda s: s
 
         # Seed a real background_tasks row so _set_task_status has something to UPDATE
-        test_video_id = "osiris-audit-" + os.urandom(4).hex()
+        import uuid
+        test_video_id = str(uuid.uuid4())
         conn = await asyncpg.connect(os.environ["DATABASE_URL"])
         try:
             await conn.execute(
