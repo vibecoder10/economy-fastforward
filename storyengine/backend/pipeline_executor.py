@@ -34,6 +34,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
         sys.path.append(bot_path)
 
 from database import fetch_one, fetch_all, execute
+from error_utils import humanize_error
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
 from extraction import extract_grid
@@ -373,11 +374,17 @@ class PipelineExecutor:
             message: Optional status message
             cost: Cost in USD
         """
+        # Humanize at the write boundary so /api/activity never returns
+        # raw str(e) to the UI. ~20 call sites in this file pass
+        # error_msg = str(e) → here — one line covers all of them.
+        safe_message = message
+        if status == "failed" and message:
+            safe_message = humanize_error(message)
         try:
             await execute(
                 """INSERT INTO bot_activity (tenant_id, bot_name, video_id, status, message, cost)
                    VALUES ($1, $2, $3, $4, $5, $6)""",
-                self.tenant_id, bot_name, video_id, status, message, cost,
+                self.tenant_id, bot_name, video_id, status, safe_message, cost,
             )
         except Exception as e:
             print(f"Failed to log activity: {e}")

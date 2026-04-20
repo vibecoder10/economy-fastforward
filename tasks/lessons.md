@@ -2,6 +2,12 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19/20 — Osiris overnight ship-while-sleep (Cycle 10)
+- **Leak surfaces discover each other.** Cycle 8 fixed HTTPException leaks; Cycle 9's honest-gap section named the background-task path; auditing that this cycle uncovered `pipeline_executor._log_activity` (writes to `bot_activity.message`, read by `/api/activity`) as a THIRD independent leak surface. The honest-gap section IS the todo list. Always write it; audit it next cycle.
+- **"Humanize at the funnel" works across multiple funnel types.** HTTPException (outgoing-response funnel), `_set_task_status` (in-memory-dict + DB-write funnel), `_log_activity` (DB-write-read-at-/api/activity funnel). Same one-liner pattern works because `humanize_error` is pure: raw-in, safe-out, side-effect-free except for WARN-level logging. Design helpers to be funnel-friendly — pure, string-in/string-out, no async, no DB.
+- **Static-grep tests are cheap regression guards for write-boundary fixes.** For `_log_activity`, a test that just asserts `humanize_error(message)` appears in `pipeline_executor.py` is enough. If a future refactor deletes the guard, the test fails immediately. Costs one grep, buys permanent protection. Same pattern as Cycle 8's static audit.
+- **Chat-UI JSON fields (`reasoning`, `error`, `message`) are user-facing too.** Easy to miss because they're not in `HTTPException` or `bot_activity` — they're just a `return {}` dict. Audit rule: grep for `return {[^}]*e[^}]*}` in route files and inspect any field whose value is `str(e)` or `f"...{e}..."`.
+
 ## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 9)
 - **Write-boundary humanization beats per-call-site fixes when there's a funnel.** Cycle 8 fixed 11 individual `HTTPException(detail=str(e))` sites; Cycle 9 got wider coverage (~15 `_set_task_status` callers) by humanizing inside `_set_task_status` itself. Rule: find the narrowest point in the error-routing funnel and humanize there. Per-site fixes are fine only when there's no funnel to target.
 - **A well-designed helper travels across leak surfaces.** `humanize_error(err, context=..., fallback=...)` was written for the sync HTTPException path in Cycle 8. It worked as-is for the async `_set_task_status` + `bot_activity` insert paths in Cycle 9 with zero changes. Keep the interface tight (raw-in, friendly-out, log-always) and widen usage before adding parameters.

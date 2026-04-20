@@ -1369,7 +1369,7 @@ async def orchestrate_decide_only(
     except Exception as e:
         return {
             "action": "skip",
-            "reasoning": f"Orchestrator error: {e}",
+            "reasoning": humanize_error(e, context="The orchestrator hit a snag planning your next step"),
             "confidence": 0.0,
         }
 

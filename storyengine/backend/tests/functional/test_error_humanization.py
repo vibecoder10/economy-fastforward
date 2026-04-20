@@ -133,6 +133,21 @@ def test_no_raw_str_e_in_http_exception_detail():
     print(f"✅ test_no_raw_str_e_in_http_exception_detail ({len(CUSTOMER_FACING_ROUTES)} routes clean)")
 
 
+def test_log_activity_humanizes_failure_messages():
+    """pipeline_executor._log_activity must humanize `message` at the write
+    boundary when status=='failed', so /api/activity never returns raw
+    str(e) through the bot_activity.message column.
+    """
+    path = BACKEND_ROOT / "pipeline_executor.py"
+    text = path.read_text()
+    assert "humanize_error(message)" in text, (
+        "pipeline_executor._log_activity is missing humanize_error guard on "
+        "failed-status writes. Without it, ~20 'error_msg = str(e)' call "
+        "sites in this file leak raw exceptions into bot_activity.message."
+    )
+    print("✅ test_log_activity_humanizes_failure_messages")
+
+
 def test_set_task_status_humanizes_failure_errors():
     """Background-task boundary: _set_task_status must humanize error at
     the write boundary so /task-status never returns raw str(e) to the UI.
@@ -188,6 +203,7 @@ def main():
     test_unknown_error_uses_fallback()
     test_raw_error_is_logged()
     test_no_raw_str_e_in_http_exception_detail()
+    test_log_activity_humanizes_failure_messages()
     test_set_task_status_humanizes_failure_errors()
     print("\nAll tests passed.")
 

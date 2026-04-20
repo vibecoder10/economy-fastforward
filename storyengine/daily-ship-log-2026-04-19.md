@@ -310,3 +310,31 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 
 **Next:**
 - Cycle 10 candidates: (a) first E2E customer-style render (needs Ryan), (b) slice 3 voice-learn yt-dlp transcripts, (c) fresh fix-roadmap.md rewrite against ground truth, (d) clean-replacement override semantics, (e) DB-read-boundary audit for any raw `error_message` writers bypassing `_set_task_status`.
+
+## Cycle 10 — 2026-04-20 ~00:10 CT
+**Goal:** complete the error-humanization trilogy. Audit for any remaining leak paths that bypass `_set_task_status` and write raw `str(e)` directly to user-visible DB columns.
+
+**Found (and fixed):**
+- **`pipeline_executor._log_activity`** — third leak funnel, ~20 call sites in `pipeline_executor.py` with `error_msg = str(e); await self._log_activity(bot_name, video_id, "failed", error_msg)`. The written row lands in `bot_activity` table, which `routes/activity.py:/api/activity` reads verbatim and returns as `ActivityEntry.message` to the UI activity feed.
+- **`routes/pipeline.py:/orchestrator/decide`** — `return {"action": "skip", "reasoning": f"Orchestrator error: {e}"}` returned raw exception text in the `reasoning` field, which the chat UI shows directly to the user.
+
+**Shipped:**
+- **Single-point fix in `_log_activity`** — wrap `message` through `humanize_error(message)` when `status == "failed"` before the INSERT. One line covers all ~20 call sites in `pipeline_executor.py`. Same pattern as Cycle 9's `_set_task_status` fix — funnel-write-boundary humanization.
+- **`/orchestrator/decide`** — `reasoning=humanize_error(e, context="The orchestrator hit a snag planning your next step")`. User-facing field now reads as a sentence, not a stack trace.
+
+**Functional tests:**
+- Added `test_log_activity_humanizes_failure_messages` to `test_error_humanization.py` — static check asserts `humanize_error(message)` appears inside `pipeline_executor.py`. If anyone removes the guard, the test fails.
+- Full suite: 10/10 green. Cycle 7 `test_prompt_override_wiring.py` still 6/6 WIRED (spot-checked).
+
+**Honest gaps:**
+- `claude_orchestrator.py:343` still does `error=str(e)` inside `OrchestratorResult` construction on exception. BUT that result flows back to `/orchestrator/decide` and `/orchestrator/execute` in `routes/pipeline.py` — the `/decide` path is now humanized (fixed this cycle); the `/execute` path I haven't audited yet. If `/execute` returns `.error` directly, that's a leak. Flagged for Cycle 11.
+- `print(f"Failed to log activity: {e}")` inside `_log_activity` still uses raw `{e}` — that's a server-log line, not user-facing. Fine.
+- Audit coverage: the static test in Cycle 8 covers the `HTTPException(detail=...)` pattern. Cycles 9 + 10 funnel-write-boundary fixes are proven by runtime tests and a static-grep test for the guard's presence. A tenant-facing end-to-end test (make the backend fail, poll `/api/activity`, assert no "HTTPS" or "Connection" substrings in any row) would be stronger but needs a live backend — Cycle 11+.
+
+**Learned:**
+- **Three leak surfaces, one helper, three cycles.** (1) `HTTPException(detail=...)` synchronous path, (2) `_set_task_status` background-task path, (3) `_log_activity` + `/api/activity` activity-feed path. Each cycle fixed one surface + wrote a test guard. The helper `humanize_error` didn't grow or change — only its reach did.
+- **Leak surfaces discover each other.** Cycle 9's honest gap named the background-task DB path; auditing that path this cycle exposed `_log_activity` as a THIRD independent path. Write down every leak surface in the ship log's honest-gap section — it's the natural todo list for the next cycle.
+- **"Humanize at the funnel" works across 3 different funnels.** `HTTPException` (outgoing response boundary), `_set_task_status` (in-memory dict + DB write), `_log_activity` (DB write → activity feed read). The same one-liner pattern works for all three because `humanize_error` accepts a raw string and returns a safe one — no side effects, no async.
+
+**Next:**
+- Cycle 11 candidates: (a) first E2E customer-style render (needs Ryan), (b) audit `/orchestrator/execute` for OrchestratorResult.error leak, (c) slice 3 voice-learn yt-dlp transcripts, (d) clean-replacement override semantics, (e) fresh fix-roadmap.md rewrite, (f) runtime end-to-end test that proves `/api/activity` never returns a raw-error substring.
