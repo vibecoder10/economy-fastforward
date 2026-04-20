@@ -14,12 +14,30 @@ would deadlock.
 
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import psycopg2
 import psycopg2.extras
+
+
+# Column names interpolated into f-string SQL must match this allowlist.
+# Values come from the FIELD_MAP dicts below (all hand-written constants),
+# so in practice nothing hostile reaches here — but if a future refactor
+# accidentally sources column names from user input, this raises instead
+# of producing a SQL-injection vector.
+_SAFE_COLUMN_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _safe_col(name: str) -> str:
+    """Validate a column name before use in dynamic SQL. Mirrors
+    database.safe_column; this module uses psycopg2 (sync) not asyncpg,
+    hence the local copy to avoid an async-module import."""
+    if not isinstance(name, str) or not _SAFE_COLUMN_RE.match(name):
+        raise ValueError(f"Invalid column name: {name!r}")
+    return name
 
 
 def _get_conn():
@@ -438,7 +456,7 @@ class SupabaseAdapter:
         sets = []
         args = []
         for col, val in columns.items():
-            sets.append(f"{col} = %s")
+            sets.append(f"{_safe_col(col)} = %s")
             args.append(val)
         args.append(record_id)
 
@@ -451,7 +469,7 @@ class SupabaseAdapter:
             for col, val in columns.items():
                 try:
                     _execute(
-                        f"UPDATE videos SET {col} = %s, updated_at = now() WHERE id = %s",
+                        f"UPDATE videos SET {_safe_col(col)} = %s, updated_at = now() WHERE id = %s",
                         (val, record_id),
                     )
                 except Exception:
@@ -553,7 +571,7 @@ class SupabaseAdapter:
             sets = []
             args = []
             for col, val in columns.items():
-                sets.append(f"{col} = %s")
+                sets.append(f"{_safe_col(col)} = %s")
                 args.append(val)
             sets.append("updated_at = now()")
             args.append(record_id)
@@ -723,7 +741,7 @@ class SupabaseAdapter:
             sets = []
             args = []
             for col, val in fields.items():
-                sets.append(f"{col} = %s")
+                sets.append(f"{_safe_col(col)} = %s")
                 args.append(val)
             args.append(record_id)
             _execute(
@@ -900,7 +918,7 @@ class SupabaseAdapter:
             sets = []
             args = []
             for col, val in cols.items():
-                sets.append(f"{col} = %s")
+                sets.append(f"{_safe_col(col)} = %s")
                 args.append(val)
             args.append(record_id)
             _execute(
@@ -996,7 +1014,7 @@ class SupabaseAdapter:
                 sets = []
                 args = []
                 for col, val in columns.items():
-                    sets.append(f"{col} = %s")
+                    sets.append(f"{_safe_col(col)} = %s")
                     args.append(val)
                 sets.append("updated_at = now()")
                 args.append(record_id)
