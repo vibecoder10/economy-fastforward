@@ -976,34 +976,6 @@ CREATE TABLE notification_preferences (
 
 
 -- =============================================
--- BACKGROUND TASKS (migration 032 — persistent pipeline task tracking)
--- =============================================
-
-CREATE TABLE background_tasks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
-    video_id UUID REFERENCES videos(id) ON DELETE SET NULL,
-    task_type TEXT NOT NULL DEFAULT 'pipeline',
-    status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
-    message TEXT,
-    error_message TEXT,
-    started_at TIMESTAMPTZ DEFAULT now(),
-    completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_bg_tasks_tenant ON background_tasks(tenant_id);
-CREATE INDEX idx_bg_tasks_status ON background_tasks(status) WHERE status IN ('pending', 'running');
-CREATE INDEX idx_bg_tasks_video ON background_tasks(video_id, status);
-CREATE INDEX idx_bg_tasks_created_at ON background_tasks(created_at DESC);
-
-ALTER TABLE background_tasks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY bg_tasks_tenant_read ON background_tasks
-    FOR SELECT USING (tenant_id = auth.uid());
-
-
--- =============================================
 -- SEED DATA
 -- =============================================
 

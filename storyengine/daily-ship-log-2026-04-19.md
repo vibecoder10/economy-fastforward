@@ -1493,3 +1493,34 @@ Lesson: when the test path is wrong, rename the helper to match reality before l
 - Stage 2.3 closed — no second index needed for tenant_usage, composite from 024 covers it
 
 Lesson: when the VPS lacks a tool (psql), check what deferred MCPs can do instead — the Supabase MCP was already wired and one call away. Don't waste a cycle installing dev tooling on prod.
+
+## Cycle 39 — Stage 2.2 RLS consolidation (partial)
+
+**Scope:** The roadmap item is "consolidate RLS policies so schema.sql is the single source of truth." Broad scope, so I narrowed to the most concrete drift item and left the rest as follow-up.
+
+**What I found auditing `pg_policies` in prod vs `schema.sql` vs migrations:**
+
+- `background_tasks` shipped with a **broken RLS policy** from migration 032: `CREATE POLICY bg_tasks_tenant_read ... USING (tenant_id = auth.uid())`. That compares a `tenant_id` (UUID on `tenants` table) to `auth.uid()` (the authenticated user's id) — always false in multi-tenant Supabase. The table effectively had no working RLS. The app works today only because the backend uses service_role and bypasses RLS entirely. If any client path ever queries `background_tasks` with an authenticated session, it returns nothing (or if a user_id and tenant_id coincidentally match, potentially the wrong rows). Real bug, not just drift.
+- `schema.sql` had **two** `background_tasks` blocks: first block (~line 856) had the correct memberships-based `"Tenant isolation"` policy, second block (~line 982) duplicated the broken migration-032 version. Drift from the Cycle 38-flagged duplication pattern.
+- Noted but left for follow-up (separate cycle): `niche_meta_insights` policy in prod uses only the `app.tenant_id` GUC path, no memberships fallback — inconsistent with every other tenant table which has BOTH paths OR'd.
+
+**Fix shipped:**
+
+- `backend/migrations/043_background_tasks_rls_fix.sql` — `DROP POLICY IF EXISTS bg_tasks_tenant_read` + `DROP POLICY IF EXISTS "Tenant isolation"` + `CREATE POLICY "Tenant isolation" ... FOR ALL TO authenticated` using the memberships-based pattern.
+- `schema.sql` — removed the duplicate `background_tasks` block (lines 977-1004). One table def, one correct policy, one set of indexes now.
+- Migration applied via Supabase MCP `apply_migration`. Verified prod via `pg_policies`: only the correct `"Tenant isolation"` policy remains, `cmd = ALL`, `qual = tenant_id IN (SELECT m.tenant_id FROM memberships ...)`.
+
+**Tests:** `test_background_tasks_rls_consolidation.py` — 5/5 passing locally:
+- migration 043 file exists
+- migration drops the broken policy + installs the memberships one
+- schema.sql has exactly 1 background_tasks table def (not 2)
+- schema.sql has the memberships policy, NOT the broken `bg_tasks_tenant_read`
+- regression guard: no migration *after* 032 and no edit to schema.sql uses the `tenant_id = auth.uid()` pattern on background_tasks (032 whitelisted as frozen history)
+
+Cycle 38's `test_schema_sql_mirrors_index_in_all_definitions` re-ran green — it was always `>= 1` floor, so the de-dup didn't regress it.
+
+**Ship plan:** commit (migration + schema.sql + test + ship log) → push → VPS pulls (no migration to run on VPS, already applied via MCP) → run new test on VPS → done.
+
+**Follow-up cycle (next Stage 2.2 pass):** reconcile `niche_meta_insights` policy shape with the memberships pattern, and do the full migrations-vs-schema.sql drift audit for every other multi-tenant table. One cycle per cluster of 2-3 policies to keep scope tight.
+
+Lesson: when auditing schema drift, query `pg_policies` on the live DB first — the code answer (migrations, schema.sql) is what *should* be true, prod is what *is* true. The two sometimes disagree in consequential ways.
