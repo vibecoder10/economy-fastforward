@@ -149,40 +149,44 @@ def test_write_boundary_round_trip():
         import status_map  # type: ignore
         status_map.map_pipeline_status = lambda s: s
 
-        # Seed a real background_tasks row so _set_task_status has something to UPDATE
-        import uuid
-        test_video_id = str(uuid.uuid4())
+        # Seed a real background_tasks row so _set_task_status has something to UPDATE.
+        # Schema: tenant_id + video_id both have FKs; video_id is nullable.
+        # Strategy: borrow an existing (tenant, video) pair, update it in place,
+        # delete the synthetic row. The update key is video_id so we need a real one.
         conn = await asyncpg.connect(os.environ["DATABASE_URL"])
+        synthetic_task_id = None
         try:
-            # tenant_id has a FK to tenants.id — borrow any existing tenant for the ephemeral row
-            existing_tenant = await conn.fetchval("SELECT id FROM tenants LIMIT 1")
-            if existing_tenant is None:
-                raise _Skip("no tenants row exists — round-trip needs a valid tenant FK")
-            await conn.execute(
+            pair = await conn.fetchrow(
+                "SELECT tenant_id, id AS video_id FROM videos LIMIT 1"
+            )
+            if pair is None:
+                raise _Skip("no videos row exists — round-trip needs tenant+video FKs")
+            synthetic_task_id = await conn.fetchval(
                 """INSERT INTO background_tasks
                    (tenant_id, video_id, task_type, status, started_at)
-                   VALUES ($1, $2, 'test', 'running', NOW())""",
-                existing_tenant, test_video_id,
+                   VALUES ($1, $2, 'osiris-audit', 'running', NOW())
+                   RETURNING id""",
+                pair["tenant_id"], pair["video_id"],
             )
             from routes.pipeline import _set_task_status
             raw = "HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded with url: /api/task"
-            await _set_task_status(test_video_id, "failed", raw, duration_ms=42)
-            row = await conn.fetchrow(
-                "SELECT error_message FROM background_tasks WHERE video_id = $1",
-                test_video_id,
+            await _set_task_status(str(pair["video_id"]), "failed", raw, duration_ms=42)
+            stored = await conn.fetchval(
+                "SELECT error_message FROM background_tasks WHERE id = $1",
+                synthetic_task_id,
             )
-            stored = row["error_message"] if row else None
-            assert stored is not None, "row not written"
+            assert stored is not None, "row not written — check _set_task_status UPDATE predicate"
             for pattern in RAW_ERROR_PATTERNS:
                 assert pattern not in stored, (
                     f"raw pattern {pattern!r} survived humanize_error → DB round trip. "
                     f"stored={stored!r}"
                 )
         finally:
-            await conn.execute(
-                "DELETE FROM background_tasks WHERE video_id = $1",
-                test_video_id,
-            )
+            if synthetic_task_id is not None:
+                await conn.execute(
+                    "DELETE FROM background_tasks WHERE id = $1",
+                    synthetic_task_id,
+                )
             await conn.close()
 
     asyncio.run(_run())
