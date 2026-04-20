@@ -565,3 +565,55 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **Error-body shape is API-specific and worth reading.** ElevenLabs distinguishes `invalid_api_key` (bad key) from `missing_permissions` (good key, wrong scope). Surfacing both gives the user an actionable path ("regenerate with TTS access") instead of a dead-end ("unknown error"). General principle: when an upstream returns structured error JSON, parse it. HTTP status alone almost always loses information.
 - **The probe-then-fix pattern is now a reusable playbook.** For any validator bug: (a) probe the upstream directly with the real saved key, (b) compare the 200/4xx/body shape against what the validator expects, (c) fix the validator to match current API reality. Sub-10-minute cycle when SSH+venv is ready. That's four validators I could audit in an hour if Ryan's other keys were saved.
 - **Customer reports are imprecise — verify scope before broad fixes.** Ryan said "it's happening to both anthropic and eleven labs" but only ElevenLabs was actually in the vault. If I'd preemptively rewritten the Anthropic validator based on the Telegram message alone, I'd have shipped an unverified change for a code path that might not even have been broken. Always probe first, even when the user's description sounds unambiguous.
+
+## Cycle 17 — 2026-04-19 ~21:55 CT — TOOLS step UI fix
+**Trigger:** Ryan Telegram 02:52 UTC: "looking for 4 keys on the page but there is only 3 to enter, no continue button after, I needed to hit skip for now after those are in to enter the site."
+
+**Investigation:** The TOOLS step in onboarding renders one card per PROVIDER via `groupByProvider()` — but the progress counter and Continue button's disabled check were counting raw keys (`keys.length`). ElevenLabs groups `elevenlabs_api_key` + `elevenlabs_voice_id` into one card but carries two backend keys. So `total = 4` while visual cards = 3, which meant even a fully-connected user would see "3 of 4 connected" and a hard-gated disabled button. `Skip for now` was the only escape hatch.
+
+**Fix — `frontend/src/components/onboarding/ApiKeysStep.tsx:442-551`:**
+- Derive `providerCount` from `renderItems` (visual cards) instead of raw keys.
+- `providersConnected` = cards where every owned key is configured.
+- Counter: `{providersConnected} of {providerCount} connected`. Button label: `Connect all ${providerCount} tools to continue`, disabled on `!allConnected`. Same fix everywhere the count gets displayed.
+
+**Ship:**
+- `npx tsc --noEmit` clean.
+- Committed `946ea7aa`, pushed, VPS pulled, `npm run build`, `storyengine-frontend` restart.
+- Playwright verification on live prod: logged in as Ryan's tenant, hit /onboarding?step=1 → counter reads "2 of 3 connected", button reads "Connect all 3 tools to continue" with disabled state. Three cards visible (ElevenLabs, Anthropic, Kie.ai), two showing "Connected" pill, ElevenLabs showing "Configure" — counter and gate are now fully coherent with what's on screen.
+
+**Honest gaps:**
+- No automated regression. If someone adds a second multi-key provider later (e.g. a YouTube OAuth pair that appears in the TOOLS step instead of its own step), the count math is still correct (it's data-driven), but there's no test proving that.
+- ElevenLabs multi-key card still renders a single "Configure" button that modals both fields — UX-fine but the card doesn't visually tell the user "this one has 2 sub-fields." Not a blocker but could explain some "I entered my key but it says not-connected" reports if they miss the voice-id prompt in the modal.
+
+**Learned:**
+- **When UI counts don't match what users see on-screen, the counter is what moves.** The backend key list (4) is correct and authoritative. The visual list (3) is correct because grouping is real. The bug was in the derivation step that tried to use one as if it were the other. General rule: progress UI should count the thing the user is literally looking at, not the internal data model underneath.
+- **Hard-gated "Continue" buttons need an escape hatch AND coherent progress feedback.** `Skip for now` saved Ryan from a broken counter but the experience of being force-skipped past the only-thing-that-works-is-skip is terrible. Fixing the counter restores the normal "do the thing → gate opens" rhythm.
+
+## Cycle 18 — 2026-04-19 ~22:40 CT — Dashboard WelcomeQuest (the "huge win")
+**Trigger:** Same Ryan Telegram 02:52 UTC: "Now that I am in there is no onboarding. IThis is the step that needs to be carefully guided. like logging competitors to train your ai etc... right now you get dumped into a big platform with no guidance... please nail this onboarding. that would be a huge win."
+
+**Design decision:** Don't lengthen the linear onboarding (it's already 5 steps, Ryan is skipping). Instead add a dismissible "Welcome Quest" panel on the dashboard that sits above the analytics widgets and walks new users through three cards: (1) add competitors, (2) distill first insight, (3) create first video. Shows only while `video_count === 0`. Cards can be completed out-of-order; each has its own CTA routing to the existing `/competitors` or `/pipeline` flows (no new destinations needed).
+
+**Backend — `routes/dashboard.py:226-280`:**
+- Extended `/api/dashboard/onboarding/status` with a new `first_run` block carrying `competitor_count`, `distilled_count`, `video_count`. Cheap COUNT(*) against `competitor_channels`, `content_intelligence`, `videos` scoped by tenant_id. Wrapped in try/except so missing tables on a fresh schema coerce to zero instead of 500ing the whole onboarding endpoint.
+
+**Frontend:**
+- New component `components/dashboard/welcome-quest.tsx` (232 lines). Full-width gradient panel with three numbered cards, Check-icon done state per card, dismiss-X in the corner, localStorage flag `welcome_quest_dismissed`. Styled to match the existing GlassCard + gradient banner language.
+- `lib/api.ts` — added `first_run` shape to `OnboardingStatus` type.
+- `app/dashboard/page.tsx` — imports WelcomeQuest, renders it right below FinishSetupBanner, only when `onboarding.first_run` is present.
+
+**Ship:**
+- `npx tsc --noEmit` clean.
+- Committed `68b9ee9d`, pushed, VPS pulled, `npm run build`, backend + frontend both restarted.
+- Playwright on live prod: fresh account hits /dashboard → WelcomeQuest renders "0 of 3 done" with all three cards in their unlocked/active state. Dismiss-X persists to localStorage and removes the panel. Screenshot captured.
+
+**Honest gaps:**
+- **No free-tier intelligence teaser.** Ryan's strategic question ("do we want to allow an inital intelligence pass for these people to get hooked immediately") is Task #24 — a strategy memo is being written alongside this cycle. Today's implementation lets the user run a distillation *using their own Anthropic+Kie credit*, which costs them pennies but is "free" from StoryEngine's perspective. The component is pre-wired for a free-pass swap when that decision lands.
+- **`/competitors` landing UX is unchanged.** Arriving from the Quest, a new user lands on a mostly-empty page with an Add Channel URL input near the top. Discoverable but not guided. If retention data shows drop-off here, add a `?welcome=1` highlight ring around the input field.
+- **Quest dismiss is permanent per browser.** No "show me the quest again" toggle in Settings. Deliberate for now — the panel is targeted at first-run users, and the videos_count>0 check is the natural auto-retire signal. If users ever report wanting it back, add the toggle.
+- **No automated test.** Manual Playwright verification only. A spec file under `frontend/tests/welcome-quest.spec.ts` wrapping the fresh-account → dismiss → navigate flow would lock the behavior.
+
+**Learned:**
+- **"No guidance after onboarding" is not a bug — it's a missing product surface.** The fix wasn't a patch, it was a net-new component. Framed that way, scope is clearer (what the panel IS, where it lives, when it shows/hides) instead of trying to extend the linear onboarding wizard.
+- **Data-driven quest state is worth the backend extension.** Three new COUNT(*)s on the existing onboarding endpoint is cheap and means the component stays stateless client-side — done flags come from the server, dismissal is local. Next quest (e.g. "connect YouTube for auto-upload") drops into the same pattern.
+- **BYOK + dogfood = no-paywall teaser for free.** Because the tenant has already entered their own Anthropic+Kie keys during onboarding, the intelligence-distillation teaser in step 2 is genuinely free to StoryEngine without any billing work. This is a real moat — BYOK lets product decisions that would otherwise require paywall architecture (a free first-pass hook) ship in hours instead of days.
