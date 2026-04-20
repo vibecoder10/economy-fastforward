@@ -1590,3 +1590,33 @@ Matches the Cycle 37 / Stage 6.6 pattern — roadmap was stale against shipped c
 - VPS pulled and ran test: all 6 green
 - Task #46 closed
 - Stage 3.1 off the queue
+
+---
+
+## Cycle 42 — Stage 3.2 trial-downgrade cron (already shipped; added regression lock + closed schema drift)
+
+**Scope:** Stage 3.2 in fix-roadmap claimed "no cron/job that downgrades expired trials." Audit it.
+
+**Finding:** Cron is already fully shipped (Task #7 marked complete weeks ago). Seven-link wire-up is live:
+1. Migration `041_trial_expired_handled.sql` — adds `trial_expired_handled BOOLEAN` + partial index on `(trial_ends_at) WHERE trial_expired_handled IS NOT TRUE AND stripe_subscription_id IS NULL`
+2. `email_tasks.check_trial_expired()` — selects `trial_ends_at < now() AND trial_expired_handled IS NOT TRUE AND stripe_subscription_id IS NULL`
+3. UPDATE flips `plan='starter'` + `trial_expired_handled=TRUE` atomically
+4. `email_service.send_trial_expired(email, display_name)` — notice email
+5. `main._auto_check_trial_expired()` — while-True loop with `asyncio.sleep(21600)` (6h cadence)
+6. Lifespan startup: `asyncio.create_task(_auto_check_trial_expired())`
+7. Lifespan shutdown: `trial_expired_task.cancel()`
+
+**Drift caught:** schema.sql accounts block was missing `trial_warning_sent` AND `trial_expired_handled` columns (in migrations 029 + 041 but not in schema.sql). Fresh DB init from schema.sql alone would have broken the cron's UPDATE.
+
+**Fix:**
+- `schema.sql` — added both columns + the partial index to match migration 041.
+- `backend/tests/functional/test_trial_downgrade_wire.py` — 7-test source-audit. Specifically guards `stripe_subscription_id IS NULL` filter — losing it would downgrade paying customers (revenue bomb). Also checks atomic plan+handled UPDATE, 6h sleep cadence, lifespan start+cancel.
+- `fix-roadmap.md` — Stage 3.2 marked ✅ SHIPPED with all 7 file:line references.
+
+**Tests:** 7/7 local, 7/7 VPS. Cycle 41 regression: 6/6 VPS (still green).
+
+### Cycle 42 — SHIPPED ✅
+- Commit 9aabe8b0 pushed
+- VPS pulled and ran test: 7/7 green + Cycle 41 6/6 still green
+- Task #47 closed
+- Stage 3.2 off the queue
