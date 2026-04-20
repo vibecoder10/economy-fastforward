@@ -732,3 +732,31 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **ntfy.sh is a genuinely great primitive for solo-founder ops monitoring.** Zero auth, zero cost, one curl, push-to-phone. For anything that doesn't expose secrets in its body, this beats fancier alerting.
 - **Testing OnFailure= chains with `systemd-run --property=OnFailure=...` is a great debugging pattern.** Lets you verify the plumbing without actually breaking the real service, much cheaper than cratering the canary and waiting for the alert to fire.
 - **The failed-direct-invocation test delivers a false success signal.** Running the alert manually sends the CURRENT journal state to ntfy.sh — which is the last SUCCESS run because the canary actually passed. When I saw "5/5 intact" show up in the notification, I had to check twice that the alert pipeline was firing correctly (it was — it's just pushing the latest available journal tail). If I hadn't also tested the OnFailure chain with `/bin/false`, I might have shipped a working alert infrastructure that I falsely thought was broken.
+
+## Cycle 23 — 2026-04-20 ~04:00 UTC — Kill the silent free-plan 429 spam
+**Trigger:** Caught earlier in Playwright console logs during Cycle 18 verification: 429 errors firing on `/api/review/pending`. Noted as "unrelated rate-limit errors from stale polling" and parked. Picking it up now — a new free-plan user hitting 429s in their F12 console is a quiet credibility leak even if nothing visibly breaks.
+
+**Investigation:**
+- Counted poll fires per minute on `/dashboard` with a fresh account. Multiple components mount queries with 30–60s intervals (pending-review-count x2, subscription x2, health) — ~5/min baseline.
+- But the real issue: `/app/providers.tsx:15` sets `defaultOptions.queries.refetchInterval: 60_000`. This applies to **every single useQuery call in the app** unless explicitly overridden — including ones that don't need polling at all (static reference lookups, single-load settings fetches, etc.).
+- On a page with 10+ background queries mounted (which dashboard is), that's 10+ extra requests/min beyond the explicit pollers.
+- Free plan rate limit: 15 req/min (`backend/rate_limit.py:19`). Hair-trigger — almost any interaction pushes you over.
+
+**Fix — `frontend/src/app/providers.tsx`:**
+- Flipped global `refetchInterval` from `60_000` → `false`. Polling is now opt-in.
+- Explicit pollers (scroll `Grep refetchInterval`) are unaffected — they already declare their own cadence: health 60s, pending-review-count 30s, task-status 3s, discovery 5s, activity 10s, videos 15s, etc. Each of those was chosen deliberately and stays.
+- Added explicit `refetchOnWindowFocus: true` and `refetchOnReconnect: true` to preserve user-driven freshness — tab focus + network reconnect still trigger refetch, just not a silent 60s heartbeat.
+
+**Ship:**
+- `npx tsc --noEmit` clean.
+- Committed `301c81b1`, pushed, VPS pulled, `npm run build` clean, `storyengine-frontend` restarted → active.
+
+**Honest gaps:**
+- **No quantitative before/after measurement.** I didn't count requests/min in prod before the fix — I inferred the cause from reading the React Query defaults + the 429s I'd seen. If the 429 spam comes from something else too (e.g. a buggy explicit poller), this fix alone won't silence it. Mitigation: next time I see 429s in console logs on prod, open the Network tab on dashboard for 2 min and actually count, rather than shipping again.
+- **Queries that relied on the implicit 60s re-fetch for user-facing freshness are now stale until next mount/focus/reconnect.** If any component shows "live-ish" data without declaring refetchInterval, it won't auto-update. React Query's defaults (cache-then-revalidate on mount/focus) means any user who tabs away and back gets fresh data, so the *functional* impact is small, but the "number ticking up in the background" effect disappears for anyone relying on it. Haven't audited every useQuery to find such cases.
+- **Free-plan limit is still 15/min.** That's a tight limit. With polling off, a single dashboard page + sidebar mounts ~5 pollers (2x pending-review @ 30s = 4/min, health @ 60s = 1/min, subscription @ 60s = 1/min). Fine for now but means any new background poller needs to think about rate-limit budget.
+
+**Learned:**
+- **Opt-in polling is the right React Query default for a rate-limited API.** The library ships with `refetchInterval: false` by default for exactly this reason; the app overrode it to be "helpful" and created a per-user rate-storm instead. Don't override library defaults without understanding why the default is the default.
+- **Free-plan limits should be friendlier to the defaults.** 15/min is aggressive when even a reasonable-looking UI wants to poll 3-5 endpoints at 10-60s cadences. Either bump free to 30/min (aligns with starter, which costs the same if they're not paying anyway), OR keep 15 and whitelist a handful of lightweight meta-endpoints (health, subscription, pending-review-count) from the counter. Not done in this cycle but worth revisiting — Ryan's call.
+- **"Console 429 errors" from an earlier cycle was a real symptom I deferred with 'not blocking'.** The instinct was right (the feature I was shipping wasn't affected) but the problem had been latent since whenever the `refetchInterval: 60_000` default landed. Worth a one-line deferred-debt entry in a backlog next time so it doesn't sit for multiple cycles.
