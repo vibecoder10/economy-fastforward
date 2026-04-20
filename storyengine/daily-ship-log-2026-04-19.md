@@ -1562,3 +1562,31 @@ Ship plan: commit + push, VPS pull + run test to mirror, no VPS-side migration s
 - VPS: 4/4 Cycle 40 tests + 5/5 Cycle 39 regression green
 - Task #45 closed
 - Stage 2.2 is effectively closed for the high-signal drift — remaining inconsistency (memberships-only vs combined on ~8 tables) noted but not urgent
+
+---
+
+## Cycle 41 — Stage 3.1 suggest-titles (already shipped; added regression lock)
+
+**Scope:** Stage 3.1 in fix-roadmap.md claimed "create-video UI does NOT have a 'suggest titles' button." Audit the claim and either ship the wire-up or reconcile the roadmap.
+
+**Finding:** Already fully shipped. Six-link wire-up is live end-to-end:
+1. Backend: `backend/routes/videos.py:1006` — `@router.post("/suggest-titles") async def suggest_titles(body: SuggestTitlesRequest, ...)`
+2. Pydantic: `SuggestTitlesRequest` with `topic: str`
+3. Frontend API: `frontend/src/lib/api.ts:1596` — `export const suggestTitles = (topic: string) => fetchApi<{ titles: TitleSuggestion[] }>("/api/videos/suggest-titles", { method: "POST", body: JSON.stringify({ topic }) })` + `interface TitleSuggestion`
+4. Pipeline entry: `frontend/src/components/pipeline/FirstVideoFlow.tsx:39-53` — handler awaits suggestTitles, calls setSuggestions(result.titles)
+5. Onboarding entry: `frontend/src/components/onboarding/CreateVideoStep.tsx:116-129` — same pattern
+6. Mounts: `pipeline/page.tsx:1151` renders `<FirstVideoFlow>`; `onboarding/page.tsx` renders `<CreateVideoStep>`
+
+Matches the Cycle 37 / Stage 6.6 pattern — roadmap was stale against shipped code. Pivoted to regression coverage.
+
+**Fix:**
+- `backend/tests/functional/test_suggest_titles_wire.py` — 6 source-audit tests pinning each link. Regex-tight so if a refactor drops any of: the endpoint decorator, the `topic: str` field, the exported `suggestTitles` function, the `TitleSuggestion` type, `await suggestTitles(...)` in either component, the `<FirstVideoFlow>` or `<CreateVideoStep>` mount in their respective pages — this test flags it.
+- `fix-roadmap.md` — Stage 3.1 marked ✅ SHIPPED with all 6 file:line references so the next audit doesn't redo the discovery.
+
+**Tests:** 6/6 local, 6/6 VPS.
+
+### Cycle 41 — SHIPPED ✅
+- Commit 0eae0ced pushed
+- VPS pulled and ran test: all 6 green
+- Task #46 closed
+- Stage 3.1 off the queue
