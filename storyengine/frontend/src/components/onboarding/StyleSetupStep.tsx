@@ -18,6 +18,8 @@ interface StyleSetupStepProps {
   summary: string | null;
   error: string | null;
   prefilledFromVoice?: boolean;
+  voiceSourceCount?: number;
+  voiceTranscriptCount?: number;
 }
 
 export function StyleSetupStep({
@@ -31,7 +33,25 @@ export function StyleSetupStep({
   summary,
   error,
   prefilledFromVoice = false,
+  voiceSourceCount = 0,
+  voiceTranscriptCount = 0,
 }: StyleSetupStepProps) {
+  // Signal-strength banner copy. Transcripts >> descriptions because we're
+  // learning voice from actual spoken content instead of SEO blurbs.
+  const voiceSignal =
+    voiceTranscriptCount > 0
+      ? `We drafted this from ${voiceTranscriptCount} of your top video transcript${
+          voiceTranscriptCount === 1 ? "" : "s"
+        }${
+          voiceTranscriptCount < voiceSourceCount
+            ? ` (+${voiceSourceCount - voiceTranscriptCount} from descriptions)`
+            : ""
+        }.`
+      : voiceSourceCount > 0
+        ? `We drafted this from ${voiceSourceCount} of your top video description${
+            voiceSourceCount === 1 ? "" : "s"
+          }. Add captions to your videos for sharper voice learning.`
+        : "We drafted this from your top YouTube videos.";
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -66,7 +86,7 @@ export function StyleSetupStep({
           >
             <Sparkles size={14} className="flex-shrink-0 mt-0.5" />
             <span>
-              We drafted this from your top YouTube videos. Edit anything that doesn&apos;t sound right, then generate.
+              {voiceSignal} Edit anything that doesn&apos;t sound right, then generate.
             </span>
           </div>
         )}

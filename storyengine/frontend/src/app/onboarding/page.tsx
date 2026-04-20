@@ -89,6 +89,7 @@ function OnboardingContent() {
   const [voiceLearning, setVoiceLearning] = useState(false);
   const [voiceLearned, setVoiceLearned] = useState(false);
   const [voiceSourceCount, setVoiceSourceCount] = useState<number>(0);
+  const [voiceTranscriptCount, setVoiceTranscriptCount] = useState<number>(0);
 
   // API keys state
   const [apiKeys, setApiKeys] = useState<
@@ -265,6 +266,7 @@ function OnboardingContent() {
       if (result.style_description) {
         setStyleDescription(result.style_description);
         setVoiceSourceCount(result.source_videos?.length ?? 0);
+        setVoiceTranscriptCount(result.transcript_count ?? 0);
         setVoiceLearned(true);
       }
     } catch {
@@ -477,6 +479,8 @@ function OnboardingContent() {
               summary={styleSummary}
               error={styleError}
               prefilledFromVoice={voiceLearned}
+              voiceSourceCount={voiceSourceCount}
+              voiceTranscriptCount={voiceTranscriptCount}
             />
           )}
 

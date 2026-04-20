@@ -1567,12 +1567,14 @@ export interface VoiceLearnSource {
   video_id: string;
   title: string;
   views: number;
+  has_transcript?: boolean;
 }
 
 export const learnVoiceFromYouTube = () =>
   fetchApi<{
     status: string;
     style_description: string;
+    transcript_count?: number;
     source_videos: VoiceLearnSource[];
   }>("/api/youtube/learn-voice", { method: "POST" });
 
