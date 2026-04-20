@@ -25,9 +25,12 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+
+class _Skip(Exception):
+    """Raised when DATABASE_URL is missing — test is a no-op in that env."""
+    pass
 
 
 RAW_ERROR_PATTERNS = [
@@ -53,7 +56,7 @@ RAW_ERROR_PATTERNS = [
 def _require_db_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
-        pytest.skip("DATABASE_URL not set — this audit runs on the VPS/CI")
+        raise _Skip("DATABASE_URL not set — this audit runs on the VPS/CI")
     return url
 
 
@@ -182,7 +185,23 @@ def test_write_boundary_round_trip():
 
 
 if __name__ == "__main__":
-    test_bot_activity_no_raw_error_substrings()
-    test_background_tasks_no_raw_error_substrings()
-    test_write_boundary_round_trip()
-    print("\n✅ All activity-feed raw-error audits passed")
+    failures = 0
+    for fn in (
+        test_bot_activity_no_raw_error_substrings,
+        test_background_tasks_no_raw_error_substrings,
+        test_write_boundary_round_trip,
+    ):
+        try:
+            fn()
+        except _Skip as e:
+            print(f"⏭️  {fn.__name__} skipped: {e}")
+        except AssertionError as e:
+            print(f"❌ {fn.__name__} FAILED: {e}")
+            failures += 1
+        except Exception as e:
+            print(f"❌ {fn.__name__} ERRORED: {type(e).__name__}: {e}")
+            failures += 1
+    if failures:
+        print(f"\n❌ {failures} audit(s) failed")
+        sys.exit(1)
+    print("\n✅ All activity-feed raw-error audits passed (or skipped cleanly)")
