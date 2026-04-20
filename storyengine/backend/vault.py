@@ -19,6 +19,7 @@ Usage:
 import os
 from typing import Optional
 from database import fetch_all, fetch_one, execute
+from error_utils import humanize_error
 
 
 # Known API key names and their environment variable equivalents
@@ -470,4 +471,7 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
                 return {"success": None, "message": f"No test implemented for {name}"}
 
     except Exception as e:
-        return {"success": False, "message": f"Connection error: {str(e)}"}
+        # Never echo raw str(e): leaks httpx internals, DNS hostnames, TLS paths
+        # into the UI via test-key responses. humanize_error logs the raw error
+        # for devs at WARNING level so diagnosis stays possible.
+        return {"success": False, "message": humanize_error(e, context="Connection failed while testing key")}
