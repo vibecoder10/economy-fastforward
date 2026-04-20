@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
 from logging_config import logger, RequestLoggingMiddleware
 from rate_limit import RateLimitMiddleware
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks
 
@@ -444,6 +444,7 @@ app.include_router(visual_styles.router)
 app.include_router(discovery.router)
 app.include_router(learning_extraction.router)
 app.include_router(youtube_sync.router)
+app.include_router(youtube_channel.router)
 app.include_router(analytics.router)
 app.include_router(profile.router)
 app.include_router(google_auth.router)

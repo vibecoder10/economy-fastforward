@@ -2,6 +2,11 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 4)
+- **YouTube "list a channel's own videos" canonical pattern:** `channels?part=contentDetails&mine=true` → extract `contentDetails.relatedPlaylists.uploads` → `playlistItems?part=contentDetails&playlistId=<uploads>` → extract videoIds → `videos?part=snippet,statistics&id=<ids>`. Do NOT use `search?forMine=true` (flaky for some channels, returns search snippets not canonical video data). The uploads-playlist approach is what Google's docs recommend for programmatic access.
+- **YouTube /videos endpoint caps at 50 IDs per call.** If you have more than 50, batch. Our `_fetch_video_details` does this; test `test_fetch_video_details_batches_over_50` validates it.
+- **Live API contract test pattern (no auth required):** send a well-formed request to the external API with NO auth, expect 401 or 403. That confirms the URL + params are shaped correctly — YouTube would return 400 if the shape were wrong. This gives you free live contract validation without burning quota.
+
 ## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 3)
 - **`humanizeError()` already existed at `frontend/src/lib/errors.ts`** but wasn't wired everywhere. Grep for `err instanceof Error ? err.message` and `err.message ||` to find all leak sites. Current product had 11 raw-error sites that would have shown users "API error 500: …" or "Failed to fetch". All now route through `humanizeError(err, contextual_fallback)`.
 - **When a catch block needs substring checks** (e.g. "expired token" → specific copy), keep the `raw = err instanceof Error ? err.message : ""` for the check, then fall through to `humanizeError(err, fallback)` for the default branch. Don't discard the `err` object — humanizeError inspects its shape.

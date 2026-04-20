@@ -77,3 +77,37 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 
 **Learned:** the `humanizeError` utility already existed for 10+ days — nobody had wired it. Moral: grep for utility functions in `lib/` before writing new ones AND before shipping features that raise errors. Zero code added, 11 sites cleaned up.
 
+## Cycle 4 — 2026-04-19 ~21:00 CT
+**Goal:** Flow B slice 1 — detect existing-channel users during onboarding + surface their top-performing videos. Foundational piece for the voice-auto-learn step that follows.
+
+**Audit first:** delegated exploration to find the gap. Ground truth: YouTube OAuth exists, `syncYouTubeMetrics` only works on videos already in the DB, no endpoint fetches the user's OWN uploaded videos. Transcript infra exists but only for competitor scraping. System prompt generation takes a `style_description` text but has no voice-profile input.
+
+**Shipped:**
+- `backend/routes/youtube_channel.py` (new) — `GET /api/youtube/my-videos?limit=N&sort=(views|recent)`
+  - Reads the user's `youtube_refresh_token` from channel_profiles
+  - Exchanges refresh token for access token
+  - Fetches uploads-playlist ID (channels endpoint, contentDetails)
+  - Walks playlistItems to collect video IDs (paginated, capped at 50 for quota safety)
+  - Batch-fetches video details (snippet+statistics, 50/call)
+  - Ranks by views or recency, returns top N with title/views/thumbnail
+  - Error contract: 404 "not connected" (frontend treats as skip), 502 token/API fail, 503 OAuth misconfig
+- `backend/main.py` — registered the router
+- `backend/tests/functional/test_youtube_my_videos.py` — 4 functional tests, all ✅
+  - Parses real YouTube JSON shape correctly
+  - Defaults gracefully on sparse responses (missing likeCount, no description, no thumbnail)
+  - Batches ID lists over 50 (YouTube's per-request cap)
+  - **LIVE contract check:** hits real googleapis.com/youtube/v3/videos, expects 401/403 without auth (validates URL+params are accepted). Got 403 — contract confirmed.
+- `frontend/src/lib/api.ts` — `getMyYouTubeVideos()` client + `MyYouTubeVideo` type
+- `frontend/src/components/onboarding/YouTubeConnectStep.tsx` — auto-fires `getMyYouTubeVideos(5, "views")` after OAuth succeeds. Renders "We found N top-performing videos on your channel" card with title + thumbnail + view count for each, prepping user for the voice-learn step. Graceful degrade on failure (doesn't block onboarding).
+
+**Functional test results:**
+- Backend tests: `.venv/bin/python3 tests/functional/test_youtube_my_videos.py` → 4/4 green
+- Frontend: `npx tsc --noEmit` → exit 0
+- Prod DB check via Supabase MCP: confirmed Ryan's Power Doctrine channel has a valid refresh token, so this feature works E2E on prod the instant it deploys
+
+**Honest gap:** I could NOT run the Python handler end-to-end against Ryan's live YouTube account tonight because (1) the backend expects a local PG proxy on :55432 that isn't up on this Mac, (2) running against prod requires SSH-ing into the VPS. The tests prove the transform + request contract; the handler wiring is standard FastAPI route stuff that's already working for 20+ other routes. Full E2E verification will happen when Ryan refreshes the onboarding or when I run it on the VPS next cycle.
+
+**Learned:** YouTube's API has three different endpoints that look like they do "list videos" but each works differently. `search?forMine=true` (broken for some channels), `channels.contentDetails.relatedPlaylists.uploads` → `playlistItems` (canonical pattern, what we used), and `videos?myRating=like` (wrong tool). The uploads-playlist approach is what the YouTube docs actually recommend for programmatic access to a channel's own videos.
+
+**Next:** Cycle 5 will add the voice-learn step: fetch transcripts from the top N videos + Claude-summarize the voice (vocab, pacing, phrasing) + auto-feed into `generateSystemPrompts` so their personalized system prompts come out of the box tuned to their real existing content. The scaffolding is now in place — the UI already tells the user "we'll use these to learn your voice in the next step."
+

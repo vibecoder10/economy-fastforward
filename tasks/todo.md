@@ -8,9 +8,10 @@ Ryan granted full-autonomy ship-while-sleep mandate (see `~/.claude/projects/-Us
 ### Completed this cycle
 - **Trial-downgrade cron (fix-roadmap 3.2)** — migration 041, `send_trial_expired` email, `check_trial_expired` task, `_auto_check_trial_expired` wired in lifespan @ 6h interval. Functional test in `backend/tests/functional/test_trial_expired.sql` green against prod Supabase.
 - **Humanize error strings (frontend)** — 11 raw-error leak sites routed through `humanizeError()`. Pages: login, forgot-password, reset-password, settings/drive-callback, settings/youtube-callback, system-prompts, profile, competitors. Components: CreateVideoStep, FirstVideoFlow, storyboard-viewer. `npx tsc --noEmit` clean. Users no longer see "API error 500" or "Failed to fetch".
+- **Flow B slice 1 — existing-channel detection** — new `GET /api/youtube/my-videos` endpoint fetches user's top uploads via OAuth + uploads-playlist pattern. Frontend `YouTubeConnectStep` auto-fetches + renders "We found N top-performing videos on your channel" card after OAuth succeeds. Backend functional tests (4/4 ✅) including live contract check against googleapis.com.
 
 ### Next in queue (priority order)
-1. Flow B onboarding: detect existing-channel path + auto-learn voice from YouTube top videos
+1. Flow B slice 2: voice-auto-learn — fetch transcripts from top videos + Claude-summarize voice + feed into `generateSystemPrompts`
 2. Grandma-mode A/B render verification — prove generated system prompts actually change output
 3. Humanize backend exception strings too (this cycle only did frontend — backend still raises raw `Exception("…")` in some routes)
 4. First real end-to-end customer-style render (Ryan as dogfood)

@@ -1546,6 +1546,23 @@ export const getYouTubeStatus = () =>
 export const disconnectYouTube = () =>
   fetchApi<{ status: string }>("/api/auth/youtube/disconnect", { method: "POST" });
 
+// --- User's own channel videos (Flow B onboarding) ---
+export interface MyYouTubeVideo {
+  video_id: string;
+  title: string;
+  description: string;
+  published_at: string;
+  thumbnail: string;
+  views: number;
+  likes: number;
+  comments: number;
+}
+
+export const getMyYouTubeVideos = (limit = 5, sort: "views" | "recent" = "views") =>
+  fetchApi<{ videos: MyYouTubeVideo[]; channel_id: string; total_scanned: number }>(
+    `/api/youtube/my-videos?limit=${limit}&sort=${sort}`,
+  );
+
 // --- Suggest Titles ---
 export interface TitleSuggestion {
   title: string;
