@@ -1435,3 +1435,51 @@ Ryan's standing rule: no fake work. I thought hard about whether to skip this an
 ### Ship plan
 - `git add` new test + updated roadmap + ship log, commit, push
 - VPS: pull → run both `test_prompt_override_wiring.py` (existing 3 tests) and `test_system_prompts_generate.py` (new 7 tests). No deploy needed — docs + test-only
+
+---
+
+## Cycle 38 — Stage 2.3: background_tasks.created_at index
+
+**Time:** 2026-04-20
+**Task:** Add the missing index on `background_tasks.created_at`. Second half of Stage 2.3 (`tenant_usage.period_start`) already covered by migration 024's composite `(tenant_id, period_start)` index — the leading column pattern answers every real tenant-scoped monthly query.
+
+### What I changed
+
+**`storyengine/backend/migrations/042_background_tasks_created_at_idx.sql`** — new
+- `CREATE INDEX IF NOT EXISTS idx_bg_tasks_created_at ON background_tasks (created_at DESC);`
+- DESC ordering because the hot read pattern is "recent tasks first" (activity feeds, ops debugging). Postgres can bidirectional-scan either way but DESC matches the natural query shape
+- `IF NOT EXISTS` so re-running the migration doesn't explode
+- Comment explains why `tenant_usage.period_start` didn't get a second index
+
+**`storyengine/schema.sql`** — updated in BOTH background_tasks definitions (Stage 2.2 drift means the file has two duplicated CREATE TABLE blocks — a Stage 2.2 fix for another day). Mirroring in both protects fresh Supabase-from-schema deploys regardless of which block wins
+
+**`storyengine/backend/tests/functional/test_background_tasks_created_at_index.py`** — new
+- 5 source-audit tests: migration exists, creates the index with `IF NOT EXISTS`, schema.sql mirrors it in every `CREATE TABLE background_tasks` block, tenant_usage composite idx still present (documents the decision), DESC ordering pinned
+
+### Why this is worth the cycle right now
+
+No cleanup query TODAY uses `created_at`. The table is small (<50k rows in prod). So is this premature?
+
+No:
+1. **The table grows unbounded.** Every pipeline run writes a row; nothing deletes. Left alone it hits 500k rows in ~18 months — that's when the first "why is the dashboard slow?" ticket shows up
+2. **The index is near-free.** Small table, instant build, no write-path overhead worth measuring
+3. **Future cleanup job is now unblocked.** Whoever writes the TTL/cleanup cron later can `DELETE WHERE created_at < NOW() - INTERVAL 'N days'` and get index-backed pruning from day one — no panicky "let's add an index first" PR under pressure
+4. **Pinning it costs nothing, dropping it requires intent.** The test makes a silent revert visible
+
+This is the kind of fix Ryan trusts me to ship without debate — small, cheap, defensive, with a regression guard.
+
+### Initial test bug + fix
+
+First run: 0/5 passed because my `_repo_root()` helper returned `.parents[3]` which is the storyengine/ dir, not the repo root. Then I appended `storyengine/` again, producing `storyengine/storyengine/backend/migrations`. Refactored to `_storyengine_dir()` returning the same path but naming it honestly, so the appended `backend/migrations` lines up. One-liner fix, 5/5 green.
+
+Lesson: when the test path is wrong, rename the helper to match reality before layering more path ops on top. `_repo_root()` was lying about what it returned, so the bug was inevitable.
+
+### Honest gaps
+
+- **No EXPLAIN-based test.** Can't prove the index actually gets used by the query planner without a live DB with rows. On VPS with the migration applied I can run a throwaway EXPLAIN — but that's a one-off smoke check, not a pinned regression
+- **Doesn't add the cleanup job itself.** The index enables it; doesn't ship it. A separate cycle should audit what retention makes sense (30d? 90d? forever for failed-with-error? keep only last N per video?). Not attempting that here
+- **Schema.sql drift untouched.** Two duplicate background_tasks defs. That's Stage 2.2, not 2.3. Shipping Cycle 38 doesn't regress it — both defs get the new line — but it doesn't fix it either
+
+### Ship plan
+- `git add` migration + schema.sql + test + ship log, commit, push
+- VPS: pull → run test → `psql -f migrations/042_background_tasks_created_at_idx.sql` against the prod DB → verify with `\d background_tasks`
