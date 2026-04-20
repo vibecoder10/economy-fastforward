@@ -60,7 +60,14 @@ class ThumbnailTitleEngine:
     auto-generation of thumbnail text when not provided.
     """
 
-    def __init__(self, anthropic_client, image_client, gemini_client=None, google_client=None):
+    def __init__(
+        self,
+        anthropic_client,
+        image_client,
+        gemini_client=None,
+        google_client=None,
+        system_prompt_override: Optional[str] = None,
+    ):
         """Initialize with existing pipeline clients.
 
         Args:
@@ -68,13 +75,22 @@ class ThumbnailTitleEngine:
             image_client: An initialized ImageClient (Kie.ai).
             gemini_client: Optional GeminiClient for creative director (thumbnail #4).
             google_client: Optional GoogleClient for uploading Gemini-generated images.
+            system_prompt_override: Optional tenant-level system prompt that replaces
+                the hardcoded thumbnail system prompts at every Claude call site
+                within the engine. Comes from `pipeline.thumbnail_system_prompt`
+                when set via the Generate My Style onboarding flow.
         """
         self.anthropic = anthropic_client
-        self.title_gen = TitleGenerator(anthropic_client)
-        self.prompt_builder = ThumbnailPromptBuilder(anthropic_client)
+        self.title_gen = TitleGenerator(
+            anthropic_client, system_prompt_override=system_prompt_override
+        )
+        self.prompt_builder = ThumbnailPromptBuilder(
+            anthropic_client, system_prompt_override=system_prompt_override
+        )
         self.image_client = image_client
         self.gemini = gemini_client
         self.google = google_client
+        self.system_prompt_override = system_prompt_override
 
     @staticmethod
     def _parse_thumbnail_text(thumbnail_text: str) -> dict:
@@ -146,7 +162,10 @@ class ThumbnailTitleEngine:
 
         response = await self.anthropic.generate(
             prompt=prompt,
-            system_prompt="You generate punchy YouTube thumbnail text. Return ONLY the text, no quotes, no explanation.",
+            system_prompt=(
+                self.system_prompt_override
+                or "You generate punchy YouTube thumbnail text. Return ONLY the text, no quotes, no explanation."
+            ),
             model=Models.CLAUDE_SONNET,
             max_tokens=50,
         )

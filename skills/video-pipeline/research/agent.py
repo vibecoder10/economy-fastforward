@@ -656,15 +656,19 @@ class ResearchAgent:
         self,
         anthropic_client,
         model: str = Models.CLAUDE_SONNET,
+        system_prompt_override: Optional[str] = None,
     ):
         """Initialize the research agent.
 
         Args:
             anthropic_client: AnthropicClient instance for LLM calls
             model: Model to use for research (Sonnet for cost, Opus for depth)
+            system_prompt_override: Optional tenant override that replaces
+                RESEARCH_SYSTEM_PROMPT at the Claude call site.
         """
         self.anthropic = anthropic_client
         self.model = model
+        self.system_prompt_override = system_prompt_override
 
     async def research(
         self,
@@ -706,7 +710,7 @@ class ResearchAgent:
 
         response = await self.anthropic.generate(
             prompt=prompt,
-            system_prompt=RESEARCH_SYSTEM_PROMPT,
+            system_prompt=self.system_prompt_override or RESEARCH_SYSTEM_PROMPT,
             model=self.model,
             max_tokens=16000,
             temperature=0.7,
@@ -938,6 +942,7 @@ async def run_research(
     model: str = Models.CLAUDE_SONNET,
     airtable_client=None,
     record_id: str = None,
+    system_prompt_override: Optional[str] = None,
 ) -> dict:
     """Convenience function to run deep research.
 
@@ -957,7 +962,11 @@ async def run_research(
     Returns:
         Structured research_payload dict (with airtable_record_id if written)
     """
-    agent = ResearchAgent(anthropic_client, model=model)
+    agent = ResearchAgent(
+        anthropic_client,
+        model=model,
+        system_prompt_override=system_prompt_override,
+    )
     payload = await agent.research(topic, seed_urls, context)
 
     # Phase 1: Generate title candidates using the formula library

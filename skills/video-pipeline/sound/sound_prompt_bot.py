@@ -65,11 +65,15 @@ class SoundPromptBot:
         airtable: Optional[AirtableClient] = None,
         min_sound_pct: float = MIN_SOUND_PERCENT,
         max_sound_pct: float = MAX_SOUND_PERCENT,
+        sound_curation_system_prompt_override: Optional[str] = None,
+        sound_generation_system_prompt_override: Optional[str] = None,
     ):
         self.anthropic = anthropic or AnthropicClient()
         self.airtable = airtable or AirtableClient()
         self.min_sound_pct = min_sound_pct
         self.max_sound_pct = max_sound_pct
+        self.sound_curation_system_prompt_override = sound_curation_system_prompt_override
+        self.sound_generation_system_prompt_override = sound_generation_system_prompt_override
 
     def _compute_bounds(self, image_count: int) -> tuple[int, int]:
         """Compute min/max sound count for a scene based on percentage bounds.
@@ -120,7 +124,7 @@ class SoundPromptBot:
 
         response = await self.anthropic.generate(
             prompt=user_prompt,
-            system_prompt=SOUND_CURATION_SYSTEM,
+            system_prompt=self.sound_curation_system_prompt_override or SOUND_CURATION_SYSTEM,
             model=Models.CLAUDE_HAIKU,
             max_tokens=512,
             temperature=0.4,
@@ -245,7 +249,7 @@ class SoundPromptBot:
 
         response = await self.anthropic.generate(
             prompt=user_prompt,
-            system_prompt=SOUND_PROMPT_SYSTEM,
+            system_prompt=self.sound_generation_system_prompt_override or SOUND_PROMPT_SYSTEM,
             model=Models.CLAUDE_HAIKU,
             max_tokens=128,
             temperature=0.5,

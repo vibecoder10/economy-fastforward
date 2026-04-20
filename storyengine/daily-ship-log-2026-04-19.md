@@ -203,3 +203,47 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 2. First E2E customer-style render — Ryan as dogfood. Verifies live output variation end-to-end.
 3. Humanize backend exception strings.
 4. Slice 3 voice-learn: yt-dlp transcripts for richer voice.
+
+---
+
+## Cycle 7 — All 6 bots wired (grandma-mode override now end-to-end)
+
+**Goal:** Close out the "wired but not plugged in" gap found in Cycle 6. Wire the remaining 4 bots (thumbnail, sound_curation, sound_generation, research) so every one of the 6 `tenant_prompt_defaults` keys actually reaches a Claude `system_prompt` in production.
+
+**Design call:** For each bot, add an optional `system_prompt_override` kwarg to the constructor/helper it uses, propagate it down to the `anthropic.generate(...)` call site, and read `getattr(pipeline, "<attr>", None)` at the bot's `run.py` boundary (same pattern as script in Cycle 6). When absent, hardcoded default system prompts still apply — no behavior change for existing users.
+
+**Shipped:**
+
+- **Thumbnail bot** (3 Claude call sites):
+  - `thumbnail/engine.py` — `ThumbnailTitleEngine.__init__` accepts `system_prompt_override`; passes it down to `TitleGenerator` + `ThumbnailPromptBuilder`; uses it in `_auto_generate_thumbnail_text`.
+  - `thumbnail/title_generator.py` — `TitleGenerator.__init__` accepts override; uses it in place of `TITLE_GENERATION_SYSTEM_PROMPT` in `.generate(...)`.
+  - `thumbnail/prompt_builder.py` — `ThumbnailPromptBuilder.__init__` accepts override; uses it in place of `VARIABLE_FILL_SYSTEM_PROMPT` in `_fill_variables(...)`.
+  - `thumbnail/run.py` — passes `getattr(pipeline, "thumbnail_system_prompt", None)` into engine constructor.
+
+- **Sound bots** (2 Claude call sites, both in `SoundPromptBot`):
+  - `sound/sound_prompt_bot.py` — `__init__` accepts both `sound_curation_system_prompt_override` and `sound_generation_system_prompt_override`; `curate_scene_sounds` uses the curation override in place of `SOUND_CURATION_SYSTEM`; `generate_sound_prompt` uses the generation override in place of `SOUND_PROMPT_SYSTEM`.
+  - `sound/run_design.py` — reads both `pipeline.sound_curation_system_prompt` and `pipeline.sound_generation_system_prompt` and passes them to `SoundPromptBot(...)`.
+
+- **Research bot** (1 Claude call site, wired at SaaS executor boundary):
+  - `research/agent.py` — `ResearchAgent.__init__` accepts `system_prompt_override`; `research()` uses it in place of `RESEARCH_SYSTEM_PROMPT`; `run_research(...)` convenience function also accepts the override and plumbs it in.
+  - `storyengine/backend/pipeline_executor.py:run_research` — passes `getattr(self._pipeline, "research_system_prompt", None)` into `run_research(...)`.
+  - `test_prompt_override_wiring.py` CONSUMER_SPEC updated: research's consumer is the SaaS executor, not a `run.py`-style bot (that path doesn't exist). Also broadened the grep regex to match `self._pipeline.<attr>` patterns.
+
+**Functional tests:**
+- `test_prompt_override_wiring.py` → 3 tests green, audit reports **6/6 WIRED**. Full regression guard: every bot must stay wired (asserts in a for-loop over all 6 keys). Any future unwiring breaks the test.
+- AST signature check: all 6 modified constructors + `run_research` have the new `system_prompt_override` param as expected. No callers broken.
+
+**Honest gaps:**
+- Override semantics are still **blended**, not replaced. Each bot's hardcoded default system prompt gets *replaced* by the tenant override when set, but the user-prompt body still contains profile-derived voice preambles and task-specific instructions. So Claude gets: `system=<tenant grandma-mode>` + `user=<task body that may include voice hints>`. This is what we want for v1 (tenant voice wins at the system level), but a future pass could strip the profile preamble from the user body when an override is present.
+- No live A/B render yet. We've proven the plumbing reaches the LLM for all 6 bots — we have NOT proven two different overrides produce meaningfully different output on a real end-to-end render. That requires Ryan dogfooding a video with a deliberate "grandma" override.
+
+**Learned:**
+- **The audit test was worth more than any individual fix.** Without it, I would have quietly wired "something" and declared the feature done. With it, 6/6 is provable and the regression guard prevents silent unwiring forever. Audit-tests-as-dashboards is a pattern to repeat.
+- **CONSUMER_SPEC needed to be wrong first.** My initial spec listed `skills/video-pipeline/research/run.py` (which doesn't exist). Being wrong was productive: it forced me to discover that the research agent wires differently (SaaS executor boundary, not a bot `run.py`). Specs that map 1:1 to code are brittle. Specs that document *intent* (this key → this attr → this consumer) force you to confront where reality diverges.
+- **A broader grep regex is cheap future-proofing.** Matching both `pipeline.<attr>` and `self._pipeline.<attr>` means new consumers written in either style will satisfy the audit without special-casing.
+
+**Next:** Cycle 8 candidates:
+1. First real E2E customer-style render — Ryan creates a video with a grandma-mode prompt, we compare output vs. baseline. First true end-to-end proof.
+2. Humanize backend exception strings (parity with Cycle 3's frontend work).
+3. Slice 3 voice-learn: yt-dlp transcripts for richer voice extraction.
+4. Clean-replacement override semantics — when override is present, also strip the profile-derived voice preamble from the user-prompt body.

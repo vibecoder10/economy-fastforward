@@ -131,13 +131,17 @@ class TitleGenerator:
     Each title includes a CAPS word that becomes the red_word in the thumbnail.
     """
 
-    def __init__(self, anthropic_client):
+    def __init__(self, anthropic_client, system_prompt_override: Optional[str] = None):
         """Initialize with an existing AnthropicClient instance.
 
         Args:
             anthropic_client: An initialized AnthropicClient from the pipeline.
+            system_prompt_override: Optional tenant system prompt that replaces
+                TITLE_GENERATION_SYSTEM_PROMPT at the Claude call site. When set,
+                the tenant's grandma-mode voice guides title generation.
         """
         self.anthropic = anthropic_client
+        self.system_prompt_override = system_prompt_override
 
     async def generate(
         self,
@@ -193,7 +197,7 @@ class TitleGenerator:
 
         response = await self.anthropic.generate(
             prompt=user_prompt,
-            system_prompt=TITLE_GENERATION_SYSTEM_PROMPT,
+            system_prompt=self.system_prompt_override or TITLE_GENERATION_SYSTEM_PROMPT,
             model=Models.CLAUDE_SONNET,
             max_tokens=500,
         )

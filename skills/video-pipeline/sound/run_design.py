@@ -24,7 +24,12 @@ async def run(pipeline) -> dict:
     pipeline.slack.notify("🎧 Starting sound design for: " + pipeline.video_title)
     print(f"\n🎧 SOUND PROMPT BOT: Processing '{pipeline.video_title}'")
 
-    bot = SoundPromptBot(anthropic=pipeline.anthropic, airtable=pipeline.airtable)
+    bot = SoundPromptBot(
+        anthropic=pipeline.anthropic,
+        airtable=pipeline.airtable,
+        sound_curation_system_prompt_override=getattr(pipeline, "sound_curation_system_prompt", None),
+        sound_generation_system_prompt_override=getattr(pipeline, "sound_generation_system_prompt", None),
+    )
     result = await bot.process_video(pipeline.video_title)
 
     if result.get("error"):

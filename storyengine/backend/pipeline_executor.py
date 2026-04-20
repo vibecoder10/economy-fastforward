@@ -648,6 +648,7 @@ class PipelineExecutor:
                 anthropic_client=self._pipeline.anthropic,
                 topic=topic,
                 airtable_client=self._pipeline.airtable,
+                system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
             )
 
             if not payload:

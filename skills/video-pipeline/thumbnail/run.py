@@ -112,6 +112,7 @@ async def run(pipeline) -> dict:
     engine = ThumbnailTitleEngine(
         pipeline.anthropic, pipeline.image_client,
         gemini_client=pipeline.gemini, google_client=pipeline.google,
+        system_prompt_override=getattr(pipeline, "thumbnail_system_prompt", None),
     )
 
     try:

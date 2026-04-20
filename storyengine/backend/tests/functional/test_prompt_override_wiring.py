@@ -32,8 +32,8 @@ grandma-mode A/B to change output in production.
 To run:
     cd storyengine/backend && .venv/bin/python3 tests/functional/test_prompt_override_wiring.py
 
-Last verified: 2026-04-19 — 2/6 bots wired (video_motion, script).
-Remaining unwired: thumbnail, sound_curation, sound_generation, research.
+Last verified: 2026-04-19 Cycle 7 — **6/6 bots wired**. Full regression
+guard asserts every bot stays wired.
 """
 import asyncio
 import os
@@ -88,7 +88,10 @@ CONSUMER_SPEC = [
         "research",
         "research_system_prompt",
         [
-            "skills/video-pipeline/research/run.py",
+            # The research agent isn't a `run.py`-style bot — it's wired directly
+            # at the SaaS executor boundary, which reads `self._pipeline.<attr>`
+            # and plumbs it into `run_research(..., system_prompt_override=...)`.
+            "storyengine/backend/pipeline_executor.py",
         ],
     ),
 ]
@@ -177,19 +180,26 @@ async def test_per_video_override_beats_tenant():
 
 
 def _consumer_reads_attr(source_path: Path, pipeline_attr: str) -> bool:
-    """Search a bot's source for getattr(pipeline, "<attr>", ...) OR
-    pipeline.<attr>. Either pattern counts as "the bot reads the override."
+    """Search a bot's source for one of the three pipeline-attr read patterns.
+    Any match counts as "the consumer reads the override."
+
+    Matches:
+      1. getattr(pipeline, "<attr>", ...)           — bot run.py pattern
+      2. pipeline.<attr>                            — direct access
+      3. getattr(self._pipeline, "<attr>", ...)     — SaaS executor pattern
+      4. self._pipeline.<attr>                      — SaaS executor direct
     """
     if not source_path.exists():
         return False
     text = source_path.read_text()
-    # Pattern 1: getattr(pipeline, "script_system_prompt", ...)
-    pat1 = re.compile(
-        r'getattr\s*\(\s*pipeline\s*,\s*["\']' + re.escape(pipeline_attr) + r'["\']'
-    )
-    # Pattern 2: pipeline.script_system_prompt (direct access)
-    pat2 = re.compile(r'pipeline\.' + re.escape(pipeline_attr) + r'\b')
-    return bool(pat1.search(text) or pat2.search(text))
+    attr = re.escape(pipeline_attr)
+    patterns = [
+        re.compile(r'getattr\s*\(\s*pipeline\s*,\s*["\']' + attr + r'["\']'),
+        re.compile(r'\bpipeline\.' + attr + r'\b'),
+        re.compile(r'getattr\s*\(\s*self\._pipeline\s*,\s*["\']' + attr + r'["\']'),
+        re.compile(r'self\._pipeline\.' + attr + r'\b'),
+    ]
+    return any(p.search(text) for p in patterns)
 
 
 async def test_audit_bot_consumer_wiring():
@@ -232,19 +242,17 @@ async def test_audit_bot_consumer_wiring():
     else:
         print("✅ All bots honor their overrides.")
 
-    # Baseline regression guards: wired bots must stay wired.
-    # (Wired count can grow without breaking this — UNWIRED bots aren't
-    # asserted yet; add them to this block as each one gets wired.)
-    assert results["video_motion"]["wired"], (
-        "REGRESSION: video_motion bot stopped reading video_motion_system_prompt. "
-        "Check skills/video-pipeline/video_motion/run_scripts.py."
-    )
-    assert results["script"]["wired"], (
-        "REGRESSION: script bot stopped reading script_system_prompt. "
-        "Check skills/video-pipeline/script/run.py → translate_brief → "
-        "BriefTranslator → generate_script → anthropic_client.generate(system_prompt=...)."
-    )
-    print("✅ test_audit_bot_consumer_wiring (regression guards hold for video_motion + script)")
+    # Full regression guard: every bot must stay wired. All 6 are wired
+    # as of 2026-04-19 Cycle 7. If this fails, look at which bot lost
+    # its `pipeline.<attr>` read (the audit output above names the file).
+    for prompt_key in ["script", "thumbnail", "video_motion",
+                       "sound_curation", "sound_generation", "research"]:
+        assert results[prompt_key]["wired"], (
+            f"REGRESSION: {prompt_key} bot stopped reading "
+            f"{results[prompt_key]['attr']}. Consumer file(s): "
+            f"{CONSUMER_SPEC}"
+        )
+    print("✅ test_audit_bot_consumer_wiring (all 6 regression guards hold)")
 
     return results
 

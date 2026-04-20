@@ -2,6 +2,12 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 7)
+- **Audit test as dashboard: pays off on every fix.** Between Cycle 6 and Cycle 7, `test_prompt_override_wiring.py` went from "1/6 WIRED" → "6/6 WIRED" by running it after each bot, reading the diff, and moving on. Having a single command that prints the current state turned a sprawling cross-module refactor into a linear checklist. The audit was the project plan.
+- **Intentionally-wrong CONSUMER_SPEC is productive.** My first spec pointed at `skills/video-pipeline/research/run.py` — which doesn't exist. The failure forced me to learn the research agent is wired at the SaaS executor boundary, not as a `run.py`-style bot. A spec that's 70% right and documents intent is more useful than one that's 100% right and documents exact paths (paths rot; intent doesn't).
+- **Broadening grep regex is cheap future-proofing.** Matching both `pipeline.<attr>` AND `self._pipeline.<attr>` means new consumers in either style satisfy the audit without special-casing. Always write the audit check to accept the full set of reasonable consumer shapes; narrow it later if false positives emerge.
+- **Blended override semantics is the right v1.** Setting the tenant override as Claude's `system_prompt` while leaving the task-specific user-prompt body alone is 80% of the value with 20% of the risk. Full-replacement (strip profile preamble from user body) can land later once we measure how much output actually varies. Ship the plumbing first, tune the semantics once we have real A/B data.
+
 ## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 6)
 - **Claims from prior audits are hypotheses, not facts.** Cycle 1 reported "prompt-override wiring in 7 places." Cycle 6 tested and found **1 of 6 bots** actually reading its attribute. If the claim spans many files and nobody's exercised the code path end-to-end, it should be assumed unverified until an audit test proves it. Write the test before trusting the summary.
 - **"Wired but not plugged in" is a real failure mode.** The LOAD path (DB rows → pipeline attributes) can be fully tested and green while the CONSUME path (bots reading the attribute → LLM system_prompt) is missing entirely. Scanning consumer source files with a static audit test (`getattr(pipeline, "<attr>", ...)` regex) catches this. Without it, the feature passes review, ships, and silently does nothing in production.

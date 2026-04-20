@@ -84,13 +84,16 @@ class ThumbnailPromptBuilder:
     then formats the final prompt for Nano Banana Pro image generation.
     """
 
-    def __init__(self, anthropic_client):
+    def __init__(self, anthropic_client, system_prompt_override: Optional[str] = None):
         """Initialize with an existing AnthropicClient instance.
 
         Args:
             anthropic_client: An initialized AnthropicClient from the pipeline.
+            system_prompt_override: Optional tenant system prompt that replaces
+                VARIABLE_FILL_SYSTEM_PROMPT at the Claude call site.
         """
         self.anthropic = anthropic_client
+        self.system_prompt_override = system_prompt_override
 
     async def build(
         self,
@@ -209,7 +212,7 @@ class ThumbnailPromptBuilder:
 
         response = await self.anthropic.generate(
             prompt=user_prompt,
-            system_prompt=VARIABLE_FILL_SYSTEM_PROMPT,
+            system_prompt=self.system_prompt_override or VARIABLE_FILL_SYSTEM_PROMPT,
             model=Models.CLAUDE_SONNET,
             max_tokens=800,
         )
