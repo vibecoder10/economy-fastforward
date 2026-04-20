@@ -133,6 +133,52 @@ def test_no_raw_str_e_in_http_exception_detail():
     print(f"✅ test_no_raw_str_e_in_http_exception_detail ({len(CUSTOMER_FACING_ROUTES)} routes clean)")
 
 
+def test_set_task_status_humanizes_failure_errors():
+    """Background-task boundary: _set_task_status must humanize error at
+    the write boundary so /task-status never returns raw str(e) to the UI.
+    """
+    import sys as _sys
+    import types
+    # Stub the auth/database modules so routes.pipeline imports cleanly
+    _sys.modules.setdefault("auth", types.SimpleNamespace(get_tenant_id=lambda: "t"))
+    if "database" not in _sys.modules:
+        dbmod = types.ModuleType("database")
+        async def _noop(*a, **kw): return []
+        dbmod.fetch_one = _noop
+        dbmod.fetch_all = _noop
+        dbmod.execute = _noop
+        _sys.modules["database"] = dbmod
+    if "pipeline_executor" not in _sys.modules:
+        pe = types.ModuleType("pipeline_executor")
+        class _Stub:
+            def __init__(self, *a, **kw): pass
+        pe.PipelineExecutor = _Stub
+        _sys.modules["pipeline_executor"] = pe
+    if "status_map" not in _sys.modules:
+        sm = types.ModuleType("status_map")
+        sm.to_supabase = lambda *a, **kw: None
+        sm.to_pipeline = lambda *a, **kw: None
+        sm.get_next_status_supabase = lambda *a, **kw: None
+        sm.is_at_or_past_stage = lambda *a, **kw: False
+        _sys.modules["status_map"] = sm
+
+    from routes import pipeline as pipeline_mod
+
+    # Simulate: caller passes raw exception string (typical str(e) pattern)
+    raw = "HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded"
+    pipeline_mod._set_task_status("test-vid-999", "failed", raw, tenant_id=None)
+
+    state = pipeline_mod._running_tasks["test-vid-999"]
+    assert state["status"] == "failed"
+    assert "api.kie.ai" not in (state["error"] or ""), (
+        f"Raw upstream URL leaked into _running_tasks['error']: {state['error']!r}"
+    )
+    assert "HTTPSConnectionPool" not in (state["error"] or "")
+    # Cleanup
+    pipeline_mod._running_tasks.pop("test-vid-999", None)
+    print("✅ test_set_task_status_humanizes_failure_errors")
+
+
 def main():
     test_context_never_leaks_raw_exception()
     test_network_pattern_mapped()
@@ -142,6 +188,7 @@ def main():
     test_unknown_error_uses_fallback()
     test_raw_error_is_logged()
     test_no_raw_str_e_in_http_exception_detail()
+    test_set_task_status_humanizes_failure_errors()
     print("\nAll tests passed.")
 
 

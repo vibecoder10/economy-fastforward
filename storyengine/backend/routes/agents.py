@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
+from error_utils import humanize_error
 
 # Add pipeline root to sys.path
 _pipeline_root = Path(__file__).parent.parent.parent.parent / "skills" / "video-pipeline"
@@ -138,11 +139,12 @@ async def run_agent_pipeline(
             _set_task(video_id, "completed", f"Hook: {output.hook.final_scores.aggregate:.0f}/100")
 
         except Exception as e:
-            _set_task(video_id, "failed", str(e))
+            friendly = humanize_error(e, context="The agent pipeline hit an error")
+            _set_task(video_id, "failed", friendly)
             await execute(
                 """INSERT INTO bot_activity (tenant_id, bot_name, video_id, status, message)
                    VALUES ($1, $2, $3, $4, $5)""",
-                tenant_id, "Agent Pipeline", video_id, "failed", str(e),
+                tenant_id, "Agent Pipeline", video_id, "failed", friendly,
             )
 
     background_tasks.add_task(_run)

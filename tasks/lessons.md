@@ -2,6 +2,11 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 9)
+- **Write-boundary humanization beats per-call-site fixes when there's a funnel.** Cycle 8 fixed 11 individual `HTTPException(detail=str(e))` sites; Cycle 9 got wider coverage (~15 `_set_task_status` callers) by humanizing inside `_set_task_status` itself. Rule: find the narrowest point in the error-routing funnel and humanize there. Per-site fixes are fine only when there's no funnel to target.
+- **A well-designed helper travels across leak surfaces.** `humanize_error(err, context=..., fallback=...)` was written for the sync HTTPException path in Cycle 8. It worked as-is for the async `_set_task_status` + `bot_activity` insert paths in Cycle 9 with zero changes. Keep the interface tight (raw-in, friendly-out, log-always) and widen usage before adding parameters.
+- **Module stubbing for isolated runtime tests is cheap and underused.** Want to exercise one module's behavior without bringing up the whole backend? `sys.modules["auth"] = types.SimpleNamespace(get_tenant_id=lambda: "t")` + `types.ModuleType("database")` with fake async fetchers = 10 lines, no DB pool needed. Same pattern the prompt-override wiring test uses. Adopt for every functional test that wants to poke a single module.
+
 ## Session 2026-04-19 — Osiris overnight ship-while-sleep (Cycle 8)
 - **`context=` param beats pattern-matching alone for backend errors.** Frontend humanizer pattern-matches from the outside because the fetch wrapper doesn't know *what* was being attempted. Backend call sites know exactly what the user was doing ("generate a character image"). A `humanize_error(e, context="We couldn't X")` call produces a real verb-in-context sentence that reads as "We couldn't generate your character image. Please try again." — better than any regex could reverse-engineer.
 - **The copy pattern is `We couldn't <verb> <object>. Please try again.`** — always second-person, always tied to what the user was trying to do, never mentions the technology that failed. Users don't care that it was Kie.ai or Gemini; they care that their character image didn't generate.

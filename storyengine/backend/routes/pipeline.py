@@ -184,6 +184,12 @@ def _set_task_status(
     resolved_message = message
     if normalized == "failed" and not resolved_error:
         resolved_error = message
+    # Humanize failure errors at the write boundary so raw str(e) from
+    # ~15 call sites never reaches the UI via /task-status polling.
+    # The raw error is logged to WARNING with a [humanize_error] prefix
+    # inside humanize_error() for dev debugging.
+    if normalized == "failed" and resolved_error:
+        resolved_error = humanize_error(resolved_error)
     _running_tasks[video_id] = {
         "status": normalized,
         "message": resolved_message,

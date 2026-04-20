@@ -285,3 +285,28 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 
 **Next:**
 - Cycle 9 candidates: (a) humanize `_set_task_status` background-task error field (pipeline.py + agents.py), (b) first E2E customer-style render (needs Ryan), (c) slice 3 voice-learn yt-dlp transcripts, (d) clean-replacement override semantics.
+
+## Cycle 9 — 2026-04-19 ~23:58 CT
+**Goal:** close the background-task leak surface flagged in Cycle 8's honest gap — `_set_task_status(video_id, "failed", str(e), ...)` was writing raw `str(e)` into `background_tasks.error_message`, which the UI polls via `/task-status`.
+
+**Shipped:**
+- **Single-point fix at the write boundary** — `routes/pipeline.py:_set_task_status` now runs `humanize_error(resolved_error)` on any `normalized == "failed"` transition before storing it in both the in-memory `_running_tasks` dict and the `background_tasks.error_message` column. One change covers ~15 caller sites (`_set_task_status(video_id, "failed", str(e), ...)` throughout pipeline.py) without touching any of them.
+- **`routes/agents.py` agent-pipeline run** — replaced `_set_task(video_id, "failed", str(e))` + raw `str(e)` INSERT into `bot_activity.message` with `humanize_error(e, context="The agent pipeline hit an error")` at both sites.
+
+**Functional tests:**
+- Extended `tests/functional/test_error_humanization.py` with `test_set_task_status_humanizes_failure_errors` — imports `routes.pipeline` with stubbed FastAPI deps, calls `_set_task_status("test-vid-999", "failed", "HTTPSConnectionPool(host='api.kie.ai'...)")` directly, asserts that the stored `error` contains no `api.kie.ai` / `HTTPSConnectionPool` substrings. Proves the write-boundary fix works at runtime, not just in theory.
+- Full suite: 9/9 tests green (8 from Cycle 8 + this new one).
+- Cycle 7 `test_prompt_override_wiring.py` regression check: still 6/6 WIRED, all assertions green.
+
+**Honest gaps:**
+- `recover_stale_tasks()` writes the literal string `"Server restarted — task interrupted"` to `error_message` — already human-friendly, no change needed. Noted here so it's not mistaken for a leak in future audits.
+- Print-based logging in `discovery.py`, `niche.py`, `autopilot.py`, `youtube_sync.py`, `learning_extraction.py`, `channel_profile.py` stays `print(f"Error: {e}")` — goes to server logs, not users. Left as-is.
+- If a NEW background-task writer bypasses `_set_task_status` and writes `error_message` directly via `execute("UPDATE background_tasks SET error_message = $1", str(e))`, the audit test won't catch it. A future hardening is a DB-read-boundary humanizer or a grep-audit for raw `error_message = $1, ..., str(e)` patterns across the codebase. Not done tonight — the write-boundary coverage via `_set_task_status` is the 80%.
+
+**Learned:**
+- **Write-boundary humanization scales better than per-call-site.** Cycle 8 touched 11 individual HTTPException call sites. Cycle 9 got wider coverage (~15 `_set_task_status` callers + `agents.py`) by fixing ONE line inside the helper. Rule of thumb: if the error routing has a funnel, humanize at the narrowest point of the funnel, not at the 15 edges.
+- **Stubbing imports to test one module in isolation is cheap.** The Cycle 9 runtime test stubs `auth`, `database`, `pipeline_executor`, `status_map` as `types.ModuleType` fakes so `routes.pipeline` imports without the full backend. Takes 10 lines, lets the test run without a DB pool. Same pattern the prompt-override wiring test uses. Worth adopting for every new functional test that wants to poke a single module's behavior.
+- **Two cycles, two leak surfaces, one helper.** `humanize_error` was written for the sync HTTPException path (Cycle 8), then reused as-is for the async task-status path (Cycle 9). When the helper's interface is right — raw-in, friendly-out, log-always — it travels. Keep the interface tight; widen usage.
+
+**Next:**
+- Cycle 10 candidates: (a) first E2E customer-style render (needs Ryan), (b) slice 3 voice-learn yt-dlp transcripts, (c) fresh fix-roadmap.md rewrite against ground truth, (d) clean-replacement override semantics, (e) DB-read-boundary audit for any raw `error_message` writers bypassing `_set_task_status`.
