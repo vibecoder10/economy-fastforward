@@ -1029,3 +1029,45 @@ Backend was already correct. Fix is entirely on the frontend:
 - **Cross-repo static audit tests are underrated.** `test_ts_interface_includes_error_field` is a Python test reaching across into TypeScript source to grep for an interface field. No build tool invoked, no AST parsing, just a regex on a string. But it gives the Python backend CI a hook into frontend drift — if someone edits api.ts and forgets the field, the backend test fails. That's cheap backstop against cross-repo contract drift without any shared type-generation infrastructure. Pattern: frontend contract files are just text; a regex on them is a contract check.
 - **When backend and frontend are both "correct in isolation" but the product is broken, the bug is in the integration surface — usually a missing field, a serialization edge, or a schema drift.** Backend had the field. Frontend had the render code (it would happily render `{status.error}` if the field existed). But the TS interface blocked the compiler from letting the field through the boundary. This is why strongly-typed client code can mask bugs that an untyped client (raw fetch + `any`) would have worked around accidentally. Pay attention to the boundaries.
 - **"The backend is fine, just fix the frontend" should itself be a test-gated claim.** I verified it by reading discovery.py:57-64 (model has `error` field) and :211-222 (handler populates it correctly) but not by executing the endpoint. The functional test I wrote is what actually proves the backend claim — code-reading "by inspection" is a downpayment on a real test, not a substitute. Same shape as the Cycle 28 `_safe_col` argument — "current callers are fine" is a description, not a guarantee.
+
+---
+
+## Cycle 30 — SEC-ERR-002: discovery.py raw str(e) leak (follow-up from Cycle 29)
+
+**Target:** The bug I flagged at the end of Cycle 29 as a "new security cycle." `routes/discovery.py:613-615`:
+
+```python
+except Exception as e:
+    print(f"[Discovery] Error: {e}")
+    _refresh_tasks[tenant_id] = {"running": False, "error": str(e)}
+```
+
+Yesterday this leak was latent — no frontend consumer was rendering `_refresh_tasks[tenant]["error"]` anywhere. Today, Cycle 29 started surfacing it in a red banner on the Discovery page. So what was theoretical reconnaissance yesterday is now a DNS hostname / asyncpg connection string / SSL internal path visible to any logged-in user who clicks Refresh while the backend is misbehaving.
+
+Same class as SEC-KEYS-001 (Cycle 27, vault.py). Fix is the same shape: route through `error_utils.humanize_error(e, context="Idea generation failed")`. The raw exception still reaches the `[humanize_error]` WARNING log so devs can diagnose.
+
+### Changes
+- `storyengine/backend/routes/discovery.py` — 1 import added (`from error_utils import humanize_error`); 1 branch changed (lines 613-618)
+- `storyengine/backend/tests/functional/test_discovery_generation_no_leak.py` — new, 4 tests
+
+### Tests
+1. `test_generation_never_leaks_raw_exception` — sweeps 6 LEAKY_ERROR shapes (`HTTPSConnectionPool`, errno 8 DNS, gaierror, `asyncpg.exceptions.ConnectionFailureError` with internal IP+port, SSL CERTIFICATE_VERIFY_FAILED, urllib3 object-at-0x). For each, patches `routes.discovery.fetch_all` to raise that specific RuntimeError, calls `_run_discovery_generation(tenant, "batch-xxx")`, asserts `_refresh_tasks[tenant]["error"]` contains NONE of the raw string or any of 9 leak-sentinel tokens.
+2. `test_generation_leaky_exception_is_logged` — plants `"SENTINEL_DISCOVERY_LEAK_42 — asyncpg pool dead"` in the raised error, attaches a capture handler to the `error_utils` logger at WARNING, confirms the sentinel reaches the logger AND is absent from the user-facing response. Dev diagnosability preserved.
+3. `test_curated_error_strings_preserved` — no-API-key branch must still return the curated string `"No Anthropic API key configured"` exactly. Pins I only touched the generic-except branch.
+4. `test_no_raw_str_e_in_discovery_refresh_tasks` — grep-level regression audit. 3 compiled regex patterns cover `_refresh_tasks[...] = {...: str(e)}`, `{f"...{str(e)}..."}`, and `{f"...{e}..."}`.
+
+### Verification
+- 4/4 new tests green locally
+- Regression sweep: 6/6 Cycle 29, 5/5 Cycle 28, 4/4 Cycle 27, 7/7 Cycle 26, 7/7 Cycle 25 — all green
+- VPS deploy pending
+
+### Honest gaps
+- **Scope is only the generic-except branch.** Lines 373, 421, 533, 609 all use curated strings built from module-controlled values — I audited them visually. Line 533's `f"Claude API error: {resp.status_code}"` is fine (status codes are 3 digits). But if a future edit appends `resp.text[:200]`, the response body could leak. The grep audit at test 4 would NOT catch that — it only flags `str(e)` and `{e}`. Worth generalizing the allowlist next cycle.
+- **Tests use `discovery_mod.fetch_all = _explode` (attribute replace) instead of `unittest.mock.patch`.** discovery.py does `from database import fetch_all` — that rebinds the name on `discovery_mod`. Patching `database.fetch_all` directly would NOT hit the bound reference. The attribute-replace is correct but fragile: if the import changes to `from database import fetch_all as _fetch`, the test starts passing for the wrong reason.
+- **The context argument `"Idea generation failed"` is a guess at good copy.** Better UX would be differentiated per failure class (timeout vs 500 vs auth), but that's humanize_error's pattern-match branch and requires trusting the raw-string keyword match. I chose the safer path — curated copy, always.
+
+### Learned
+- **"Latent security bugs graduate to real ones the moment a consumer appears."** Cycle 29 shipped the consumer before I noticed this bug. Good catch-rate because I was actively reading surrounding code while writing the frontend fix — if I'd been doing pure mechanical "add TS field" work I'd have shipped without ever seeing line 615. Moral: when surfacing a new field/error/output to users, always audit every writer for reconnaissance-quality content.
+- **Attribute-replace vs mock.patch is a real choice.** Python's `from X import Y` binds Y as a NAME in the importer's module, not a LINK to X.Y. To mock Y as seen by the importer, patch the importer's binding. `mock.patch("X.Y", fake)` does NOTHING useful for importer. Same shape as the subtle import-binding traps in the Cycle 15 `OrchestratorResult.error` work.
+- **Per-cycle shape is converging.** Every recent security cycle (26, 27, 28, 30) has the same 3-test structure: functional sweep of malicious inputs, dev-diagnosability gate, static grep audit. Essentially a template. Could lift into a shared helper — the YAGNI bar says wait for a 4th, but this IS the 4th. Next same-shape cycle, extract.
+- **humanize_error with `context=...` is the right default, not context=None.** context=None returns pattern-matched copy IF the raw string matches a known network/auth/timeout keyword. If it doesn't match, raw is silently discarded and you get generic fallback. Curated context is always-on, deterministic, user-tested.

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute
+from error_utils import humanize_error
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -612,7 +613,10 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
 
     except Exception as e:
         print(f"[Discovery] Error: {e}")
-        _refresh_tasks[tenant_id] = {"running": False, "error": str(e)}
+        _refresh_tasks[tenant_id] = {
+            "running": False,
+            "error": humanize_error(e, context="Idea generation failed"),
+        }
 
 
 async def _get_learnings_context(tenant_id: str) -> str:
