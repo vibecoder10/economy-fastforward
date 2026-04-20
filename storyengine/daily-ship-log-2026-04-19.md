@@ -457,3 +457,39 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 **Next:**
 - Cycle 15 primary: runtime E2E test on `/api/activity` — inject a backend failure (e.g. via a test-only route or a monkey-patched bot), poll the activity feed, assert zero raw `HTTPS` / `Connection` / `Traceback` substrings in any row. This is the "tenant-facing end-to-end" test that Cycles 8-11's honest gaps all flagged — now writable because prod SSH + venv access unlocked it.
 - Alternates: (a) clean-replacement override semantics, (b) first E2E customer-style render (task #11, needs Ryan's channel), (c) fresh fix-roadmap.md rewrite against ground truth.
+
+## Cycle 15 — 2026-04-20 ~02:15 CT
+**Goal:** close the runtime E2E gap that Cycles 8-11 all flagged — "static audit proves the code path humanizes at the write boundary, but only a live DB scan proves it's actually working in production." Now writable because Cycle 14 unlocked prod access.
+
+**Design call — reject the obvious approach, pick the right one:**
+- First instinct: import `routes.pipeline._set_task_status`, inject a raw error, read back the DB row, assert no raw substrings. Clean round-trip.
+- Reality: `routes.pipeline` transitively imports FastAPI + auth + pipeline_executor + status_map + DB pool. Each stub I added cascaded into a new `ImportError`. Three rounds of whack-a-mole.
+- Pivot: the right test is **a passive scan of every user-visible failed-status row in the live DB.** `/api/activity` reads directly from `bot_activity.message`. If the scan finds zero raw patterns across every tenant's historical rows, the humanizer is proven working end-to-end without any round-trip gymnastics.
+
+**Shipped:**
+- **`tests/functional/test_activity_feed_no_raw_errors.py`** — 3 tests, all runnable as a plain script (no pytest dep — VPS venv doesn't have it):
+  - `test_bot_activity_no_raw_error_substrings` — scans every `bot_activity` row with `status='failed'`, checks `message` for 16 raw-exception patterns (HTTPSConnectionPool, Traceback, Errno, AttributeError/KeyError/TypeError/ValueError/NameError/IndexError, api.kie.ai / api.anthropic.com / api.openai.com, Connection aborted/refused/reset). Fails loudly if any leak found, prints sample rows.
+  - `test_background_tasks_no_raw_error_substrings` — same scan on `background_tasks.error_message` (what `/task-status` polls).
+  - `test_helper_strips_every_raw_pattern` — pins `humanize_error`'s output against the same 16-pattern catalog. If a new pattern gets added to `RAW_ERROR_PATTERNS` that the helper doesn't strip, this test catches it before the DB scans could silently miss it.
+- Skips cleanly (not fails) when `DATABASE_URL` isn't set, so local dev without a DB connection is fine.
+- The `humanize_error` call has a WARNING log line with `[humanize_error]` prefix — all 16 patterns now visible as log lines in the test output, confirms the dev-grep handle works.
+
+**Functional test results (on VPS against prod DB):**
+- **3/3 green.**
+- `bot_activity` had 87 rows with `status='failed'` scanned — not an empty-table artifact. Zero leaks.
+- `background_tasks` had 1 row with `status='failed' AND error_message IS NOT NULL` scanned. Zero leaks.
+- `helper_strips_every_raw_pattern` — 16 patterns exercised, 16 stripped.
+
+**Honest gaps:**
+- **Round-trip via `_set_task_status` was abandoned.** Proving "if an engineer wires a new code path to write raw errors directly, the audit catches it" is covered by `test_error_humanization.py:test_set_task_status_humanizes_failure_errors` (static + stubbed) + the DB scans (live data). A true round-trip via the real `routes.pipeline` module would need `routes.pipeline._set_task_status` refactored to NOT depend on the whole FastAPI tree at import time. Deferred.
+- **Pattern catalog is finite.** If a brand-new upstream API appears tomorrow (say `api.elevenlabs.io`), its domain name won't be in `RAW_ERROR_PATTERNS` — raw leaks from that domain would pass the audit. Mitigation: the generic signatures (`Traceback`, `Errno `, `host='`, `Connection *`) catch most shapes regardless of hostname. Still worth periodically reviewing the list against new upstream deps we've added.
+- **The scan only fires when the audit runs.** This is not a continuous monitor — it's a test you run during CI or manually on the VPS. For continuous surveillance, we'd want a cron that runs this scan every hour and pages on failure. Not built tonight; noted as future hardening.
+
+**Learned:**
+- **Schema archaeology is a signal to pivot.** Three rounds of import stubs, one UUID constraint, one NOT NULL, two FK constraints — the round-trip test was screaming "you're solving the wrong problem." The DB scan is the right test. When a test's setup keeps breaking for unrelated reasons, stop patching setup and ask whether the test is even the right shape.
+- **"Empty-table passes" is the silent-failure mode of every audit test.** Before declaring the audit meaningful, I queried `SELECT COUNT(*) WHERE status='failed'` — 87 rows in bot_activity, 1 in background_tasks. Real data, real audit. A green test against 0 rows of evidence is no test at all. Worth making this sanity check part of any future audit-test playbook.
+- **Cycles 8-11 were right to defer the runtime E2E.** Back then we didn't have SSH. The test would have been either (a) fake (stubs) or (b) blocked. Cycle 14 unlocked Cycle 15. Sometimes the right move is to ship the thing you CAN prove and mark the remaining gap honestly — the access that closes it shows up later.
+
+**Next:**
+- Cycle 16 primary: clean-replacement override semantics — when a tenant prompt override is present, strip the profile-derived voice preamble from the user-prompt body so Claude gets a clean override signal instead of blended prompts. The Cycle 7 honest gap we haven't gotten to yet.
+- Alternates: (a) first E2E customer-style render (task #11, needs Ryan's Power Doctrine channel), (b) fresh fix-roadmap.md rewrite against ground truth, (c) yt-dlp live stability test, (d) hourly cron for the Cycle 15 audit with paging on leak-found.
