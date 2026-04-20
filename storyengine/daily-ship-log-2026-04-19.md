@@ -1524,3 +1524,10 @@ Cycle 38's `test_schema_sql_mirrors_index_in_all_definitions` re-ran green — i
 **Follow-up cycle (next Stage 2.2 pass):** reconcile `niche_meta_insights` policy shape with the memberships pattern, and do the full migrations-vs-schema.sql drift audit for every other multi-tenant table. One cycle per cluster of 2-3 policies to keep scope tight.
 
 Lesson: when auditing schema drift, query `pg_policies` on the live DB first — the code answer (migrations, schema.sql) is what *should* be true, prod is what *is* true. The two sometimes disagree in consequential ways.
+
+### Cycle 39 — SHIPPED ✅
+- Commit d3541f4c pushed to origin/main
+- Migration 043 applied to prod via Supabase MCP
+- `pg_policies` confirms only `"Tenant isolation" FOR ALL` (memberships-based) remains on background_tasks
+- VPS: 5/5 Cycle 39 tests green + 5/5 Cycle 38 regression green
+- Task #44 closed
