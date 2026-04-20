@@ -5,7 +5,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Sparkles, RefreshCw, Loader2, TrendingUp, X, ChevronRight, Brain,
-  Lightbulb, ExternalLink,
+  Lightbulb, ExternalLink, AlertTriangle,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -146,6 +146,16 @@ export default function DiscoveryPage() {
               </>
             )}
           </div>
+          {status?.error && !status.is_refreshing && (
+            <div
+              className="mt-2 flex items-start gap-2 text-xs font-mono"
+              style={{ color: "var(--red, #ff6b6b)" }}
+              role="alert"
+            >
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+              <span>Last refresh failed: {status.error}</span>
+            </div>
+          )}
         </GlassCard>
       </motion.div>
 

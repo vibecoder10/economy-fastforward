@@ -1495,6 +1495,7 @@ export interface DiscoveryStatus {
   idea_count: number;
   fresh_count: number;
   learnings_applied: number;
+  error: string | null;
 }
 
 // --- Pipeline Readiness ---

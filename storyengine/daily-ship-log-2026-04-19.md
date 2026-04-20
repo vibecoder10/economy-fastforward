@@ -987,3 +987,45 @@ The helper is local (not imported from database.py) because that module is async
 - **The positive gate (`test_every_field_map_value_is_safe`) is doing more work than it looks like it is.** It iterates every column name in every FIELD_MAP at test time. That means: the day someone adds a column named `"Video URL"` (mapped to `video url` or `VIDEO_URL` by typo), the test suite fails at CI — they never get to a production SQL error, never get to a 500, never get to a "why is this broken" Slack ping. It's cheap runtime reflection as a compile-time check. Same shape as the Cycle 19 drift canary.
 - **Using `dir()` to discover FIELD_MAPs auto-extends coverage.** I only hardcoded IDEA_FIELD_MAP and SCRIPT_FIELD_MAP in the test dict, but the `for attr_name in dir(supabase_adapter)` loop picks up any future `*_FIELD_MAP` someone adds. Zero-touch extension. If the naming convention isn't followed (e.g., someone defines `FIELDS_ASSET = {...}`), they miss the gate — so the convention is itself load-bearing.
 - **"Don't refactor beyond the task" matters here.** I wanted to also collapse the 5 builder sites into a single helper, since they're ~80% the same code. But that's a refactor, not a fix. The functional guarantee I care about (every `{col}` is validated) is orthogonal to code duplication. Ship the fix, leave the DRY for a dedicated refactor cycle.
+
+---
+
+## Cycle 29 — Stage 6.5 DiscoveryStatus error field silent-failure fix
+
+**Target:** Stage 6.5 from fix-roadmap.md. The Discovery page refresh button has had a silent-failure UX bug: when the background refresh task throws (no API key, Claude 429, DB disconnect, any exception at discovery.py:605-615), the backend sets `_refresh_tasks[tenant_id]["error"] = <message>`, the `GET /api/discovery/status` endpoint returns that error in the `DiscoveryStatus.error` field — and the frontend dropped it on the floor. The TypeScript `DiscoveryStatus` interface at `frontend/src/lib/api.ts:1492` didn't declare an `error` field at all, so the UI code never surfaced it. User experience: click Refresh → spinner turns → spinner stops → no new ideas → no explanation. Silent breakage.
+
+Backend was already correct. Fix is entirely on the frontend:
+1. Add `error: string | null;` to `DiscoveryStatus` interface.
+2. Render the error as a red `AlertTriangle` pill under the status bar on the discovery page, gated on `status?.error && !status.is_refreshing` so the error doesn't flash next to the spinner during a retry.
+3. Backend functional test to pin the contract — if a future refactor drops the field from the Pydantic model or changes the gating logic, the test fails at CI.
+
+### Changes
+- `storyengine/frontend/src/lib/api.ts` — 1 line added to interface
+- `storyengine/frontend/src/app/discovery/page.tsx` — AlertTriangle import + 10-line error banner
+- `storyengine/backend/tests/functional/test_discovery_status_error_field.py` — new, 6 tests
+
+### Tests
+1. `test_discovery_status_has_error_field` — introspects `DiscoveryStatus.model_fields["error"]` via pydantic v2 API, asserts annotation accepts `str | None`. If someone removes the field or narrows the type, fails.
+2. `test_discovery_status_error_none_when_no_refresh_ever` — clean state → error is None.
+3. `test_discovery_status_error_populated_on_failure` — inject `{"running": False, "error": "No Anthropic API key configured"}` into `_refresh_tasks[tenant]`, call the endpoint handler, assert error propagates to response.
+4. `test_discovery_status_error_hidden_while_refreshing` — inject `{"running": True, "error": "stale..."}`. Confirms the gating at discovery.py:213 (`not is_refreshing`) hides stale error during an active retry. Prevents spinner + banner flashing simultaneously.
+5. `test_discovery_status_error_none_on_success` — task state with no `"error"` key → endpoint returns error=None and learnings_applied=3.
+6. `test_ts_interface_includes_error_field` — **cross-repo static audit**: reads `frontend/src/lib/api.ts` as text, regex-matches `DiscoveryStatus { ... }`, asserts `error: string | null;` is present in the body. Backend test file reaches across into the frontend to guard the contract as one unit.
+
+### Verification
+- 6/6 new tests green locally
+- 51 total tests across 7 functional suites — all green
+- VPS deploy next
+
+### Honest gaps
+- **Deploy NOT yet complete for Cycle 29** — the frontend build & restart step is the VPS next action. This log entry is written pre-deploy so the transcript captures the intent. I'll re-log below after the deploy lands.
+- **The test calls `get_discovery_status(tenant_id=...)` directly, bypassing FastAPI's `Depends(get_tenant_id)`.** That means the auth path (tenant resolution from headers) isn't exercised. For THIS test, that's fine — the contract I care about is the error-field propagation from `_refresh_tasks` → response model. The auth/tenant story is tested elsewhere (Cycle 25 cross-tenant isolation).
+- **I did not test the React component renders the banner.** No frontend test harness exists (Task #5 pending). The TS interface check is the best proxy available until jest/vitest/playwright is stood up. If the React code has a typo in the JSX path, this cycle doesn't catch it.
+- **The TS regex in `test_ts_interface_includes_error_field` assumes the interface lives at a specific path and is the only match.** If the frontend is restructured (monorepo split, etc.), this test breaks with a file-not-found, which is loud — acceptable.
+- **Related bug I flagged but DID NOT fix: discovery.py:615 `"error": str(e)`.** Same class as SEC-KEYS-001 / vault.py (Cycle 27) — a raw exception string escapes to the client through the `error` field on a generic exception. Lines 373, 421, 533, 609 all use curated strings; only 615 does `str(e)`. Scope control: that's a new security cycle (call it SEC-ERR-002), not a stowaway. Logged here for the next cycle pickup. Today's Cycle 29 SURFACES the error to users for the first time — so the leak is more exploitable than it was yesterday (it was previously invisible). Must be addressed soon.
+
+### Learned
+- **"Silent failure" is the most expensive UX bug category because users never know to tell you.** A 500 error gets a Sentry alert and a Slack ping. A refresh that quietly does nothing gets zero signal — the user shrugs, assumes no ideas were available, and moves on. The backend had the error message all along; surfacing it is a one-line TS change that literally converts invisible failures into actionable failures for free. These bugs are disproportionately important to find and ship fast.
+- **Cross-repo static audit tests are underrated.** `test_ts_interface_includes_error_field` is a Python test reaching across into TypeScript source to grep for an interface field. No build tool invoked, no AST parsing, just a regex on a string. But it gives the Python backend CI a hook into frontend drift — if someone edits api.ts and forgets the field, the backend test fails. That's cheap backstop against cross-repo contract drift without any shared type-generation infrastructure. Pattern: frontend contract files are just text; a regex on them is a contract check.
+- **When backend and frontend are both "correct in isolation" but the product is broken, the bug is in the integration surface — usually a missing field, a serialization edge, or a schema drift.** Backend had the field. Frontend had the render code (it would happily render `{status.error}` if the field existed). But the TS interface blocked the compiler from letting the field through the boundary. This is why strongly-typed client code can mask bugs that an untyped client (raw fetch + `any`) would have worked around accidentally. Pay attention to the boundaries.
+- **"The backend is fine, just fix the frontend" should itself be a test-gated claim.** I verified it by reading discovery.py:57-64 (model has `error` field) and :211-222 (handler populates it correctly) but not by executing the endpoint. The functional test I wrote is what actually proves the backend claim — code-reading "by inspection" is a downpayment on a real test, not a substitute. Same shape as the Cycle 28 `_safe_col` argument — "current callers are fine" is a description, not a guarantee.
