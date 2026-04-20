@@ -353,13 +353,30 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
                 return {"success": False, "message": f"Gemini API error: {resp.status_code}"}
 
             elif name == "elevenlabs_api_key":
-                # Test ElevenLabs by getting user info
+                # Validate against `/v1/voices` (what StoryEngine actually uses
+                # for TTS). `/v1/user` requires the `user_read` scope — keys
+                # scoped only for TTS fail there with 401 even though they're
+                # perfectly valid for our use case. 401 bodies differentiate
+                # `invalid_api_key` from `missing_permissions` so we can give
+                # users an actionable message.
                 resp = await client.get(
-                    "https://api.elevenlabs.io/v1/user",
+                    "https://api.elevenlabs.io/v1/voices",
                     headers={"xi-api-key": value},
                 )
                 if resp.status_code == 200:
                     return {"success": True, "message": "ElevenLabs API key valid"}
+                if resp.status_code == 401:
+                    try:
+                        detail = resp.json().get("detail", {})
+                    except Exception:
+                        detail = {}
+                    status = detail.get("status") if isinstance(detail, dict) else None
+                    if status == "missing_permissions":
+                        return {
+                            "success": False,
+                            "message": "ElevenLabs key is valid but missing voices_read permission — regenerate the key with full TTS access",
+                        }
+                    return {"success": False, "message": "ElevenLabs rejected the key"}
                 return {"success": False, "message": f"ElevenLabs API error: {resp.status_code}"}
 
             elif name == "tavily_api_key":
