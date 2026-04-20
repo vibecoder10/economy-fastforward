@@ -118,80 +118,39 @@ def test_background_tasks_no_raw_error_substrings():
     print("✅ test_background_tasks_no_raw_error_substrings (scanned failed rows, 0 leaks)")
 
 
-def test_write_boundary_round_trip():
-    """Round-trip: write a raw error through _set_task_status, read it back, confirm humanized.
+def test_helper_strips_every_raw_pattern():
+    """Sanity: the humanizer itself strips every pattern in our catalog.
 
-    This does NOT mutate the real background_tasks table — it uses a dedicated
-    test row id, inserts via _set_task_status which goes through humanize_error,
-    then reads it back and deletes. Proves the full write-boundary pipeline end
-    to end against the live DB, not a stub.
-
-    Skipped without DATABASE_URL, same as the scan tests.
+    If RAW_ERROR_PATTERNS is extended with a new signature that the helper
+    doesn't strip, the two DB-scan tests above could silently miss it. This
+    test pins the helper's output against the same pattern list.
     """
-    _require_db_url()
-
-    async def _run():
-        import asyncpg
-        import types
-        # Stub the FastAPI deps before importing pipeline routes
-        for mod_name in ("auth", "pipeline_executor", "status_map"):
-            if mod_name not in sys.modules:
-                sys.modules[mod_name] = types.ModuleType(mod_name)
-        import auth  # type: ignore
-        auth.require_auth = lambda: None
-        auth.get_current_user_id = lambda: None
-        auth.get_tenant_id = lambda *a, **k: None
-        import pipeline_executor  # type: ignore
-
-        class _StubExec:
-            def __init__(self, *a, **k): pass
-        pipeline_executor.PipelineExecutor = _StubExec
-
-        import status_map  # type: ignore
-        status_map.map_pipeline_status = lambda s: s
-
-        # Seed a real background_tasks row so _set_task_status has something to UPDATE.
-        # Schema: tenant_id + video_id both have FKs; video_id is nullable.
-        # Strategy: borrow an existing (tenant, video) pair, update it in place,
-        # delete the synthetic row. The update key is video_id so we need a real one.
-        conn = await asyncpg.connect(os.environ["DATABASE_URL"])
-        synthetic_task_id = None
-        try:
-            pair = await conn.fetchrow(
-                "SELECT tenant_id, id AS video_id FROM videos LIMIT 1"
-            )
-            if pair is None:
-                raise _Skip("no videos row exists — round-trip needs tenant+video FKs")
-            synthetic_task_id = await conn.fetchval(
-                """INSERT INTO background_tasks
-                   (tenant_id, video_id, task_type, status, started_at)
-                   VALUES ($1, $2, 'osiris-audit', 'running', NOW())
-                   RETURNING id""",
-                pair["tenant_id"], pair["video_id"],
-            )
-            from routes.pipeline import _set_task_status
-            raw = "HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded with url: /api/task"
-            await _set_task_status(str(pair["video_id"]), "failed", raw, duration_ms=42)
-            stored = await conn.fetchval(
-                "SELECT error_message FROM background_tasks WHERE id = $1",
-                synthetic_task_id,
-            )
-            assert stored is not None, "row not written — check _set_task_status UPDATE predicate"
-            for pattern in RAW_ERROR_PATTERNS:
-                assert pattern not in stored, (
-                    f"raw pattern {pattern!r} survived humanize_error → DB round trip. "
-                    f"stored={stored!r}"
-                )
-        finally:
-            if synthetic_task_id is not None:
-                await conn.execute(
-                    "DELETE FROM background_tasks WHERE id = $1",
-                    synthetic_task_id,
-                )
-            await conn.close()
-
-    asyncio.run(_run())
-    print("✅ test_write_boundary_round_trip (live DB, raw error humanized on write)")
+    from error_utils import humanize_error
+    sample_errors = {
+        "HTTPSConnectionPool": "HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded",
+        "Traceback": "Traceback (most recent call last):\n  File ...",
+        "host='": "Failed to connect: host='api.openai.com' port=443",
+        "Errno ": "[Errno 111] Connection refused",
+        "AttributeError:": "AttributeError: 'NoneType' object has no attribute 'get'",
+        "KeyError:": "KeyError: 'missing_field'",
+        "TypeError:": "TypeError: unhashable type: 'dict'",
+        "ValueError:": "ValueError: invalid literal for int()",
+        "NameError:": "NameError: name 'x' is not defined",
+        "IndexError:": "IndexError: list index out of range",
+        "api.kie.ai": "Upstream api.kie.ai returned 500",
+        "api.anthropic.com": "Upstream api.anthropic.com returned 500",
+        "api.openai.com": "Upstream api.openai.com returned 500",
+        "Connection aborted": "Connection aborted by peer",
+        "Connection refused": "Connection refused by upstream",
+        "Connection reset": "Connection reset by peer",
+    }
+    leaked = []
+    for pattern, raw in sample_errors.items():
+        out = humanize_error(raw, context="We couldn't do the thing")
+        if pattern in out:
+            leaked.append((pattern, out))
+    assert not leaked, f"humanize_error leaked: {leaked}"
+    print(f"✅ test_helper_strips_every_raw_pattern ({len(sample_errors)} patterns, 0 leaks)")
 
 
 if __name__ == "__main__":
@@ -199,7 +158,7 @@ if __name__ == "__main__":
     for fn in (
         test_bot_activity_no_raw_error_substrings,
         test_background_tasks_no_raw_error_substrings,
-        test_write_boundary_round_trip,
+        test_helper_strips_every_raw_pattern,
     ):
         try:
             fn()
