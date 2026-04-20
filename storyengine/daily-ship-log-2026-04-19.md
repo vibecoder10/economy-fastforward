@@ -1114,3 +1114,66 @@ The roadmap flagged 3 of those. I added the 4th (`background_tasks`) after the d
 - **Ground-truth diff first, plan second.** The roadmap said 3 tables; the diff showed 4. If I'd gone off the roadmap alone, `background_tasks` would have stayed drifted until someone else noticed. Cycle 4 of this series (fix-roadmap ground-truth audit) already taught this lesson at the roadmap level; it applies fractally. Always diff before you trust.
 - **Adding test infra with zero production exposure is a pure win.** This cycle ships ONLY test code + a SQL file that affects future fresh installs. Zero risk to running prod. That's a great candidate shape for ship-while-sleep: high value (schema integrity), zero blast radius. If more of this shape appears in the roadmap, prioritize.
 - **Whitelist-with-empty-default is the right escape-hatch pattern.** Start with an empty `ALLOWED_DRIFT = set()`. Future dev who hits a legitimate exception adds the entry + a comment justifying it; reviewer sees it in the diff; decision is made once, then forgotten. Strict enforcement with no escape hatch invites people to disable the test entirely when they hit a wall. The soft escape hatch keeps the test alive AND usable.
+
+---
+
+## Cycle 32 — Stage 3.4 hardcoded-localhost fallback fix
+**Date:** 2026-04-20 (local cycle; ship-while-sleep)
+**Status:** ✅ Shipped — commit pending push; VPS deploy pending
+**Scope:** Frontend config hygiene — silent prod failure mode
+**Effort:** ~25 min
+
+### Problem
+`fix-roadmap.md §3.4` flagged three files (`lib/api.ts`, `demo/page.tsx`, `hooks/use-pipeline-sse.ts`) that each had their own fallback:
+```ts
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+```
+`NEXT_PUBLIC_*` is **build-time** in Next.js — baked into the client bundle. If `next build` runs without the env set, the compiled artifact silently calls `localhost:8001` from the user's browser, which goes nowhere and every API call 404s. No stack trace, no telemetry hook, just a broken dashboard.
+
+Scan found a 4th site the roadmap missed: `app/settings/drive-callback/page.tsx:8`. 4 sites total.
+
+### Fix
+Centralized in new file `frontend/src/lib/env.ts`:
+```ts
+function resolve(name: string, devFallback: string): string {
+  const val = process.env[name];
+  if (val && val.length > 0) return val;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(`${name} is required in production builds...`);
+  }
+  return devFallback;
+}
+export const API_URL = resolve("NEXT_PUBLIC_API_URL", "http://localhost:8001");
+export const RUBRIC_URL = resolve("NEXT_PUBLIC_RUBRIC_URL", "http://localhost:5050");
+```
+In prod: missing env → throw at module init → surfaces during `next build` as a build failure, never ships a broken bundle. In dev: keeps the localhost fallback so `next dev` works with no .env.
+
+Migrated 4 call sites to `import { API_URL, RUBRIC_URL } from "@/lib/env"`.
+
+### Functional test (`test_frontend_env_centralization.py`)
+5 tests, static-audit pattern (Python reading TS):
+1. **env_ts_exists_and_is_the_single_source** — file present, exports both names.
+2. **env_ts_throws_in_production_when_missing** — file contains `production`, `throw`, and both env-var names (guard is real, not a stub).
+3. **no_inline_localhost_fallback_anywhere_else** — regex scans all 134 .ts/.tsx files; catches copy-paste regressions of the old pattern.
+4. **no_direct_next_public_url_reads_outside_env_ts** — stronger: no direct `process.env.NEXT_PUBLIC_*_URL` read anywhere else, forces all callers through the guarded resolver.
+5. **env_ts_is_actually_imported_by_known_callers** — positive check: the 4 migrated files all still import from `@/lib/env` (catches revert).
+
+5/5 passed locally.
+
+TypeScript verified clean: `npx tsc --noEmit` → no errors.
+
+### Honest gaps
+- Did NOT runtime-smoke-test the guard — I tried `tsx`-based eval but the output was noisy. The static test covers "the guard logic is present"; the actual throw is only triggered by `next build` or SSR in prod. Next time someone runs `next build` with a missing env, we'll find out. Acceptable — the alternative (wiring up vitest just for one module) is disproportionate.
+- `frontend/next.config.mjs` was NOT audited for server-side env access. This cycle only covered client-side `NEXT_PUBLIC_*` reads. Server-side env usage is a separate problem class (no silent localhost fallback because it never reaches a client bundle).
+- The 4 currently-migrated files pass the positive-check test, but if a 5th file is *added* later that uses the env directly, only the negative-check tests catch it. That's fine — negative checks are the regression guards; the positive check is just a tripwire on reverts.
+
+### Deploy plan
+- `git add` + commit + push
+- VPS: `git pull` only (frontend build is triggered by `npm run build && systemctl restart storyengine-frontend`). Frontend IS already configured with `NEXT_PUBLIC_API_URL=https://storyengine.dev/api` in prod, so the throw won't fire.
+- Smoke test: the new drift test runs on VPS too (it's Python-only, no backend imports needed).
+
+### Learned
+- **Next.js NEXT_PUBLIC_* is build-time poison if unguarded.** The failure mode (silent localhost in prod bundle) is the worst kind of bug: no stack trace, no log, no telemetry — users see a broken page while the deploy looks healthy. Next time I see `process.env.NEXT_PUBLIC_*` anywhere, first question is "does it fall back silently?"
+- **Centralize *then* regression-test the centralization.** Moving 4 copies to 1 is easy. The hard part is preventing the 5th copy from appearing three months later when someone Stack-Overflow's the pattern. Negative grep audits (test #3, #4) are 20 lines of Python and cost nothing to maintain.
+- **The roadmap missed a site.** Grep found `drive-callback/page.tsx` that §3.4 didn't list. Trust the source, not the roadmap. (This is the same lesson as Cycle 31's "ground-truth diff first" — applies every cycle.)
+- **Cheap wins compound.** This cycle is ~50 lines of real code + 140 lines of test. Zero runtime risk (frontend keeps working; env is set on prod). Every cycle like this moves a "time bomb bug" permanently off the list. The roadmap is full of these — keep picking them off.

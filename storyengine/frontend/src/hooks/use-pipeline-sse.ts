@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { API_URL } from "@/lib/env";
 
 /** Stage change event — a video transitioned between pipeline stages. */
 export interface SSEStageChangeEvent {

@@ -25,6 +25,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { getStageLabel } from "@/lib/constants";
 import { formatNumber } from "@/lib/utils";
+import { API_URL as API } from "@/lib/env";
 
 const container = {
   hidden: { opacity: 0 },
@@ -70,7 +71,6 @@ interface DemoPipeline {
   videos: DemoVideo[];
 }
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const fetchDemo = <T,>(path: string) => fetch(`${API}${path}`).then((r) => r.json() as Promise<T>);
 
 const STAGE_COLORS: Record<string, string> = {
