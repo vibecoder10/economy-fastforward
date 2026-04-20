@@ -760,3 +760,39 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **Opt-in polling is the right React Query default for a rate-limited API.** The library ships with `refetchInterval: false` by default for exactly this reason; the app overrode it to be "helpful" and created a per-user rate-storm instead. Don't override library defaults without understanding why the default is the default.
 - **Free-plan limits should be friendlier to the defaults.** 15/min is aggressive when even a reasonable-looking UI wants to poll 3-5 endpoints at 10-60s cadences. Either bump free to 30/min (aligns with starter, which costs the same if they're not paying anyway), OR keep 15 and whitelist a handful of lightweight meta-endpoints (health, subscription, pending-review-count) from the counter. Not done in this cycle but worth revisiting — Ryan's call.
 - **"Console 429 errors" from an earlier cycle was a real symptom I deferred with 'not blocking'.** The instinct was right (the feature I was shipping wasn't affected) but the problem had been latent since whenever the `refetchInterval: 60_000` default landed. Worth a one-line deferred-debt entry in a backlog next time so it doesn't sit for multiple cycles.
+
+## Cycle 24 — 2026-04-20 ~04:30 UTC — Functional tests for /distill-url (WelcomeQuest step-2 hook)
+**Trigger:** Cycle 23 cleaned up the dashboard polling storm but the *actual* hook moment — the moment a new signup pastes a YouTube URL during WelcomeQuest step 2 and sees the product "work" — has **zero** functional tests. Every failure mode of `/api/intelligence/distill-url` was discovered through "I'll try it in prod" rather than "a test failed before deploy." One silent regression here kills the onboarding funnel without a single HTTP 500 ever surfacing.
+
+**Investigation:**
+- Read `backend/routes/intelligence.py:88-297`. The endpoint has 5 distinct failure surfaces:
+  1. Video-ID extraction fails → `HTTPException(400)`.
+  2. Pre-distilled cache hit → short-circuit return with status `"already_distilled"`. **If this regresses we silently re-pay yt-dlp's cost (and rate limit) on every retry.**
+  3. `_extract_video_info` (yt-dlp) raises → `HTTPException(502, humanize_error(e, context=...))`. The raw string `HTTPSConnectionPool(host='www.youtube.com'...)` must never reach the user.
+  4. `_extract_video_info` returns `None` (video private/removed) → `HTTPException(404)`.
+  5. Distillation fails AFTER the video row is saved → partial response with status `"scraped_but_distillation_failed"`, video record preserved so retry is cheap.
+- Plus the video-ID extractor itself (`_extract_video_id_from_url`) handles 4 URL shapes (watch?v=, youtu.be/, shorts/, embed/) + garbage-returns-None.
+
+**Fix — `backend/tests/functional/test_distill_url.py` (new, 309 lines, 12 tests):**
+- 6 tests on the ID extractor (one per URL shape + garbage).
+- 3 error-path tests: invalid URL → 400; yt-dlp raise → 502 with leak-proof assertion (`"HTTPSConnectionPool" not in detail`, `"www.youtube.com" not in detail`); yt-dlp None → 404.
+- 2 idempotency tests: same URL twice → cached response + **yt-dlp spy `call_count == 0`** assertion (regression on this would be invisible in prod but expensive), plus a variant where `structured_metadata` arrives as a JSON string from the DB and has to be parsed.
+- 1 partial-failure test: yt-dlp succeeds, distillation raises — result must include status `"scraped_but_distillation_failed"`, the video ID, and the raw error (so Ryan can see "it was the OpenAI rate limit not yt-dlp" on retry).
+- Mocks: `fetch_one` / `execute` from `database`, `routes.niche._extract_video_info`, `distillation.pipeline.distill_competitor_video`. Zero network / zero DB dependency.
+
+**Ship:**
+- `python tests/functional/test_distill_url.py` → 12/12 passed.
+- Existing suites unchanged: `test_validator_error_parsing.py` 11/11, `test_error_humanization.py` all green.
+- Committed `e4204986`, pushed to main.
+
+**Honest gaps:**
+- **Tests exercise the endpoint by calling the async function directly** with a hardcoded tenant_id string, not through FastAPI's dependency-injection layer. Means auth / tenant scoping behaviour is unverified here — those live in middleware and aren't part of this endpoint's surface, but if auth were to accidentally permit an invalid tenant_id to reach this function, the test would still pass. Acceptable gap because all other routes share the same `Depends(get_tenant_id)`, so an auth regression would blow up everywhere at once, not hide behind this one endpoint.
+- **No test for the UPDATE vs INSERT branch** when a `competitor_videos` row already exists (not distilled) but yt-dlp is re-run. Happy-path coverage of the primary customer flow is complete; the edge-case branch would benefit from a test but wasn't the highest-ROI increment this cycle.
+- **`_fake_ytdlp_info()` fixture is hand-crafted**, not captured from a live yt-dlp run. If yt-dlp ever changes its return dict shape (adds required fields, renames a key), our tests will still pass while prod breaks. Same drift class as the validator canary — arguably needs its own mirror canary. Deferred.
+- **No test exercising the actual humanizer-to-user-copy transformation** (vs. the negative-only "raw string not present" check). Would need to assert specific text like `"couldn't pull that YouTube video"` — fragile to copy changes. Chose negative assertion for durability.
+- **Test runner is a hand-rolled `main()` loop rather than pytest.** Matches the rest of `tests/functional/` but means test discovery, parallel execution, xdist, fixtures all unavailable. Adds friction when the suite grows. Not blocking but this is now ~4 test files and ready for a 20-line `conftest.py` + `pytest` switch next time the suite grows.
+
+**Learned:**
+- **The "already_distilled" fast path is a latent cost-control surface that no visible assertion guarded.** If someone refactors the existence-check and the yt-dlp call still runs on cache hit, no 500 surfaces — just a silently expensive API. Spy-based `call_count == 0` assertion is specifically designed to catch this; worth replicating on any other "check cache before expensive work" pattern in the codebase.
+- **The partial-failure `scraped_but_distillation_failed` return is a deliberate UX choice that tests now pin.** A new dev looking at this endpoint might "clean it up" to raise on distillation failure — that would break the optimization where a user's 2nd attempt doesn't re-pay yt-dlp. The test now documents this as intentional, not a TODO.
+- **Direct async function invocation with keyword-arg `tenant_id=...`** is a lightweight pattern for endpoint-level functional tests when the dependency is a plain string. No `TestClient`, no ASGI transport, just `asyncio.run(func(body, tenant_id="fake"))`. Much faster than spinning up the app per test. Keep using this pattern for auth-injected dependencies that are plain types.
