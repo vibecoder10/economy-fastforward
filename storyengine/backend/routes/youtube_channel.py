@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_tenant_id
 from database import fetch_one
+from error_utils import humanize_error
 
 logger = logging.getLogger(__name__)
 
@@ -283,7 +284,10 @@ async def _claude_summarize_voice(
         logger.error("Claude voice-learn failed %s: %s", resp.status_code, resp.text[:300])
         raise HTTPException(
             status_code=502,
-            detail=f"Voice analysis failed (Claude returned {resp.status_code})",
+            detail=humanize_error(
+                f"Claude {resp.status_code}",
+                context="We couldn't analyze your channel's voice",
+            ),
         )
     body = resp.json()
     try:

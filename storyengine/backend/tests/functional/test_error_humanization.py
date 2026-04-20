@@ -1,0 +1,149 @@
+"""Functional test: prove humanize_error never leaks raw exception strings.
+
+The leak we're guarding against: a user sees "Kie.ai API error:
+HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded..."
+in the UI instead of "We couldn't generate your character image".
+
+This test asserts three properties:
+
+1. humanize_error with a context returns copy that LEADS with the context
+   and never contains the raw exception string.
+2. Without context, known error patterns (network, timeout, auth, rate-limit,
+   5xx) are mapped to friendly copy.
+3. The raw error is always logged so devs can still diagnose.
+
+It also does a static check on the customer-facing route files: no call
+to HTTPException should pass a raw f-string containing str(e) as detail.
+"""
+import logging
+import os
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from error_utils import humanize_error
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_context_never_leaks_raw_exception():
+    """A context-mode call must never return the raw exception string."""
+    raw = "HTTPSConnectionPool(host='api.kie.ai', port=443): Max retries exceeded"
+    try:
+        raise RuntimeError(raw)
+    except RuntimeError as e:
+        out = humanize_error(e, context="We couldn't generate your character image")
+    assert "api.kie.ai" not in out
+    assert "HTTPSConnectionPool" not in out
+    assert "generate your character image" in out
+    print("✅ test_context_never_leaks_raw_exception")
+
+
+def test_network_pattern_mapped():
+    out = humanize_error("Connection refused by upstream")
+    assert "upstream service" in out.lower() or "reach" in out.lower()
+    print("✅ test_network_pattern_mapped")
+
+
+def test_timeout_pattern_mapped():
+    out = humanize_error("Request timed out after 60s")
+    assert "too long" in out.lower() or "try again" in out.lower()
+    print("✅ test_timeout_pattern_mapped")
+
+
+def test_auth_pattern_mapped():
+    out = humanize_error("HTTP 401 Unauthorized")
+    assert "authentication" in out.lower() or "api key" in out.lower()
+    print("✅ test_auth_pattern_mapped")
+
+
+def test_rate_limit_pattern_mapped():
+    out = humanize_error("HTTP 429 Too Many Requests")
+    assert "rate limit" in out.lower() or "wait" in out.lower()
+    print("✅ test_rate_limit_pattern_mapped")
+
+
+def test_unknown_error_uses_fallback():
+    out = humanize_error("some totally unknown error string xyz")
+    assert "something went wrong" in out.lower() or "try again" in out.lower()
+    print("✅ test_unknown_error_uses_fallback")
+
+
+def test_raw_error_is_logged(caplog=None):
+    """The raw exception string must reach the logs even if not the user."""
+    logger = logging.getLogger("error_utils")
+    records = []
+
+    class CaptureHandler(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    handler = CaptureHandler(level=logging.WARNING)
+    logger.addHandler(handler)
+    try:
+        humanize_error("SECRET_RAW_ERROR_TOKEN_xyz123", context="something broke")
+    finally:
+        logger.removeHandler(handler)
+
+    combined = "\n".join(records)
+    assert "SECRET_RAW_ERROR_TOKEN_xyz123" in combined, (
+        "Raw error string must be logged so devs can still diagnose."
+    )
+    print("✅ test_raw_error_is_logged")
+
+
+# --- Static audit: no raw str(e) leaks in HTTPException detail ---
+
+CUSTOMER_FACING_ROUTES = [
+    "routes/visual_styles.py",
+    "routes/intelligence.py",
+    "routes/pipeline.py",
+    "routes/system_prompts.py",
+    "routes/youtube_channel.py",
+    "routes/videos.py",
+]
+
+
+def test_no_raw_str_e_in_http_exception_detail():
+    """Audit: customer-facing routes must not pass raw str(e) / {e} in
+    HTTPException detail. Acceptable: humanize_error(e, context=...).
+    """
+    leak_patterns = [
+        re.compile(r'HTTPException\([^)]*detail\s*=\s*f?["\'][^"\']*\{e\}', re.DOTALL),
+        re.compile(r'HTTPException\([^)]*detail\s*=\s*f?["\'][^"\']*str\(e\)', re.DOTALL),
+        re.compile(r'HTTPException\([^)]*detail\s*=\s*str\(e\)', re.DOTALL),
+    ]
+    leaks = []
+    for rel in CUSTOMER_FACING_ROUTES:
+        path = BACKEND_ROOT / rel
+        if not path.exists():
+            continue
+        text = path.read_text()
+        for pat in leak_patterns:
+            for m in pat.finditer(text):
+                leaks.append(f"{rel}: {m.group(0)[:120]}")
+    assert not leaks, (
+        "Raw-exception leaks in HTTPException detail:\n"
+        + "\n".join(leaks)
+        + "\n\nUse humanize_error(e, context='...') instead."
+    )
+    print(f"✅ test_no_raw_str_e_in_http_exception_detail ({len(CUSTOMER_FACING_ROUTES)} routes clean)")
+
+
+def main():
+    test_context_never_leaks_raw_exception()
+    test_network_pattern_mapped()
+    test_timeout_pattern_mapped()
+    test_auth_pattern_mapped()
+    test_rate_limit_pattern_mapped()
+    test_unknown_error_uses_fallback()
+    test_raw_error_is_logged()
+    test_no_raw_str_e_in_http_exception_detail()
+    print("\nAll tests passed.")
+
+
+if __name__ == "__main__":
+    main()

@@ -12,6 +12,7 @@ from models import (
     CreateVideoRequest,
 )
 from database import fetch_all, fetch_one, execute, safe_column
+from error_utils import humanize_error
 from status_map import get_next_status_supabase
 from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, THUMBNAIL_SYSTEM_PROMPT, SOUND_CURATION_SYSTEM_PROMPT, SOUND_GENERATION_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from typing import Optional, Any
@@ -1070,7 +1071,11 @@ async def suggest_titles(
 
         if resp.status_code != 200:
             raise HTTPException(
-                status_code=502, detail=f"Claude API error: {resp.status_code}"
+                status_code=502,
+                detail=humanize_error(
+                    f"Claude {resp.status_code}",
+                    context="We couldn't generate title ideas",
+                ),
             )
 
         data = resp.json()

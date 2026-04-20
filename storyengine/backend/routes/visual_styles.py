@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
+from error_utils import humanize_error
 from routes.projects import _get_or_create_project
 
 router = APIRouter(prefix="/api/visual-styles", tags=["visual-styles"])
@@ -183,8 +184,13 @@ async def generate_character(
                 },
             )
             if create_resp.status_code != 200:
-                detail = f"Kie.ai createTask failed: HTTP {create_resp.status_code} — {create_resp.text[:300]}"
-                raise HTTPException(status_code=502, detail=detail)
+                raise HTTPException(
+                    status_code=502,
+                    detail=humanize_error(
+                        f"Kie.ai {create_resp.status_code}: {create_resp.text[:300]}",
+                        context="We couldn't start character generation",
+                    ),
+                )
 
             task_data = create_resp.json()
             data = task_data.get("data", {})
@@ -193,7 +199,10 @@ async def generate_character(
             if not task_id:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"No task_id in response: {json.dumps(task_data)[:300]}",
+                    detail=humanize_error(
+                        f"No task_id in response: {json.dumps(task_data)[:300]}",
+                        context="Character generation didn't start correctly",
+                    ),
                 )
 
             # Poll for completion — correct endpoint: /jobs/recordInfo?taskId=xxx
@@ -218,7 +227,10 @@ async def generate_character(
                     or str(task_status).lower() in ("failed", "failure", "error")
                     or str(task_state).lower() in ("fail", "failed", "failure", "error")):
                     error_msg = data.get("errorMessage") or data.get("error") or "Unknown error"
-                    raise HTTPException(status_code=500, detail=f"Generation failed: {error_msg}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=humanize_error(error_msg, context="We couldn't generate your character image"),
+                    )
 
                 # Check for completion — extract from resultJson.resultUrls
                 result_json = data.get("resultJson")
@@ -234,7 +246,10 @@ async def generate_character(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Kie.ai API error: {str(e)}")
+        raise HTTPException(
+            status_code=502,
+            detail=humanize_error(e, context="We couldn't generate your character image"),
+        )
 
 
 # --- Image analysis (Gemini Vision) — must be before /{style_id} routes ---
@@ -328,7 +343,13 @@ Analyze this image and extract a detailed visual style profile as JSON. Return O
             )
 
             if resp.status_code != 200:
-                raise HTTPException(status_code=502, detail=f"Gemini API error: {resp.status_code} — {resp.text[:300]}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=humanize_error(
+                        f"Gemini {resp.status_code}: {resp.text[:300]}",
+                        context="We couldn't analyze that image",
+                    ),
+                )
 
             data = resp.json()
             text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -346,9 +367,15 @@ Analyze this image and extract a detailed visual style profile as JSON. Return O
     except HTTPException:
         raise
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse Gemini response as JSON: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=humanize_error(e, context="We couldn't read the image analysis response"),
+        )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Gemini API error: {str(e)}")
+        raise HTTPException(
+            status_code=502,
+            detail=humanize_error(e, context="We couldn't analyze that image"),
+        )
 
 
 # --- List + Create (non-parameterized) ---

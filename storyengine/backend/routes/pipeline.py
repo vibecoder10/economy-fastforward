@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
+from error_utils import humanize_error
 from pipeline_executor import PipelineExecutor
 from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage
 
@@ -444,7 +445,10 @@ async def run_split(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=humanize_error(e, context="We couldn't split the scenes"),
+        )
 
 
 @router.post("/prompts/{video_id}", response_model=PipelineResponse)

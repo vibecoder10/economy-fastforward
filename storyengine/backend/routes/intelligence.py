@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from typing import Optional
 from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute
+from error_utils import humanize_error
 
 router = APIRouter(prefix="/api/intelligence", tags=["intelligence"])
 logger = logging.getLogger("storyengine")
@@ -129,7 +130,10 @@ async def distill_from_url(
         )
     except Exception as e:
         logger.error("[Distill-URL] yt-dlp failed for %s: %s", video_id, e)
-        raise HTTPException(status_code=502, detail=f"yt-dlp extraction failed: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=humanize_error(e, context="We couldn't pull that YouTube video"),
+        )
 
     if not info:
         raise HTTPException(status_code=404, detail="Video not found or unavailable")

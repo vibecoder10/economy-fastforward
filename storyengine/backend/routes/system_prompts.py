@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute
+from error_utils import humanize_error
 from prompt_defaults import PROMPT_DEFAULTS, META_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
@@ -137,7 +138,10 @@ async def generate_prompts(body: StyleGenerateRequest, tenant_id: str = Depends(
             logger.error("Claude API error %s: %s", resp.status_code, resp.text[:500])
             raise HTTPException(
                 status_code=502,
-                detail=f"Claude API error: {resp.status_code}",
+                detail=humanize_error(
+                    f"Claude {resp.status_code}",
+                    context="We couldn't generate your style prompts",
+                ),
             )
 
         data = resp.json()
