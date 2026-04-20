@@ -884,3 +884,49 @@ Pattern: monkeypatch `email_service.send_email` with a capturing stub; inspect t
 - **Test both presence and absence at the security boundary.** "Payload isn't there" + "escaped form IS there" → a broken-escape regression can't hide between them.
 - **XSS payload sweeps are fast to write and catch unexpected bypasses.** 5 payloads × 4 templates = 20 assertions in under 50 lines of test code. The `XSS_PAYLOADS` list is module-level so expanding future audits is one-line-add.
 - **Pre-existing safe code deserves a pinning test too.** `send_trial_expired` was already escaping — nothing technically required me to test it, but pinning it means a future refactor that "simplifies" escape logic can't silently drop coverage. That's the same philosophy as Cycle 25's `test_pipeline_dict_keys_are_tuples_not_strings` — assert the invariant, not just the current behavior.
+
+---
+
+## Cycle 27 — SEC-KEYS-001: no raw str(e) leak from vault.test_api_key (2026-04-20)
+
+**Shipped:** commit `855b2373`, deployed to VPS.
+
+### The bug
+`backend/vault.py:473` (outer `except Exception as e`) returned `f"Connection error: {str(e)}"`. The `/api/settings/test-key` endpoint flows this directly to the UI. On any network fault, users saw strings like:
+
+> Connection error: HTTPSConnectionPool(host='api.anthropic.com', port=443): Max retries exceeded with url: /v1/models (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f8a3c>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+
+Leaked: upstream hostname, port, URL path, internal object id, Python module paths, errno. Zero value to the user, decent recon value for an attacker mapping infrastructure. Roadmap flagged MEDIUM — I agree; not a direct credential leak, but it's the class of bug that teaches an attacker what to target next.
+
+### The fix
+Single-line swap: route through `error_utils.humanize_error(e, context="Connection failed while testing key")`. The raw error still reaches the `error_utils` logger at WARNING, so devs can grep `[humanize_error]` in journalctl when a user reports a test-key failure. User-facing copy: "Connection failed while testing key. Please try again."
+
+Added `from error_utils import humanize_error` at module top.
+
+### Functional tests (`tests/functional/test_vault_test_api_key_no_leak.py`)
+
+4 tests, 5 leaky-error shapes covered:
+
+1. `test_test_api_key_never_leaks_raw_exception` — for each of 5 realistic network-error strings (httpx pool, urllib3 internal object, errno 8 name resolution, `[SSL: CERTIFICATE_VERIFY_FAILED]`, `gaierror`), patch `httpx.AsyncClient` to raise that string, call `test_api_key("anthropic_api_key")`, assert raw substring doesn't appear AND specific high-value tokens (`HTTPSConnectionPool`, `urllib3`, `_ssl.c`, `gaierror`, `0x7f`) don't either.
+2. `test_test_api_key_leaky_exception_is_logged` — positive check on dev diagnosability: capture WARNING logs on `error_utils` logger, confirm the exact raw token appears in captured records AND is absent from the user-facing response.
+3. `test_missing_key_path_is_unchanged` — sanity regression on the pre-existing `"API key not configured"` branch.
+4. `test_no_raw_str_e_in_vault_responses` — **static grep audit** with a compiled regex scanning vault.py for `return {"message": f"...{str(e)}..."}` / `{e}` patterns. A future refactor reintroducing the leak fails this test at import time.
+
+Pattern: `patch("httpx.AsyncClient", LeakyClient)` where `LeakyClient.__aenter__` raises — forces every code path inside the `async with` to fall to the outer except without needing to mock each provider's endpoint.
+
+### Verification
+- 4/4 new tests green locally and on VPS
+- 40 total tests across 5 functional suites (error_humanization, cross_tenant_task_isolation, distill_url, email_html_escape, vault_test_api_key_no_leak) — all green
+- VPS backend restarted, `systemctl is-active` → active, uvicorn clean startup, no new errors in journalctl
+
+### Honest gaps
+- **Only `test_api_key` audited.** vault.py has other functions (`get_secret`, `set_secret`, `list_secrets`) — none currently return user-facing messages on exception, but the static audit only checks for `return {"message": f"...{e}..."}` patterns. A future function that introduces raw-error leaks in a different response shape (e.g., `raise HTTPException(detail=str(e))`) wouldn't be caught by this file's static test — but IS caught by the existing `test_no_raw_str_e_in_http_exception_detail` in test_error_humanization.py. Complementary coverage, not redundant.
+- **No live-fire VPS test.** I didn't actually hit `/api/settings/test-key` against a fake DNS outage on the live server. The functional test proves the code path is safe; production proof would need a dedicated fault-injection endpoint or integration harness.
+- **`_extract_upstream_error` is unreviewed.** That helper builds the per-provider error messages (lines 335–466 of vault.py). It extracts specific JSON paths like `("error", "message")` — controlled shape, unlikely to leak raw exception internals — but I didn't add tests for its behavior in this cycle. Separate audit if a future leak ever traces back to it.
+- **No guard against an upstream API echoing back raw client data.** If Anthropic's API ever echoed a request Authorization header in its error message and `_extract_upstream_error` grabbed it, we'd leak the key back to the user. Low probability but worth a future sweep.
+
+### Learned
+- **`patch("httpx.AsyncClient", LeakyClient)` where `__aenter__` raises is a 5-line trick for sweeping every code path inside a single `async with`.** Previously I'd have mocked each provider endpoint individually. This pattern tests the exception-handling surface without caring which provider branch ran.
+- **Static-grep audits inside functional test files compound.** Cycle 19 added `test_no_raw_str_e_in_http_exception_detail` for 6 route files; this cycle added `test_no_raw_str_e_in_vault_responses` for one module. Neither is complete alone, but together they form a dragnet — and both fail on CI well before a human reviews a PR. Cheap, high-leverage.
+- **`humanize_error(e, context=...)` is becoming the ubiquitous boundary.** Cycles 8 (HTTPException detail), 9 (pipeline_executor._log_activity), 10–11 (DB write boundary, OrchestratorResult), 12 (task-status), and now 27 (vault.test_api_key) all use it. At this point the convention is strong enough that a future contributor writing raw `str(e)` is going against the grain of the module — which is itself a useful signal.
+- **"Positive log capture" test paired with "negative message substring" test is the right shape for privacy-preserving error boundaries.** The negative test alone can silently regress into "nothing is logged at all, so diagnosis is impossible"; the positive test alone doesn't prove the user message is safe. Both, together.
