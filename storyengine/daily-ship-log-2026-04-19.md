@@ -1483,3 +1483,13 @@ Lesson: when the test path is wrong, rename the helper to match reality before l
 ### Ship plan
 - `git add` migration + schema.sql + test + ship log, commit, push
 - VPS: pull → run test → `psql -f migrations/042_background_tasks_created_at_idx.sql` against the prod DB → verify with `\d background_tasks`
+
+### Cycle 38 — SHIPPED ✅
+- Committed c77ebbc4, pushed to origin/main
+- VPS pulled clean; 5/5 functional tests green on remote
+- Migration applied via Supabase MCP (`mcp__claude_ai_Supabase__apply_migration`) — psql not installed on VPS, MCP was the faster path
+- `pg_indexes` confirms `idx_bg_tasks_created_at` exists with `CREATE INDEX idx_bg_tasks_created_at ON public.background_tasks USING btree (created_at DESC)` in prod
+- Full index list on background_tasks now: pkey, video_id, bg_tasks_created_at (NEW), bg_tasks_status (partial on pending/running), bg_tasks_tenant
+- Stage 2.3 closed — no second index needed for tenant_usage, composite from 024 covers it
+
+Lesson: when the VPS lacks a tool (psql), check what deferred MCPs can do instead — the Supabase MCP was already wired and one call away. Don't waste a cycle installing dev tooling on prod.
