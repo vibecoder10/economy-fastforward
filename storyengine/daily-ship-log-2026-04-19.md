@@ -1177,3 +1177,12 @@ TypeScript verified clean: `npx tsc --noEmit` → no errors.
 - **Centralize *then* regression-test the centralization.** Moving 4 copies to 1 is easy. The hard part is preventing the 5th copy from appearing three months later when someone Stack-Overflow's the pattern. Negative grep audits (test #3, #4) are 20 lines of Python and cost nothing to maintain.
 - **The roadmap missed a site.** Grep found `drive-callback/page.tsx` that §3.4 didn't list. Trust the source, not the roadmap. (This is the same lesson as Cycle 31's "ground-truth diff first" — applies every cycle.)
 - **Cheap wins compound.** This cycle is ~50 lines of real code + 140 lines of test. Zero runtime risk (frontend keeps working; env is set on prod). Every cycle like this moves a "time bomb bug" permanently off the list. The roadmap is full of these — keep picking them off.
+
+### Cycle 32 postscript — the guard caught a real prod bug on first deploy
+**The fix paid for itself within 20 minutes of shipping.** First VPS build (`6e521f61`) failed with `Error: NEXT_PUBLIC_RUBRIC_URL is required in production builds`. Prod `.env.production` only set `NEXT_PUBLIC_API_URL`; `NEXT_PUBLIC_RUBRIC_URL` was never configured because RUBRIC is a dev-only endpoint (Osiris's Mac command-center). Pre-fix, `next build` silently succeeded and shipped `http://localhost:5050` in the client bundle — every user's browser was POSTing error telemetry to a dead localhost URL. No one noticed because the fetch silently failed.
+
+**Hotfix (`e8d2d2cc`):** split the resolver. `resolveRequired` (API_URL) keeps the loud throw; `resolveOptional` (RUBRIC_URL) returns `""` in prod, and `reportError` gates on `!RUBRIC_URL` to skip the POST. Dev UX unchanged (both still fall back to localhost).
+
+**Lesson reinforced:** the whole point of build-time guards is to surface latent misconfigs. When the guard fires on first deploy, that's not "the guard is too strict" — that's "the guard just prevented months of silent failure." Calibrate the guard (required vs optional) but don't remove it.
+
+Final deploy: `e8d2d2cc` built clean, service active, HTTPS /discovery → 200.
