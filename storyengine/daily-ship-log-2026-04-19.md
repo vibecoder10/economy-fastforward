@@ -679,3 +679,28 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **Upstream-schema monitoring is a distinct layer from validator-body parsing.** Cycle 19 fixed the parsing; Cycle 20 adds the watchdog. Splitting these is worth it — each owns one failure mode and each is small.
 - **Zero-cost canaries exist at every provider.** Because auth failures don't consume billable work, we can hit `/v1/messages`, `/v1/voices`, `/search` etc. hourly for free as long as the key is invalid. That flips canary cost analysis from "budget item" to "no-brainer."
 - **Exit-code discipline matters for cron.** Distinguishing 0/1/2 (OK / drift / transport) lets the eventual cron wrapper differentiate "page Ryan" from "retry in 5 min" — a single sys.exit(1) for everything would make the alerting noisy.
+
+## Cycle 21 — 2026-04-20 ~03:45 UTC — VPS systemd timer for the canary
+**Trigger:** Cycle 20 canary was runnable manually but not scheduled — so nothing noticed drift unless a human remembered to fire it. Needed a scheduler.
+
+**First-pick pivot:** Originally wrote a GitHub Actions workflow (`/.github/workflows/validator-drift-canary.yml`, every 6h on the hour) because GH Actions' built-in "job failed → email the repo owner" is zero-setup alerting. Hit a wall: my git credentials don't have the `workflow` OAuth scope, so push got rejected. Kept the file locally for Ryan to push manually if preferred; pivoted same-cycle to a VPS systemd timer so cycle didn't stall on a permissions issue.
+
+**VPS install:**
+- `backend/canaries/storyengine-canary.service` (oneshot, runs venv/bin/python3 -m canaries.validator_drift).
+- `backend/canaries/storyengine-canary.timer` (OnBootSec=5min + OnUnitActiveSec=6h, Persistent=true so catches missed runs after downtime).
+- Pushed, VPS pulled, `systemctl daemon-reload`, `systemctl enable --now storyengine-canary.timer`.
+
+**Shake-out:**
+- First manual `systemctl start` → 203/EXEC. Root cause: VPS backend runs out of `venv/` (no dot), I wrote `.venv/`. One-line fix, pushed, reinstalled.
+- Retry: `Apr 20 03:45:51 storyengine-canary[121238]: 5/5 validator schemas intact` → `code=exited, status=0/SUCCESS`. Timer shows `TriggeredBy: storyengine-canary.timer`. Live.
+
+**Honest gaps:**
+- **Alerting is still passive.** Drift fires a systemd failure event. Without an OnFailure= hook, nobody gets paged. Ryan has to `journalctl -u storyengine-canary.service` or I'd have to poll the VPS. Next cycle: add an `OnFailure=storyengine-canary-alert.service` that POSTs to the Osiris Telegram bot with the journal tail.
+- **GitHub Actions path left on local disk.** `/.github/workflows/validator-drift-canary.yml` is committed to my local repo but not pushed (OAuth scope). If Ryan wants the double-coverage (cloud cron + VPS cron), he can push it with a PAT that has the `workflow` scope.
+- **Kie.ai still not covered** — same reason as Cycle 20.
+- **Timer precision is AccuracySec=1min** which is fine for this cadence but means probes will drift away from exact `:00` marks over time. Functionally irrelevant for drift-detection.
+
+**Learned:**
+- **Ship tools to production as soon as they're useful, even without alerting wired.** Canary running unattended on a 6h schedule with journal logs is strictly better than a canary that only runs when someone remembers. "Cycle 22 adds alerting" is a cleaner split than "Cycle 20 builds the whole observability stack."
+- **GH Actions `workflow` OAuth scope is a common friction point.** Future: either get Ryan to generate a PAT with workflow scope once and store it, or default to self-hosted systemd timers for cron needs — VPS is already there, no auth.
+- **Same-cycle pivot was the right call** over stalling to resolve the push permissions. The VPS timer is objectively *closer to the workload* than GH Actions (probes from production's actual IP, same egress path as the backend), so the "fallback" arguably has a real advantage.
