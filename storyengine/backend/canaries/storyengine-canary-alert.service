@@ -1,0 +1,17 @@
+[Unit]
+Description=Alert on storyengine-canary failure — pushes journal tail to ntfy.sh
+
+[Service]
+Type=oneshot
+User=clawd
+# ntfy.sh is free, no-auth, push-to-phone. Ryan installs the ntfy.sh
+# app on his phone, subscribes to topic "osiris-validator-drift", and
+# gets a push notification with the journal tail the moment the canary
+# detects upstream schema drift.
+#
+# To switch to Telegram later: replace this ExecStart with a curl to
+# api.telegram.org/bot<TOKEN>/sendMessage — token + chat_id in
+# /etc/storyengine-canary.env (EnvironmentFile=).
+ExecStart=/bin/sh -c 'journalctl -u storyengine-canary.service -n 25 --no-pager --output=cat | curl -sS -T - https://ntfy.sh/osiris-validator-drift -H "Title: StoryEngine validator-drift canary failed" -H "Priority: high" -H "Tags: warning,rotating_light"'
+StandardOutput=journal
+StandardError=journal

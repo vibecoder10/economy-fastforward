@@ -2,6 +2,7 @@
 Description=StoryEngine validator-drift canary (one-shot)
 After=network-online.target
 Wants=network-online.target
+OnFailure=storyengine-canary-alert.service
 
 [Service]
 Type=oneshot
