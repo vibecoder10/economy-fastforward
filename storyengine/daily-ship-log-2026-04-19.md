@@ -493,3 +493,75 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 **Next:**
 - Cycle 16 primary: clean-replacement override semantics — when a tenant prompt override is present, strip the profile-derived voice preamble from the user-prompt body so Claude gets a clean override signal instead of blended prompts. The Cycle 7 honest gap we haven't gotten to yet.
 - Alternates: (a) first E2E customer-style render (task #11, needs Ryan's Power Doctrine channel), (b) fresh fix-roadmap.md rewrite against ground truth, (c) yt-dlp live stability test, (d) hourly cron for the Cycle 15 audit with paging on leak-found.
+
+---
+
+## Hotfix — 2026-04-19 ~21:40 CT — Kie.ai key validator
+
+**Trigger:** Ryan (dogfood tenant, `Osirisagiagent@gmail.com`, tenant_id `890e788c-c6ac-4c65-8e01-bf8f8f9bee5a`) hit "Saved but validation failed" on the TOOLS step after saving his Kie.ai key. Live customer blocker on the onboarding funnel.
+
+**Investigation:**
+- VPS backend logs: both `POST /api/settings/keys/kie_ai_api_key` and `/test` returned HTTP 200. No exception in the route wrapper — `test_api_key()` was returning `{success: False}` cleanly.
+- Wrote a probe on the VPS that pulls the tenant's decrypted key via `vault.get_secret`, then calls three candidate Kie.ai endpoints directly.
+- Result:
+  - `/api/v1/user/balance` → **404** (what our validator was calling)
+  - `/api/v1/chat/credit` → **200** with `{"code":200,"msg":"success","data":4335.86}` (the endpoint that actually exists)
+  - `/api/v1/common/credit` → 404
+- Ryan's key was fine. Had 4335.86 credit. Our validator was hitting a deprecated URL.
+
+**Fix — `backend/vault.py:324-343`:**
+- Swapped URL from `/api/v1/user/balance` → `/api/v1/chat/credit`.
+- Added 200-OK-with-error-body handling: HTTP 200 alone isn't enough for Kie.ai — the body's `code` field is the real status. `code == 200` = valid; anything else = the `msg` field explains why. Included the credit balance in the success message so it's visible on the onboarding UI.
+
+**Ship:**
+- Committed `a61a4d2e`, pushed to main, pulled to VPS, `sudo systemctl restart storyengine-backend`.
+- Verified: `test_api_key('kie_ai_api_key', <Ryan's tenant>)` → `{'success': True, 'message': 'Kie.ai API key valid (credit: 4335.86)'}`.
+- Service healthcheck green after restart.
+- Telegram'd Ryan to refresh /onboarding and re-save.
+
+**Honest gaps:**
+- **No test coverage for the 200-OK-with-error-body case.** If Kie.ai changes the body shape again (e.g., moves the code field), the validator would silently say "unparseable response" or the `code != 200` path. A functional test with a mocked httpx response covering success, `code != 200`, HTTP 404, and JSON-parse failure would catch future drift. Not written in this hotfix — deferred.
+- **The other upstream validators in `test_api_key` were NOT audited.** Anthropic, OpenAI, Gemini, ElevenLabs, Tavily all check HTTP status only, same brittle pattern. If any of them silently moved to 200-OK-with-error-body style, we'd have the same bug class for those providers. Worth a follow-up audit cycle.
+- **No alerting hook.** If Kie.ai deprecates `/chat/credit` next, we'd find out the same way — a customer hitting onboarding and telling us. A synthetic canary that runs the validator against a known-good key on a cron would catch endpoint drift before users do.
+
+**Learned:**
+- **Customer bug reports via Telegram are the highest-signal ship channel.** Ryan saved a key at 02:29:52 UTC, I had the fix live on prod in ~35 min because the screenshot pointed straight at the form + endpoint. This is what "dogfood is the gate" actually looks like — not a roadmap item, an inbound message that rewrites the priority queue.
+- **"HTTP 200 is valid" is a lie for Chinese-API-style SDKs.** Kie.ai (and a lot of zh-origin APIs) use the 200-OK-with-JSON-error-code pattern. Whenever we add a new provider, check whether the provider returns non-200 on auth fail or embeds a code in the body.
+- **Stale endpoint URLs are a silent-decay failure.** This code worked the day it was written. The endpoint moved. There's no compile-time check for "is this URL still alive." The mitigation is the canary above — not writing more defensive code inside the validator.
+- **The live DB scan from Cycle 15 would NOT have caught this.** Nothing in the error path was raw; `test_api_key` returned clean error strings. This was a false-negative bug (incorrect rejection) not a false-positive one. Different class. Worth keeping in mind that "humanization audit" and "validation correctness audit" are orthogonal and both are needed.
+
+---
+
+## Hotfix — 2026-04-19 ~21:50 CT — ElevenLabs validator
+
+**Trigger:** Ryan (Telegram): "its happening to both anthropic and eleven labs, all the api keys." Immediately after the Kie.ai fix landed, he hit the same UX on ElevenLabs.
+
+**Investigation:**
+- Wrote a probe that pulls every upstream key Ryan has saved and calls each validator + its upstream endpoint directly.
+- Only Kie.ai and ElevenLabs were actually saved in the vault (Anthropic / OpenAI / Gemini / Tavily never made it through set_secret — either Ryan hadn't gotten to them yet or the UI/UX suggested "all failing" when really only those two were hit).
+- ElevenLabs `/v1/user` returned 401 `{"status":"missing_permissions","message":"The API key you used is missing the permission user_read to execute this operation."}`. His key was valid for TTS but scoped without `user_read`.
+- Probed alternate endpoints: `/v1/voices` returned 200 (200 voices visible). `/v1/models` → 401 missing_permissions (`models_read`). `/v1/user/subscription` → same missing_permissions.
+
+**Fix — `backend/vault.py:355-380`:**
+- Swapped URL from `/v1/user` → `/v1/voices`. `voices_read` is a scope that TTS keys *always* have because StoryEngine actually uses `/v1/voices` to populate voice-pickers, so validation against it proves the key works for our real use case, not some API surface we never touch.
+- Added 401-body parsing to differentiate `invalid_api_key` from `missing_permissions`. If a user ever hits `missing_permissions` on `/v1/voices` (i.e. an unusually restricted key), they see: "key is valid but missing voices_read permission — regenerate the key with full TTS access." Actionable instead of raw.
+- Preserved the raw-401 fallback for any `/v1/voices` 401 whose body didn't parse or didn't carry the expected detail shape.
+
+**Ship:**
+- Committed `bfcc9b46`, pushed, pulled to VPS, restarted `storyengine-backend`.
+- Verified: `test_api_key('elevenlabs_api_key', <Ryan's tenant>)` → `{'success': True, 'message': 'ElevenLabs API key valid'}`.
+- Kie.ai still green from the prior hotfix.
+- Service healthcheck green.
+- Telegram'd Ryan with the state of each provider + asked him to retry Anthropic since it hadn't actually landed in the vault.
+
+**Honest gaps:**
+- **Anthropic validator IS NOT tested.** Ryan's report named it but the vault had no Anthropic key saved, so I never exercised the Anthropic branch against a real key. The code (`/v1/models` + `x-api-key`) is the current, documented validator for Anthropic keys and has been stable for years — probability of a latent bug is low — but I haven't proven that claim against his actual key. If his retry fails again, we need another round trip.
+- **OpenAI / Gemini / Tavily branches not audited this cycle either.** Same reasoning: no saved key to test with. The Tavily branch is the most suspect because it uses POST + charges a credit per test; that's a latent cost leak worth revisiting. Deferred.
+- **The "validator hits an endpoint we actually use" principle is only applied to ElevenLabs so far.** Anthropic/OpenAI/Gemini all validate with `/v1/models` but StoryEngine calls `/v1/messages` (Anthropic) and its equivalents — the validators currently test for a DIFFERENT permission surface than what we'll actually hit. Not a bug today, but a principle-debt item.
+- **No functional test coverage for the scope-differentiation code path.** If ElevenLabs changes the JSON error shape (e.g. renames `status` to `code`), the message would silently fall back to the generic "ElevenLabs rejected the key" path. A unit test with a mocked 401 response for each branch would pin this.
+
+**Learned:**
+- **Validate against the endpoint you actually use, not a "hello world" endpoint.** `/v1/user` was a convenience choice because it was short. But API providers increasingly ship scoped keys where the hello-world endpoint requires a different scope than the production endpoint — so a scope-limited key that's perfectly fine for our use case fails validation. Rule: for each provider, pick a validator endpoint that requires the same (or strictly-less) permission than the endpoint we actually call in the real flow.
+- **Error-body shape is API-specific and worth reading.** ElevenLabs distinguishes `invalid_api_key` (bad key) from `missing_permissions` (good key, wrong scope). Surfacing both gives the user an actionable path ("regenerate with TTS access") instead of a dead-end ("unknown error"). General principle: when an upstream returns structured error JSON, parse it. HTTP status alone almost always loses information.
+- **The probe-then-fix pattern is now a reusable playbook.** For any validator bug: (a) probe the upstream directly with the real saved key, (b) compare the 200/4xx/body shape against what the validator expects, (c) fix the validator to match current API reality. Sub-10-minute cycle when SSH+venv is ready. That's four validators I could audit in an hour if Ryan's other keys were saved.
+- **Customer reports are imprecise — verify scope before broad fixes.** Ryan said "it's happening to both anthropic and eleven labs" but only ElevenLabs was actually in the vault. If I'd preemptively rewritten the Anthropic validator based on the Telegram message alone, I'd have shipped an unverified change for a code path that might not even have been broken. Always probe first, even when the user's description sounds unambiguous.
