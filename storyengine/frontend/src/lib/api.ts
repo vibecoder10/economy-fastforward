@@ -135,6 +135,11 @@ export type OnboardingStatus = {
     youtube_connected: boolean;
     first_video_created: boolean;
   };
+  first_run?: {
+    competitor_count: number;
+    distilled_count: number;
+    video_count: number;
+  };
   percent_complete: number;
   display_name: string | null;
 };

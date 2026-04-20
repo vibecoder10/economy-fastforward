@@ -223,7 +223,29 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         "SELECT COUNT(*) as count FROM videos WHERE tenant_id = $1",
         tenant_id,
     )
-    first_video_created = (vid["count"] if vid else 0) > 0
+    video_count = vid["count"] if vid else 0
+    first_video_created = video_count > 0
+
+    # Extra first-run signals — power the dashboard WelcomeQuest panel.
+    # Cheap COUNT(*) queries, cached implicitly by asyncpg. If either table
+    # doesn't exist yet on a fresh tenant schema, coerce to zero rather than
+    # 500 the whole onboarding response.
+    try:
+        comp = await fetch_one(
+            "SELECT COUNT(*) as count FROM competitor_channels WHERE tenant_id = $1",
+            tenant_id,
+        )
+        competitor_count = comp["count"] if comp else 0
+    except Exception:
+        competitor_count = 0
+    try:
+        distilled = await fetch_one(
+            "SELECT COUNT(*) as count FROM content_intelligence WHERE tenant_id = $1",
+            tenant_id,
+        )
+        distilled_count = distilled["count"] if distilled else 0
+    except Exception:
+        distilled_count = 0
 
     # Display name from accounts via memberships
     account_row = await fetch_one(
@@ -262,6 +284,11 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
             "style_generated": style_generated,
             "youtube_connected": youtube_connected,
             "first_video_created": first_video_created,
+        },
+        "first_run": {
+            "competitor_count": competitor_count,
+            "distilled_count": distilled_count,
+            "video_count": video_count,
         },
         "percent_complete": percent,
         "display_name": display_name,

@@ -27,6 +27,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { WelcomeQuest } from "@/components/dashboard";
 import {
   getDashboardSummary,
   getPendingReview,
@@ -249,6 +250,19 @@ export default function DashboardPage() {
               Finish setup <ArrowRight size={14} />
             </div>
           </Link>
+        </motion.div>
+      )}
+
+      {onboarding?.first_run && (
+        <motion.div variants={item}>
+          <WelcomeQuest
+            status={{
+              competitorCount: onboarding.first_run.competitor_count,
+              distilledCount: onboarding.first_run.distilled_count,
+              videoCount: onboarding.first_run.video_count,
+              displayName: onboarding.display_name,
+            }}
+          />
         </motion.div>
       )}
 
