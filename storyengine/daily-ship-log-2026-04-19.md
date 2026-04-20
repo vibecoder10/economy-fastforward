@@ -930,3 +930,60 @@ Pattern: `patch("httpx.AsyncClient", LeakyClient)` where `LeakyClient.__aenter__
 - **Static-grep audits inside functional test files compound.** Cycle 19 added `test_no_raw_str_e_in_http_exception_detail` for 6 route files; this cycle added `test_no_raw_str_e_in_vault_responses` for one module. Neither is complete alone, but together they form a dragnet — and both fail on CI well before a human reviews a PR. Cheap, high-leverage.
 - **`humanize_error(e, context=...)` is becoming the ubiquitous boundary.** Cycles 8 (HTTPException detail), 9 (pipeline_executor._log_activity), 10–11 (DB write boundary, OrchestratorResult), 12 (task-status), and now 27 (vault.test_api_key) all use it. At this point the convention is strong enough that a future contributor writing raw `str(e)` is going against the grain of the module — which is itself a useful signal.
 - **"Positive log capture" test paired with "negative message substring" test is the right shape for privacy-preserving error boundaries.** The negative test alone can silently regress into "nothing is logged at all, so diagnosis is impossible"; the positive test alone doesn't prove the user message is safe. Both, together.
+
+---
+
+## Cycle 28 — SEC-SQL-001: column-name allowlist in supabase_adapter (2026-04-20)
+
+**Shipped:** commit `229dc59e`, deployed to VPS.
+
+### The bug (latent)
+`supabase_adapter.py` has 5 dynamic UPDATE query builders:
+
+```python
+for col, val in columns.items():
+    sets.append(f"{col} = %s")
+    args.append(val)
+query = f"UPDATE videos SET {', '.join(sets)} WHERE id = %s"
+```
+
+Today, `columns` comes from `_idea_fields_to_columns(fields)`, which looks up `fields.keys()` in `IDEA_FIELD_MAP` — a hand-written dict of Airtable-name → Supabase-column-name mappings. Keys that don't match are silently dropped. So values of `col` are always hardcoded constants.
+
+**Current risk: zero.** But the pattern is fragile. A future dev wiring column names from a request body, a JSON payload, or a misconfigured field map would produce a working UPDATE with raw SQL injection. No lint would catch it. No test would catch it. The production DB would just execute whatever arrived.
+
+### The fix (defense-in-depth)
+Added `_safe_col()` helper to supabase_adapter.py that mirrors `database.safe_column` (regex `^[a-z][a-z0-9_]*$`). Wrapped every `{col}` interpolation in the module:
+
+- 4 × `sets.append(f"{_safe_col(col)} = %s")` builder sites
+- 1 × fallback single-column UPDATE inside an except branch (line 472)
+- `f"SELECT * FROM learnings {where}..."` was reviewed — `where` is built from 2 hardcoded condition strings, no user input, left untouched.
+
+The helper is local (not imported from database.py) because that module is asyncpg-based and this adapter is psycopg2 sync — avoiding the import spares a runtime asyncpg load for sync callers.
+
+### Functional tests (`tests/functional/test_supabase_adapter_col_allowlist.py`)
+
+5 tests:
+
+1. `test_safe_col_rejects_malicious_names` — 16 injection shapes: `DROP TABLE`, subqueries, `OR '1'='1'`, UPPERCASE (allowlist is lowercase-only), leading digit, leading underscore, spaces, null byte, hyphen, dot, empty string, whitespace, `pg_sleep(10)`, `now()`. Every one must raise ValueError.
+2. `test_safe_col_accepts_real_column_names` — 8 real Supabase column shapes pass through unchanged.
+3. `test_safe_col_rejects_non_string_types` — None, int, float, bytes, list, dict, arbitrary object all raise.
+4. `test_every_field_map_value_is_safe` — **positive gate**: iterate every value in every `*_FIELD_MAP` module-level dict (IDEA_FIELD_MAP, SCRIPT_FIELD_MAP, anything else discovered by `dir()` suffix match) and confirm _safe_col passes. Caught 137 entries today. If someone adds a typo'd column name to a map, this fails at import time instead of failing in production SQL.
+5. `test_no_unguarded_col_interpolation_in_dynamic_sql` — **static audit**: regex-scan supabase_adapter.py for `sets.append(f"{col} = %s")` AND for `f"UPDATE/SELECT/...{col}"` patterns that don't contain `_safe_col`. A regression (forgetting the wrap on a new builder) fails the test, not the production query.
+
+### Verification
+- 5/5 new tests green locally and on VPS
+- 45 total tests across 6 functional suites — all green
+- VPS `storyengine-backend` restarted, active, uvicorn clean, no new errors
+
+### Honest gaps
+- **Scope is only supabase_adapter.py.** The roadmap also names `pipeline_executor.py` and `routes/youtube_sync.py`. Both use f-string SQL; I didn't audit or wrap them. That's Cycle 29 material. My grep showed 10 files with f-string SQL statements — not all have dynamic column names, but all need review.
+- **`{where}` in `get_all_learnings` is safe-by-inspection, not safe-by-construction.** `conditions` is built from 2 hardcoded strings. If a future dev adds `conditions.append(f"{user_field} = %s")`, the WHERE clause opens up. A column-validating builder (or a WHERE-clause builder that enforces structure) would close this properly, but it's not a bug today.
+- **psycopg2's own parameterization DOES NOT quote column/table identifiers.** `cur.execute("SELECT * FROM %s", (table,))` sends the table name as a literal, which is wrong. This is the root cause of f-string SQL being necessary at all for dynamic column updates. An allowlist is the correct answer; psycopg2.sql.Identifier is another (not used here).
+- **No test of the ACTUAL SQL execution with a malicious column.** The test proves `_safe_col` raises, not that the raise propagates correctly through `update_idea_fields`. I assert the wrapping exists via static audit but don't integration-test it. Acceptable because the wrap is trivially correct, but a future refactor could technically swallow the exception — Python has no way to prevent that.
+- **I did not add _safe_col to the public API.** It's `_`-prefixed and private. That's fine for now (only intra-module callers), but if a future module wants the same guard, it'll copy the regex instead of importing. Accept the duplication for module isolation.
+
+### Learned
+- **"Latent bug that could easily become real" is worth shipping a fix for, even when the current risk is zero.** The allowlist pattern is cheap (30 lines + 5 tests), the test suite pins the contract, and the cost of finding this at a post-incident post-mortem is enormous. This is what "defense-in-depth" means in practice: assume a future-you will be sloppy and make sloppy cheap-but-limited instead of sloppy-and-catastrophic.
+- **The positive gate (`test_every_field_map_value_is_safe`) is doing more work than it looks like it is.** It iterates every column name in every FIELD_MAP at test time. That means: the day someone adds a column named `"Video URL"` (mapped to `video url` or `VIDEO_URL` by typo), the test suite fails at CI — they never get to a production SQL error, never get to a 500, never get to a "why is this broken" Slack ping. It's cheap runtime reflection as a compile-time check. Same shape as the Cycle 19 drift canary.
+- **Using `dir()` to discover FIELD_MAPs auto-extends coverage.** I only hardcoded IDEA_FIELD_MAP and SCRIPT_FIELD_MAP in the test dict, but the `for attr_name in dir(supabase_adapter)` loop picks up any future `*_FIELD_MAP` someone adds. Zero-touch extension. If the naming convention isn't followed (e.g., someone defines `FIELDS_ASSET = {...}`), they miss the gate — so the convention is itself load-bearing.
+- **"Don't refactor beyond the task" matters here.** I wanted to also collapse the 5 builder sites into a single helper, since they're ~80% the same code. But that's a refactor, not a fix. The functional guarantee I care about (every `{col}` is validated) is orthogonal to code duplication. Ship the fix, leave the DRY for a dedicated refactor cycle.
