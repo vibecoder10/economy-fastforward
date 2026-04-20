@@ -637,9 +637,15 @@ CREATE TABLE accounts (
   stripe_plan TEXT,
   stripe_status TEXT,
   trial_ends_at TIMESTAMPTZ,
+  trial_warning_sent BOOLEAN DEFAULT FALSE,
+  trial_expired_handled BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_accounts_trial_expired_unhandled
+  ON accounts (trial_ends_at)
+  WHERE trial_expired_handled IS NOT TRUE AND stripe_subscription_id IS NULL;
 
 -- =============================================
 -- PROJECTS (a channel — replaces channel_profiles)

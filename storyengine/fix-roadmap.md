@@ -77,10 +77,17 @@ _Features that exist in parts but aren't fully connected end-to-end._
   6. Mounts: `frontend/src/app/pipeline/page.tsx:1151` renders `<FirstVideoFlow>`; `frontend/src/app/onboarding/page.tsx` renders `<CreateVideoStep>`
 - **Regression lock:** `backend/tests/functional/test_suggest_titles_wire.py` (6 tests) — pins each link. If a refactor cuts the button out, this test flags it.
 
-### 3.2 Free Trial Lifecycle Incomplete
-- **What:** `trial_ends_at` column exists on `accounts`. Trial countdown badge + banner exist on frontend. Trial warning email is wired (12h check in main.py lifespan). BUT: no cron/job that actually downgrades expired trials to free plan.
-- **Fix:** Add expiry check to lifespan loop or cron: when `trial_ends_at < NOW()` and plan is still Creator, flip to Starter. Send "trial expired" email.
-- **Files:** `backend/main.py` (lifespan), `backend/email_tasks.py`, `backend/email_service.py`
+### 3.2 Free Trial Lifecycle Incomplete ✅ SHIPPED (Cycle 42, 2026-04-20)
+- **Status:** Already fully wired + Cycle 42 closed schema.sql drift and added regression coverage.
+- **Wire-up (7 links):**
+  1. Migration: `backend/migrations/041_trial_expired_handled.sql` — adds `trial_expired_handled BOOLEAN` + partial index on `(trial_ends_at) WHERE trial_expired_handled IS NOT TRUE AND stripe_subscription_id IS NULL`
+  2. Schema: `schema.sql` accounts block now carries `trial_warning_sent` + `trial_expired_handled` + the partial index (was drift — Cycle 42 fix)
+  3. Task: `backend/email_tasks.py:check_trial_expired()` — selects expired + unhandled + `stripe_subscription_id IS NULL` (paying-customer safety filter)
+  4. Task: same function flips `plan='starter'` AND `trial_expired_handled=TRUE` in one UPDATE (atomic)
+  5. Email: `backend/email_service.py:send_trial_expired(email, display_name)` sends the notice
+  6. Lifespan: `backend/main.py:234` — `_auto_check_trial_expired()` while-True loop with `asyncio.sleep(21600)` (6h cadence)
+  7. Lifespan: `main.py:394` creates the task on startup; `:406` cancels on shutdown
+- **Regression lock:** `backend/tests/functional/test_trial_downgrade_wire.py` (7 tests). Specifically guards the `stripe_subscription_id IS NULL` filter — losing it would downgrade paying customers.
 
 ### 3.3 Google Auth / Settings Changes (LOST)
 - **What:** On 2026-04-10, uncommitted changes in `backend/routes/google_auth.py`, `frontend/src/app/settings/page.tsx`, and `frontend/src/lib/api.ts` were accidentally discarded. These were likely Google Drive OAuth or settings-related fixes.
