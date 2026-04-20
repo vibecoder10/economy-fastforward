@@ -1186,3 +1186,64 @@ TypeScript verified clean: `npx tsc --noEmit` → no errors.
 **Lesson reinforced:** the whole point of build-time guards is to surface latent misconfigs. When the guard fires on first deploy, that's not "the guard is too strict" — that's "the guard just prevented months of silent failure." Calibrate the guard (required vs optional) but don't remove it.
 
 Final deploy: `e8d2d2cc` built clean, service active, HTTPS /discovery → 200.
+
+---
+
+## Cycle 33 — Stage 6.4 sub-fixes #1 + #4: dynamic age + max_hours_old filter
+**Date:** 2026-04-20 (local cycle; ship-while-sleep)
+**Status:** ✅ Shipped locally; VPS deploy pending
+**Scope:** Backend-only slice of competitors-tab stagnant-data bug
+**Effort:** ~25 min
+
+### Problem
+`fix-roadmap.md §6.4` flagged two things about `competitor_videos`:
+1. **Stale age display.** `niche.py:742` computed `hours_old = (now - published_date) / 3600` once at scrape time and stored it. A video scraped 5 days ago with a snapshot "24 hours old" kept showing "24 hours old" forever. Card became a lying artifact within 24h of scrape.
+2. **No age filter.** Users couldn't ask "what published in the last 24h" — the UI exposed no filter, the backend exposed no param.
+
+§6.4 has 5 sub-items total. This cycle ships #1 (dynamic age) + #4 (backend filter param). Frontend filter UI (#3), auto-scrape-always (#2), relevance dimming (#5) stay for follow-up cycles — keeps the blast radius tight.
+
+### Fix
+`backend/routes/niche.py` `list_videos` endpoint:
+
+1. **Live age**: SELECT replaces `cv.hours_old` with
+   ```sql
+   CASE WHEN cv.published_date IS NOT NULL
+        THEN EXTRACT(EPOCH FROM (NOW() - cv.published_date)) / 3600.0
+        ELSE cv.hours_old
+   END AS hours_old
+   ```
+   Fallback to the stored column preserves behavior for rows with no `published_date` (old scrapes before that field was populated). Alias keeps the frontend contract intact — cards still read `video.hours_old`.
+
+2. **max_hours_old param** added to the endpoint signature + WHERE clause:
+   ```sql
+   cv.published_date >= NOW() - (${idx} || ' hours')::INTERVAL
+   ```
+   Parameterized via the same positional-binding pattern as `min_vph` (SEC-SQL-001 defense inherited). Guarded by `max_hours_old is not None and max_hours_old > 0`. Clamped to 8760 (1 year) so a hostile/clumsy caller can't build a bizarre INTERVAL.
+
+### Functional test (`test_niche_videos_dynamic_age.py`)
+7 tests — mix of module inspection + SQL-source regex audit. Not a live-Postgres integration test because spinning one up is disproportionate for what's ultimately a SQL-string contract:
+
+1. **niche_file_exists** — sanity path check
+2. **list_videos_signature_has_max_hours_old** — signature inspection, default=None so omission means no filter
+3. **select_uses_live_epoch_calc_not_stored_column** — regex finds `EXTRACT(EPOCH FROM (NOW() - cv.published_date)) / 3600` in source; catches a revert
+4. **where_clause_supports_max_hours_old_filter** — regex finds the `published_date >= NOW() - INTERVAL` filter; catches a silent-drop
+5. **max_hours_old_is_parameterized_not_interpolated** — SEC guard: refuses f-string interpolation of the param into SQL; asserts `${idx}` placeholder is used
+6. **sort_map_still_whitelisted** — regression: the _SORT_MAP SEC-SQL-001 defense from Cycle 28 is intact (len >=5, no semicolons / comment markers)
+7. **clamp_prevents_absurd_interval** — asserts the `min(max_hours_old, 8760)` clamp is present
+
+5/7 pass locally (2 need fastapi; will hit 7/7 on VPS).
+
+### Honest gaps
+- **No live-DB round-trip test.** The test is source-audit. The SQL itself is validated only when the endpoint runs against real Postgres on VPS deploy. Mitigation: deploy smoke-tests the endpoint by hitting it via curl.
+- **Frontend UI unchanged.** The card will now show a live `hours_old` number (good — already fixed automatically because the backend contract is unchanged). But users still can't click "last 24h" — that's sub-fix #3 and needs a separate cycle with visual design.
+- **`scrape_date` column is also a stored snapshot.** Not fixing that here — it represents "when did WE scrape this" and that's a legitimate snapshot. Only `hours_old` (meaning "video age NOW") was wrong to snapshot.
+- **Auto-scrape gate (sub #2) not fixed.** Tenants without autopilot still don't get daily scrapes. So the stored `hours_old` column will get staler for those tenants — but the LIVE calculation in the SELECT doesn't care about `hours_old` being stale anymore. Problem downgraded.
+
+### Ship plan
+- `git add` niche.py + new test + ship log, commit, push
+- VPS: pull → run functional test → restart backend service → smoke test `GET /api/niche/videos` via curl (should return 200 with `hours_old` fields as floats)
+
+### Will learn after deploy
+- Whether the SQL actually executes against prod data without errors (the unit-style test doesn't prove this)
+- Whether any downstream consumer of the `/videos` response is sensitive to `hours_old` being a computed float vs the previously-stored (likely rounded) float
+

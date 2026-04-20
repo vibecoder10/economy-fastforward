@@ -171,10 +171,17 @@ async def list_videos(
     offset: int = 0,
     channel: Optional[str] = None,
     min_vph: Optional[float] = None,
+    max_hours_old: Optional[float] = None,
     sort: str = "vph_desc",
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """List competitor videos with pagination, filters, and sort."""
+    """List competitor videos with pagination, filters, and sort.
+
+    `hours_old` is calculated at query time from `published_date` (not
+    the stored snapshot column), so a video scraped 5 days ago no longer
+    reports "24 hours old" forever. `max_hours_old` filters to recent
+    videos: e.g. max_hours_old=24 → only videos published in the last day.
+    """
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
     order = _SORT_MAP.get(sort, "vph DESC")
@@ -193,6 +200,16 @@ async def list_videos(
         params.append(min_vph)
         idx += 1
 
+    if max_hours_old is not None and max_hours_old > 0:
+        # Clamp to something sane so a user-supplied 10**9 doesn't
+        # produce a bizarre INTERVAL. 8760 hours = 1 year, plenty.
+        clamped = min(max_hours_old, 8760.0)
+        conditions.append(
+            f"cv.published_date >= NOW() - (${idx} || ' hours')::INTERVAL"
+        )
+        params.append(str(clamped))
+        idx += 1
+
     where = " AND ".join(conditions)
 
     # Total count
@@ -206,7 +223,12 @@ async def list_videos(
     params.extend([limit, offset])
     rows = await fetch_all(
         f"""SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.channel_url,
-                   cv.views, cv.vph, cv.hours_old, cv.published_date, cv.scrape_date,
+                   cv.views, cv.vph,
+                   CASE WHEN cv.published_date IS NOT NULL
+                        THEN EXTRACT(EPOCH FROM (NOW() - cv.published_date)) / 3600.0
+                        ELSE cv.hours_old
+                   END AS hours_old,
+                   cv.published_date, cv.scrape_date,
                    cv.thumbnail_url, cv.duration_seconds, cv.likes, cv.description,
                    cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at,
                    ci.structured_metadata->>'hook_dna' IS NOT NULL as has_dna,
