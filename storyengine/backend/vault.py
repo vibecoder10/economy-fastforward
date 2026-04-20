@@ -280,6 +280,26 @@ async def get_secret_status(name: str, tenant_id: Optional[str] = None) -> dict:
     }
 
 
+def _extract_upstream_error(resp, path):
+    """Walk a JSON response body via a dotted tuple path, returning the leaf
+    value as a string if present, else None. Tolerates non-JSON bodies and
+    missing keys — used to surface actionable error detail from upstream
+    validator 4xx responses without letting a malformed body 500 the caller.
+    """
+    try:
+        body = resp.json()
+    except Exception:
+        return None
+    node = body
+    for key in path:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+        if node is None:
+            return None
+    return str(node) if node else None
+
+
 async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
     """Test if an API key is valid by making a simple API call.
 
@@ -299,7 +319,10 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             if name == "anthropic_api_key":
-                # Test Anthropic by listing models
+                # `/v1/models` returns the same `error.type` structure as
+                # `/v1/messages` for invalid keys (verified via live probe),
+                # so the validate-where-you-use principle is already honored.
+                # Error body shape: {"error":{"type":"authentication_error","message":"..."}}
                 resp = await client.get(
                     "https://api.anthropic.com/v1/models",
                     headers={
@@ -309,16 +332,36 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
                 )
                 if resp.status_code == 200:
                     return {"success": True, "message": "Anthropic API key valid"}
+                err_msg = _extract_upstream_error(resp, path=("error", "message"))
+                err_type = _extract_upstream_error(resp, path=("error", "type"))
+                if err_type == "authentication_error":
+                    return {"success": False, "message": "Anthropic rejected the key — double-check it starts with `sk-ant-` and isn't missing characters"}
+                if err_type == "permission_error":
+                    return {"success": False, "message": "Anthropic key is valid but lacks permission for this workspace — check the key's workspace assignment in Anthropic Console"}
+                if err_msg:
+                    return {"success": False, "message": f"Anthropic rejected the key: {err_msg}"}
                 return {"success": False, "message": f"Anthropic API error: {resp.status_code}"}
 
             elif name == "openai_api_key":
-                # Test OpenAI by listing models
+                # `/v1/models` returns 401 with a structured body for
+                # invalid keys. Error body shape:
+                # {"error":{"message":"...","code":"invalid_api_key","type":"invalid_request_error"}}
                 resp = await client.get(
                     "https://api.openai.com/v1/models",
                     headers={"Authorization": f"Bearer {value}"},
                 )
                 if resp.status_code == 200:
                     return {"success": True, "message": "OpenAI API key valid"}
+                err_code = _extract_upstream_error(resp, path=("error", "code"))
+                err_msg = _extract_upstream_error(resp, path=("error", "message"))
+                if err_code == "invalid_api_key":
+                    return {"success": False, "message": "OpenAI rejected the key — double-check it starts with `sk-` and isn't missing characters"}
+                if err_code == "insufficient_quota":
+                    return {"success": False, "message": "OpenAI key is valid but the account has no remaining quota — add billing credits at platform.openai.com"}
+                if err_msg:
+                    # OpenAI embeds the (masked) offending key in `message` —
+                    # safe to echo since it's already redacted upstream-side.
+                    return {"success": False, "message": f"OpenAI rejected the key: {err_msg}"}
                 return {"success": False, "message": f"OpenAI API error: {resp.status_code}"}
 
             elif name == "kie_ai_api_key":
@@ -344,12 +387,32 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
                 return {"success": False, "message": f"Kie.ai API error: {resp.status_code}"}
 
             elif name == "gemini_api_key":
-                # Test Gemini by listing models
+                # Google uses key-as-query-param auth. Invalid keys return 400
+                # (not 401) with a Google RPC-style error body:
+                # {"error":{"code":400,"message":"...","status":"INVALID_ARGUMENT",
+                #   "details":[{"reason":"API_KEY_INVALID"}]}}
                 resp = await client.get(
                     f"https://generativelanguage.googleapis.com/v1beta/models?key={value}"
                 )
                 if resp.status_code == 200:
                     return {"success": True, "message": "Gemini API key valid"}
+                err_msg = _extract_upstream_error(resp, path=("error", "message"))
+                # Walk the details[] list for a specific `reason`.
+                reason = None
+                try:
+                    details = resp.json().get("error", {}).get("details") or []
+                    for d in details:
+                        if isinstance(d, dict) and d.get("reason"):
+                            reason = d["reason"]
+                            break
+                except Exception:
+                    reason = None
+                if reason == "API_KEY_INVALID":
+                    return {"success": False, "message": "Gemini rejected the key — generate a new one at aistudio.google.com/apikey"}
+                if reason == "API_KEY_SERVICE_BLOCKED":
+                    return {"success": False, "message": "Gemini key is blocked from Generative Language API — check API restrictions in Google Cloud Console"}
+                if err_msg:
+                    return {"success": False, "message": f"Gemini rejected the key: {err_msg}"}
                 return {"success": False, "message": f"Gemini API error: {resp.status_code}"}
 
             elif name == "elevenlabs_api_key":
@@ -380,13 +443,27 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
                 return {"success": False, "message": f"ElevenLabs API error: {resp.status_code}"}
 
             elif name == "tavily_api_key":
-                # Test Tavily by making a simple search
+                # HONEST NOTE: Tavily has no free "validate key" endpoint —
+                # every test burns one real search credit from the user's
+                # account. We pick the minimal-cost query (max_results=1,
+                # single-character q) to keep the burn small. Error body
+                # shape on bad key: {"detail":{"error":"Unauthorized: ..."}}
                 resp = await client.post(
                     "https://api.tavily.com/search",
-                    json={"api_key": value, "query": "test", "max_results": 1},
+                    json={"api_key": value, "query": "x", "max_results": 1},
                 )
                 if resp.status_code == 200:
-                    return {"success": True, "message": "Tavily API key valid"}
+                    return {"success": True, "message": "Tavily API key valid (used 1 search credit to verify)"}
+                # Tavily nests error differently — walk both common shapes.
+                err_msg = _extract_upstream_error(resp, path=("detail", "error"))
+                if not err_msg:
+                    err_msg = _extract_upstream_error(resp, path=("error",))
+                if resp.status_code == 401:
+                    return {"success": False, "message": "Tavily rejected the key — regenerate at tavily.com/account"}
+                if resp.status_code == 429:
+                    return {"success": False, "message": "Tavily key is valid but rate-limited — wait a minute and retry"}
+                if err_msg:
+                    return {"success": False, "message": f"Tavily rejected the key: {err_msg}"}
                 return {"success": False, "message": f"Tavily API error: {resp.status_code}"}
 
             else:
