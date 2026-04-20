@@ -12,7 +12,15 @@ export function Providers({ children }: { children: ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 30_000,
-            refetchInterval: 60_000,
+            // Polling is opt-in. Previously a global 60s refetchInterval
+            // meant every useQuery background-polled even when pointless,
+            // which made the free-plan 15-req/min rate limit hair-trigger
+            // on the dashboard. Queries that actually need freshness
+            // (pending-review, task-status, discovery-status, etc.)
+            // already declare their own refetchInterval.
+            refetchInterval: false,
+            refetchOnWindowFocus: true,
+            refetchOnReconnect: true,
           },
         },
       })
