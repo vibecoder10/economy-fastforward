@@ -1342,3 +1342,59 @@ Could have done a numeric input or a slider. Pills are one-click, discoverable, 
 ### Ship plan
 - `git add` api.ts + page.tsx + new test + ship log, commit, push
 - VPS: pull → run functional test → rebuild frontend → restart frontend service → curl `/api/niche/videos?max_hours_old=24&limit=1` with dev-token to confirm backend still accepts the param (regression guard for any accidental route-signature change in Cycle 33 that this Cycle depends on)
+
+---
+
+## Cycle 36 — Stage 6.4 sub-fix #5: dim stale (>7d) video cards
+
+**Time:** 2026-04-20
+**Task:** Close out Stage 6.4. Competitor video cards with `hours_old > 168` render at reduced opacity (0.55) with a small "stale" pill. Nothing functional — purely visual signal that "this is informational, not fresh."
+
+### What I changed
+
+**`storyengine/frontend/src/app/competitors/page.tsx`**
+- Inside the `videos.map` block, computed `const isStale = video.hours_old != null && video.hours_old > 168` per card
+- GlassCard gets `style={{ opacity: 0.55 }}` when stale; I added `transition-opacity duration-200` so the dim fades in smoothly if a video crosses the 7-day boundary between refetches
+- Added a "stale" pill in the metadata row (next to the existing `{n}d old` label) with a neutral slate-gray palette and a `title="Older than 7 days — less relevant for recent trend analysis"` tooltip. Ryan-consistent: neutral color = neutral judgment ("this is old", not "this is bad")
+
+### Why these specific choices
+
+- **Opacity 0.55, not lower.** Below ~0.3 the card is hidden-but-clickable — annoying. 0.55 is "clearly faded" without destroying readability on dark glass surfaces. Matches the pattern used elsewhere on the page for disabled/secondary elements
+- **Threshold > 168, not >= 168.** "Past 7 days" means "this video has completed its 7th day of age", not "this video is exactly 7 days old." Subtle but matters for boundary behavior
+- **Neutral pill color, not red/orange.** "Stale" is informational, not an error. A red pill would imply something's broken
+- **Tooltip on the pill, not a modal or helper text.** Low-friction discoverability for the one user who asks "why is this faded?" without cluttering the grid
+
+### Functional test (`test_competitors_stale_dimming.py`)
+
+6 tests, source audit:
+
+1. **page_exists** — sanity
+2. **isStale_threshold_is_168h** — pins the literal `> 168`. If someone refactors to `> 7 * 24` that's fine intent, but this test fails so we re-add the comment explaining why 168 matters (linked to backend's eventual relevance-decay horizon at 168h)
+3. **isStale_drives_card_visual** — GlassCard open tag references isStale AND either sets opacity or applies the `stale-video-card` class. Catches the accidental-noop bug where isStale gets computed but never hooked up
+4. **stale_pill_rendered_when_stale** — `{isStale && <... >stale<...>}` present in the card render. Without the pill, users don't know why some cards are faded
+5. **stale_pill_has_tooltip_explaining_why** — the pill has a `title="...7 days..."` attribute. Pure UX guard — cheap to add, expensive to miss
+6. **dim_does_not_hide_card_entirely** — scans ALL opacity values in the file, asserts each is >= 0.3. Catches a future tweak that drops stale cards to opacity:0.1 or similar
+
+Initial run failed #4 and #5 because my first regex budget was 400 chars and the pill has a long `style={}` block + tooltip that pushes it past 500 chars. Bumped to 1200 chars for the lookahead. Lesson recorded in the regex — generous character budgets + non-greedy + whitespace-tolerant match.
+
+6/6 pass locally. TS compile clean.
+
+### Honest gaps
+
+- **No automated visual test.** The test proves the opacity style and pill JSX are in place; it doesn't prove the browser actually renders the dim correctly. Relying on VPS smoke — pull up `/competitors` and eyeball a stale vs fresh card
+- **Doesn't hide stale videos when max_hours_old <= 168.** If a user picks the "24h" filter, they won't see any stale cards anyway — but that means the dim logic is only ever active when viewing "All" or "7d". Consistent with how users think about it: they want to see old+new mixed with visual sorting, not aggressive filtering
+- **No counter of "N stale videos hidden" or similar.** The filter pills and the stale dim are separate mechanics — users who want to clean the grid of old stuff use a short filter, users who want context keep "All" + see the fade. Don't bolt on more UI than needed
+
+### What closing Stage 6.4 means
+
+Stage 6.4 is now fully shipped across 4 cycles:
+- **Cycle 33 (sub #1 + #4)**: dynamic age in `cv.hours_old` + `max_hours_old` query param
+- **Cycle 34 (sub #2)**: autopilot gate removed from `_auto_scrape_competitors`, daily scrape now covers all tenants
+- **Cycle 35 (sub #3)**: frontend age filter pills (`24h`/`3d`/`7d`/`All`) wired to the backend
+- **Cycle 36 (sub #5, this cycle)**: stale dim for >7d videos
+
+The Competitors tab went from "silently stale snapshot that lies about its age" to "live, filterable, and visually honest about relevance" in 4 cycles. Net: 19 functional tests pinning the behavior.
+
+### Ship plan
+- `git add` page.tsx + new test + ship log, commit, push
+- VPS: pull → run functional test → rebuild frontend → restart frontend service → curl `/competitors` for a smoke HTTP 200

@@ -824,8 +824,13 @@ export default function CompetitorsPage() {
           {videos.map((video) => {
             const thumbUrl = video.thumbnail_url
               || (video.video_id ? `https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg` : null);
+            const isStale = video.hours_old != null && video.hours_old > 168;
             return (
-              <GlassCard key={video.id} className="!p-0 overflow-hidden group">
+              <GlassCard
+                key={video.id}
+                className={`!p-0 overflow-hidden group transition-opacity duration-200 ${isStale ? "stale-video-card" : ""}`}
+                style={isStale ? { opacity: 0.55 } : undefined}
+              >
                 {thumbUrl && (
                   <div className="relative aspect-video overflow-hidden">
                     <img
@@ -856,6 +861,19 @@ export default function CompetitorsPage() {
                       <>
                         <span style={{ color: "var(--text-tertiary)" }}>&middot;</span>
                         <span>{video.hours_old < 24 ? `${Math.round(video.hours_old)}h` : `${Math.round(video.hours_old / 24)}d`} old</span>
+                        {isStale && (
+                          <span
+                            className="text-[9px] px-1.5 py-0.5 rounded-full font-mono"
+                            style={{
+                              background: "rgba(148,163,184,0.14)",
+                              color: "var(--text-tertiary)",
+                              border: "1px solid rgba(148,163,184,0.22)",
+                            }}
+                            title="Older than 7 days — less relevant for recent trend analysis"
+                          >
+                            stale
+                          </span>
+                        )}
                       </>
                     )}
                   </div>
