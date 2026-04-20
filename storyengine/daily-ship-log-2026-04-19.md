@@ -796,3 +796,41 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **The "already_distilled" fast path is a latent cost-control surface that no visible assertion guarded.** If someone refactors the existence-check and the yt-dlp call still runs on cache hit, no 500 surfaces — just a silently expensive API. Spy-based `call_count == 0` assertion is specifically designed to catch this; worth replicating on any other "check cache before expensive work" pattern in the codebase.
 - **The partial-failure `scraped_but_distillation_failed` return is a deliberate UX choice that tests now pin.** A new dev looking at this endpoint might "clean it up" to raise on distillation failure — that would break the optimization where a user's 2nd attempt doesn't re-pay yt-dlp. The test now documents this as intentional, not a TODO.
 - **Direct async function invocation with keyword-arg `tenant_id=...`** is a lightweight pattern for endpoint-level functional tests when the dependency is a plain string. No `TestClient`, no ASGI transport, just `asyncio.run(func(body, tenant_id="fake"))`. Much faster than spinning up the app per test. Keep using this pattern for auth-injected dependencies that are plain types.
+
+## Cycle 25 — 2026-04-20 ~05:00 UTC — SEC-SSE-001 cross-tenant task state leak
+**Trigger:** fix-roadmap.md Stage 1.2 — HIGH-severity bug flagged on 2026-04-10 and still outstanding. In `backend/routes/pipeline.py`, `_running_tasks` was a `dict[str, dict]` keyed by `video_id` alone. Two tenants with the same video_id would share task state — one would silently see the other's pipeline progress via `/api/pipeline/task/{video_id}` polling and `/api/pipeline/stream` SSE. Worse: the SSE endpoint's "no video_id filter" branch iterated the WHOLE dict with no tenant check, so anyone watching the firehose saw every tenant's live task events.
+
+**Investigation:**
+- Located the leak: `_running_tasks: dict[str, dict] = {}` at `routes/pipeline.py:99`. Identical bug at `routes/agents.py:27`.
+- Grepped `_set_task_status` / `_get_task_status` / `_clear_task_status` — ~70 call sites in pipeline.py alone, plus 3 in the SSE generator, plus 6 in agents.py. All inside endpoint handlers or their `async def _run()` closures, so `tenant_id` was already in scope at every site.
+- Verified the SSE exploit surface: `routes/pipeline.py:1576` read `for vid, task in list(_running_tasks.items())` in the `else` branch (when caller omits the `video_id` query param). Every tenant's events leaked; no filter. Signed into one account, opened the stream endpoint without `video_id`, saw every active task in the system.
+
+**Fix:**
+- **`routes/pipeline.py`** — key shape → `tuple[str, str]`; helper signatures force `tenant_id: str` as required keyword-only. Old permissive `Optional[str] = None` default is gone: missing it now raises `TypeError` at runtime, not a silent cross-tenant write. Updated the 3 helpers' internals to use `(tenant_id, video_id)` tuple key for reads, writes, and pops. Audited the 70 call sites — replace_all caught the common shapes, the 4 multi-line and 6 closure-callback sites got hand-edited. SSE `else` branch now iterates `for (tid, vid), task in list(_running_tasks.items()): if tid != tenant_id: continue` — filters by the authenticated tenant, other tenants invisible.
+- **`routes/agents.py`** — mirror fix on the agent-pipeline dict. `_set_task` / `_get_task` / `_clear_task` now require `tenant_id` kwarg; dict keyed by `(tenant_id, video_id)`.
+- **`tests/functional/test_error_humanization.py`** — updated the fixture that was poking `_running_tasks["test-vid-999"]` directly so it uses the tuple key + a real tenant_id.
+- **`tests/functional/test_cross_tenant_task_isolation.py` (new, 7 tests):** pins the isolation contract:
+  1. Two tenants with the same video_id — each reads their own state, not the other's.
+  2. Tenant B cannot see tenant A's running task.
+  3. Tenant B's `_clear_task_status` doesn't wipe tenant A's state.
+  4. Tenant B's `_set_task_status` (different status) doesn't overwrite tenant A's state.
+  5. Contract check: dict keys are tuples (guards against a future refactor that drops the tenant).
+  6–7. Mirror checks on `agents.py`.
+
+**Ship:**
+- Full functional suite green: `test_validator_error_parsing` 11/11, `test_error_humanization` all, `test_distill_url` 12/12, `test_cross_tenant_task_isolation` 7/7.
+- `python -c "import routes.pipeline; import routes.agents"` → clean.
+- Committed `b52e0655`, pushed to main, deployed to VPS, backend restarted and `is-active`.
+
+**Honest gaps:**
+- **No E2E test driving two concurrent tenants through the HTTP layer.** Tests exercise the dict-layer helpers directly. A regression in the SSE endpoint's tenant_id resolution (auth middleware bug, token mix-up) would slip through. The helper-level pin catches the common refactor trap (someone dropping the tenant from the key), but not a middleware-level auth bug. Deferred: would need a real Postgres + two seeded tenants + httpx SSE client to write. Doable but not a 1-cycle increment.
+- **Required-kwarg enforcement is runtime only.** `tenant_id: str` without a default + `*,` makes it a required keyword-only arg, but that's only checked at call time. A misspelled kwarg (`tenent_id=...`) would raise. A type checker run (`pyright` or `mypy`) would catch it statically but isn't wired into CI.
+- **`_running_tasks` is still in-process memory.** Two replicas of the backend would each have their own `_running_tasks` dict — a task started by hitting replica A wouldn't be visible from replica B's `/task/{video_id}` poll. Currently StoryEngine runs on a single process so this is moot, but scaling to >1 replica needs a shared store (Redis, or read-through-to-Postgres via `background_tasks`). Noted for later.
+- **The SSE ELSE branch (no video_id filter) now correctly scopes by tenant, but it also walks the entire `_running_tasks` dict once per tick** (every 3s). With N tenants × M concurrent tasks, that's O(NM) per SSE client per tick. Fine for current scale. If we ever have >100 concurrent tasks in the dict, partition by tenant_id → nested dict.
+- **Did not add a test proving SSE auth middleware actually injects the right tenant_id for EventSource queries that use `?token=X`.** The SSE endpoint accepts a `token` query param (EventSource can't send headers), and the fix assumes `Depends(get_tenant_id)` resolves that token correctly. Untested here. Would catch a regression in the token → tenant mapping, separate problem.
+
+**Learned:**
+- **"Dict keyed by video_id" is a tell for cross-tenant bugs in multi-tenant systems.** Any in-memory cache keyed by a user-scoped identifier without the tenant as part of the key is a latent SEC-SSE-001. Grep pattern for future audits: `dict\[str, dict\] = \{\}` in route files. Worth a lint rule.
+- **Required keyword-only args are a surprisingly lightweight safety net.** Switching `tenant_id: Optional[str] = None` → `tenant_id: str` + `*,` separator means the 70 call sites that previously missed it became runtime TypeErrors at deploy-test time. The noisy failure mode is exactly what you want — silent correctness is the enemy of secure multi-tenancy.
+- **The `for (tid, vid), task in ...` destructure is more readable than a nested `if _running_tasks[k][0] == tenant_id`.** Tuple keys + destructuring at iteration is the idiomatic Python; using it is free and the intent ("filter to my tenant") is self-documenting.
+- **The SSE `else` branch (no-video_id-filter) is a privilege-escalation surface I didn't know existed.** The endpoint was documented as "omit video_id to see all videos for this user" but implemented as "omit video_id to see everyone's firehose." That drift between intent and implementation is exactly the class of bug the fix-roadmap flagged as HIGH — and why a doc comment is not a substitute for a test.
