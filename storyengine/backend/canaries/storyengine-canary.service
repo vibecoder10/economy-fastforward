@@ -1,0 +1,14 @@
+[Unit]
+Description=StoryEngine validator-drift canary (one-shot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=clawd
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/clawd/projects/economy-fastforward/storyengine/backend/.venv/bin/python -m canaries.validator_drift
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=storyengine-canary

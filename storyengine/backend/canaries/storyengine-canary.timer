@@ -1,0 +1,14 @@
+[Unit]
+Description=Fires storyengine-canary.service every 6 hours
+Requires=storyengine-canary.service
+
+[Timer]
+# Every 6 hours, starting 5 min after boot so we get an immediate
+# post-boot probe (catches validator breakage after a deploy).
+OnBootSec=5min
+OnUnitActiveSec=6h
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
