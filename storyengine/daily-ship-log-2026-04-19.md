@@ -363,3 +363,38 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 **Next:**
 - Cycle 12 primary: slice 3 voice-learn upgrade — swap titles+descriptions for yt-dlp transcripts so `/learn-voice` extracts voice from actual spoken content. Additive, low-risk, directly improves Flow B voice-learn quality.
 - Alternates: (a) clean-replacement override semantics (strip profile preamble from user body when override present), (b) fresh fix-roadmap.md rewrite, (c) functional test infra (task #5) to enable runtime E2E tests.
+
+## Cycle 12 — 2026-04-20 ~00:45 CT
+**Goal:** upgrade `/api/youtube/learn-voice` (Flow B slice 2) from titles+descriptions to actual transcripts. Descriptions capture boilerplate/SEO blurbs; transcripts capture how the creator actually *talks* — hook cadence, word choice, catchphrases. That's the real voice signal.
+
+**Shipped:**
+- **`routes/youtube_channel._fetch_transcripts_for_videos(videos)`** — new helper that attaches a `transcript` field (or None) to each video dict via `routes.niche._extract_video_info` (yt-dlp + VTT/JSON3 parser, reused from the competitor-scrape path). Runs all fetches concurrently via `asyncio.gather(run_in_executor(...))` so one slow yt-dlp call doesn't block the other four. Silent-fail per video: missing caption, yt-dlp crash, or missing video_id all just set `transcript=None` and fall back to description.
+- **`TRANSCRIPT_CHAR_CAP = 2000`** — per-video cap (≈400 words, 2-3 min of spoken content). Five videos × 2000 = 10k chars, comfortably inside Sonnet 4 context after prompt + description fallbacks for videos without transcripts.
+- **`_claude_summarize_voice`** — prompt builder now prefers `TRANSCRIPT: <body>` over `DESCRIPTION: <body>`. Existing 400-char description trim still applies when transcript is missing. Zero-description videos now render `(no description)` instead of a bare trailing whitespace line.
+- **`VOICE_LEARN_PROMPT`** — updated to instruct Claude that transcripts are the PRIMARY voice signal and descriptions are a fallback. Reads "treat it as the PRIMARY voice signal — transcripts capture the creator's actual spoken cadence, word choice, and hook style far better than titles or descriptions."
+- **`/learn-voice` response** — added `transcript_count` (how many of top 5 had usable transcripts) and `has_transcript: bool` on each `source_videos` entry. Lets the frontend show signal strength ("We learned your voice from 5 video transcripts" vs "We learned from descriptions — add captions for better results").
+
+**Functional tests:**
+- Added 4 new tests to `test_learn_voice.py`:
+  - `test_prompt_template_mentions_transcripts` — static check that the PROMPT constant instructs Claude to prefer transcripts.
+  - `test_transcript_replaces_description_in_prompt` — given a video with `transcript=...`, asserts the prompt contains `TRANSCRIPT:` + transcript body and does NOT contain the description. Given a video without `transcript`, asserts the prompt contains `DESCRIPTION:` + description.
+  - `test_transcript_fetcher_handles_failures_silently` — monkeypatches `niche._extract_video_info` with a good/crash/None triplet; asserts every video gets a `transcript` key (possibly None), zero exceptions raised.
+  - `test_transcript_char_cap_enforced` — 7000-char transcript trims to `TRANSCRIPT_CHAR_CAP + "..."`.
+- Existing tests still pass unchanged: `test_prompt_shape_includes_all_videos`, `test_prompt_template_has_required_guidance`, `test_live_anthropic_contract`. Total: **7/7 green** (3 original + 4 new).
+- Regression check: `test_error_humanization.py` (10/10 ✅), `test_prompt_override_wiring.py` (6/6 WIRED ✅) — neither cycle touched those paths but worth confirming.
+
+**Honest gaps:**
+- **No live E2E test against a real YouTube video.** The transcript fetcher tests use monkeypatched `_extract_video_info`. A live test that actually calls yt-dlp on a well-known public video (e.g. a Computerphile short) would catch yt-dlp version drift and YouTube's rotating anti-scrape quirks. Queued — needs careful pick of a stable test URL.
+- **Auto-caption only** — the reused `_extract_transcript` helper prefers manual English subs, falls back to auto-captions. For creators with translated auto-subs only (non-English channels), this returns nothing. Acceptable v1 because Flow B is US-first; add language param later.
+- **Cost note**: yt-dlp is free and local; the Claude call is unchanged in cost. But we now download up to 5 caption files per `/learn-voice` invocation. Onboarding is once per user so quota impact is negligible — just logging it here.
+- **Frontend doesn't surface `transcript_count` yet.** Backend response field is there, wait for a pass on `StyleSetupStep.tsx` to render "learned from 4/5 transcripts" banner. Small follow-up task.
+
+**Learned:**
+- **Reuse the helper that already exists, even across boundary types.** `routes.niche._extract_video_info` was written for the competitor-scrape path (public URLs, no auth). It works identically for the user's own channel because the transcript endpoint doesn't need OAuth — yt-dlp pulls from youtube.com's public caption API. That saved 60 lines of new code and avoided a second parser.
+- **Silent-per-video failure is the right default for 5-element batches.** If a `gather` raises, the whole voice-learn fails. If it swallows per item, the creator still gets a voice description from 3-4 transcripts + 1-2 descriptions. Graceful degradation is more important than strict error propagation when the downstream consumer (Claude) handles mixed data fine.
+- **Capping context on *input* is cheaper than capping on *output*.** A 15-minute transcript is ~30k chars. If we sent that raw × 5, we'd be at 150k chars input plus prompt — Sonnet 4 handles it but costs more per call and the signal past ~2 minutes of any given video is diminishing returns (the hook + first third tells you the voice). Hard cap at write-time.
+- **Test doubles for yt-dlp avoid flakiness.** The 4 new tests monkeypatch `_extract_video_info`. No network, no YouTube rate limits, no caption-format drift. The one live test we'd want (real yt-dlp call against a stable URL) is queued but not on the critical path — the unit tests prove the contract our code expects, the live test proves the upstream contract holds.
+
+**Next:**
+- Cycle 13 primary: small frontend pass — render `transcript_count` / `has_transcript` in `StyleSetupStep.tsx` so creators see signal strength.
+- Alternates: (a) live yt-dlp stability test against a stable public URL, (b) clean-replacement override semantics, (c) fresh fix-roadmap.md rewrite, (d) functional test infra (task #5).

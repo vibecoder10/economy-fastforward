@@ -162,6 +162,145 @@ async def test_prompt_template_has_required_guidance():
     print("✅ test_prompt_template_has_required_guidance")
 
 
+async def test_transcript_replaces_description_in_prompt():
+    """When a video has a `transcript` field, the prompt must include the
+    transcript body (prefixed 'TRANSCRIPT:') and NOT the description. This
+    is the Cycle 12 upgrade — richer voice signal from actual spoken content."""
+    videos = [
+        {
+            "video_id": "t1",
+            "title": "Hook test",
+            "description": "boilerplate description that should NOT appear when a transcript exists",
+            "views": 500_000,
+            "transcript": "Listen up folks, here's the deal. The dollar is cooked and I'm gonna break down exactly why in the next 60 seconds so buckle up.",
+        },
+        {
+            "video_id": "t2",
+            "title": "No transcript fallback",
+            "description": "this description SHOULD appear because no transcript",
+            "views": 300_000,
+            # no transcript field
+        },
+    ]
+    fake_client = FakeAnthropicClient({
+        "content": [{"type": "text", "text": "Style guidance."}]
+    })
+
+    import routes.youtube_channel as mod
+    original = mod.httpx.AsyncClient
+    mod.httpx.AsyncClient = lambda **kw: fake_client
+    try:
+        await _claude_summarize_voice(
+            api_key="fake-key", channel_name="Test", videos=videos
+        )
+    finally:
+        mod.httpx.AsyncClient = original
+
+    prompt_text = fake_client.calls[0]["body"]["messages"][0]["content"]
+
+    # Transcript video: TRANSCRIPT: line present, spoken content present,
+    # description string must NOT appear.
+    assert "TRANSCRIPT:" in prompt_text, "prompt must label transcripts"
+    assert "Listen up folks" in prompt_text, "transcript body missing"
+    assert "boilerplate description" not in prompt_text, (
+        "description leaked into prompt even though transcript was present"
+    )
+
+    # Fallback video: DESCRIPTION: line present with the description body.
+    assert "DESCRIPTION:" in prompt_text
+    assert "this description SHOULD appear" in prompt_text
+    print("✅ test_transcript_replaces_description_in_prompt")
+
+
+async def test_prompt_template_mentions_transcripts():
+    """The prompt constant must instruct Claude that transcripts are the
+    PRIMARY voice signal when available. Regression guard."""
+    lowered = VOICE_LEARN_PROMPT.lower()
+    assert "transcript" in lowered, "prompt must reference transcripts"
+    assert "primary" in lowered or "prefer" in lowered, (
+        "prompt must tell Claude to prefer transcripts over descriptions"
+    )
+    print("✅ test_prompt_template_mentions_transcripts")
+
+
+async def test_transcript_fetcher_handles_failures_silently():
+    """_fetch_transcripts_for_videos must attach `transcript` to every video
+    (possibly None) without raising, even when yt-dlp fails on some."""
+    from routes.youtube_channel import _fetch_transcripts_for_videos
+    import routes.youtube_channel as mod
+
+    videos = [
+        {"video_id": "good", "title": "ok", "views": 100},
+        {"video_id": "bad", "title": "boom", "views": 50},
+        {"video_id": None, "title": "no id", "views": 10},
+    ]
+
+    call_count = {"n": 0}
+
+    def fake_extract(vid):
+        call_count["n"] += 1
+        if vid == "good":
+            return {"transcript": "  Hello world this is the transcript body.  "}
+        if vid == "bad":
+            raise RuntimeError("simulated yt-dlp crash")
+        return None
+
+    import routes.niche as niche_mod
+    original = niche_mod._extract_video_info
+    niche_mod._extract_video_info = fake_extract
+    try:
+        await _fetch_transcripts_for_videos(videos)
+    finally:
+        niche_mod._extract_video_info = original
+
+    # Every video got a `transcript` key
+    for v in videos:
+        assert "transcript" in v, f"missing transcript key on {v['video_id']}"
+
+    # Success case: trimmed, non-None
+    good = next(v for v in videos if v["video_id"] == "good")
+    assert good["transcript"] == "Hello world this is the transcript body."
+
+    # Failure case: None, no crash
+    bad = next(v for v in videos if v["video_id"] == "bad")
+    assert bad["transcript"] is None
+
+    # Missing video_id: None, yt-dlp not called for it
+    no_id = next(v for v in videos if v["video_id"] is None)
+    assert no_id["transcript"] is None
+
+    print("✅ test_transcript_fetcher_handles_failures_silently")
+
+
+async def test_transcript_char_cap_enforced():
+    """Transcripts past TRANSCRIPT_CHAR_CAP must be truncated with an
+    ellipsis so a 30-minute podcast doesn't blow out the Claude context."""
+    from routes.youtube_channel import (
+        _fetch_transcripts_for_videos,
+        TRANSCRIPT_CHAR_CAP,
+    )
+    import routes.niche as niche_mod
+
+    huge = "A" * (TRANSCRIPT_CHAR_CAP + 5000)
+
+    def fake_extract(vid):
+        return {"transcript": huge}
+
+    videos = [{"video_id": "long", "title": "long video", "views": 1}]
+    original = niche_mod._extract_video_info
+    niche_mod._extract_video_info = fake_extract
+    try:
+        await _fetch_transcripts_for_videos(videos)
+    finally:
+        niche_mod._extract_video_info = original
+
+    out = videos[0]["transcript"]
+    assert out.endswith("...")
+    # Original was capped at TRANSCRIPT_CHAR_CAP + "..." length
+    assert len(out) == TRANSCRIPT_CHAR_CAP + 3
+    print("✅ test_transcript_char_cap_enforced")
+
+
 async def test_live_anthropic_contract():
     """LIVE: POST to api.anthropic.com with a junk key. Expect 401 (auth
     failure) — NOT 400 (bad request shape) — which confirms the URL +
@@ -188,7 +327,11 @@ async def test_live_anthropic_contract():
 
 async def main():
     await test_prompt_template_has_required_guidance()
+    await test_prompt_template_mentions_transcripts()
     await test_prompt_shape_includes_all_videos(None)
+    await test_transcript_replaces_description_in_prompt()
+    await test_transcript_fetcher_handles_failures_silently()
+    await test_transcript_char_cap_enforced()
     await test_live_anthropic_contract()
     print("\nAll tests passed.")
 

@@ -17,6 +17,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -222,7 +223,7 @@ async def my_videos(
     }
 
 
-VOICE_LEARN_PROMPT = """You are analyzing a YouTube creator's own content to infer their unique voice and style. Below are the titles and descriptions of their top-performing videos. Your job: produce a rich, specific style description that will be used to customize AI-generated scripts to match their real voice.
+VOICE_LEARN_PROMPT = """You are analyzing a YouTube creator's own content to infer their unique voice and style. Below are their top-performing videos. When a TRANSCRIPT is provided, treat it as the PRIMARY voice signal — transcripts capture the creator's actual spoken cadence, word choice, and hook style far better than titles or descriptions. Fall back to description only when no transcript is available. Your job: produce a rich, specific style description that will be used to customize AI-generated scripts to match their real voice.
 
 Focus on:
 - Voice & tone (e.g. authoritative, conversational, sarcastic, energetic, calm)
@@ -245,20 +246,76 @@ TOP VIDEOS:
 
 Write the style description now."""
 
+# Cap per-video transcript length so a few long videos don't blow out the
+# Claude context budget. 2000 chars ≈ 400 words, enough to capture 2-3 minutes
+# of spoken content and still fit 5 videos + prompt + description fallbacks
+# well under Sonnet 4's context.
+TRANSCRIPT_CHAR_CAP = 2000
+
+
+async def _fetch_transcripts_for_videos(videos: list[dict]) -> None:
+    """Mutate `videos` in-place: attach a `transcript` key (or None) to each.
+
+    Uses the existing `routes.niche._extract_video_info` helper (yt-dlp +
+    VTT/JSON3 parsing). Runs all fetches concurrently in the default thread
+    pool so a slow yt-dlp call on one video doesn't block the others.
+
+    Failures are silent — a missing transcript falls back to the description.
+    The voice summarizer handles mixed transcript/description sets fine.
+    """
+    from routes.niche import _extract_video_info
+
+    loop = asyncio.get_event_loop()
+
+    async def _one(video: dict) -> None:
+        vid = video.get("video_id")
+        if not vid:
+            video["transcript"] = None
+            return
+        try:
+            info = await loop.run_in_executor(None, _extract_video_info, vid)
+        except Exception as e:
+            logger.warning("[learn-voice] yt-dlp failed for %s: %s", vid, e)
+            video["transcript"] = None
+            return
+        raw = (info or {}).get("transcript") or ""
+        raw = raw.strip()
+        if not raw:
+            video["transcript"] = None
+            return
+        if len(raw) > TRANSCRIPT_CHAR_CAP:
+            raw = raw[:TRANSCRIPT_CHAR_CAP] + "..."
+        video["transcript"] = raw
+
+    await asyncio.gather(*(_one(v) for v in videos))
+
 
 async def _claude_summarize_voice(
     api_key: str, channel_name: str, videos: list[dict]
 ) -> str:
-    """Send titles + descriptions to Claude, return a voice/style description."""
+    """Send top videos' transcripts (preferred) or descriptions to Claude,
+    return a voice/style description.
+
+    Each video dict may carry a `transcript` key (populated by
+    `_fetch_transcripts_for_videos`). When present and non-empty it
+    replaces the description in the prompt body. When absent, falls back
+    to the description trimmed at 400 chars.
+    """
     lines = []
     for i, v in enumerate(videos, 1):
-        desc = (v.get("description") or "").strip()
-        # Trim descriptions — the boilerplate (links, hashtags) past the
-        # first ~400 chars is usually noise, not voice signal.
-        if len(desc) > 400:
-            desc = desc[:400] + "..."
+        transcript = (v.get("transcript") or "").strip()
+        if transcript:
+            # Transcript is already capped by _fetch_transcripts_for_videos
+            body = f"TRANSCRIPT: {transcript}"
+        else:
+            desc = (v.get("description") or "").strip()
+            # Trim descriptions — the boilerplate (links, hashtags) past the
+            # first ~400 chars is usually noise, not voice signal.
+            if len(desc) > 400:
+                desc = desc[:400] + "..."
+            body = f"DESCRIPTION: {desc}" if desc else "(no description)"
         lines.append(
-            f"{i}. [{v.get('views', 0):,} views] {v.get('title', '')}\n   {desc}"
+            f"{i}. [{v.get('views', 0):,} views] {v.get('title', '')}\n   {body}"
         )
     video_list = "\n\n".join(lines)
 
@@ -359,17 +416,29 @@ async def learn_voice(tenant_id: str = Depends(get_tenant_id)):
     videos.sort(key=lambda v: v["views"], reverse=True)
     top5 = videos[:5]
 
+    # Enrich with transcripts for richer voice extraction. Silent fallback
+    # to description if yt-dlp can't pull captions for a given video.
+    await _fetch_transcripts_for_videos(top5)
+
     channel_name = row.get("youtube_channel_name", "") if row else ""
     style_description = await _claude_summarize_voice(api_key, channel_name, top5)
 
     # Persist to channel_profiles so Style step can pre-fill
     await execute_safely(tenant_id, style_description)
 
+    transcript_count = sum(1 for v in top5 if (v.get("transcript") or "").strip())
+
     return {
         "status": "learned",
         "style_description": style_description,
+        "transcript_count": transcript_count,  # how many of top5 had usable transcripts
         "source_videos": [
-            {"video_id": v["video_id"], "title": v["title"], "views": v["views"]}
+            {
+                "video_id": v["video_id"],
+                "title": v["title"],
+                "views": v["views"],
+                "has_transcript": bool((v.get("transcript") or "").strip()),
+            }
             for v in top5
         ],
     }
