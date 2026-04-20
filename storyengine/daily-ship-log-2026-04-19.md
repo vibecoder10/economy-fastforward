@@ -704,3 +704,31 @@ _Overnight build by Osiris. Ryan sleeping. Functional tests only. Honesty rule i
 - **Ship tools to production as soon as they're useful, even without alerting wired.** Canary running unattended on a 6h schedule with journal logs is strictly better than a canary that only runs when someone remembers. "Cycle 22 adds alerting" is a cleaner split than "Cycle 20 builds the whole observability stack."
 - **GH Actions `workflow` OAuth scope is a common friction point.** Future: either get Ryan to generate a PAT with workflow scope once and store it, or default to self-hosted systemd timers for cron needs — VPS is already there, no auth.
 - **Same-cycle pivot was the right call** over stalling to resolve the push permissions. The VPS timer is objectively *closer to the workload* than GH Actions (probes from production's actual IP, same egress path as the backend), so the "fallback" arguably has a real advantage.
+
+## Cycle 22 — 2026-04-20 ~03:50 UTC — Canary alerting via ntfy.sh
+**Trigger:** Cycles 20+21 ship the canary but drift only landed in journalctl — silent failure mode. Without a push alert, 6-hour drift detection is functionally useless unless someone's tailing logs, which no one is.
+
+**Design decision — ntfy.sh over Telegram:**
+- Telegram needs a bot token + chat_id on the VPS → secret-sync problem, defer config to Ryan.
+- ntfy.sh is auth-free, free, push-to-phone via the ntfy app. Zero-setup for Ryan: install app, subscribe to topic `osiris-validator-drift`, done.
+- Easy upgrade path later: swap the ExecStart to a Telegram curl when the token's in place.
+
+**Ship:**
+- New unit: `storyengine-canary-alert.service` (oneshot, pipes `journalctl -u storyengine-canary -n 25` into `curl -T - https://ntfy.sh/osiris-validator-drift` with Title / Priority:high / Tags:warning).
+- Added `OnFailure=storyengine-canary-alert.service` to the main canary service so drift fires the alert automatically.
+- Deployed, `daemon-reload`, timer shows 5h 56min to next fire.
+
+**End-to-end verification:**
+1. Direct test: `systemctl start storyengine-canary-alert.service` → ntfy.sh returned message id `5xTQXBbGjD7I`, delivery confirmed in journal with full body.
+2. OnFailure chain test: `systemd-run --property=OnFailure=storyengine-canary-alert.service /bin/false` → alert fired automatically, ntfy.sh returned id `qT8ig5bydMXa`. Systemd logged "trigger source candidates... skipping" (harmless — it's deduping multiple OnFailure sources, still fires).
+
+**Honest gaps:**
+- **ntfy.sh topic `osiris-validator-drift` is public and unauthenticated.** Anyone who guesses the name can subscribe and see journal tails. Journal tails on a drift event contain no secrets (just JSON body shapes from upstream 4xx responses), but worth noting. Telegram would be private.
+- **No retry on alert delivery failure.** If ntfy.sh has a blip when drift fires, that alert is lost. The drift state persists on the next 6h run, so re-fires naturally, but a 6h re-notification delay is a real gap. Fix: add `Restart=on-failure` + `RestartSec=30s` to the alert service, retry ~2x.
+- **Ryan has to install ntfy.sh app to actually see alerts.** Shipped but not actionable until that happens. Direct ntfy.sh notification to Ryan's Mac via the push-notification API is possible but more setup.
+- **Alert body is raw journal.** A drift where Gemini's error.details shape changed will show up as a readable diff, but a novice reading the alert at 3am would need context. Fine for Ryan (he wrote half the parsers), not fine if we ever hand this off.
+
+**Learned:**
+- **ntfy.sh is a genuinely great primitive for solo-founder ops monitoring.** Zero auth, zero cost, one curl, push-to-phone. For anything that doesn't expose secrets in its body, this beats fancier alerting.
+- **Testing OnFailure= chains with `systemd-run --property=OnFailure=...` is a great debugging pattern.** Lets you verify the plumbing without actually breaking the real service, much cheaper than cratering the canary and waiting for the alert to fire.
+- **The failed-direct-invocation test delivers a false success signal.** Running the alert manually sends the CURRENT journal state to ntfy.sh — which is the last SUCCESS run because the canary actually passed. When I saw "5/5 intact" show up in the notification, I had to check twice that the alert pipeline was firing correctly (it was — it's just pushing the latest available journal tail). If I hadn't also tested the OnFailure chain with `/bin/false`, I might have shipped a working alert infrastructure that I falsely thought was broken.
