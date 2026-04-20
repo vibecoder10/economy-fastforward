@@ -4,6 +4,7 @@ All email sending goes through this module.
 Falls back to console logging when RESEND_API_KEY is not set.
 """
 
+import html as html_lib
 import os
 from typing import Optional
 
@@ -52,11 +53,12 @@ async def send_email(
 async def send_welcome_email(email: str, display_name: str) -> bool:
     """Send welcome email to new users."""
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    safe_name = html_lib.escape(display_name or "there")
     return await send_email(
         to=email,
         subject="Welcome to StoryEngine",
         html=(
-            f"<h2>Welcome to StoryEngine, {display_name}!</h2>"
+            f"<h2>Welcome to StoryEngine, {safe_name}!</h2>"
             f"<p>Your AI video production pipeline is ready.</p>"
             f"<p>Get started: add API keys, set up your channel, create your first video.</p>"
             f'<p><a href="{frontend_url}">Go to your dashboard</a></p>'
@@ -88,13 +90,15 @@ async def send_reset_email(email: str, token: str, expiry_hours: int = 1) -> boo
 async def send_billing_receipt(email: str, plan: str, amount_display: str) -> bool:
     """Send billing receipt after successful checkout."""
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    safe_plan = html_lib.escape(plan or "")
+    safe_amount = html_lib.escape(amount_display or "")
     return await send_email(
         to=email,
         subject=f"StoryEngine — Payment confirmed ({plan})",
         html=(
             f"<h2>Payment confirmed</h2>"
-            f"<p>You're now on the <strong>{plan}</strong> plan.</p>"
-            f"<p>Amount: {amount_display}</p>"
+            f"<p>You're now on the <strong>{safe_plan}</strong> plan.</p>"
+            f"<p>Amount: {safe_amount}</p>"
             f'<p><a href="{frontend_url}">Go to your dashboard</a></p>'
         ),
     )
@@ -103,11 +107,12 @@ async def send_billing_receipt(email: str, plan: str, amount_display: str) -> bo
 async def send_trial_warning(email: str, display_name: str, days_left: int) -> bool:
     """Send trial expiry warning email."""
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    safe_name = html_lib.escape(display_name or "there")
     return await send_email(
         to=email,
         subject=f"Your StoryEngine trial expires in {days_left} day{'s' if days_left != 1 else ''}",
         html=(
-            f"<h2>Hey {display_name},</h2>"
+            f"<h2>Hey {safe_name},</h2>"
             f"<p>Your free trial expires in <strong>{days_left} day{'s' if days_left != 1 else ''}</strong>.</p>"
             f"<p>Upgrade now to keep your pipeline running and unlock Autopilot + Analytics.</p>"
             f'<p><a href="{frontend_url}/pricing">View plans</a></p>'
