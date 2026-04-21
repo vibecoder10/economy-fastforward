@@ -13,6 +13,15 @@
 # V0.1 scope: vault + codebase + issue synthesis + PRD writing + issue filing.
 # V0.2 will add a Playwright user-testing node (act AS Ryan, click through
 # the product, file friction as bugs).
+#
+# Design note — why JSON-via-file not JSON-via-stdout:
+# Claude emits freeform text to stdout. Interpolating it into a bash
+# heredoc and feeding to python json.loads is fragile — a single rogue
+# backslash in any string value (file paths, regex snippets, emoji
+# escapes) blows up parsing. So every handoff between AI nodes writes
+# its payload through the Write tool to a known absolute path, and the
+# consuming node reads that file directly. Deterministic, no escape
+# headaches.
 
 name: storyengine-scout
 description: Autonomous PM — reads vault + codebase + trajectory, writes PRDs for features, files archon:ready issues for everything else. Does not edit code.
@@ -21,8 +30,16 @@ model: claude-opus-4-7[1m]
 
 nodes:
 
+  # 0. Clean: wipe prior tick's handoff files so stale data can't leak.
+  - id: clean
+    bash: |
+      rm -f /tmp/scout-plan.json /tmp/scout-draft.json
+      mkdir -p /Users/osiris/Desktop/osiris/20_Projects/storyengine/prds
+      echo "scout tick: handoff files cleared"
+
   # 1. Plan: read everything, output a prioritized next-steps roadmap.
   - id: plan
+    depends_on: [clean]
     prompt: |
       You are Osiris, Ryan's AI co-founder, acting as the autonomous PM for
       StoryEngine. StoryEngine is a meta-project — the public proof of what
@@ -62,8 +79,9 @@ nodes:
         - `size: large` — new feature, architectural change, or cross-cutting
           work. Gets a PRD written first, then sub-issues for each slice.
 
-      **Output format.** Emit a single JSON object to stdout (no prose before
-      or after). Schema:
+      **Output — write to file, not stdout.** Use the Write tool to save a
+      SINGLE JSON object (no markdown fences, no prose) to
+      `/tmp/scout-plan.json`. Schema:
 
       ```json
       {
@@ -85,22 +103,22 @@ nodes:
       Skip anything already queued as an open `archon:ready`/`archon:running`
       issue (dedup against `dedup_against`). Do not invent features not
       grounded in either the vault vision or the code state.
-    allowed_tools: [Read, Bash, Glob, Grep]
+
+      After writing `/tmp/scout-plan.json`, emit one line to stdout:
+      `PLAN_WRITTEN: /tmp/scout-plan.json (<N> items)`. Nothing else.
+    allowed_tools: [Read, Bash, Glob, Grep, Write]
     idle_timeout: 600000
 
   # 2. Draft: write PRDs for large items; emit a structured plan for issue filing.
   - id: draft
     depends_on: [plan]
     prompt: |
-      You have the scout's prioritized roadmap in JSON form:
+      The scout's roadmap is on disk at `/tmp/scout-plan.json` — read it
+      with the Read tool. Do NOT rely on any previous-node output text.
 
-      $plan.output
-
-      Your job: for every item with `size: large`, write a PRD markdown file
-      to `/Users/osiris/Desktop/osiris/20_Projects/storyengine/prds/`.
-      Use the Write tool.
-
-      **Create the directory first if it doesn't exist** (Bash: `mkdir -p`).
+      For every item with `size: large`, write a PRD markdown file to
+      `/Users/osiris/Desktop/osiris/20_Projects/storyengine/prds/`.
+      Use the Write tool. (The directory already exists.)
 
       **PRD file path:** use today's date and a kebab-case slug of the title.
       Example: `2026-04-21-auto-retry-on-pipeline-failure.md`
@@ -130,8 +148,9 @@ nodes:
       - ## Risks — 2-3 bullets
       - ## Out of scope — what this explicitly does NOT cover
 
-      After writing all PRDs, emit to stdout a SINGLE JSON object (no prose)
-      listing:
+      **Output — write to file, not stdout.** After writing all PRDs, use
+      the Write tool to save a SINGLE JSON object to `/tmp/scout-draft.json`
+      with this exact schema:
 
       ```json
       {
@@ -140,8 +159,7 @@ nodes:
             "title": "...",
             "path": "/absolute/path/to/prd.md",
             "slices": [
-              {"title": "slice 1 title", "body": "5-10 sentence issue body including acceptance criteria"},
-              ...
+              {"title": "slice 1 title", "body": "5-10 sentence issue body including acceptance criteria"}
             ]
           }
         ],
@@ -153,6 +171,16 @@ nodes:
 
       Every small item from the plan becomes a `small_items` entry directly.
       Every large item becomes one PRD + its slices become sub-issues.
+
+      **JSON-safety rules** (the `file` node parses this with jq — must be
+      strict JSON):
+      - No literal tabs or raw newlines inside string values — use `\n`.
+      - No unescaped backslashes — write `\\` if you need a literal one.
+      - No code fences around the JSON — save the raw object only.
+      - No trailing commas.
+
+      After writing `/tmp/scout-draft.json`, emit one line to stdout:
+      `DRAFT_WRITTEN: /tmp/scout-draft.json`. Nothing else.
     allowed_tools: [Read, Write, Bash]
     idle_timeout: 600000
 
@@ -162,36 +190,21 @@ nodes:
     bash: |
       set -euo pipefail
       REPO="vibecoder10/economy-fastforward"
+      DRAFT_FILE="/tmp/scout-draft.json"
 
-      # Extract the JSON block from draft.output (strip any prose wrappers).
-      DRAFT=$(cat <<'SCOUT_DRAFT_OUTPUT_EOF'
-      $draft.output
-      SCOUT_DRAFT_OUTPUT_EOF
-      )
+      if [ ! -s "$DRAFT_FILE" ]; then
+        echo "FAIL: $DRAFT_FILE missing or empty — draft node did not produce output"
+        exit 1
+      fi
 
-      # Write to a temp file for jq. Tolerate prose-before-JSON by grabbing
-      # the first {...} block.
-      TMP=$(mktemp)
-      echo "$DRAFT" | python3 -c '
-      import sys, re, json
-      s = sys.stdin.read()
-      # find first { and matching balanced }
-      depth=0; start=-1; end=-1
-      for i,ch in enumerate(s):
-          if ch=="{":
-              if depth==0: start=i
-              depth+=1
-          elif ch=="}":
-              depth-=1
-              if depth==0: end=i+1; break
-      if start<0 or end<0:
-          print("NO_JSON_FOUND", file=sys.stderr); sys.exit(1)
-      obj = json.loads(s[start:end])
-      json.dump(obj, sys.stdout)
-      ' > "$TMP"
-
-      if [ ! -s "$TMP" ]; then
-        echo "FAIL: no JSON in draft output"; exit 1
+      # Validate JSON up-front; surface the error clearly if it's malformed
+      # instead of dying deep inside a jq pipe.
+      if ! jq empty "$DRAFT_FILE" 2>/tmp/scout-jq-err; then
+        echo "FAIL: $DRAFT_FILE is not valid JSON:"
+        cat /tmp/scout-jq-err
+        echo "--- first 500 chars of file ---"
+        head -c 500 "$DRAFT_FILE"
+        exit 1
       fi
 
       filed=0
@@ -221,16 +234,16 @@ nodes:
       }
 
       # PRD slices (linked to PRD)
-      prd_count=$(jq '.prds_written | length' "$TMP")
+      prd_count=$(jq '.prds_written | length' "$DRAFT_FILE")
       i=0
       while [ "$i" -lt "$prd_count" ]; do
-        prd_title=$(jq -r ".prds_written[$i].title" "$TMP")
-        prd_path=$(jq -r ".prds_written[$i].path" "$TMP")
-        slice_count=$(jq ".prds_written[$i].slices | length" "$TMP")
+        prd_title=$(jq -r ".prds_written[$i].title" "$DRAFT_FILE")
+        prd_path=$(jq -r ".prds_written[$i].path" "$DRAFT_FILE")
+        slice_count=$(jq ".prds_written[$i].slices | length" "$DRAFT_FILE")
         j=0
         while [ "$j" -lt "$slice_count" ]; do
-          slice_title=$(jq -r ".prds_written[$i].slices[$j].title" "$TMP")
-          slice_body=$(jq -r ".prds_written[$i].slices[$j].body" "$TMP")
+          slice_title=$(jq -r ".prds_written[$i].slices[$j].title" "$DRAFT_FILE")
+          slice_body=$(jq -r ".prds_written[$i].slices[$j].body" "$DRAFT_FILE")
           full_title="[${prd_title}] ${slice_title}"
           full_body="${slice_body}
 
@@ -244,11 +257,11 @@ nodes:
       done
 
       # Small items (direct issues, no PRD)
-      small_count=$(jq '.small_items | length' "$TMP")
+      small_count=$(jq '.small_items | length' "$DRAFT_FILE")
       i=0
       while [ "$i" -lt "$small_count" ]; do
-        s_title=$(jq -r ".small_items[$i].title" "$TMP")
-        s_body=$(jq -r ".small_items[$i].body" "$TMP")
+        s_title=$(jq -r ".small_items[$i].title" "$DRAFT_FILE")
+        s_body=$(jq -r ".small_items[$i].body" "$DRAFT_FILE")
         full_body="${s_body}
 
       ---
@@ -257,7 +270,6 @@ nodes:
         i=$((i+1))
       done
 
-      rm -f "$TMP"
       echo ""
       echo "=== scout summary ==="
       echo "filed: $filed"
