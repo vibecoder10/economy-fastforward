@@ -35,7 +35,24 @@ _Must fix before any other work. These are broken right now._
 - **Regression lock:** `backend/tests/functional/test_vault_error_leak_lock.py` — 3 AST-based audits (humanize_error imported + used, no `return`/`raise` interpolates captured exception, test_key catch-all still humanized).
 - **Files:** `backend/vault.py`
 
-### 1.5 SQL Injection Risk in Adapter
+### 1.5 SQL Injection Risk in Adapter — ✅ SHIPPED (regression locked Cycle 50, 2026-04-21)
+
+**Status summary:** all dynamic column names in backend SQL go through a validator before reaching the cursor:
+- `database.safe_column(name)` — asyncpg paths (`backend/database.py:11`)
+- `supabase_adapter._safe_col(name)` — psycopg2 paths (`backend/supabase_adapter.py:34`)
+
+Both enforce `^[a-z][a-z0-9_]*$`. Hot-path UPDATE routes (`projects.py`, `videos.py`, `youtube_sync.py`) build SET lists via `safe_column(col)` per element, then join. Remaining f-string interpolations in SQL queries are either integer-bounded (e.g. `$idx`, `storyboard_{beat}_url` with `1<=beat<=5`), sourced from hardcoded allowlists (`_SORT_MAP`, `{"videos_created", ...}` in billing), or literal fragment strings built in-function with no user input.
+
+Pinned by `backend/tests/functional/test_sql_column_injection_lock.py` (4/4 green):
+1. Both validator regexes still match `^[a-z][a-z0-9_]*$` — any widening fails.
+2. `safe_column` runtime-rejects 12 canonical SQLi payloads (`id; DROP TABLE`, `id OR 1=1`, `id"`, uppercase, empty, etc.).
+3. AST audit of 15 backend files — every `{expr}` inside an f-string that starts with `SELECT|UPDATE|INSERT|DELETE|WITH` must be either a `safe_column`/`_safe_col` call, a `.join(...)` over per-element-validated pieces, an integer index, or on the `_VERIFIED_SAFE` allowlist (each entry carries a why-comment).
+4. `routes/projects.py`, `routes/videos.py`, `routes/youtube_sync.py` still reference `safe_column` (belt-and-suspenders).
+
+Original roadmap text retained below for historical context.
+
+---
+
 - **What:** `backend/supabase_adapter.py` has 8 instances of f-string SQL with dynamic column/table names. While values use positional params ($N), column names are interpolated.
 - **Risk:** Lower than raw f-strings but fragile — a future dev could easily introduce a real injection.
 - **Fix:** Validate all dynamic column names against an allowlist, or use `database.py`'s existing column validation regex (`^[a-z][a-z0-9_]*$`).
