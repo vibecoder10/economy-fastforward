@@ -63,23 +63,14 @@ Original roadmap text retained below for historical context.
 ## Stage 2: Schema & Data Integrity
 _Database source of truth is out of sync. Fix before building new features._
 
-### 2.1 schema.sql Out of Sync with Migrations
-- **What:** 3 tables exist in migrations but are NOT in `schema.sql` (the canonical source of truth):
-  - `notification_preferences` (migration 031)
-  - `visual_styles` (migration 010)
-  - `style_characters` (migration 010)
-- **Fix:** Add these table definitions to `schema.sql`. Verify RLS policies match.
-- **Files:** `storyengine/schema.sql`, `backend/migrations/010_*.sql`, `backend/migrations/031_*.sql`
+### 2.1 schema.sql Out of Sync with Migrations — ✅ SHIPPED (regression locked Cycle 52, 2026-04-21)
+- **Status:** All 4 previously-drifted tables (`background_tasks`, `notification_preferences`, `visual_styles`, `style_characters`) are now defined in `schema.sql` with matching RLS. Pinned by `backend/tests/functional/test_schema_sql_migrations_drift.py` (4/4 — walks every `CREATE TABLE` across migrations 001–041 and asserts each appears in `schema.sql`).
 
-### 2.2 RLS Policy Consolidation
-- **What:** Some RLS policies are defined in schema.sql, others only in migration files (e.g., `background_tasks` in migration 032). Inconsistent source of truth.
-- **Fix:** Ensure all RLS policies are reflected in `schema.sql`.
-- **Files:** `storyengine/schema.sql`
+### 2.2 RLS Policy Consolidation — ✅ SHIPPED (regression locked Cycle 52, 2026-04-21)
+- **Status:** `background_tasks` RLS policy landed in `schema.sql` via migration 038, replacing the broken `tenant_id = auth.uid()` check (which would never match — tenant_id is not a Supabase auth user id). Pinned by `backend/tests/functional/test_background_tasks_rls_consolidation.py` (5/5 — verifies migration exists, schema.sql has the single correct policy, no file still uses the broken predicate).
 
-### 2.3 Missing Indexes
-- **What:** `background_tasks.created_at` has no index — needed for cleanup/expiry queries. Verify `tenant_usage.period_start` is indexed for monthly lookups.
-- **Fix:** Add indexes via migration.
-- **Files:** New migration file
+### 2.3 Missing Indexes — ✅ SHIPPED (regression locked Cycle 52, 2026-04-21)
+- **Status:** `background_tasks(created_at DESC)` index added via migration (cleanup/expiry queries), `tenant_usage(tenant_id, period_start)` index already present for monthly lookups. Pinned by `backend/tests/functional/test_background_tasks_created_at_index.py` (5/5 — migration exists, creates the index, schema.sql mirrors it in every tenant block, DESC ordering, tenant_usage index still present).
 
 ---
 
