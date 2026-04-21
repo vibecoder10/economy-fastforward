@@ -1,0 +1,265 @@
+# StoryEngine scout — autonomous PM loop.
+#
+# Runs hourly via ~/Library/LaunchAgents/com.osiris.archon-scout.plist.
+# Does NOT code. Its job is to look at where the product is, where it
+# should be going (vault + Ryan's direction), and produce:
+#   - PRDs for non-trivial features (written to ~/Desktop/osiris/20_Projects/storyengine/prds/)
+#   - GitHub issues tagged `archon:ready` for every task, so the 30-min
+#     archon-scheduler loop picks them up and drafts PRs autonomously.
+#
+# Ryan's role: taste, direction, growth. He does NOT file tickets.
+# Osiris's role: scout + engineer + user-tester. End-to-end ownership.
+#
+# V0.1 scope: vault + codebase + issue synthesis + PRD writing + issue filing.
+# V0.2 will add a Playwright user-testing node (act AS Ryan, click through
+# the product, file friction as bugs).
+
+name: storyengine-scout
+description: Autonomous PM — reads vault + codebase + trajectory, writes PRDs for features, files archon:ready issues for everything else. Does not edit code.
+provider: claude
+model: claude-opus-4-7[1m]
+
+nodes:
+
+  # 1. Plan: read everything, output a prioritized next-steps roadmap.
+  - id: plan
+    prompt: |
+      You are Osiris, Ryan's AI co-founder, acting as the autonomous PM for
+      StoryEngine. StoryEngine is a meta-project — the public proof of what
+      Osiris can build end-to-end. Quality matters.
+
+      Your job in this node: figure out what should ship next. Do NOT edit code.
+
+      **Step 1 — Read the vision.** Read these to understand product direction:
+        - Use the Read tool to read files from ~/Desktop/osiris/20_Projects/
+          (filter to storyengine-related). Look for PRDs, roadmap notes,
+          active-projects files.
+        - Read ~/Desktop/osiris/10_Personal/Memory.md for Ryan's preferences.
+        - Read ~/Desktop/osiris/SOUL.md if present for strategic framing.
+        - Use the `recall` skill via Bash (preferred over grep): run
+          `/Users/osiris/.claude/osiris/bin/osiris-recall "storyengine next steps roadmap" --k 8 --json 2>/dev/null`
+          to pull the most semantically relevant vault content.
+
+      **Step 2 — Read the current state.** Use Bash:
+        - `git log --oneline -30` — recent trajectory
+        - `gh issue list --repo vibecoder10/economy-fastforward --state open --limit 50 --json number,title,labels` — what's queued + in-flight
+        - `gh pr list --repo vibecoder10/economy-fastforward --state merged --limit 20 --json number,title,mergedAt` — what's recently shipped
+        - Skim key code surfaces with Read: storyengine/backend/pipeline_executor.py,
+          storyengine/backend/claude_orchestrator.py, frontend routes/pages.
+
+      **Step 3 — Synthesize.** Produce a ranked next-steps list (cap: **8
+      items max per tick** — quality over volume; the scout re-runs hourly
+      so anything missed surfaces next hour) that reflects:
+        - Product-direction-aligned features (from vault vision)
+        - Bugs/friction visible in the code (TODOs, FIXMEs, broken paths,
+          dead wiring, silent failures)
+        - Maintenance (refactors, dep health, test coverage gaps)
+        - Gaps between PRD intent and shipped reality
+
+      **Step 4 — Categorize** each item:
+        - `size: small` — one scoped change, ≤200 LOC, no new abstractions.
+          Will go directly to a GitHub issue. Will NOT get a PRD.
+        - `size: large` — new feature, architectural change, or cross-cutting
+          work. Gets a PRD written first, then sub-issues for each slice.
+
+      **Output format.** Emit a single JSON object to stdout (no prose before
+      or after). Schema:
+
+      ```json
+      {
+        "context_summary": "2-3 sentence synthesis of where storyengine stands",
+        "direction_summary": "1-2 sentence synthesis of where ryan's vault says it's going",
+        "items": [
+          {
+            "rank": 1,
+            "size": "small|large",
+            "title": "short imperative title",
+            "why": "1-2 sentence rationale — how this advances the product",
+            "details": "5-10 sentences of detail: files involved, approach, acceptance",
+            "dedup_against": "title of any already-open issue this might overlap with (or null)"
+          }
+        ]
+      }
+      ```
+
+      Skip anything already queued as an open `archon:ready`/`archon:running`
+      issue (dedup against `dedup_against`). Do not invent features not
+      grounded in either the vault vision or the code state.
+    allowed_tools: [Read, Bash, Glob, Grep]
+    idle_timeout: 600000
+
+  # 2. Draft: write PRDs for large items; emit a structured plan for issue filing.
+  - id: draft
+    depends_on: [plan]
+    prompt: |
+      You have the scout's prioritized roadmap in JSON form:
+
+      $plan.output
+
+      Your job: for every item with `size: large`, write a PRD markdown file
+      to `/Users/osiris/Desktop/osiris/20_Projects/storyengine/prds/`.
+      Use the Write tool.
+
+      **Create the directory first if it doesn't exist** (Bash: `mkdir -p`).
+
+      **PRD file path:** use today's date and a kebab-case slug of the title.
+      Example: `2026-04-21-auto-retry-on-pipeline-failure.md`
+
+      **PRD frontmatter:**
+      ```yaml
+      ---
+      title: "<item title>"
+      created: 'YYYY-MM-DD'
+      updated: 'YYYY-MM-DD'
+      type: prd
+      status: draft
+      author: osiris-scout
+      tags:
+        - prd
+        - storyengine
+      sources: []
+      ---
+      ```
+
+      **PRD body sections** (keep concise — ≤500 words total):
+      - ## Problem — 2-3 sentences, the user pain
+      - ## Proposal — the design, in bullets
+      - ## Success criteria — how we know it shipped
+      - ## Implementation slices — ordered list of 3-8 sub-tasks, each scoped
+        to one PR (≤200 LOC). These become GitHub issues in the next node.
+      - ## Risks — 2-3 bullets
+      - ## Out of scope — what this explicitly does NOT cover
+
+      After writing all PRDs, emit to stdout a SINGLE JSON object (no prose)
+      listing:
+
+      ```json
+      {
+        "prds_written": [
+          {
+            "title": "...",
+            "path": "/absolute/path/to/prd.md",
+            "slices": [
+              {"title": "slice 1 title", "body": "5-10 sentence issue body including acceptance criteria"},
+              ...
+            ]
+          }
+        ],
+        "small_items": [
+          {"title": "...", "body": "5-10 sentence issue body including acceptance criteria"}
+        ]
+      }
+      ```
+
+      Every small item from the plan becomes a `small_items` entry directly.
+      Every large item becomes one PRD + its slices become sub-issues.
+    allowed_tools: [Read, Write, Bash]
+    idle_timeout: 600000
+
+  # 3. File: turn the draft output into GitHub issues, tagged archon:ready.
+  - id: file
+    depends_on: [draft]
+    bash: |
+      set -euo pipefail
+      REPO="vibecoder10/economy-fastforward"
+
+      # Extract the JSON block from draft.output (strip any prose wrappers).
+      DRAFT=$(cat <<'SCOUT_DRAFT_OUTPUT_EOF'
+      $draft.output
+      SCOUT_DRAFT_OUTPUT_EOF
+      )
+
+      # Write to a temp file for jq. Tolerate prose-before-JSON by grabbing
+      # the first {...} block.
+      TMP=$(mktemp)
+      echo "$DRAFT" | python3 -c '
+      import sys, re, json
+      s = sys.stdin.read()
+      # find first { and matching balanced }
+      depth=0; start=-1; end=-1
+      for i,ch in enumerate(s):
+          if ch=="{":
+              if depth==0: start=i
+              depth+=1
+          elif ch=="}":
+              depth-=1
+              if depth==0: end=i+1; break
+      if start<0 or end<0:
+          print("NO_JSON_FOUND", file=sys.stderr); sys.exit(1)
+      obj = json.loads(s[start:end])
+      json.dump(obj, sys.stdout)
+      ' > "$TMP"
+
+      if [ ! -s "$TMP" ]; then
+        echo "FAIL: no JSON in draft output"; exit 1
+      fi
+
+      filed=0
+      skipped=0
+      MAX_FILE=10  # hard cap per tick — safety rail
+
+      file_issue() {
+        local title="$1"; local body="$2"
+        if [ "$filed" -ge "$MAX_FILE" ]; then
+          echo "  cap reached ($MAX_FILE), skip: $title"
+          return 0
+        fi
+        # Dedup: if an open issue with this exact title already exists, skip.
+        local existing
+        existing=$(gh issue list --repo "$REPO" --state open --search "\"$title\" in:title" --json number --jq 'length')
+        if [ "$existing" -gt "0" ]; then
+          echo "  skip (dup): $title"
+          skipped=$((skipped+1))
+          return 0
+        fi
+        gh issue create --repo "$REPO" \
+          --title "$title" \
+          --body "$body" \
+          --label "archon:ready" >/dev/null
+        echo "  filed: $title"
+        filed=$((filed+1))
+      }
+
+      # PRD slices (linked to PRD)
+      prd_count=$(jq '.prds_written | length' "$TMP")
+      i=0
+      while [ "$i" -lt "$prd_count" ]; do
+        prd_title=$(jq -r ".prds_written[$i].title" "$TMP")
+        prd_path=$(jq -r ".prds_written[$i].path" "$TMP")
+        slice_count=$(jq ".prds_written[$i].slices | length" "$TMP")
+        j=0
+        while [ "$j" -lt "$slice_count" ]; do
+          slice_title=$(jq -r ".prds_written[$i].slices[$j].title" "$TMP")
+          slice_body=$(jq -r ".prds_written[$i].slices[$j].body" "$TMP")
+          full_title="[${prd_title}] ${slice_title}"
+          full_body="${slice_body}
+
+      ---
+      PRD: \`${prd_path}\`
+      Filed by: osiris-scout (autonomous PM)"
+          file_issue "$full_title" "$full_body"
+          j=$((j+1))
+        done
+        i=$((i+1))
+      done
+
+      # Small items (direct issues, no PRD)
+      small_count=$(jq '.small_items | length' "$TMP")
+      i=0
+      while [ "$i" -lt "$small_count" ]; do
+        s_title=$(jq -r ".small_items[$i].title" "$TMP")
+        s_body=$(jq -r ".small_items[$i].body" "$TMP")
+        full_body="${s_body}
+
+      ---
+      Filed by: osiris-scout (autonomous PM)"
+        file_issue "$s_title" "$full_body"
+        i=$((i+1))
+      done
+
+      rm -f "$TMP"
+      echo ""
+      echo "=== scout summary ==="
+      echo "filed: $filed"
+      echo "skipped (dup): $skipped"
+      echo "prds written: $prd_count"
