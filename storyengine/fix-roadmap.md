@@ -17,9 +17,10 @@ _Must fix before any other work. These are broken right now._
 - **Status:** `npx tsc --noEmit -p tsconfig.json` on `frontend/` is clean (exit 0, no output). `dashboard-fixes.spec.ts` covered by the main tsconfig (`**/*.ts` include) — also passes. VPS build succeeds repeatedly across Cycles 32/35/36 deploys.
 - **Files:** `frontend/src/app/pipeline/page.tsx`, `frontend/package.json`
 
-### 1.2 SEC-SSE-001 — Cross-Tenant Task Leak (HIGH)
-- **What:** `_running_tasks` dict in `backend/routes/pipeline.py:54` is keyed by `video_id` only, not `(tenant_id, video_id)`. Two tenants with same video ID share task state.
-- **Fix:** Change key to `(tenant_id, video_id)` tuple. Update all reads/writes to use composite key.
+### 1.2 SEC-SSE-001 — Cross-Tenant Task Leak (HIGH) — ✅ SHIPPED (regression locked Cycle 46, 2026-04-21)
+- **What:** `_running_tasks` dict in `backend/routes/pipeline.py` was keyed by `video_id` only. Two tenants could share task state through the dict, leaking status to the SSE feed.
+- **Fix (landed):** dict re-typed to `dict[tuple[str, str], dict]`; `_set_task_status` / `_get_task_status` / `_clear_task_status` all require tenant_id; SSE loop iterates `(tid, vid), task` and continues when `tid != tenant_id`.
+- **Regression lock:** `backend/tests/functional/test_sse_cross_tenant_lock.py` — 4 static-audit checks (type annotation, no bare `_running_tasks[video_id]` indexing, helper tenant_id requirement, SSE filter).
 - **Files:** `backend/routes/pipeline.py`
 
 ### 1.3 SEC-EMAIL-001 — HTML Injection in Emails (HIGH)
