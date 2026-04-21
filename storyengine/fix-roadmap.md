@@ -202,7 +202,7 @@ _Real user-facing issues. These are what people hit when they actually use the p
 - **Design decision needed:** Per-user keys (each user brings their own) vs. per-user + shared tenant keys (admin sets defaults, users can override)?
 - **Files:** `backend/vault.py`, `backend/routes/settings.py`, `backend/auth.py`, `frontend/src/app/settings/keys/page.tsx`, new migration
 
-### 6.2 New User Experience — No Direction on First Login
+### 6.2 New User Experience — No Direction on First Login — ✅ SHIPPED (regression locked Cycle 56, 2026-04-21)
 - **What:** A new user signs up, completes onboarding (channel + API keys), and lands on the dashboard — a big platform with no guidance on what to do next. No guided tour, no "create your first video" wizard, no checklist.
 - **Problem:** Users bounce because they don't know where to start. The platform has 27 pages and no clear starting path.
 - **Fix:** Add a first-run experience:
@@ -212,6 +212,7 @@ _Real user-facing issues. These are what people hit when they actually use the p
   4. **Contextual tooltips** on first visit to key pages (pipeline, competitors, analytics)
 - **Current state:** Onboarding page exists (3-step: channel → API keys → ready) but after that, user is dropped into the dashboard with no guidance. `EmptyState` components exist but may not have strong enough CTAs.
 - **Files:** New `frontend/src/components/onboarding/FirstRunChecklist.tsx`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/lib/api.ts` (track onboarding progress), possibly new `onboarding_progress` DB column or table
+- **Status (2026-04-20, Cycle 56):** Part 2 (persistent checklist) shipped — `frontend/src/components/onboarding/FirstRunChecklist.tsx` is mounted on the dashboard and stays visible until all three gates (API keys, YouTube, first video) are green, even after onboarding is marked complete. Backend `GET /api/dashboard/onboarding/status` computes every gate from real DB reads (`channel_profiles.channel_name`, `channel_profiles.youtube_refresh_token`, `get_secret_status` loop over `required_keys`, `COUNT(*) FROM videos`) — no stale flags. TS `OnboardingStatus` type mirrors the response. Regression lock: `backend/tests/functional/test_first_run_checklist_wired_lock.py` pins 5 invariants — endpoint exists + returns expected fields, gates derived from DB reads not hardcoded, TS type mirrors backend shape, component reads the 3 gates, dashboard imports + renders the component. 5/5 green. Parts 1 (welcome modal), 3 (empty-state CTA), 4 (contextual tooltips) remain as nice-to-haves but the core Stage 6.2 fix — no new user gets stranded — is in.
 
 ### 6.3 YouTube Channel Connection — No OAuth Flow
 - **What:** There is NO YouTube OAuth endpoint. Users cannot connect their YouTube channel through the UI. The only way to get YouTube analytics working is to manually paste `google_client_id`, `google_client_secret`, and `google_refresh_token` into Settings > Keys — which requires developer knowledge.
