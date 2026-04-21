@@ -29,9 +29,10 @@ _Must fix before any other work. These are broken right now._
 - **Regression lock:** `backend/tests/functional/test_email_html_escape_lock.py` — 4 static-audit checks (html import, every user-input param is escaped, no raw interpolation in HTML f-strings, known senders still exist).
 - **Files:** `backend/email_service.py`
 
-### 1.4 SEC-KEYS-001 — Exception Details Leaked to Client (MEDIUM)
-- **What:** `backend/vault.py:355-356` returns raw `str(e)` in API responses. Exposes internal error details (paths, connection strings, stack info).
-- **Fix:** Log full error server-side with `logger.error()`, return generic "Operation failed" message to client.
+### 1.4 SEC-KEYS-001 — Exception Details Leaked to Client (MEDIUM) — ✅ SHIPPED (regression locked Cycle 48, 2026-04-21)
+- **What:** `backend/vault.py` `test_key` catch-all returned raw `str(e)` in API responses, leaking httpx internals, DNS hostnames, TLS paths, and proxy URLs to the Settings UI.
+- **Fix (landed):** Catch-all routes through `humanize_error(e, context='Connection failed while testing key')` — logs the raw error at WARNING for server-side diagnosis, returns a short safe message to the client.
+- **Regression lock:** `backend/tests/functional/test_vault_error_leak_lock.py` — 3 AST-based audits (humanize_error imported + used, no `return`/`raise` interpolates captured exception, test_key catch-all still humanized).
 - **Files:** `backend/vault.py`
 
 ### 1.5 SQL Injection Risk in Adapter
