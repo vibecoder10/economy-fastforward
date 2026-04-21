@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
   RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
+  AlertTriangle,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -555,6 +556,55 @@ export default function VideosPage() {
       {/* === DAILY IDEAS TAB === */}
       {tab === "ideas" && (
         <>
+          {discoveryStatus?.error && !discoveryStatus.is_refreshing && (
+            <motion.div variants={item}>
+              <div
+                data-testid="discovery-error-banner"
+                role="alert"
+                className="flex items-start justify-between gap-3 px-4 py-3 rounded-xl"
+                style={{
+                  background: "rgba(255, 107, 107, 0.06)",
+                  border: "1px solid rgba(255, 107, 107, 0.28)",
+                }}
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertTriangle
+                    size={14}
+                    className="mt-0.5 shrink-0"
+                    style={{ color: "var(--red, #ff6b6b)" }}
+                  />
+                  <div className="min-w-0">
+                    <p
+                      className="text-sm font-semibold font-body"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      Last refresh failed
+                    </p>
+                    <p
+                      className="text-xs font-body mt-0.5 break-words"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {discoveryStatus.error}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => refreshMutation.mutate()}
+                  disabled={isRefreshing}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-50 shrink-0"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    color: "var(--turquoise)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <RefreshCw size={12} className={isRefreshing ? "animate-spin" : ""} />
+                  Retry
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {ideasLoading && (
             <div className="flex items-center justify-center py-20">
               <Loader2 size={24} className="animate-spin" style={{ color: "var(--turquoise)" }} />
