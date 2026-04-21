@@ -119,6 +119,47 @@ def test_no_direct_next_public_url_reads_outside_env_ts():
     print("✅ test_no_direct_next_public_url_reads_outside_env_ts")
 
 
+def test_env_ts_uses_literal_process_env_access_only():
+    """Cycle 43 regression lock — 2026-04-21 prod outage.
+
+    Next.js inlines `NEXT_PUBLIC_*` into the client bundle ONLY for LITERAL
+    property access: `process.env.NEXT_PUBLIC_API_URL`. Dynamic access like
+    `process.env[name]` inside a helper function is opaque to the bundler —
+    the value is present at SSR time but `undefined` in the browser. Our
+    prod-guard then throws on every hydration and every page lands in
+    global-error.tsx. That's exactly what happened on 2026-04-21: the site
+    was down for ~17h with `Something went wrong` until we traced it.
+
+    This test fails if env.ts reintroduces `process.env[...]` (bracket
+    notation) for NEXT_PUBLIC_* names. Read env at module scope with literal
+    access, then pass the values into any helper."""
+    raw = _env_ts().read_text()
+    # Strip // line comments and /* ... */ block comments so the check
+    # only looks at actual code (the fix comment intentionally names the
+    # forbidden pattern).
+    no_block = re.sub(r"/\*.*?\*/", "", raw, flags=re.DOTALL)
+    text = re.sub(r"//[^\n]*", "", no_block)
+    bracket_pat = re.compile(r"process\.env\[")
+    offenders = [m.group(0) for m in bracket_pat.finditer(text)]
+    assert not offenders, (
+        "env.ts uses `process.env[...]` bracket notation — Next.js will NOT "
+        "inline NEXT_PUBLIC_* values into the client bundle through dynamic "
+        "access. Read each env var via literal access at module scope "
+        "(const X = process.env.NEXT_PUBLIC_X) and pass the value into any "
+        "helper. See Cycle 43 / 2026-04-21 outage."
+    )
+    # Positive check: each expected NEXT_PUBLIC_* name must appear at least
+    # once via literal dot-access in env.ts.
+    for name in ("NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_RUBRIC_URL"):
+        literal_pat = re.compile(rf"process\.env\.{name}\b")
+        assert literal_pat.search(text), (
+            f"env.ts does not read `process.env.{name}` via literal access. "
+            "Next.js only inlines NEXT_PUBLIC_* vars when accessed as "
+            "`process.env.X`, not `process.env[varName]`."
+        )
+    print("✅ test_env_ts_uses_literal_process_env_access_only")
+
+
 def test_env_ts_is_actually_imported_by_known_callers():
     """Positive check: the 4 files Cycle 32 migrated all import from
     @/lib/env (or ./env). If a migration gets reverted, this catches it."""
@@ -154,6 +195,7 @@ TESTS = [
     test_env_ts_throws_in_production_when_missing,
     test_no_inline_localhost_fallback_anywhere_else,
     test_no_direct_next_public_url_reads_outside_env_ts,
+    test_env_ts_uses_literal_process_env_access_only,
     test_env_ts_is_actually_imported_by_known_callers,
 ]
 
