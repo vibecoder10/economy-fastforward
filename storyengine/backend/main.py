@@ -105,11 +105,17 @@ async def _auto_extract_learnings():
 
 
 async def _auto_sync_youtube():
-    """Background task: sync YouTube metrics every 6 hours.
+    """Background task: sync YouTube metrics once per day.
 
-    Only runs for tenants with autopilot ENABLED.
-    Pulls views, CTR, impressions, retention from YouTube APIs
-    into the videos table so the learning extraction can process them.
+    Cycle 53 (Stage 6.7 #1): removed the autopilot-enabled gate. Any
+    tenant with YouTube credentials (OAuth token in channel_profiles OR
+    legacy google_refresh_token in vault) gets a daily metric sync —
+    otherwise analytics silently drift out of date for every non-autopilot
+    tenant. Tenants with no credentials are skipped to avoid spamming the
+    log with "YouTube not connected" noise.
+
+    Interval bumped from 6h → 24h: daily is sufficient for YouTube
+    metrics (they aggregate slowly) and reduces API quota pressure.
     """
     await asyncio.sleep(60)  # Wait for DB pool to stabilize
     while True:
@@ -117,8 +123,18 @@ async def _auto_sync_youtube():
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
                 try:
-                    if not await _is_autopilot_enabled(tenant_id):
-                        continue
+                    # Skip tenants without YouTube credentials — syncing
+                    # them would just log an auth error every day.
+                    yt_row = await fetch_one(
+                        "SELECT youtube_refresh_token FROM channel_profiles WHERE tenant_id = $1",
+                        tenant_id,
+                    )
+                    has_oauth = bool((yt_row or {}).get("youtube_refresh_token"))
+                    if not has_oauth:
+                        from vault import get_secret
+                        legacy = await get_secret("google_refresh_token", tenant_id)
+                        if not legacy:
+                            continue
                     _update_bg_status(tenant_id, "youtube_sync", is_running=True, last_error=None)
                     from routes.youtube_sync import _run_sync
                     await _run_sync(tenant_id)
@@ -130,7 +146,7 @@ async def _auto_sync_youtube():
         except Exception as e:
             logger.error("[AutoYTSync] Error: %s", e)
 
-        await asyncio.sleep(21600)  # Run every 6 hours
+        await asyncio.sleep(86400)  # Run once daily
 
 
 async def _auto_analyze_competitor_titles():

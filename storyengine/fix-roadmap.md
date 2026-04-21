@@ -311,6 +311,7 @@ Original roadmap text retained below for historical context.
   4. **Sync on demand should work immediately** after YouTube OAuth connection — trigger a first sync right after OAuth callback completes.
 - **Dependencies:** Stage 6.3 (YouTube OAuth) must be done first.
 - **Files:** `backend/main.py` (remove autopilot gate), `backend/routes/youtube_sync.py` (use OAuth tokens), `frontend/src/app/analytics/page.tsx` (better error state)
+- **Status (2026-04-20, Cycle 53):** ✅ **SHIPPED (auto-sync ungated + daily cadence)** — `_auto_sync_youtube` in `backend/main.py` no longer gates on `_is_autopilot_enabled`. It now pre-filters tenants by reading `channel_profiles.youtube_refresh_token` (new OAuth shape) with a vault `google_refresh_token` fallback (legacy shape), and `continue`s if neither is present — so non-connected tenants don't spam auth errors in logs. Loop interval bumped 21600s → 86400s (6h → 24h) to reduce quota pressure. Regression lock: `backend/tests/functional/test_youtube_auto_sync_ungated_lock.py` pins 4 invariants — function still scheduled at startup, no `_is_autopilot_enabled` gate, credentials precondition guards the loop, final sleep is `asyncio.sleep(86400)`. Items 2–4 (OAuth wiring, better error UI, sync-on-connect) still pending; tracked under Stage 6.3 now.
 
 ---
 
