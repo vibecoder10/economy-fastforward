@@ -114,7 +114,20 @@ _Features that exist in parts but aren't fully connected end-to-end._
 - **Fix:** Re-audit Google Auth flow end-to-end. Test: login with Google → settings page loads correctly → Drive connection works. Rebuild whatever was in those changes.
 - **Files:** `backend/routes/google_auth.py`, `frontend/src/app/settings/page.tsx`, `frontend/src/lib/api.ts`
 
-### 3.4 Hardcoded localhost in Frontend
+### 3.4 Hardcoded localhost in Frontend — ✅ SHIPPED (regression locked Cycle 51, 2026-04-21)
+
+**Status summary:** centralized in `frontend/src/lib/env.ts`. The module reads `process.env.NEXT_PUBLIC_API_URL` once at module scope (the only shape Next.js inlines into the client bundle), and `requireInProd()` throws if the var is empty and `NODE_ENV === "production"`. Every other file imports `API_URL` from `@/lib/env`. No file outside `env.ts` mentions `localhost:8001` or `localhost:5050`.
+
+Pinned by `backend/tests/functional/test_frontend_api_url_no_localhost_lock.py` (4/4 green):
+1. `env.ts` still does literal `process.env.NEXT_PUBLIC_API_URL` access + has `NODE_ENV === "production"` throw gate.
+2. No other `.ts/.tsx` file in `frontend/src/` reads `process.env.NEXT_PUBLIC_API_URL` directly.
+3. No `.ts/.tsx` file outside `env.ts` hardcodes `http://localhost:8001` or `http://localhost:5050`.
+4. `lib/api.ts` still imports `API_URL` from the centralized env module.
+
+Original roadmap text retained below for historical context.
+
+---
+
 - **What:** `frontend/src/lib/api.ts:1-2` falls back to `localhost:8001` and `localhost:5050`. Same pattern in `frontend/src/app/demo/page.tsx:73` and `frontend/src/hooks/use-pipeline-sse.ts:5`.
 - **Risk:** Works in dev, but if env vars are missing in production, API calls silently go to localhost.
 - **Fix:** Throw an error or use relative URLs if `NEXT_PUBLIC_API_URL` is not set, rather than falling back to localhost.
