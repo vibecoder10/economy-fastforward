@@ -23,9 +23,10 @@ _Must fix before any other work. These are broken right now._
 - **Regression lock:** `backend/tests/functional/test_sse_cross_tenant_lock.py` — 4 static-audit checks (type annotation, no bare `_running_tasks[video_id]` indexing, helper tenant_id requirement, SSE filter).
 - **Files:** `backend/routes/pipeline.py`
 
-### 1.3 SEC-EMAIL-001 — HTML Injection in Emails (HIGH)
-- **What:** `display_name` passed directly into HTML templates at `backend/email_service.py:59,110` without `html.escape()`. Attacker can inject HTML/JS via display name.
-- **Fix:** `import html` + wrap all user-provided strings in `html.escape()` before template insertion
+### 1.3 SEC-EMAIL-001 — HTML Injection in Emails (HIGH) — ✅ SHIPPED (regression locked Cycle 47, 2026-04-21)
+- **What:** `display_name` / `plan` / `amount_display` were interpolated directly into HTML email bodies. A hostile display_name could deliver `<script>` into any welcome / trial / receipt email.
+- **Fix (landed):** `import html as html_lib` at module top; every user-controllable string is bound to `safe_<name> = html_lib.escape(x or "")` and only `safe_*` is interpolated.
+- **Regression lock:** `backend/tests/functional/test_email_html_escape_lock.py` — 4 static-audit checks (html import, every user-input param is escaped, no raw interpolation in HTML f-strings, known senders still exist).
 - **Files:** `backend/email_service.py`
 
 ### 1.4 SEC-KEYS-001 — Exception Details Leaked to Client (MEDIUM)
