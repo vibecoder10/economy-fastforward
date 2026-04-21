@@ -302,7 +302,7 @@ Respond with a JSON object:
             "video_motion": executor.run_video_scripts,
             "thumbnail": executor.run_thumbnail,
             "render": executor.run_render,
-            "upload": None,  # TODO: add upload method to executor
+            "upload": executor.run_upload,
         }
 
         method = skill_to_method.get(decision.skill_id)
