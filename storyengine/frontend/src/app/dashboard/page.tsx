@@ -28,6 +28,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { WelcomeQuest } from "@/components/dashboard";
+import { FirstRunChecklist } from "@/components/onboarding/FirstRunChecklist";
 import {
   getDashboardSummary,
   getPendingReview,
@@ -250,6 +251,15 @@ export default function DashboardPage() {
               Finish setup <ArrowRight size={14} />
             </div>
           </Link>
+        </motion.div>
+      )}
+
+      {/* Persistent system-readiness strip — only while onboarding is marked
+          complete but a gate (keys / YT / first video) is still missing. The
+          FinishSetupBanner above handles the pre-completion case. */}
+      {onboarding?.completed && (
+        <motion.div variants={item}>
+          <FirstRunChecklist status={onboarding} />
         </motion.div>
       )}
 
