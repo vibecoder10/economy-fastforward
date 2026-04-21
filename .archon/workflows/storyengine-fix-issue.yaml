@@ -1,0 +1,142 @@
+# StoryEngine — Archon workflow: fix a scoped issue, plan → implement → validate → PR.
+#
+# Spike target (2026-04-21): claude_orchestrator.py:305 has a TODO wiring
+# the "upload" skill to None. run_upload() exists in pipeline_executor.py:2016
+# but was never connected. Fix is one line.
+#
+# Run from a regular shell (not inside Claude Code — Archon warns on CLAUDECODE=1):
+#   cd ~/dev/economy-fastforward
+#   archon workflow run storyengine-fix-issue "claude_orchestrator.py:305 upload method TODO"
+
+name: storyengine-fix-issue
+description: Plan → implement → validate → PR for a scoped StoryEngine fix. No autonomous merge.
+provider: claude
+model: claude-opus-4-7[1m]
+
+nodes:
+  # 1. Plan node — read the target, scope the fix, emit a plan.
+  - id: plan
+    prompt: |
+      You are working on the StoryEngine repo (vibecoder10/economy-fastforward).
+
+      The user has asked: $ARGUMENTS
+
+      Target file: storyengine/backend/claude_orchestrator.py (around line 305).
+      Context:
+        - Line 305 currently reads: `"upload": None,  # TODO: add upload method to executor`
+        - The method `run_upload(video_id)` already exists in
+          storyengine/backend/pipeline_executor.py:2016 and is fully implemented
+          (YouTube upload as unlisted draft).
+        - The `skill_to_method` dict already wires every other skill correctly.
+
+      Produce a short, concrete plan (5-8 bullet points):
+        1. What exact change to make
+        2. What file to edit and approximate line number
+        3. What validation will prove it works
+        4. What could go wrong (e.g., method signature mismatch)
+        5. What to put in the PR description
+
+      Do NOT edit any files in this node. Planning only.
+    allowed_tools: [Read]
+    idle_timeout: 120000
+
+  # 2. Implement node — make the change, nothing else.
+  - id: implement
+    depends_on: [plan]
+    prompt: |
+      Implement the plan from the prior node.
+
+      Plan: $plan.output
+
+      Constraints:
+        - Edit exactly one line in storyengine/backend/claude_orchestrator.py
+        - Change `"upload": None,  # TODO: add upload method to executor`
+          to `"upload": executor.run_upload,`
+        - Do NOT modify pipeline_executor.py or any other file
+        - Do NOT run tests in this node (validation node will do that)
+        - Do NOT commit (commit happens after validation passes)
+
+      After editing, confirm the diff is minimal (1-2 lines) and report success.
+    allowed_tools: [Read, Edit]
+    idle_timeout: 180000
+
+  # 3. Validation gate — type-ish check the change didn't break anything obvious.
+  #    If any of these fail, workflow fails and we do NOT open a PR.
+  - id: validate-syntax
+    depends_on: [implement]
+    bash: |
+      cd storyengine/backend
+      python3 -c "import ast; ast.parse(open('claude_orchestrator.py').read())" && echo "PASS: syntax OK" || { echo "FAIL: syntax error"; exit 1; }
+
+  - id: validate-wiring
+    depends_on: [validate-syntax]
+    bash: |
+      cd storyengine/backend
+      grep -n '"upload": executor.run_upload' claude_orchestrator.py && echo "PASS: upload wired to run_upload"
+      if [ $? -ne 0 ]; then echo "FAIL: upload not wired correctly"; exit 1; fi
+      # Confirm no stale TODO left behind
+      if grep -n "TODO: add upload method" claude_orchestrator.py; then
+        echo "FAIL: stale TODO still present"; exit 1
+      fi
+      echo "PASS: TODO cleared"
+
+  - id: validate-tests
+    depends_on: [validate-wiring]
+    bash: |
+      cd storyengine/backend
+      # Functional tests only — fast path. Skip the full suite for this scoped fix.
+      if command -v pytest >/dev/null 2>&1; then
+        pytest tests/functional/ -v --tb=short 2>&1 | tail -30
+        exit ${PIPESTATUS[0]}
+      else
+        echo "SKIP: pytest not installed — cannot run functional tests"
+        exit 0
+      fi
+
+  # 4. Branch + PR creation — draft only. Review surface is the PR itself;
+  #    GitHub blocks draft PRs from merging until explicitly marked ready.
+  - id: push-and-pr
+    depends_on: [validate-tests]
+    bash: |
+      set -euo pipefail
+      BRANCH="archon-spike/fix-upload-skill-wiring"
+      git checkout -b "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+      git add storyengine/backend/claude_orchestrator.py
+      git commit -m "$(cat <<'EOF'
+      fix(orchestrator): wire upload skill to executor.run_upload
+
+      The skill_to_method dict in claude_orchestrator.py had "upload": None with
+      a TODO. run_upload() has existed in pipeline_executor.py:2016 for a while
+      (YouTube unlisted-draft upload). Wiring it up closes the TODO and lets the
+      orchestrator route the upload skill end-to-end.
+
+      Shipped via Archon spike workflow (storyengine-fix-issue.yaml).
+
+      Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+      EOF
+      )"
+      git push -u origin "$BRANCH"
+      gh pr create \
+        --draft \
+        --title "fix(orchestrator): wire upload skill to executor.run_upload" \
+        --body "$(cat <<'EOF'
+      ## Summary
+      - Wires the \`upload\` skill in \`claude_orchestrator.py\` to \`executor.run_upload\` (previously \`None\` with a TODO).
+      - Closes the one remaining unmapped entry in \`skill_to_method\`.
+
+      ## Why
+      The orchestrator dispatches pipeline skills to executor methods. \`run_upload()\` was implemented in \`pipeline_executor.py:2016\` but never hooked into the dispatch table. This surfaced as a silent failure when a pipeline reached the upload stage.
+
+      ## Shipped via
+      First spike of the Archon outer harness (\`.archon/workflows/storyengine-fix-issue.yaml\`). Plan → implement → validate (syntax, wiring, functional tests) → human review → draft PR. No autonomous merge.
+
+      ## Test plan
+      - [x] Python syntax valid (\`ast.parse\`)
+      - [x] Grep confirms \`"upload": executor.run_upload,\` is present
+      - [x] TODO comment removed
+      - [x] Functional tests pass (\`pytest tests/functional/\`)
+      - [ ] Manual smoke: trigger an upload skill through the orchestrator on a test video
+
+      🤖 Generated with [Claude Code](https://claude.com/claude-code) via Archon
+      EOF
+      )"
