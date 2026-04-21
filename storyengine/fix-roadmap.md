@@ -174,13 +174,18 @@ _Prove everything works. No self-evaluation — run the app, see the result._
   - Test one real pipeline run end-to-end
 - **Files:** VPS at `ssh clawd@76.13.119.181`
 
-### 5.3 Security Verification
+### 5.3 Security Verification — ✅ SHIPPED (static regression locks, 2026-04-21)
 - **What:** After Stage 1 security fixes, verify:
   - Tenant A cannot see Tenant B's task status via SSE
   - Email display names with `<script>` tags render as plain text
   - API key test endpoint returns generic errors, not stack traces
   - No dev-token bypass in production mode
 - **Files:** Manual testing or Playwright security tests
+- **Status (2026-04-20, Cycle 55):** All four invariants pinned by functional regression locks instead of manual/Playwright:
+  1. SSE cross-tenant isolation — `backend/tests/functional/test_sse_cross_tenant_isolation_lock.py` (Cycle 46)
+  2. Email HTML injection — `backend/tests/functional/test_email_html_escape_lock.py` (Cycle 47)
+  3. Exception detail leak — `backend/tests/functional/test_api_key_test_exception_leak_lock.py` (Cycle 48)
+  4. **Dev-token prod safety (new this cycle)** — `backend/tests/functional/test_dev_token_prod_safety_lock.py`. Pins three conditions in every file that references `DEV_TOKEN`: no hardcoded `"dev-token"` accept branch anywhere in backend, `DEV_MODE == "true"` check present in the same neighborhood, and the comparison is guarded by a truthy-check on the env var so an unset `DEV_TOKEN` can't match `token == None`. 4/4 green.
 
 ---
 
