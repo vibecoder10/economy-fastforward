@@ -327,6 +327,7 @@ class PipelineExecutor:
             return await run(self._pipeline)
 
         async def run_storyboard_prompts(scene_filter=None, progress_callback=None):
+            """Run storyboard prompt generation for the pipeline, optionally filtered by scene."""
             from storyboard.run import run
             return await run(self._pipeline, scene_filter=scene_filter, progress_callback=progress_callback)
 
