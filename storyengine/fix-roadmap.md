@@ -251,7 +251,7 @@ Original roadmap text retained below for historical context.
   5. **Relevance cutoff:** After 7 days, videos are less relevant — consider visual de-emphasis (dimmed card) for videos older than 7 days.
 - **Files:** `backend/routes/niche.py` (endpoint + scrape logic), `backend/main.py` (auto-scrape gate), `frontend/src/app/competitors/page.tsx` (filter UI), `frontend/src/lib/api.ts` (add max_hours_old param)
 
-### 6.5 Refresh Ideas Button — Fails Silently
+### 6.5 Refresh Ideas Button — Fails Silently — ✅ SHIPPED (regression locked Cycle 54, 2026-04-21)
 - **What:** "Refresh Ideas" button on Discovery page and Pipeline videos tab appears wired correctly (button → `POST /api/discovery/refresh` → background task runs), but when the refresh fails, users see nothing — it either stays on "Generating..." forever or reverts to idle with no new ideas.
 - **Root cause:** Backend returns an `error` field in the `GET /api/discovery/status` response (e.g., "No competitor videos in database", "Claude API error"), but the frontend `DiscoveryStatus` TypeScript interface in `api.ts:1432-1438` is **missing the `error` field**. No error display UI exists on either page.
 - **Impact:** Users click Refresh, nothing happens, they think the button is broken. The actual failure reason (missing API key, no competitor data, etc.) is swallowed silently.
@@ -260,6 +260,7 @@ Original roadmap text retained below for historical context.
   2. Add error banner UI to `frontend/src/app/discovery/page.tsx` and `frontend/src/app/pipeline/page.tsx` — show the error message with a retry button
   3. Improve error messages in `backend/routes/discovery.py` to be user-friendly (e.g., "No competitor videos found — add competitor channels first" instead of raw exception text)
 - **Files:** `frontend/src/lib/api.ts`, `frontend/src/app/discovery/page.tsx`, `frontend/src/app/pipeline/page.tsx`, `backend/routes/discovery.py`
+- **Status (2026-04-20, Cycle 54):** All three parts landed already — `DiscoveryStatus` TS interface has `error: string | null`, both pages render a "Last refresh failed" banner gated on `status?.error && !status.is_refreshing`, backend emits the friendly `"Scrape competitor channels first."` message when a tenant has 0 competitor videos and routes every other exception through `humanize_error()`. Regression lock: `backend/tests/functional/test_refresh_ideas_error_surfaced_lock.py` pins 6 invariants — TS interface field, Discovery banner conditional, Pipeline error render, backend pydantic model field, friendly "scrape first" message stored in `_refresh_tasks`, `humanize_error` import + call. 6/6 green.
 
 ### 6.6 System Prompts — Unusable for Normal Users + Mostly Not Wired — ✅ SHIPPED (verified Cycle 37, 2026-04-20)
 
