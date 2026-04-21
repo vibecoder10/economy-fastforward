@@ -204,7 +204,20 @@ _Real user-facing issues. These are what people hit when they actually use the p
   6. Update `youtube_sync.py` to use per-user OAuth tokens instead of vault credentials
 - **Files:** `backend/routes/google_auth.py`, `backend/routes/youtube_sync.py`, `frontend/src/app/settings/page.tsx`, `frontend/src/app/analytics/page.tsx`, new migration for youtube fields on projects table
 
-### 6.4 Competitors Tab — Stagnant Data + No Age Filtering
+### 6.4 Competitors Tab — Stagnant Data + No Age Filtering — ✅ SHIPPED (regression locked Cycle 49, 2026-04-21)
+
+**Status summary:** all four coordinated fixes are live in main:
+1. `GET /api/niche/videos` accepts `max_hours_old: Optional[float]` and filters SQL-side via `cv.published_date >= NOW() - (${idx} || ' hours')::INTERVAL` (`backend/routes/niche.py:174`, `:203-209`).
+2. `hours_old` is computed at query time: `EXTRACT(EPOCH FROM (NOW() - cv.published_date)) / 3600` — the stored snapshot column is only a NULL fallback (`backend/routes/niche.py:228`).
+3. `_auto_scrape_competitors` in `main.py:168` no longer gates on `autopilot_config.enabled` — any tenant with ≥1 active competitor channel is scraped daily.
+4. Competitors page has 24h / 3d / 7d / All filter pills (`data-testid="age-filter-pills"`) and `getNicheVideos` forwards `max_hours_old` via `searchParams.set` (`frontend/src/app/competitors/page.tsx`, `frontend/src/lib/api.ts`).
+
+Pinned by `backend/tests/functional/test_competitor_age_filter_lock.py` (5/5 green). If any one of the four changes reverts, the competitors tab silently stagnates again — the regression test fails before that ships.
+
+Original roadmap text retained below for historical context.
+
+---
+
 - **What:** Two problems:
   1. **Data is stagnant.** `hours_old` in `competitor_videos` table is a static snapshot calculated at scrape time and NEVER recalculated. A video scraped 5 days ago showing "24 hours old" still shows "24 hours old" today. Auto-scraping only runs if autopilot is enabled (most users won't have this on).
   2. **No age filtering.** Users can't filter by "last 24 hours", "last 3 days", "last 7 days". The `hours_old` field is displayed on cards but not usable as a filter.
