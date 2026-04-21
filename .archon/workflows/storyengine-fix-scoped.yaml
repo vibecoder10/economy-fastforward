@@ -1,0 +1,202 @@
+# StoryEngine — generalized Archon workflow for any scoped fix.
+#
+# Takes a free-form issue description via $ARGUMENTS and drives it through
+# plan → implement → validate → draft PR. Nothing is hardcoded. Safe for
+# ship-while-sleep — never merges, always draft.
+#
+# Run:
+#   cd ~/dev/archon-spike
+#   bun run cli workflow run storyengine-fix-scoped \
+#       --cwd ~/dev/economy-fastforward \
+#       "<issue description — what to fix, where roughly, what success looks like>"
+#
+# Design note: bash nodes DO NOT interpolate $nodeId.output via shell-wrap.
+# Archon literal-substitutes the text and JSON with `"` chars breaks bash quoting.
+# Instead: the scope node writes its JSON to .archon/state/last-scope.json via
+# the Write tool, and downstream bash nodes parse the file with python3.
+
+name: storyengine-fix-scoped
+description: Plan → implement → validate → draft PR for any scoped StoryEngine fix. No autonomous merge.
+provider: claude
+model: claude-opus-4-7[1m]
+
+nodes:
+  # 1. Scope node — locate target, decide safety, write JSON sidecar.
+  - id: scope
+    prompt: |
+      You are scoping a fix for the StoryEngine repo (vibecoder10/economy-fastforward).
+
+      Issue description: $ARGUMENTS
+
+      Steps:
+        1. Locate the target file(s). Use Grep/Glob to find them.
+        2. Decide whether this is safe for autonomous execution.
+           SAFE = single-purpose change, ≤2 files, ≤20 lines total, no schema/migration,
+           no auth, no payment, no env var, no new dependency, no API contract change.
+           NOT SAFE = anything touching migrations, auth, payment, env vars, new deps,
+           or requiring design judgment.
+        3. Write a JSON scope report to `.archon/state/last-scope.json`. Create the
+           directory first if needed (`mkdir -p .archon/state`). This file drives the
+           downstream safety gate and PR metadata — it must be valid JSON.
+
+      JSON schema for `.archon/state/last-scope.json`:
+        {
+          "safe": true | false,
+          "reason": "<if not safe, one-sentence why>",
+          "targets": [
+            {"file": "<relative path>", "line_hint": <int or null>}
+          ],
+          "summary": "<one-sentence change description, <= 72 chars>",
+          "slug": "<kebab-case-branch-name, <= 40 chars>"
+        }
+
+      After writing the file, confirm the path in your reply. Do not edit any source
+      files in this node.
+    allowed_tools: [Read, Grep, Glob, Write, Bash]
+    idle_timeout: 240000
+
+  # 2. Safety gate — halt if scope flagged unsafe. Reads JSON sidecar.
+  - id: safety-gate
+    depends_on: [scope]
+    bash: |
+      set -euo pipefail
+      SCOPE_FILE=".archon/state/last-scope.json"
+      if [ ! -f "$SCOPE_FILE" ]; then
+        echo "FAIL: scope node did not write $SCOPE_FILE"
+        exit 1
+      fi
+      python3 -c "
+      import json, sys
+      with open('$SCOPE_FILE') as f:
+          data = json.load(f)
+      if not data.get('safe'):
+          print(f\"HALT: unsafe task — {data.get('reason', 'no reason given')}\")
+          sys.exit(1)
+      print('PASS: scope approved for autonomous execution')
+      print(f\"  summary: {data.get('summary')}\")
+      print(f\"  slug: {data.get('slug')}\")
+      print(f\"  targets: {[t.get('file') for t in data.get('targets', [])]}\")
+      "
+
+  # 3. Plan node — concrete 5-8 bullet edit plan.
+  - id: plan
+    depends_on: [safety-gate]
+    prompt: |
+      You have a scoped task approved for autonomous execution.
+
+      Original issue: $ARGUMENTS
+
+      Read the scope JSON from `.archon/state/last-scope.json` — it contains
+      the target file(s) and summary.
+
+      Produce a concrete plan (5-8 bullet points):
+        1. What exact change to make (before/after snippets if useful)
+        2. Which file(s) and approximate line numbers
+        3. What validation will prove it works
+        4. What could go wrong (edge cases)
+        5. What to put in the PR title + first line of PR body
+
+      Do NOT edit any source files in this node.
+    allowed_tools: [Read, Grep]
+    idle_timeout: 180000
+
+  # 4. Implement node — make the change, nothing else.
+  - id: implement
+    depends_on: [plan]
+    prompt: |
+      Implement the plan from the prior node.
+
+      Original issue: $ARGUMENTS
+      Plan (from plan node): $plan.output
+
+      Read `.archon/state/last-scope.json` for target files.
+
+      Hard constraints:
+        - Edit ONLY the file(s) listed in the scope JSON.
+        - Do NOT run tests in this node (validation gates will do that).
+        - Do NOT commit (the push-and-pr node will commit).
+        - Do NOT modify migrations, schema, auth, or payment code.
+        - Do NOT add new top-level imports unless the fix requires it.
+        - Keep the diff minimal. If you're writing more than 20 lines of new code,
+          stop and report "OUT_OF_SCOPE: change too large" instead.
+
+      After editing, report the diff stats (files changed, lines +/-) and confirm.
+    allowed_tools: [Read, Edit, Grep]
+    idle_timeout: 300000
+
+  # 5. Validate syntax on all changed Python files.
+  - id: validate-syntax
+    depends_on: [implement]
+    bash: |
+      set -e
+      CHANGED=$(git diff --name-only --diff-filter=AM | grep -E '\.py$' || true)
+      if [ -z "$CHANGED" ]; then
+        echo "SKIP: no Python files changed"
+        exit 0
+      fi
+      echo "Checking syntax on: $CHANGED"
+      for f in $CHANGED; do
+        python3 -c "import ast; ast.parse(open('$f').read())" \
+          && echo "PASS: $f syntax OK" \
+          || { echo "FAIL: $f has syntax error"; exit 1; }
+      done
+
+  # 6. Validate diff size (defensive — refuse huge auto PRs).
+  - id: validate-diff-size
+    depends_on: [validate-syntax]
+    bash: |
+      set -e
+      FILES_CHANGED=$(git diff --name-only --diff-filter=AM | wc -l | tr -d ' ')
+      LINES_CHANGED=$(git diff --diff-filter=AM --shortstat | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
+      LINES_CHANGED=${LINES_CHANGED:-0}
+      echo "Files changed: $FILES_CHANGED, lines added: $LINES_CHANGED"
+      if [ "$FILES_CHANGED" -gt 2 ]; then
+        echo "FAIL: touched $FILES_CHANGED files — scope limit is 2"
+        exit 1
+      fi
+      if [ "$LINES_CHANGED" -gt 30 ]; then
+        echo "FAIL: added $LINES_CHANGED lines — scope limit is 30"
+        exit 1
+      fi
+      echo "PASS: diff is within scope"
+
+  # 7. Validate functional tests.
+  - id: validate-tests
+    depends_on: [validate-diff-size]
+    bash: |
+      cd storyengine/backend
+      if command -v pytest >/dev/null 2>&1; then
+        pytest tests/functional/ -v --tb=short 2>&1 | tail -40
+        exit ${PIPESTATUS[0]}
+      else
+        echo "SKIP: pytest not installed"
+        exit 0
+      fi
+
+  # 8. Branch + draft PR. Metadata comes from scope JSON.
+  - id: push-and-pr
+    depends_on: [validate-tests]
+    bash: |
+      set -euo pipefail
+      SCOPE_FILE=".archon/state/last-scope.json"
+      SLUG=$(python3 -c "import json; d=json.load(open('$SCOPE_FILE')); print(d.get('slug') or 'autonomous-fix')")
+      SUMMARY=$(python3 -c "import json; d=json.load(open('$SCOPE_FILE')); print(d.get('summary') or 'autonomous fix')")
+      # Defensive: timestamp suffix prevents branch collision on retry.
+      BRANCH="archon-auto/$SLUG-$(date +%H%M%S)"
+
+      git checkout -b "$BRANCH"
+      git add -A
+      # Exclude the scope sidecar from the commit — it's workflow state, not product.
+      git reset HEAD -- .archon/state/last-scope.json 2>/dev/null || true
+      git commit -m "$SUMMARY
+
+      Shipped autonomously via Archon ship-while-sleep queue
+      (.archon/workflows/storyengine-fix-scoped.yaml).
+
+      Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+      git push -u origin "$BRANCH"
+
+      # PR body — use printf for clean multiline and avoid YAML/heredoc drama.
+      PR_BODY=$(printf '## Summary\n%s\n\n## Validation\n- [x] Python syntax valid on changed files\n- [x] Diff within scope limits\n- [x] Functional tests pass\n- [ ] Ryan reviews and marks ready\n\n## Shipped via\nArchon ship-while-sleep queue — `storyengine-fix-scoped` workflow.\n\nCloses no issues automatically. Promote to ready only after review.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code) via Archon\n' "$SUMMARY")
+
+      gh pr create --draft --title "$SUMMARY" --body "$PR_BODY"

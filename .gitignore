@@ -79,3 +79,6 @@ skills/video-pipeline/timing/
 agents/prd.json
 agents/prd.md
 agents/progress.md
+
+# Archon workflow runtime state (per-run scope JSON, etc — never commit)
+.archon/state/
