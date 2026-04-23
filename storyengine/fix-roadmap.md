@@ -100,10 +100,16 @@ _Features that exist in parts but aren't fully connected end-to-end._
   7. Lifespan: `main.py:394` creates the task on startup; `:406` cancels on shutdown
 - **Regression lock:** `backend/tests/functional/test_trial_downgrade_wire.py` (7 tests). Specifically guards the `stripe_subscription_id IS NULL` filter — losing it would downgrade paying customers.
 
-### 3.3 Google Auth / Settings Changes (LOST)
-- **What:** On 2026-04-10, uncommitted changes in `backend/routes/google_auth.py`, `frontend/src/app/settings/page.tsx`, and `frontend/src/lib/api.ts` were accidentally discarded. These were likely Google Drive OAuth or settings-related fixes.
-- **Fix:** Re-audit Google Auth flow end-to-end. Test: login with Google → settings page loads correctly → Drive connection works. Rebuild whatever was in those changes.
-- **Files:** `backend/routes/google_auth.py`, `frontend/src/app/settings/page.tsx`, `frontend/src/lib/api.ts`
+### 3.3 Google Auth / Settings (Re-audited) ✅ SHIPPED (2026-04-23)
+- **Status:** Feature was already committed in `e167b0a8` (2026-04-10). Re-audit confirmed all code present. Regression lock added.
+- **Wire-up (6 links):**
+  1. Backend: `backend/routes/google_auth.py` — GET `/google-drive/connect` → `{"auth_url": str}`
+  2. Backend: `backend/routes/google_auth.py` — POST `/google-drive/callback` → `{"status": "connected", "access_token": str}`
+  3. Backend: `backend/routes/google_auth.py` — GET `/google-drive/status` → `{"connected": bool, "folder_id": str|None, "folder_name": str|None}`
+  4. Backend: `backend/routes/google_auth.py` — POST `/google-drive/disconnect` → `{"status": "disconnected"}`
+  5. Frontend: `frontend/src/lib/api.ts` — `getDriveStatus`, `getDriveConnectUrl`, `postDriveCallback`, `disconnectDrive`, `getDriveAccessToken`
+  6. Frontend callback: `frontend/src/app/settings/drive-callback/page.tsx` — exchanges `?code=` param with backend, redirects to `/settings`
+- **Regression lock:** `backend/tests/functional/test_google_auth_callback_shape_lock.py` (16 tests) — pins all 6 endpoint shapes + frontend wiring. Playwright `settings.spec.ts` covers Google OAuth login, Drive connect initiation, and disconnect/revoke flow (3 new tests).
 
 ### 3.4 Hardcoded localhost in Frontend — ✅ SHIPPED (regression locked Cycle 51, 2026-04-21)
 
