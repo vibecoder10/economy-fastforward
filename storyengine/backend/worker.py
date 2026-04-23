@@ -93,6 +93,10 @@ async def _run_stage(
 
 # -- individual stage handlers ------------------------------------------------
 
+async def arq_run_research(ctx: dict, video_id: str, tenant_id: str, attempt: int) -> dict:
+    return await _run_stage(ctx, "research", "run_research", video_id, tenant_id, attempt)
+
+
 async def arq_run_script(ctx: dict, video_id: str, tenant_id: str, attempt: int) -> dict:
     return await _run_stage(ctx, "script", "run_script", video_id, tenant_id, attempt)
 
@@ -155,6 +159,7 @@ class WorkerSettings:
     redis_settings = RedisSettings(host=_redis_host, port=_redis_port)
 
     functions = [
+        func(arq_run_research,         name="arq_run_research",         timeout=3600, max_tries=3),
         func(arq_run_script,           name="arq_run_script",           timeout=3600, max_tries=3),
         func(arq_run_voice,            name="arq_run_voice",            timeout=3600, max_tries=3),
         func(arq_run_image_prompts,    name="arq_run_image_prompts",    timeout=1800, max_tries=3),

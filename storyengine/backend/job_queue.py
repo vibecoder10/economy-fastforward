@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Stage -> arq function name map (must match worker.py handler names)
 _STAGE_HANDLERS: dict[str, str] = {
+    "research":         "arq_run_research",
     "script":           "arq_run_script",
     "voice":            "arq_run_voice",
     "image_prompts":    "arq_run_image_prompts",

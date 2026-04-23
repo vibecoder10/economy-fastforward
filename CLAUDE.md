@@ -158,7 +158,7 @@ storyengine/                     # Production dashboard (Next.js 16 + FastAPI + 
 │   ├── pipeline_executor.py     # Background task orchestrator
 │   ├── job_queue.py             # arq enqueue abstraction (stage → Redis job)
 │   ├── task_store.py            # db_persist_task() — background_tasks DB writes
-│   └── worker.py                # arq WorkerSettings + 12 stage handlers
+│   └── worker.py                # arq WorkerSettings + stage handlers
 └── schema.sql                   # Canonical DB schema (9 tables, 51+ columns)
 tasks/                           # Task tracking, lessons learned
 ├── todo.md                      # Current tasks + handoffs
