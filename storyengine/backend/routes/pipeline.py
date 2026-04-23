@@ -10,10 +10,13 @@ Task tracking uses a dual-layer approach:
 
 import asyncio
 import json
+import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
@@ -220,8 +223,8 @@ def _set_task_status(
 def _get_task_status(video_id: str, tenant_id: str) -> Optional[dict]:
     """Get task status for a video within a tenant. Auto-clears stale tasks.
 
-    Falls back to background_tasks DB table for queue-dispatched jobs
-    that don't have an in-memory entry.
+    Sync-only: returns None for queue-dispatched jobs (no in-memory entry).
+    Use _get_task_status_async for DB fallback when Redis/arq is in use.
     """
     key = (tenant_id, video_id)
     task = _running_tasks.get(key)
@@ -231,14 +234,6 @@ def _get_task_status(video_id: str, tenant_id: str) -> Optional[dict]:
             _running_tasks.pop(key, None)
             return None
         return task
-
-    # Fallback: check DB for queue-dispatched jobs
-    try:
-        loop = asyncio.get_running_loop()
-        # Can't await in sync function — schedule and return None.
-        # The SSE stream and /task endpoint also poll DB via stage_transitions.
-    except RuntimeError:
-        pass
     return None
 
 
@@ -282,23 +277,27 @@ async def _enqueue_or_fallback(
     tenant_id: str,
     fallback_fn,
 ):
-    """Enqueue to arq queue if available, otherwise fall back to BackgroundTasks.
-
-    Returns the PipelineResponse message suffix.
-    """
+    """Enqueue to arq queue if available, otherwise fall back to BackgroundTasks."""
     arq_pool = _get_arq_pool(request)
     if arq_pool:
-        attempt = 1
-        job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt)
-        if job_id:
-            await db_persist_task(
-                tenant_id, video_id, stage, "pending",
-                message=f"{stage} queued — job_id={job_id}",
-                job_id=job_id, attempt=attempt,
+        try:
+            attempt = 1
+            job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt)
+            if job_id:
+                await db_persist_task(
+                    tenant_id, video_id, stage, "pending",
+                    message=f"{stage} queued — job_id={job_id}",
+                    job_id=job_id, attempt=attempt,
+                )
+            return
+        except Exception as e:
+            logger.warning(
+                "arq enqueue failed for %s/%s, falling back to BackgroundTasks: %s",
+                stage, video_id, e,
             )
-    else:
-        # Redis not available — fall back to in-process BackgroundTasks
-        background_tasks.add_task(fallback_fn)
+            # fall through to BackgroundTasks below
+    # Redis not available or enqueue failed — fall back to in-process BackgroundTasks
+    background_tasks.add_task(fallback_fn)
 
 
 # --- Endpoints ---

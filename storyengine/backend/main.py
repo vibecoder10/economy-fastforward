@@ -4,6 +4,7 @@ import os
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from urllib.parse import urlparse as _urlparse
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -393,9 +394,9 @@ async def lifespan(app: FastAPI):
         from arq import create_pool
         from arq.connections import RedisSettings
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-        _host = redis_url.replace("redis://", "").split(":")[0]
-        _port_str = redis_url.replace("redis://", "").split(":")[-1].split("/")[0]
-        _port = int(_port_str) if _port_str.isdigit() else 6379
+        _parsed = _urlparse(redis_url)
+        _host = _parsed.hostname or "localhost"
+        _port = _parsed.port or 6379
         app.state.arq = await create_pool(RedisSettings(host=_host, port=_port))
         logger.info("arq pool connected to Redis at %s:%d", _host, _port)
     except Exception as e:
@@ -421,7 +422,7 @@ async def lifespan(app: FastAPI):
                 "FROM background_tasks "
                 "WHERE status = 'failed' "
                 "AND error_message = 'Server restarted — task interrupted' "
-                "AND completed_at >= now() - interval '60 seconds'"
+                "AND completed_at >= now() - interval '10 minutes'"
             )
             for row in stale_rows or []:
                 new_attempt = row["attempt"] + 1

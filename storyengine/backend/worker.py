@@ -6,8 +6,10 @@ Run with:
 from __future__ import annotations
 import logging
 import os
+from urllib.parse import urlparse as _urlparse
 from arq.connections import RedisSettings
 from arq.worker import func
+from job_queue import make_job_id
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,7 @@ async def _run_stage(
     )
 
     # Mark running in background_tasks table
-    job_id = f"{stage}:{video_id}:{attempt}"
+    job_id = make_job_id(stage, video_id, attempt)
     await db_persist_task(
         tenant_id, video_id, stage, "running",
         message=f"{stage} running (attempt {attempt})",
@@ -141,9 +143,9 @@ async def arq_run_upload(ctx: dict, video_id: str, tenant_id: str, attempt: int)
 
 # -- WorkerSettings -----------------------------------------------------------
 
-_redis_host = REDIS_URL.replace("redis://", "").split(":")[0]
-_redis_port_str = REDIS_URL.replace("redis://", "").split(":")[-1].split("/")[0]
-_redis_port = int(_redis_port_str) if _redis_port_str.isdigit() else 6379
+_parsed = _urlparse(REDIS_URL)
+_redis_host = _parsed.hostname or "localhost"
+_redis_port = _parsed.port or 6379
 
 
 class WorkerSettings:

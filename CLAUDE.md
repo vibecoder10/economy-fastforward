@@ -155,7 +155,10 @@ storyengine/                     # Production dashboard (Next.js 16 + FastAPI + 
 │   ├── main.py                  # Route registration (ALWAYS check when adding routes)
 │   ├── models.py                # Pydantic models (source of truth for API shapes)
 │   ├── routes/                  # dashboard, videos, pipeline, assets, autopilot, etc.
-│   └── pipeline_executor.py     # Background task orchestrator
+│   ├── pipeline_executor.py     # Background task orchestrator
+│   ├── job_queue.py             # arq enqueue abstraction (stage → Redis job)
+│   ├── task_store.py            # db_persist_task() — background_tasks DB writes
+│   └── worker.py                # arq WorkerSettings + 12 stage handlers
 └── schema.sql                   # Canonical DB schema (9 tables, 51+ columns)
 tasks/                           # Task tracking, lessons learned
 ├── todo.md                      # Current tasks + handoffs
@@ -281,6 +284,7 @@ cd storyengine/frontend && npx tsc --noEmit                   # Frontend type ch
 cd storyengine/frontend && npm run build                      # Frontend production build
 cd storyengine/frontend && npm run dev                        # Frontend dev (port 3001)
 cd storyengine/backend && python -m uvicorn main:app --reload --port 8001  # Backend dev
+cd storyengine/backend && arq backend.worker.WorkerSettings                # arq queue worker (requires Redis)
 ```
 
 ## Key Reference Docs (auto-loaded — keep small)

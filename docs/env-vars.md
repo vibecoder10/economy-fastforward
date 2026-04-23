@@ -15,6 +15,7 @@ See `.env.example` for all required variables. Critical ones:
 | `GOOGLE_DRIVE_FOLDER_ID` | Google Drive | Parent folder for all projects |
 | `SLACK_BOT_TOKEN` | Slack | Bot control interface |
 | `SLACK_CHANNEL_ID` | Slack | `C0A9U1X8NSW` |
+| `REDIS_URL` | Redis / arq queue | `redis://localhost:6379` (default). Used by StoryEngine backend and arq worker. If Redis is unreachable, pipeline stages fall back to in-process BackgroundTasks (no error — check logs for "Redis/arq pool not available" warning). |
 
 ## Rules
 

@@ -4,9 +4,12 @@ Extracted from routes/pipeline.py to avoid circular imports when
 worker.py needs to update background_tasks rows.
 """
 
+import logging
 from typing import Optional
 
 from database import fetch_one, execute
+
+logger = logging.getLogger(__name__)
 
 
 async def db_persist_task(
@@ -21,8 +24,11 @@ async def db_persist_task(
 ) -> None:
     """Persist task state to the background_tasks table.
 
-    Uses upsert: one active row per video_id (status in running/pending).
-    Completed/failed rows are kept for history.
+    - 'running': upserts (SELECT existing running row, UPDATE or INSERT)
+    - 'pending': inserts a new row, skipping if a pending row with same job_id exists
+    - 'completed'/'failed': updates all matching running/pending rows to terminal state
+
+    All failures are swallowed — persistence is best-effort.
     """
     try:
         if status == "running":
@@ -44,12 +50,17 @@ async def db_persist_task(
                     tenant_id, video_id, task_type, message, job_id, attempt,
                 )
         elif status == "pending":
-            await execute(
-                "INSERT INTO background_tasks "
-                "(tenant_id, video_id, task_type, status, message, job_id, attempt, started_at) "
-                "VALUES ($1, $2, $3, 'pending', $4, $5, $6, now())",
-                tenant_id, video_id, task_type, message, job_id, attempt,
+            existing = await fetch_one(
+                "SELECT id FROM background_tasks WHERE job_id = $1 AND status = 'pending' LIMIT 1",
+                job_id,
             )
+            if not existing:
+                await execute(
+                    "INSERT INTO background_tasks "
+                    "(tenant_id, video_id, task_type, status, message, job_id, attempt, started_at) "
+                    "VALUES ($1, $2, $3, 'pending', $4, $5, $6, now())",
+                    tenant_id, video_id, task_type, message, job_id, attempt,
+                )
         elif status in ("completed", "failed"):
             await execute(
                 "UPDATE background_tasks "
@@ -57,5 +68,8 @@ async def db_persist_task(
                 "WHERE video_id = $4 AND status IN ('running', 'pending')",
                 status, message, error, video_id,
             )
-    except Exception:
-        pass  # DB persistence is best-effort
+    except Exception as exc:
+        logger.warning(
+            "db_persist_task failed (best-effort): video=%s stage=%s status=%s: %s",
+            video_id, task_type, status, exc,
+        )

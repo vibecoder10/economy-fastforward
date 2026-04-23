@@ -21,8 +21,7 @@ async def test_upload_idempotency_key_prevents_duplicate():
     assert fake_pool.enqueue_job.call_count == 2
 
 
-@pytest.mark.asyncio
-async def test_upload_retry_uses_incremented_attempt():
+def test_upload_retry_uses_incremented_attempt():
     """Retry enqueue uses attempt+1 so idempotency key differs."""
     key_1 = make_job_id("upload", "vid1", 1)
     key_2 = make_job_id("upload", "vid1", 2)
@@ -57,4 +56,5 @@ async def test_upload_persists_completed_status():
         # Should have been called at least twice: running + completed
         assert mock_persist.call_count >= 2
         completed_call = mock_persist.call_args_list[-1]
-        assert completed_call.args[3] == "completed"  # status arg
+        # db_persist_task(tenant_id, video_id, task_type, status, ...) — index 3 is status
+        assert completed_call.args[3] == "completed"

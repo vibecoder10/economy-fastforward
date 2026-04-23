@@ -1,8 +1,9 @@
 """Shared fixtures for queue recovery tests.
 
 Mocks heavy dependencies (asyncpg, database) so tests can run
-without a live DB or the full dependency tree. Uses a session-scoped
-fixture with proper teardown so mocks don't bleed into other test files.
+without a live DB or the full dependency tree. Uses a function-scoped
+(per-test) fixture with full sys.modules save/restore so mocks don't
+bleed between tests or into other test files.
 """
 import sys
 import pytest
