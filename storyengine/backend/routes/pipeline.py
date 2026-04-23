@@ -361,6 +361,7 @@ async def run_research(
             result = await executor.run_research(video_id)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
+            logger.exception("[research] fallback task failed video=%s: %s", video_id, e)
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
             await asyncio.sleep(30)
