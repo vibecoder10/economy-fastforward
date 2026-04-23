@@ -9,6 +9,9 @@ Usage:
     # Get a secret (falls back to env var)
     api_key = await get_secret("anthropic_api_key")
 
+    # Per-user key resolution (requires PER_USER_KEYS_ENABLED=true)
+    api_key = await get_secret("anthropic_api_key", tenant_id="t1", user_id="u1")
+
     # Set a secret
     await set_secret("anthropic_api_key", "sk-ant-...")
 
@@ -40,6 +43,9 @@ SECRET_ENV_MAP: dict[str, str] = {
     "tavily_api_key": "TAVILY_API_KEY",
 }
 
+# Feature flag: when True, get_secret resolves user-key first, then tenant-fallback.
+PER_USER_KEYS_ENABLED: bool = os.getenv("PER_USER_KEYS_ENABLED", "false").lower() == "true"
+
 
 async def _ensure_secrets_table() -> bool:
     """Ensure the secrets table exists."""
@@ -60,21 +66,68 @@ async def _ensure_secrets_table() -> bool:
         return False
 
 
-async def get_secret(name: str, tenant_id: Optional[str] = None) -> Optional[str]:
+async def get_secret(name: str, tenant_id: Optional[str] = None, user_id: Optional[str] = None) -> Optional[str]:
     """Get a secret from database, with env var fallback ONLY for non-tenant contexts.
 
     SECURITY: When tenant_id is provided, only returns tenant-scoped secrets
     from the database. Environment variables are NEVER exposed to tenant users.
     Env var fallback only applies to pipeline bot calls (no tenant context).
 
+    When PER_USER_KEYS_ENABLED is True and user_id is provided, resolves in
+    two tiers: user-scoped key first (tenant:user:name), then tenant-shared
+    fallback (tenant:name). Raises KeyError if neither exists.
+
     Args:
         name: Secret name (e.g., "anthropic_api_key")
         tenant_id: Optional tenant ID for multi-tenant isolation
+        user_id: Optional user ID for per-user key resolution.
+            Requires PER_USER_KEYS_ENABLED=True and tenant_id to be set;
+            ignored otherwise (falls through to legacy path).
+            Empty string is treated as None (falsy check).
 
     Returns:
-        Secret value or None if not found
+        Secret value, or None if not found (legacy path only).
+        When PER_USER_KEYS_ENABLED is on and user_id is provided,
+        raises KeyError instead of returning None.
+
+    Raises:
+        KeyError: When PER_USER_KEYS_ENABLED is on and neither user nor tenant key exists.
+        RuntimeError: When PER_USER_KEYS_ENABLED is on and the database is unreachable.
     """
-    # Try database first
+    # PER_USER_KEYS_ENABLED path: two-tier resolution (user → tenant → raise)
+    if PER_USER_KEYS_ENABLED and user_id and tenant_id:
+        try:
+            # Tier 1: user-scoped key
+            user_row = await fetch_one(
+                "SELECT value FROM secrets WHERE name = $1",
+                f"{tenant_id}:{user_id}:{name}",
+            )
+            if user_row and user_row.get("value"):
+                return user_row["value"]
+
+            # Tier 2: tenant-shared fallback
+            tenant_row = await fetch_one(
+                "SELECT value FROM secrets WHERE name = $1",
+                f"{tenant_id}:{name}",
+            )
+            if tenant_row and tenant_row.get("value"):
+                return tenant_row["value"]
+        except Exception as e:
+            # Log so operators can diagnose DB outages vs genuinely missing keys
+            print(f"Warning: DB error resolving per-user key '{name}' "
+                  f"(tenant={tenant_id!r}, user={user_id!r}): {e}")
+            raise RuntimeError(
+                f"Could not retrieve '{name}' — database temporarily unavailable. "
+                "Please try again in a moment."
+            ) from e
+
+        # Key genuinely absent in both tiers; callers must handle KeyError in this path.
+        raise KeyError(
+            f"No API key found for '{name}' (user {user_id!r} or tenant {tenant_id!r}). "
+            "Set it in Settings \u2192 API Keys."
+        )
+
+    # Legacy path: existing tenant-only behavior (back-compat preserved)
     try:
         if tenant_id:
             full_name = f"{tenant_id}:{name}"
