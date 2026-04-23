@@ -11,7 +11,7 @@ Task tracking uses a dual-layer approach:
 import asyncio
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -20,6 +20,8 @@ from database import fetch_one, fetch_all, execute
 from error_utils import humanize_error
 from pipeline_executor import PipelineExecutor
 from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage
+from job_queue import enqueue_stage
+from task_store import db_persist_task
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
@@ -216,21 +218,87 @@ def _set_task_status(
 
 
 def _get_task_status(video_id: str, tenant_id: str) -> Optional[dict]:
-    """Get task status for a video within a tenant. Auto-clears stale tasks."""
+    """Get task status for a video within a tenant. Auto-clears stale tasks.
+
+    Falls back to background_tasks DB table for queue-dispatched jobs
+    that don't have an in-memory entry.
+    """
     key = (tenant_id, video_id)
     task = _running_tasks.get(key)
-    if not task:
-        return None
-    # Auto-clear stale tasks (older than 10 minutes and still "running")
-    if task["status"] == "running" and _time.time() - task.get("started_at", 0) > _STALE_TASK_SECONDS:
-        _running_tasks.pop(key, None)
-        return None
-    return task
+    if task:
+        # Auto-clear stale tasks (older than 10 minutes and still "running")
+        if task["status"] == "running" and _time.time() - task.get("started_at", 0) > _STALE_TASK_SECONDS:
+            _running_tasks.pop(key, None)
+            return None
+        return task
+
+    # Fallback: check DB for queue-dispatched jobs
+    try:
+        loop = asyncio.get_running_loop()
+        # Can't await in sync function — schedule and return None.
+        # The SSE stream and /task endpoint also poll DB via stage_transitions.
+    except RuntimeError:
+        pass
+    return None
+
+
+async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict]:
+    """Async version: check in-memory dict first, then DB for queue jobs."""
+    task = _get_task_status(video_id, tenant_id)
+    if task:
+        return task
+
+    # Check background_tasks table for queue-dispatched jobs
+    row = await fetch_one(
+        "SELECT status, message, error_message FROM background_tasks "
+        "WHERE video_id = $1 AND tenant_id = $2 AND status IN ('pending', 'running') "
+        "ORDER BY created_at DESC LIMIT 1",
+        video_id, tenant_id,
+    )
+    if row:
+        return {
+            "status": row["status"],
+            "message": row.get("message"),
+            "error": row.get("error_message"),
+        }
+    return None
 
 
 def _clear_task_status(video_id: str, tenant_id: str):
     """Clear task status after completion (dict only — DB row stays for history)."""
     _running_tasks.pop((tenant_id, video_id), None)
+
+
+def _get_arq_pool(request: Request):
+    """Get arq pool from app state, or None if not connected."""
+    return getattr(request.app.state, "arq", None)
+
+
+async def _enqueue_or_fallback(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    stage: str,
+    video_id: str,
+    tenant_id: str,
+    fallback_fn,
+):
+    """Enqueue to arq queue if available, otherwise fall back to BackgroundTasks.
+
+    Returns the PipelineResponse message suffix.
+    """
+    arq_pool = _get_arq_pool(request)
+    if arq_pool:
+        attempt = 1
+        job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt)
+        if job_id:
+            await db_persist_task(
+                tenant_id, video_id, stage, "pending",
+                message=f"{stage} queued — job_id={job_id}",
+                job_id=job_id, attempt=attempt,
+            )
+    else:
+        # Redis not available — fall back to in-process BackgroundTasks
+        background_tasks.add_task(fallback_fn)
 
 
 # --- Endpoints ---
@@ -331,6 +399,7 @@ async def run_research(
 @router.post("/script/{video_id}", response_model=PipelineResponse)
 async def run_script(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -367,7 +436,7 @@ async def run_script(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "script", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Script generation started")
 
@@ -375,6 +444,7 @@ async def run_script(
 @router.post("/voice/{video_id}", response_model=PipelineResponse)
 async def run_voice(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     scene: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
@@ -413,7 +483,11 @@ async def run_voice(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    if scene is not None:
+        # Targeted single-scene regen — keep in-process
+        background_tasks.add_task(_run)
+    else:
+        await _enqueue_or_fallback(request, background_tasks, "voice", video_id, tenant_id, _run)
 
     msg = f"Voice generation started (scene {scene})" if scene else "Voice generation started"
     return PipelineResponse(video_id=video_id, status="running", message=msg)
@@ -466,6 +540,7 @@ async def run_split(
 @router.post("/prompts/{video_id}", response_model=PipelineResponse)
 async def run_prompts(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     scene: Optional[int] = None,
     index: Optional[int] = None,
@@ -505,7 +580,11 @@ async def run_prompts(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    if scene is not None:
+        # Targeted regen — keep in-process
+        background_tasks.add_task(_run)
+    else:
+        await _enqueue_or_fallback(request, background_tasks, "image_prompts", video_id, tenant_id, _run)
 
     if scene is not None and index is not None:
         msg = f"Generating prompt for scene {scene} segment {index}"
@@ -519,6 +598,7 @@ async def run_prompts(
 @router.post("/storyboards/{video_id}", response_model=PipelineResponse)
 async def run_storyboards(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     scene: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
@@ -570,7 +650,11 @@ async def run_storyboards(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    if scene is not None:
+        # Targeted per-scene — keep in-process (needs progress_callback)
+        background_tasks.add_task(_run)
+    else:
+        await _enqueue_or_fallback(request, background_tasks, "storyboards", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message=f"Storyboard generation started{scene_label}")
 
@@ -777,6 +861,7 @@ async def run_upscale_panels(
 @router.post("/images/{video_id}", response_model=PipelineResponse)
 async def run_images(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     scene: Optional[int] = None,
     index: Optional[int] = None,
@@ -826,7 +911,11 @@ async def run_images(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    if scene is not None or (variants is not None and variants > 1):
+        # Targeted regen or variant generation — keep in-process
+        background_tasks.add_task(_run)
+    else:
+        await _enqueue_or_fallback(request, background_tasks, "images", video_id, tenant_id, _run)
 
     if variants is not None and variants > 1 and scene is not None and index is not None:
         msg = f"Generating {variants} image variants for scene {scene} segment {index}"
@@ -843,6 +932,7 @@ async def run_images(
 @router.post("/sound-prompts/{video_id}", response_model=PipelineResponse)
 async def run_sound_prompts(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -876,7 +966,7 @@ async def run_sound_prompts(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "sound_prompts", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Sound prompt generation started")
 
@@ -884,6 +974,7 @@ async def run_sound_prompts(
 @router.post("/sound-effects/{video_id}", response_model=PipelineResponse)
 async def run_sound_effects(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -917,7 +1008,7 @@ async def run_sound_effects(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "sound_effects", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Sound effects generation started")
 
@@ -925,6 +1016,7 @@ async def run_sound_effects(
 @router.post("/video-scripts/{video_id}", response_model=PipelineResponse)
 async def run_video_scripts(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -959,7 +1051,7 @@ async def run_video_scripts(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "video_scripts", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Video script generation started")
 
@@ -967,6 +1059,7 @@ async def run_video_scripts(
 @router.post("/video-generation/{video_id}", response_model=PipelineResponse)
 async def run_video_generation(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -1001,7 +1094,7 @@ async def run_video_generation(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "video_generation", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Video clip generation started")
 
@@ -1009,6 +1102,7 @@ async def run_video_generation(
 @router.post("/thumbnail/{video_id}", response_model=PipelineResponse)
 async def run_thumbnail(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -1050,7 +1144,7 @@ async def run_thumbnail(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "thumbnail", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Thumbnail generation started")
 
@@ -1058,6 +1152,7 @@ async def run_thumbnail(
 @router.post("/render/{video_id}", response_model=PipelineResponse)
 async def run_render(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -1094,7 +1189,7 @@ async def run_render(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "render", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Render started")
 
@@ -1102,6 +1197,7 @@ async def run_render(
 @router.post("/upload/{video_id}", response_model=PipelineResponse)
 async def run_upload(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -1135,7 +1231,7 @@ async def run_upload(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "upload", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Upload started")
 
@@ -1252,8 +1348,9 @@ async def get_task_status(
     """Get background task status for a video.
 
     Used for polling while a stage is running.
+    Checks in-memory dict first, then DB for queue-dispatched jobs.
     """
-    task = _get_task_status(video_id, tenant_id)
+    task = await _get_task_status_async(video_id, tenant_id)
     if not task:
         return {"status": "idle", "message": None, "error": None}
     return {

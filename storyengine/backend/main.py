@@ -16,6 +16,7 @@ from rate_limit import RateLimitMiddleware
 from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks
+from job_queue import enqueue_stage
 
 
 def _update_bg_status(tenant_id: str, task_name: str, **kwargs):
@@ -387,6 +388,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Database connection failed (will retry on first query): %s", e)
 
+    # arq job queue pool (Redis)
+    try:
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        _host = redis_url.replace("redis://", "").split(":")[0]
+        _port_str = redis_url.replace("redis://", "").split(":")[-1].split("/")[0]
+        _port = int(_port_str) if _port_str.isdigit() else 6379
+        app.state.arq = await create_pool(RedisSettings(host=_host, port=_port))
+        logger.info("arq pool connected to Redis at %s:%d", _host, _port)
+    except Exception as e:
+        app.state.arq = None
+        logger.warning("Redis/arq pool not available (queue features disabled): %s", e)
+
     # Auto-run pending migrations
     try:
         await _run_pending_migrations()
@@ -398,6 +413,29 @@ async def lifespan(app: FastAPI):
         recovered = await recover_stale_tasks()
         if recovered:
             logger.info("Recovered %d stale background tasks (marked as failed)", recovered)
+
+        # Re-enqueue stale tasks via arq if Redis is available
+        if getattr(app.state, "arq", None):
+            stale_rows = await fetch_all(
+                "SELECT video_id, task_type, tenant_id, COALESCE(attempt, 1) AS attempt "
+                "FROM background_tasks "
+                "WHERE status = 'failed' "
+                "AND error_message = 'Server restarted — task interrupted' "
+                "AND completed_at >= now() - interval '60 seconds'"
+            )
+            for row in stale_rows or []:
+                new_attempt = row["attempt"] + 1
+                if new_attempt <= 3:
+                    try:
+                        await enqueue_stage(
+                            app.state.arq,
+                            row["task_type"],
+                            str(row["video_id"]),
+                            str(row["tenant_id"]),
+                            new_attempt,
+                        )
+                    except (ValueError, Exception) as eq:
+                        logger.warning("Could not re-enqueue %s: %s", row["task_type"], eq)
     except Exception as e:
         logger.warning("Stale task recovery error (non-blocking): %s", e)
 
@@ -414,6 +452,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if getattr(app.state, "arq", None):
+        await app.state.arq.aclose()
     extraction_task.cancel()
     youtube_sync_task.cancel()
     title_analysis_task.cancel()
