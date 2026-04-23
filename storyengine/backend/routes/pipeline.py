@@ -334,14 +334,15 @@ async def create_idea(
 @router.post("/research/{video_id}", response_model=PipelineResponse)
 async def run_research(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Run research agent on a video idea.
 
-    Runs in background. Poll /status/{video_id} or check activity feed.
+    Runs in background via arq queue (falls back to BackgroundTasks if Redis unavailable).
+    Poll /status/{video_id} or check activity feed.
     """
-    # Check video exists
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -349,7 +350,6 @@ async def run_research(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Check not already running
     if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running for this video")
 
@@ -360,38 +360,18 @@ async def run_research(
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_research(video_id)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
-
-            # Auto-cascade: keep advancing through pipeline steps
-            if result.get("status") != "failed":
-                terminal = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
-                for _ in range(20):  # Safety limit
-                    video = await fetch_one("SELECT status FROM videos WHERE id = $1", video_id)
-                    status = (video or {}).get("status", "")
-                    if status in terminal:
-                        break
-                    _set_task_status(video_id, "running", f"Running: {status}", tenant_id=tenant_id)
-                    step_result = await executor.run_next_step(video_id)
-                    step_status = step_result.get("status", "")
-                    if step_status == "failed":
-                        _set_task_status(video_id, "failed", step_result.get("error"), tenant_id=tenant_id)
-                        break
-                    if step_status in ("needs_approval", "idle"):
-                        _set_task_status(video_id, "completed", step_result.get("message", "Waiting for approval"), tenant_id=tenant_id)
-                        break
-                    _set_task_status(video_id, step_status, tenant_id=tenant_id)
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
-            # Clear after a delay so frontend can poll final status
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    background_tasks.add_task(_run)
+    await _enqueue_or_fallback(request, background_tasks, "research", video_id, tenant_id, _run)
 
     return PipelineResponse(
         video_id=video_id,
         status="running",
-        message="Research started — pipeline will auto-advance through all steps",
+        message="Research started",
     )
 
 
