@@ -714,6 +714,7 @@ export default function SettingsPage() {
                   <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>{item.desc}</p>
                 </div>
                 <button
+                  data-testid={`notif-toggle-${item.key}`}
                   onClick={async () => {
                     const current = notifPrefs?.[item.key] ?? true;
                     // Optimistic update

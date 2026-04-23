@@ -16,7 +16,7 @@ async function stubAuth(page: Page) {
 }
 
 /**
- * Reusable OAuth callback mock — same pattern reused by YouTube OAuth spec.
+ * Reusable OAuth callback mock — designed for reuse by the forthcoming YouTube OAuth spec.
  * Usage: await mockOAuthCallback(page, "/api/auth/google-drive/callback", { status: "ok" });
  */
 export async function mockOAuthCallback(
@@ -46,7 +46,7 @@ function captureConsoleErrors(page: Page): () => string[] {
         !text.includes("ERR_NAME_NOT_RESOLVED") &&
         !text.includes("hydration") &&
         !text.includes("CORS") &&
-        !text.includes("410")
+        !text.includes("status of 410")
       ) {
         errors.push(text);
       }
@@ -210,9 +210,11 @@ async function stubKeysPage(
 ) {
   await page.route("**/api/settings/keys", async (route) => {
     const url = route.request().url();
-    // Let sub-path routes like /api/settings/keys/anthropic_api_key fall through
+    // Defensive guard: if Playwright ever matches sub-paths via this glob
+    // (e.g. /api/settings/keys/anthropic_api_key), abort loudly so missing stubs
+    // are caught immediately rather than silently escaping to the real network.
     if (url.match(/\/api\/settings\/keys\/.+/)) {
-      await route.fallback();
+      await route.abort("failed");
       return;
     }
     await route.fulfill({
@@ -262,7 +264,9 @@ test.describe("API Keys panel", () => {
   test("opens configure modal and saves key", async ({ page }) => {
     await stubAuth(page);
 
-    // Register specific route BEFORE generic keys route
+    // Specific route registered before stubKeysPage so it exists in Playwright's handler chain.
+    // stubKeysPage calls route.abort() for sub-paths — Playwright's LIFO order means this
+    // more-specific handler runs first for /api/settings/keys/anthropic_api_key requests.
     let savedKeyValue: string | undefined;
     await page.route("**/api/settings/keys/anthropic_api_key", async (route) => {
       if (route.request().method() === "POST") {
@@ -408,7 +412,9 @@ test.describe("Brand Kit panel", () => {
 
     let putBody: Record<string, unknown> | undefined;
     await stubSettingsPage(page);
-    // Override channel-profile to capture PUT
+    // Overrides the channel-profile route entirely (GET + PUT) to capture the PUT body.
+    // Must register AFTER stubSettingsPage — Playwright uses LIFO route resolution,
+    // so this handler runs first and shadows the one registered in stubSettingsPage.
     await page.route("**/api/channel-profile", async (route) => {
       if (route.request().method() === "PUT") {
         putBody = JSON.parse(route.request().postData() ?? "{}");
@@ -440,6 +446,9 @@ test.describe("Brand Kit panel", () => {
 
     let putBody: Record<string, unknown> | undefined;
     await stubSettingsPage(page);
+    // Overrides the channel-profile route entirely (GET + PUT) to capture the PUT body.
+    // Must register AFTER stubSettingsPage — Playwright uses LIFO route resolution,
+    // so this handler runs first and shadows the one registered in stubSettingsPage.
     await page.route("**/api/channel-profile", async (route) => {
       if (route.request().method() === "PUT") {
         putBody = JSON.parse(route.request().postData() ?? "{}");
@@ -490,7 +499,9 @@ test.describe("Notification preferences", () => {
 
     let patchBody: Record<string, unknown> | undefined;
     await stubSettingsPage(page);
-    // Override notifications route to capture PATCH
+    // Overrides the notifications route entirely (GET + PATCH) to capture the PATCH body.
+    // Must register AFTER stubSettingsPage — Playwright uses LIFO route resolution,
+    // so this handler runs first and shadows the one registered in stubSettingsPage.
     await page.route("**/api/preferences/notifications", async (route) => {
       if (route.request().method() === "PATCH") {
         patchBody = JSON.parse(route.request().postData() ?? "{}");
@@ -520,15 +531,7 @@ test.describe("Notification preferences", () => {
 
     await page.goto("/settings");
 
-    // Each notification row: <div class="flex items-center justify-between py-1">
-    //   <div><p>Pipeline Complete</p><p>description</p></div>
-    //   <button class="w-10 h-5 ...">toggle</button>
-    // </div>
-    // Use the button inside the row that contains "Pipeline Complete"
-    const pipelineToggle = page
-      .locator("div.flex.items-center.justify-between")
-      .filter({ hasText: "Pipeline Complete" })
-      .locator("button.rounded-full");
+    const pipelineToggle = page.getByTestId("notif-toggle-email_video_complete");
     await pipelineToggle.click();
 
     await expect(() => expect(patchBody).toBeDefined()).toPass({ timeout: 3000 });
@@ -550,10 +553,7 @@ test.describe("Notification preferences", () => {
     // Pipeline Complete toggle should be OFF.
     // When OFF, the toggle background is "var(--bg-surface)" (not turquoise).
     // Verify by checking the inline style doesn't contain turquoise.
-    const pipelineToggle = page
-      .locator("div.flex.items-center.justify-between")
-      .filter({ hasText: "Pipeline Complete" })
-      .locator("button.rounded-full");
+    const pipelineToggle = page.getByTestId("notif-toggle-email_video_complete");
     await expect(pipelineToggle).toBeVisible();
 
     // When ON: style="background: var(--turquoise)"
