@@ -96,7 +96,6 @@ async def get_secret(name: str, tenant_id: Optional[str] = None, user_id: Option
     """
     # PER_USER_KEYS_ENABLED path: two-tier resolution (user → tenant → raise)
     if PER_USER_KEYS_ENABLED and user_id and tenant_id:
-        db_error: Optional[Exception] = None
         try:
             # Tier 1: user-scoped key
             user_row = await fetch_one(
@@ -117,13 +116,10 @@ async def get_secret(name: str, tenant_id: Optional[str] = None, user_id: Option
             # Log so operators can diagnose DB outages vs genuinely missing keys
             print(f"Warning: DB error resolving per-user key '{name}' "
                   f"(tenant={tenant_id!r}, user={user_id!r}): {e}")
-            db_error = e
-
-        if db_error:
             raise RuntimeError(
                 f"Could not retrieve '{name}' — database temporarily unavailable. "
                 "Please try again in a moment."
-            ) from db_error
+            ) from e
 
         # Key genuinely absent in both tiers; callers must handle KeyError in this path.
         raise KeyError(
