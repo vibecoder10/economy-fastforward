@@ -46,7 +46,12 @@ def test_drive_connect_endpoint_exists():
 
 def test_drive_connect_returns_auth_url():
     src = _repo_read("backend/routes/google_auth.py")
-    assert re.search(r'return\s*\{\s*["\']auth_url["\']\s*:', src), (
+    m = re.search(
+        r"async def google_drive_connect[\s\S]*?(?=\n@router\.|\Z)",
+        src,
+    )
+    assert m, "google_drive_connect() function not found."
+    assert re.search(r'return\s*\{\s*["\']auth_url["\']\s*:', m.group(0)), (
         "google_drive_connect() must return {'auth_url': ...}."
     )
 
@@ -92,13 +97,19 @@ def test_drive_status_endpoint_exists():
 
 def test_drive_status_returns_connected_folder_id_folder_name():
     src = _repo_read("backend/routes/google_auth.py")
-    assert re.search(r'["\']connected["\']\s*:\s*(True|False)', src), (
+    m = re.search(
+        r"async def google_drive_status[\s\S]*?(?=\n@router\.|\Z)",
+        src,
+    )
+    assert m, "google_drive_status() function not found."
+    fn = m.group(0)
+    assert re.search(r'["\']connected["\']\s*:', fn), (
         "google_drive_status() must return 'connected' key."
     )
-    assert re.search(r'["\']folder_id["\']\s*:', src), (
+    assert re.search(r'["\']folder_id["\']\s*:', fn), (
         "google_drive_status() must return 'folder_id' key."
     )
-    assert re.search(r'["\']folder_name["\']\s*:', src), (
+    assert re.search(r'["\']folder_name["\']\s*:', fn), (
         "google_drive_status() must return 'folder_name' key."
     )
 
@@ -115,9 +126,14 @@ def test_drive_disconnect_endpoint_exists():
 
 def test_drive_disconnect_returns_disconnected_status():
     src = _repo_read("backend/routes/google_auth.py")
+    m = re.search(
+        r"async def google_drive_disconnect[\s\S]*?(?=\n@router\.|\Z)",
+        src,
+    )
+    assert m, "google_drive_disconnect() function not found."
     assert re.search(
         r'return\s*\{\s*["\']status["\']\s*:\s*["\']disconnected["\']\s*\}',
-        src,
+        m.group(0),
     ), "google_drive_disconnect() must return {'status': 'disconnected'}."
 
 
@@ -133,10 +149,14 @@ def test_drive_access_token_endpoint_exists():
 
 def test_drive_access_token_returns_access_token():
     src = _repo_read("backend/routes/google_auth.py")
-    assert re.search(
-        r'return\s*\{\s*["\']access_token["\']\s*:\s*tokens\[["\']access_token["\']\]\s*\}',
+    m = re.search(
+        r"async def google_drive_access_token[\s\S]*?(?=\n@router\.|\Z)",
         src,
-    ), "google_drive_access_token() must return {'access_token': tokens['access_token']}."
+    )
+    assert m, "google_drive_access_token() function not found."
+    assert re.search(r'return\s*\{\s*["\']access_token["\']\s*:', m.group(0)), (
+        "google_drive_access_token() must return {'access_token': ...}."
+    )
 
 
 # ── Link 6: POST /api/auth/google (Google login) ──────────────────────────
@@ -182,7 +202,7 @@ def test_frontend_drive_status_type_has_required_fields():
         r"interface\s+DriveStatus\b[\s\S]{0,300}?connected\s*:\s*bool",
         src,
     )
-    assert m, "DriveStatus interface must have `connected: bool`."
+    assert m, "DriveStatus interface must have `connected: boolean`."
     assert re.search(r"folder_id\s*\??\s*:\s*string", src), (
         "DriveStatus interface must have `folder_id` field."
     )

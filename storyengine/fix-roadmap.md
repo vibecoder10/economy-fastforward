@@ -107,7 +107,7 @@ _Features that exist in parts but aren't fully connected end-to-end._
   2. Backend: `backend/routes/google_auth.py` — POST `/google-drive/callback` → `{"status": "connected", "access_token": str}`
   3. Backend: `backend/routes/google_auth.py` — GET `/google-drive/status` → `{"connected": bool, "folder_id": str|None, "folder_name": str|None}`
   4. Backend: `backend/routes/google_auth.py` — POST `/google-drive/disconnect` → `{"status": "disconnected"}`
-  5. Frontend: `frontend/src/lib/api.ts:1644-1667` — `getDriveStatus`, `getDriveConnectUrl`, `postDriveCallback`, `disconnectDrive`, `getDriveAccessToken`
+  5. Frontend: `frontend/src/lib/api.ts` — `getDriveStatus`, `getDriveConnectUrl`, `postDriveCallback`, `disconnectDrive`, `getDriveAccessToken`
   6. Frontend callback: `frontend/src/app/settings/drive-callback/page.tsx` — exchanges `?code=` param with backend, redirects to `/settings`
 - **Regression lock:** `backend/tests/functional/test_google_auth_callback_shape_lock.py` (16 tests) — pins all 6 endpoint shapes + frontend wiring. Playwright `settings.spec.ts` covers Google OAuth login, Drive connect initiation, and disconnect/revoke flow (3 new tests).
 

@@ -395,39 +395,27 @@ test.describe("Google Drive connect", () => {
 });
 
 // ─── Google OAuth login (signup flow) ─────────────────────────────────────
+// NOTE: Google One Tap login cannot be triggered programmatically in Playwright
+// because the Google SDK renders its own iframe/popup. The AuthResponse shape
+// contract (POST /api/auth/google → {token: str, user: dict}) is pinned by
+// the backend static audit in:
+//   backend/tests/functional/test_google_auth_callback_shape_lock.py
+//   → test_google_login_returns_token_and_user
+// This Playwright describe block covers what IS testable: the login page renders
+// without errors when the user is unauthenticated.
 
 test.describe("Google OAuth login", () => {
-  test("POST /api/auth/google returns token + user shape", async ({ page }) => {
+  test("login page renders without console errors for unauthenticated user", async ({ page }) => {
     const getErrors = captureConsoleErrors(page);
 
-    // Stub the Google auth endpoint — pins the AuthResponse shape
-    await page.route("**/api/auth/google", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          token: "mock-jwt-token",
-          user: { id: "user-123", email: "test@example.com", display_name: "Test User" },
-        }),
-      });
-    });
-
-    // Navigate to login; confirm Google sign-in button is present
     await page.route("**/api/auth/me", async (route) => {
       await route.fulfill({ status: 401, body: JSON.stringify({ detail: "Not authenticated" }) });
     });
     await stubSidebar(page);
     await page.goto("/login");
 
-    // Google sign-in button should be visible (One Tap or manual button)
-    const googleButton = page.getByText(/sign in with google|continue with google/i).or(
-      page.locator("button").filter({ hasText: /google/i })
-    ).first();
-
-    // If visible, the login page has a Google auth path — verify no console errors
-    await googleButton.waitFor({ timeout: 5000 }).catch(() => {
-      // Page may not have a visible Google button in all configurations
-    });
+    // Login page must load — verify the page has content (not a crash/blank screen)
+    await expect(page.locator("body")).not.toBeEmpty();
 
     expect(getErrors()).toHaveLength(0);
   });
