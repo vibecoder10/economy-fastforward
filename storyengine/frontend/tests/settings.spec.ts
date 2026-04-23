@@ -229,6 +229,27 @@ async function stubKeysPage(
   await stubSidebar(page);
 }
 
+/**
+ * Registers a channel-profile route override that captures the PUT body.
+ * Must be called AFTER stubSettingsPage — Playwright uses LIFO route resolution,
+ * so this handler runs first and shadows the one registered in stubSettingsPage.
+ */
+async function captureChannelProfilePut(
+  page: Page,
+  putResponse: Record<string, unknown>,
+): Promise<() => Record<string, unknown> | undefined> {
+  let capturedBody: Record<string, unknown> | undefined;
+  await page.route("**/api/channel-profile", async (route) => {
+    if (route.request().method() === "PUT") {
+      capturedBody = JSON.parse(route.request().postData() ?? "{}");
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(putResponse) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ accent_color: "#00D4AA", logo_url: null }) });
+  });
+  return () => capturedBody;
+}
+
 // ─── API Keys panel ─────────────────────────────────────────────────────────
 
 test.describe("API Keys panel", () => {
@@ -409,70 +430,30 @@ test.describe("Brand Kit panel", () => {
 
   test("saves brand kit via Save button", async ({ page }) => {
     await stubAuth(page);
-
-    let putBody: Record<string, unknown> | undefined;
     await stubSettingsPage(page);
-    // Overrides the channel-profile route entirely (GET + PUT) to capture the PUT body.
-    // Must register AFTER stubSettingsPage — Playwright uses LIFO route resolution,
-    // so this handler runs first and shadows the one registered in stubSettingsPage.
-    await page.route("**/api/channel-profile", async (route) => {
-      if (route.request().method() === "PUT") {
-        putBody = JSON.parse(route.request().postData() ?? "{}");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ accent_color: "#FFB800", logo_url: null }),
-        });
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ accent_color: "#00D4AA", logo_url: null }),
-      });
-    });
+    const getPutBody = await captureChannelProfilePut(page, { accent_color: "#FFB800", logo_url: null });
 
     await page.goto("/settings");
 
     await page.getByRole("button", { name: "Amber" }).click();
     await page.getByRole("button", { name: /Save Brand Kit/i }).click();
 
-    await expect(() => expect(putBody).toBeDefined()).toPass({ timeout: 3000 });
-    expect(putBody!.accent_color).toBe("#FFB800");
+    await expect(() => expect(getPutBody()).toBeDefined()).toPass({ timeout: 3000 });
+    expect(getPutBody()!.accent_color).toBe("#FFB800");
   });
 
   test("saves logo URL and shows preview", async ({ page }) => {
     await stubAuth(page);
-
-    let putBody: Record<string, unknown> | undefined;
     await stubSettingsPage(page);
-    // Overrides the channel-profile route entirely (GET + PUT) to capture the PUT body.
-    // Must register AFTER stubSettingsPage — Playwright uses LIFO route resolution,
-    // so this handler runs first and shadows the one registered in stubSettingsPage.
-    await page.route("**/api/channel-profile", async (route) => {
-      if (route.request().method() === "PUT") {
-        putBody = JSON.parse(route.request().postData() ?? "{}");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ accent_color: "#00D4AA", logo_url: "https://example.com/logo.png" }),
-        });
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ accent_color: "#00D4AA", logo_url: null }),
-      });
-    });
+    const getPutBody = await captureChannelProfilePut(page, { accent_color: "#00D4AA", logo_url: "https://example.com/logo.png" });
 
     await page.goto("/settings");
 
     await page.getByPlaceholder("https://example.com/logo.png").fill("https://example.com/logo.png");
     await page.getByRole("button", { name: /Save Brand Kit/i }).click();
 
-    await expect(() => expect(putBody).toBeDefined()).toPass({ timeout: 3000 });
-    expect(putBody!.logo_url).toBe("https://example.com/logo.png");
+    await expect(() => expect(getPutBody()).toBeDefined()).toPass({ timeout: 3000 });
+    expect(getPutBody()!.logo_url).toBe("https://example.com/logo.png");
   });
 });
 
