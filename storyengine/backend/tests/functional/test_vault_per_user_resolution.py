@@ -6,11 +6,13 @@ fallback (tenant:name). Raises KeyError if neither exists. When the flag is off
 (default), the user_id kwarg is silently ignored and existing behavior is
 preserved exactly.
 
-Covers four acceptance scenarios:
+Covers acceptance scenarios:
   1. User key present -> returns user value
   2. User key missing, tenant key present -> returns tenant value
   3. Both missing -> raises KeyError
   4. Flag off -> legacy path unchanged, user_id ignored
+  5. DB error -> raises RuntimeError (not misleading KeyError)
+  6. Flag on, no tenant_id -> falls back to legacy path silently
 """
 import asyncio
 import os
@@ -18,7 +20,11 @@ import sys
 import types
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# When run via pytest, sys.path is configured by storyengine/backend/tests/conftest.py.
+# When run directly (python3 test_vault_per_user_resolution.py), set it here.
+_backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _backend_root not in sys.path:
+    sys.path.insert(0, _backend_root)
 
 # Stub database so vault can import without a DB connection.
 if "database" not in sys.modules:
@@ -43,11 +49,7 @@ import vault
 
 
 def _run(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    return asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +153,61 @@ def test_flag_off_legacy_path_unchanged():
 
 
 # ---------------------------------------------------------------------------
+# Test 5: DB error raises RuntimeError, not misleading KeyError
+# ---------------------------------------------------------------------------
+
+def test_db_error_raises_runtime_error():
+    """When PER_USER_KEYS_ENABLED=True and the DB raises an exception,
+    get_secret raises RuntimeError (not a misleading KeyError saying key is missing)."""
+
+    async def broken_fetch_one(query, name_value):
+        raise Exception("connection refused")
+
+    with patch.object(vault, "PER_USER_KEYS_ENABLED", True), \
+         patch.object(vault, "fetch_one", new=broken_fetch_one):
+        try:
+            _run(vault.get_secret("anthropic_api_key", tenant_id="t1", user_id="u1"))
+            assert False, "expected RuntimeError but no exception raised"
+        except RuntimeError as exc:
+            msg = str(exc)
+            assert "database temporarily unavailable" in msg.lower(), (
+                f"RuntimeError message should mention DB unavailability: {msg!r}"
+            )
+        except KeyError:
+            assert False, (
+                "Got KeyError instead of RuntimeError — DB errors must not be "
+                "masked as 'key not found'"
+            )
+
+    print("\u2705 test_db_error_raises_runtime_error")
+
+
+# ---------------------------------------------------------------------------
+# Test 6: flag on, user_id without tenant_id falls back to legacy path
+# ---------------------------------------------------------------------------
+
+def test_flag_on_no_tenant_falls_back_to_legacy():
+    """When PER_USER_KEYS_ENABLED=True but tenant_id is None, user_id is ignored
+    and the legacy path (env-var fallback) is used."""
+    call_log = []
+
+    async def fake_fetch_one(query, name_value):
+        call_log.append(name_value)
+        return None  # no DB record
+
+    with patch.object(vault, "PER_USER_KEYS_ENABLED", True), \
+         patch.object(vault, "fetch_one", new=fake_fetch_one), \
+         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-env-key"}):
+        result = _run(vault.get_secret("anthropic_api_key", tenant_id=None, user_id="u1"))
+
+    assert result == "sk-env-key", f"expected env-var fallback, got {result!r}"
+    assert all("u1" not in name for name in call_log), (
+        f"user-scoped query ran without tenant_id: {call_log}"
+    )
+    print("\u2705 test_flag_on_no_tenant_falls_back_to_legacy")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -159,6 +216,8 @@ TESTS = [
     test_user_missing_tenant_fallback_returns_tenant_value,
     test_both_missing_raises_key_error,
     test_flag_off_legacy_path_unchanged,
+    test_db_error_raises_runtime_error,
+    test_flag_on_no_tenant_falls_back_to_legacy,
 ]
 
 

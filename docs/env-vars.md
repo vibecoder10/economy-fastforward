@@ -16,6 +16,7 @@ See `.env.example` for all required variables. Critical ones:
 | `SLACK_BOT_TOKEN` | Slack | Bot control interface |
 | `SLACK_CHANNEL_ID` | Slack | `C0A9U1X8NSW` |
 | `REDIS_URL` | Redis / arq queue | `redis://localhost:6379` (default). Used by StoryEngine backend and arq worker. If Redis is unreachable, pipeline stages fall back to in-process BackgroundTasks (no error — check logs for "Redis/arq pool not available" warning). |
+| `PER_USER_KEYS_ENABLED` | StoryEngine vault | Feature flag. Default `false`. When `true`, `vault.get_secret()` resolves user-scoped key first (`tenant:user:name`), then falls back to tenant-shared key (`tenant:name`). Raises `KeyError` if neither exists. Enable for PRD slice 4+ (per-user API key UI). |
 
 ## Rules
 
