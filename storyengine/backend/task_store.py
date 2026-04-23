@@ -42,25 +42,14 @@ async def db_persist_task(
                     "UPDATE background_tasks SET message = $1 WHERE id = $2",
                     message, existing["id"],
                 )
-            else:
-                await execute(
-                    "INSERT INTO background_tasks "
-                    "(tenant_id, video_id, task_type, status, message, job_id, attempt, started_at) "
-                    "VALUES ($1, $2, $3, 'running', $4, $5, $6, now())",
-                    tenant_id, video_id, task_type, message, job_id, attempt,
-                )
+                return
         elif status == "pending":
             existing = await fetch_one(
                 "SELECT id FROM background_tasks WHERE job_id = $1 AND status = 'pending' LIMIT 1",
                 job_id,
             )
-            if not existing:
-                await execute(
-                    "INSERT INTO background_tasks "
-                    "(tenant_id, video_id, task_type, status, message, job_id, attempt, started_at) "
-                    "VALUES ($1, $2, $3, 'pending', $4, $5, $6, now())",
-                    tenant_id, video_id, task_type, message, job_id, attempt,
-                )
+            if existing:
+                return
         elif status in ("completed", "failed"):
             await execute(
                 "UPDATE background_tasks "
@@ -68,6 +57,14 @@ async def db_persist_task(
                 "WHERE video_id = $4 AND status IN ('running', 'pending')",
                 status, message, error, video_id,
             )
+            return
+
+        await execute(
+            "INSERT INTO background_tasks "
+            "(tenant_id, video_id, task_type, status, message, job_id, attempt, started_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+            tenant_id, video_id, task_type, status, message, job_id, attempt,
+        )
     except Exception as exc:
         logger.warning(
             "db_persist_task failed (best-effort): video=%s stage=%s status=%s: %s",
