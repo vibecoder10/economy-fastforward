@@ -245,7 +245,11 @@ async function captureChannelProfilePut(
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(putResponse) });
       return;
     }
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ accent_color: "#00D4AA", logo_url: null }) });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ accent_color: "#00D4AA", logo_url: null }),
+    });
   });
   return () => capturedBody;
 }

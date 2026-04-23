@@ -16,20 +16,15 @@ Wire-up links pinned here (6 total):
 If any of these shapes change without updating the frontend and this test,
 this file flags it.
 """
-import os
 import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-
-def _storyengine_dir() -> Path:
-    return Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 
 def _repo_read(rel: str) -> str:
-    path = _storyengine_dir() / rel
+    path = Path(__file__).resolve().parents[3] / rel
     assert path.exists(), f"Expected file missing: {rel}"
     return path.read_text()
 
