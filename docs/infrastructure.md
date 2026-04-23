@@ -39,6 +39,26 @@ autopilot patterns thumb  # Show thumbnail patterns
 autopilot ctr [title]     # Force CTR check for video
 ```
 
+## StoryEngine Worker (arq + Redis)
+
+The pipeline stage queue runs as a systemd service. Install or upgrade it:
+
+```bash
+bash infra/setup_worker.sh
+```
+
+Manage it:
+```bash
+systemctl status storyengine-worker    # Check status
+systemctl restart storyengine-worker   # Restart
+journalctl -u storyengine-worker -f    # Tail logs
+```
+
+**Note**: If Redis is unavailable or the worker is stopped, the backend falls back to in-process `BackgroundTasks` automatically (no error raised). To confirm the queue is active, check `journalctl -u storyengine-worker` for `arq pool connected` log line.
+
+**Worker source**: `storyengine/backend/worker.py` (arq `WorkerSettings`)
+**Installer**: `infra/setup_worker.sh` (systemd unit at `/etc/systemd/system/storyengine-worker.service`)
+
 ## Rules
 
 - Code pushed to `main` auto-deploys via the hourly `git pull --ff-only`. Don't push broken code to main.

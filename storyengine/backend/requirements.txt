@@ -10,3 +10,5 @@ yt-dlp>=2026.3.0
 stripe>=10.0.0
 Pillow>=10.0.0
 python-multipart>=0.0.9
+arq==0.28.0
+redis==5.2.1

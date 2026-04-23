@@ -870,7 +870,9 @@ CREATE TABLE IF NOT EXISTS background_tasks (
     error_message TEXT,
     started_at TIMESTAMPTZ DEFAULT now(),
     completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    job_id TEXT,
+    attempt INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_bg_tasks_tenant ON background_tasks(tenant_id);

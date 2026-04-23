@@ -16,3 +16,5 @@
 | Veo 3.1 still processing | `upgrade_veo_to_1080p()` returns None | HD upscale takes longer than expected | Retry after 90 seconds. The API returns the URL once processing finishes. |
 | ElevenLabs timeout | Voice generation poll hits 30 attempts | Audio too long or API backlogged | Increase `max_attempts` in `elevenlabs_client.py` or split text into smaller chunks |
 | Google Docs unavailable | 503 on document creation | Google Docs API intermittent outage | Code returns `GoogleDocsUnavailableError` gracefully. Non-blocking - pipeline continues without Docs backup. |
+| Worker not executing queued jobs | Stages stuck at `pending`, no progress | `storyengine-worker` service stopped | `systemctl status storyengine-worker`; restart if stopped. Run `bash infra/setup_worker.sh` after fresh deploy. |
+| Queue silently bypassed (no Redis) | Pipeline runs in-process, no `job_id` in `background_tasks` rows | Redis unreachable or `REDIS_URL` wrong | Check backend logs for "Redis/arq pool not available" warning. Verify `REDIS_URL` env var. |
