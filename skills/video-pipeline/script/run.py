@@ -14,7 +14,7 @@ from orchestrator.pipeline_constants import IdeaFields, Statuses
 
 async def run(pipeline, brief: dict = None) -> dict:
     """Generate a script from a research brief."""
-    from brief_translator import translate_brief
+    from script.brief_translator import translate_brief
 
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_SCRIPTING)
