@@ -271,3 +271,8 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 - **Not done / next:** smoke test was import-only (no paid run). Before relying on production: run a single-video dry pass, and reinstall the setup_cron.sh production jobs (queue/discover/autopilot) — they are NOT in the live crontab (only storyengine/agents swarm + bot_healthcheck).
 - **Separate effort:** standing up a new Hermes agent profile `Youtuber` (~/.hermes/profiles/youtuber) as the YouTube production brain that drives this pipeline; multi-channel generalization planned (ChannelConfig). See ~/Desktop/Power_Doctrine Pipeline-main-integration/HERMES_REBUILD_PLAN.md.
 - **Caution:** `/home/clawd/pipeline-bot/venv` (referenced by infra detect_python) does not exist; live fallback is repo-root `economy-fastforward/venv`.
+
+## Handoff (2026-06-08 — neuter Slack for customer-facing bot)
+- SlackClient no longer raises without a token; degrades to a silent no-op (enabled flag + guarded API methods). Verified: no-token instantiation + all notify_* return None, no exceptions.
+- Paired with blanking SLACK_BOT_TOKEN/SLACK_APP_TOKEN in the VPS .env (gitignored) so the pipeline posts nothing to Slack. The legacy Slack listener (pipeline_control.py) is already stopped + its healthcheck cron disabled.
+- Context: pipeline is being driven by the new Telegram bot @YoutubeAGI_bot (Hermes profile 'youtuber'); Slack is being retired.
