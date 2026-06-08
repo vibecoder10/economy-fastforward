@@ -276,3 +276,8 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 - SlackClient no longer raises without a token; degrades to a silent no-op (enabled flag + guarded API methods). Verified: no-token instantiation + all notify_* return None, no exceptions.
 - Paired with blanking SLACK_BOT_TOKEN/SLACK_APP_TOKEN in the VPS .env (gitignored) so the pipeline posts nothing to Slack. The legacy Slack listener (pipeline_control.py) is already stopped + its healthcheck cron disabled.
 - Context: pipeline is being driven by the new Telegram bot @YoutubeAGI_bot (Hermes profile 'youtuber'); Slack is being retired.
+
+## Handoff (2026-06-08 — multi-tenant ChannelConfig foundation)
+- DONE: dedicated free Supabase project `youtuber` + multi-tenant schema (creators/channels/channel_config/drive_connections/videos/competitors/video_metrics, RLS on). `shared/channels/` ChannelConfig loader. Threaded into VideoPipeline + --channel flag. Verified: default-equivalent for economy_fastforward + distinct config loads for a second channel.
+- NEXT: (1) per-creator Google Drive OAuth connect flow (needs a hosted OAuth callback for the Telegram UX — design decision). (2) Supabase-backed status machine so state_store='supabase' channels actually produce (videos table read/write path; today only config is multi-tenant, EFF still on Airtable). (3) wire onboarding to auto-create a creator's ChannelConfig.
+- Secrets: YOUTUBER_DB_URL in VPS .env (gitignored). psycopg2-binary added to requirements.
