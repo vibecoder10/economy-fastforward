@@ -30,7 +30,7 @@ from shared.json_utils import parse_json_response
 
 # Curiosity gap imports (lazy loaded to avoid circular deps at module level)
 if CURIOSITY_GAP_ENABLED:
-    from curiosity_gap.gap_title_engine import GapTitleEngine
+    from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
     from autopilot.learning.pattern_library import PatternLibrary
 
 logger = logging.getLogger(__name__)

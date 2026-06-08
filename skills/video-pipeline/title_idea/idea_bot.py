@@ -16,7 +16,7 @@ Outputs 3 distinct video concepts with:
 import re
 from typing import Optional
 
-from curiosity_gap.gap_title_engine import GapTitleEngine
+from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
 from autopilot.learning.pattern_library import PatternLibrary
 from orchestrator.pipeline_constants import CURIOSITY_GAP_ENABLED
 

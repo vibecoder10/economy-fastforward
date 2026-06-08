@@ -265,3 +265,9 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 - RUBRIC layout: two-column (queue + activity feed), tasks labeled by PRD
 - Agents use OAuth now (no API key charges)
 - Monitor: check cost page Apr 11 to confirm $0 API charges
+
+## Handoff (2026-06-08 — pipeline import repair + Youtuber agent)
+- **Fixed:** 5 stale shim-name imports left by 17b03be0 — pipeline now imports cleanly again (orchestrator.pipeline + all 5 touched entrypoints verified). Branch `claude/repair-pipeline-imports`. Done in an isolated git worktree (~/yt-repair) to avoid the storyengine dev-swarm's git stash/checkout/reset on the shared tree.
+- **Not done / next:** smoke test was import-only (no paid run). Before relying on production: run a single-video dry pass, and reinstall the setup_cron.sh production jobs (queue/discover/autopilot) — they are NOT in the live crontab (only storyengine/agents swarm + bot_healthcheck).
+- **Separate effort:** standing up a new Hermes agent profile `Youtuber` (~/.hermes/profiles/youtuber) as the YouTube production brain that drives this pipeline; multi-channel generalization planned (ChannelConfig). See ~/Desktop/Power_Doctrine Pipeline-main-integration/HERMES_REBUILD_PLAN.md.
+- **Caution:** `/home/clawd/pipeline-bot/venv` (referenced by infra detect_python) does not exist; live fallback is repo-root `economy-fastforward/venv`.

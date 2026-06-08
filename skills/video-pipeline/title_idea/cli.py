@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-from curiosity_gap.gap_title_engine import GapTitleEngine
+from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
 from autopilot.learning.pattern_library import PatternLibrary
 from shared.clients.anthropic_client import AnthropicClient
 from shared.clients.airtable_client import AirtableClient

@@ -321,3 +321,9 @@ _After each session, add a one-line summary of what was done and any new lessons
 - progress.md from PRD 4 had [x] marks for tasks 1-15. When PRD 2 deployed with tasks 1-13, mission-status saw all as done
 - Fix: verify progress.md title matches current PRD before trusting any [x] marks
 - Pattern: Any file that persists across PRD deployments MUST be validated against the current PRD
+
+### Shim-removal refactor left 5 stale imports (pipeline couldn't import) (2026-06-08)
+- Commit 17b03be0 "Remove all shims, update all imports, squeaky clean" deleted the back-compat shim packages (curiosity_gap/, brief_translator/, audio_sync/, etc.) but missed updating 5 imports, leaving `ModuleNotFoundError: No module named 'curiosity_gap.gap_title_engine'` — `orchestrator.pipeline` (and --run-queue/--discover) could not import at all.
+- Missed imports: title_idea/{idea_bot,cli,trending_idea_bot}.py + research/agent.py used `from curiosity_gap.gap_title_engine import ...` (canonical: `title_idea.curiosity_gap.gap_title_engine`); script/run.py used `from brief_translator import ...` (canonical: `script.brief_translator`).
+- Pattern: after a "remove shims + rewrite imports" sweep, grep the WHOLE tree for the old top-level names (`^\s*(from|import)\s+<oldname>`) before trusting it — the leftover empty dirs (only __pycache__/tests) hide that the package is gone. Vestigial dirs without __init__.py are a tell.
+- NOTE: `python -m orchestrator.pipeline` with NO args is NOT a safe smoke test — it instantiates clients and hangs/works; use `python -c "import orchestrator.pipeline"` instead.
