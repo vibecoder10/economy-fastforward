@@ -50,6 +50,7 @@ from shared.clients.image_client import ImageClient
 from shared.clients.gemini_client import GeminiClient
 from shared.clients.apify_client import ApifyYouTubeClient
 from shared.clients.sound_client import SoundClient
+from shared.channels import load_channel
 from title_idea.idea_bot import IdeaBot
 from title_idea.trending_idea_bot import TrendingIdeaBot
 from sound.sound_prompt_bot import SoundPromptBot
@@ -84,13 +85,23 @@ class VideoPipeline:
     STATUS_UPLOADED_DRAFT = Statuses.UPLOADED_DRAFT
     STATUS_IN_QUE = Statuses.IN_QUE
     
-    def __init__(self):
-        """Initialize all API clients."""
+    def __init__(self, channel: Optional[str] = None):
+        """Initialize all API clients for a given channel (tenant)."""
+        self.channel_config = load_channel(channel)
+        cfg = self.channel_config
+        self.channel = cfg.channel_id
+        # Per-channel profile selection flows to sub-bots via env (they read these)
+        if cfg.script_profile:
+            os.environ["SCRIPT_PROFILE"] = cfg.script_profile
+        if cfg.visual_profile:
+            os.environ["VISUAL_PROFILE"] = cfg.visual_profile
         self.anthropic = AnthropicClient()
-        self.airtable = AirtableClient()
-        self.google = GoogleClient()
+        self.airtable = AirtableClient(base_id=cfg.airtable_base_id)
+        self.google = GoogleClient(refresh_token=cfg.drive_refresh_token or None)
+        if cfg.drive_folder_id:
+            self.google.parent_folder_id = cfg.drive_folder_id
         self.slack = SlackClient()
-        self.elevenlabs = ElevenLabsClient()
+        self.elevenlabs = ElevenLabsClient(voice_id=cfg.voice_id)
         self.gemini = GeminiClient()
         # Pass google client for proxy logic
         self.image_client = ImageClient(google_client=self.google)
@@ -863,7 +874,14 @@ async def main():
     """CLI entry point - runs the next available step."""
     import sys
 
-    pipeline = VideoPipeline()
+    # --channel <slug> selects the tenant; default resolves to economy_fastforward.
+    channel = None
+    if "--channel" in sys.argv:
+        _i = sys.argv.index("--channel")
+        if _i + 1 < len(sys.argv):
+            channel = sys.argv[_i + 1]
+            del sys.argv[_i:_i + 2]
+    pipeline = VideoPipeline(channel=channel)
 
     if len(sys.argv) > 1 and sys.argv[1] in ["--help", "-h"]:
         print("=" * 60)
