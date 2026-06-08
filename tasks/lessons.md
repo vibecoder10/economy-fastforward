@@ -327,3 +327,8 @@ _After each session, add a one-line summary of what was done and any new lessons
 - Missed imports: title_idea/{idea_bot,cli,trending_idea_bot}.py + research/agent.py used `from curiosity_gap.gap_title_engine import ...` (canonical: `title_idea.curiosity_gap.gap_title_engine`); script/run.py used `from brief_translator import ...` (canonical: `script.brief_translator`).
 - Pattern: after a "remove shims + rewrite imports" sweep, grep the WHOLE tree for the old top-level names (`^\s*(from|import)\s+<oldname>`) before trusting it — the leftover empty dirs (only __pycache__/tests) hide that the package is gone. Vestigial dirs without __init__.py are a tell.
 - NOTE: `python -m orchestrator.pipeline` with NO args is NOT a safe smoke test — it instantiates clients and hangs/works; use `python -c "import orchestrator.pipeline"` instead.
+
+### SlackClient now no-ops without a token (neuter for customer-facing) (2026-06-08)
+- SlackClient.__init__ used to `raise ValueError` if SLACK_BOT_TOKEN was missing, and the pipeline instantiates it unconditionally (VideoPipeline.__init__) — so simply blanking the token in .env would CRASH every run.
+- Fix: __init__ sets `self.enabled = bool(token)` and `self.client = None` when absent (no raise); the 4 API methods (send_message/send_blocks/add_reaction/get_message) early-return None when not enabled. notify/notify_blocks + all notify_* delegate to those, so the whole client goes silent.
+- To actually silence Slack: this code change + blank SLACK_BOT_TOKEN/SLACK_APP_TOKEN in .env. Pattern: an optional integration should degrade to a no-op, not raise, when its credential is absent.

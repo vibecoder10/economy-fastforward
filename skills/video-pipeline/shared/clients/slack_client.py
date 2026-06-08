@@ -23,11 +23,12 @@ class SlackClient:
         channel_id: Optional[str] = None,
     ):
         self.bot_token = bot_token or os.getenv("SLACK_BOT_TOKEN")
-        if not self.bot_token:
-            raise ValueError("SLACK_BOT_TOKEN not found in environment")
+        # Neutered mode: with no token, this client is a silent no-op instead of
+        # raising. Required for customer-facing / non-Slack channels.
+        self.enabled = bool(self.bot_token)
 
         self.channel_id = channel_id or os.getenv("SLACK_CHANNEL_ID", self.DEFAULT_CHANNEL_ID)
-        self.client = WebClient(token=self.bot_token)
+        self.client = WebClient(token=self.bot_token) if self.enabled else None
 
     def send_message(self, text: str, channel_id: Optional[str] = None) -> dict:
         """Send a message to a Slack channel with retry on transient errors.
@@ -42,6 +43,8 @@ class SlackClient:
         Raises:
             SlackApiError: On permanent API errors (invalid token, channel not found, etc.)
         """
+        if not self.enabled:
+            return None
         target_channel = channel_id or self.channel_id
 
         last_error = None
@@ -82,6 +85,8 @@ class SlackClient:
         Raises:
             SlackApiError: On API errors
         """
+        if not self.enabled:
+            return None
         target_channel = channel_id or self.channel_id
 
         response = self.client.reactions_add(
@@ -101,6 +106,8 @@ class SlackClient:
         Returns:
             Message dict if found, None otherwise
         """
+        if not self.enabled:
+            return None
         target_channel = channel_id or self.channel_id
 
         try:
@@ -138,6 +145,8 @@ class SlackClient:
         Returns:
             Slack API response dict with ok, ts, channel.
         """
+        if not self.enabled:
+            return None
         target_channel = channel_id or self.channel_id
 
         last_error = None
