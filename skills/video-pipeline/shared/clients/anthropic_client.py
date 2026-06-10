@@ -160,10 +160,13 @@ class AnthropicClient:
         base_url = os.getenv("ANTHROPIC_BASE_URL")
         self._gateway_mode = bool(base_url)
         if base_url:
+            # max_retries=4: Kie's gateway throws intermittent 500s under
+            # sustained load (observed killing a 5-minute research run).
             self.client = Anthropic(
                 auth_token=self.api_key,
                 base_url=base_url,
                 default_headers={"User-Agent": "StoryEngine/1.0"},
+                max_retries=4,
             )
         else:
             self.client = Anthropic(api_key=self.api_key)
@@ -228,7 +231,27 @@ class AnthropicClient:
         if tools:
             kwargs["tools"] = tools
 
-        response = await _asyncio.to_thread(self.client.messages.create, **kwargs)
+        async def _create_with_5xx_retry():
+            """The SDK already retries transient statuses internally; this outer
+            loop covers longer upstream blips (Kie 500s can persist past the
+            SDK's quick backoff) without failing a multi-minute pipeline stage."""
+            import anthropic as _anthropic
+            last = None
+            for attempt, delay in enumerate((0, 15, 45)):
+                if delay:
+                    print(f"    ⚠️ Upstream 5xx — retrying in {delay}s (attempt {attempt + 1}/3)...")
+                    await _asyncio.sleep(delay)
+                try:
+                    return await _asyncio.to_thread(self.client.messages.create, **kwargs)
+                except _anthropic.APIStatusError as e:
+                    if e.status_code < 500:
+                        raise
+                    last = e
+                except _anthropic.APIConnectionError as e:
+                    last = e
+            raise last
+
+        response = await _create_with_5xx_retry()
 
         text = self._extract_text(response)
         if text:
@@ -237,7 +260,7 @@ class AnthropicClient:
         # Empty content — retry once after a short delay
         print("    ⚠️ API returned empty content, retrying in 2s...")
         await _asyncio.sleep(2)
-        response = await _asyncio.to_thread(self.client.messages.create, **kwargs)
+        response = await _create_with_5xx_retry()
 
         text = self._extract_text(response)
         if text:
