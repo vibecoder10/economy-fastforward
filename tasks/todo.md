@@ -25,10 +25,12 @@ Retry endpoint: `POST /api/model-video/{video_id}/retry`. No migration needed.
   visible in Pipeline list + detail page
 
 ### Known gaps / follow-ups
-1. **No live-Claude run yet** — there is NO working Anthropic key anywhere on the VPS
-   (root .env key returns 401; product is BYOK and Ryan's tenant vault only has kie_ai).
-   First real modeled pack runs when Ryan adds his Anthropic key in Settings → Keys.
-   JSON-shape risk mitigated: required-keys validation + one retry on malformed JSON.
+1. ~~No live-Claude run~~ RESOLVED same-day: Ryan clarified Claude calls go through
+   Kie.ai. model_video now resolves creds kie-first (`https://api.kie.ai/claude/v1/messages`,
+   Bearer auth, `stream:false` required, models claude-sonnet-4-5 / claude-haiku-4-5,
+   beware 200-with-error-body) with direct-Anthropic fallback. NOTE: the rest of the
+   backend (distiller, learn-voice, suggest-titles, pipeline executor) still hits
+   api.anthropic.com directly with anthropic_api_key — aligning those to Kie is open work.
 2. yt-dlp is bot-blocked on the VPS IP ("Sign in to confirm you're not a bot") — oEmbed
    fallback covers title/channel/thumbnail, but transcripts won't extract until cookies
    or a different egress is configured. Affects competitor scraping too, worth its own fix.

@@ -34,9 +34,17 @@ from error_utils import humanize_error, user_facing
 
 router = APIRouter(prefix="/api/model-video", tags=["model-video"])
 
-SONNET_MODEL = "claude-sonnet-4-20250514"
-# Overridable so E2E tests can point at a local mock without real spend.
+# Claude calls go through Kie.ai (the tenant's kie_ai_api_key covers Claude too);
+# a tenant-scoped anthropic_api_key is the fallback for direct Anthropic access.
+# URLs are overridable so E2E tests can point at a local mock without real spend.
+KIE_CLAUDE_API_URL = os.getenv("KIE_CLAUDE_API_URL", "https://api.kie.ai/claude/v1/messages")
 ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")
+
+# Model ids per provider/tier. Kie.ai uses undated aliases.
+CLAUDE_MODELS = {
+    "kie": {"smart": "claude-sonnet-4-5", "fast": "claude-haiku-4-5"},
+    "anthropic": {"smart": "claude-sonnet-4-20250514", "fast": "claude-haiku-4-5-20251001"},
+}
 TRANSCRIPT_PROMPT_CHAR_CAP = 8000
 TASK_TYPE = "model_video"
 
@@ -69,29 +77,102 @@ class ModelVideoResponse(BaseModel):
 
 # --- Claude helpers ---
 
-async def _call_claude(prompt: str, api_key: str, model: str = SONNET_MODEL, max_tokens: int = 6000) -> Optional[str]:
-    """Call Claude and return raw text (markdown fences stripped)."""
+async def _resolve_claude_creds(tenant_id) -> Optional[dict]:
+    """Pick the provider for Claude calls: Kie.ai first (it's the one key every
+    tenant configures in onboarding), direct Anthropic as fallback."""
+    from vault import get_secret
+    kie_key = await get_secret("kie_ai_api_key", str(tenant_id))
+    if kie_key:
+        return {"provider": "kie", "key": kie_key}
+    anthropic_key = await get_secret("anthropic_api_key", str(tenant_id))
+    if anthropic_key:
+        return {"provider": "anthropic", "key": anthropic_key}
+    return None
+
+
+async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens: int = 6000) -> Optional[str]:
+    """Call Claude via the resolved provider; return raw text (fences stripped)."""
+    model = CLAUDE_MODELS[creds["provider"]][tier]
+    if creds["provider"] == "kie":
+        url = KIE_CLAUDE_API_URL
+        headers = {
+            "Authorization": f"Bearer {creds['key']}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "stream": False,  # Kie.ai defaults to streaming — must opt out
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+    else:
+        url = ANTHROPIC_API_URL
+        headers = {
+            "x-api-key": creds["key"],
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
     async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(
-            ANTHROPIC_API_URL,
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
+        response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
-        data = response.json()
+        # Kie.ai omits the Content-Type header on success — parse text directly.
+        data = json.loads(response.text)
+
+    # Kie.ai returns HTTP 200 with {"code": 401, "msg": ...} on auth/quota
+    # failures — HTTP status alone is a lie for this provider.
+    if "content" not in data:
+        raise RuntimeError(f"Claude call via {creds['provider']} failed: {str(data.get('msg') or data)[:200]}")
 
     text = data["content"][0]["text"].strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     return text
+
+
+def _format_dna_prompt(info: dict, transcript: str) -> str:
+    """Format the shared DNA-extraction prompt (mirrors distiller.distill_full_video_dna,
+    which is hardwired to direct Anthropic — we route through the provider-aware caller)."""
+    from distillation.distiller import FULL_VIDEO_DNA_PROMPT
+    words = (transcript or "").split()
+    if len(words) > 5000:
+        transcript = " ".join(words[:5000])
+    day_idx = info.get("published_day_of_week")
+    like_ratio = info.get("like_ratio") or 0
+    vps = info.get("views_per_sub_ratio") or 0
+    return FULL_VIDEO_DNA_PROMPT.format(
+        title=info.get("title") or "Unknown",
+        channel=info.get("channel") or "Unknown",
+        views=info.get("views") or 0,
+        vph=0,
+        duration_seconds=info.get("duration_seconds") or 0,
+        likes=info.get("likes") or 0,
+        comment_count=info.get("comment_count") or 0,
+        channel_subs=info.get("channel_subscriber_count") or 0,
+        like_ratio=f"{like_ratio:.4f}" if like_ratio else "N/A",
+        views_per_sub_ratio=f"{vps:.2f}" if vps else "N/A",
+        published_day=calendar.day_name[day_idx] if isinstance(day_idx, int) and 0 <= day_idx <= 6 else "Unknown",
+        published_hour=info.get("published_hour") or 0,
+        has_chapters=bool(info.get("has_chapters")),
+        description=(info.get("description") or "")[:500],
+        tags="None",
+        transcript=transcript or "",
+    )
+
+
+async def _distill_dna(creds: dict, info: dict, transcript: str) -> Optional[dict]:
+    """Style-DNA extraction via the provider-aware caller (fast tier)."""
+    text = await _call_claude(_format_dna_prompt(info, transcript), creds, tier="fast", max_tokens=2048)
+    if not text:
+        return None
+    metadata = json.loads(text)
+    summary = metadata.pop("summary", "")
+    return {"summary": summary, "structured_metadata": metadata}
 
 
 MODELED_PACK_PROMPT = """You are a YouTube content strategist and cinematic prompt director.
@@ -177,13 +258,13 @@ _REQUIRED_PACK_KEYS = (
 )
 
 
-async def _generate_modeled_pack(api_key: str, info: dict, dna: Optional[dict],
+async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
                                  profile: Optional[dict], transcript: Optional[str]) -> dict:
     prompt = _build_pack_prompt(info, dna, profile, transcript)
     last_err: Optional[Exception] = None
     for _attempt in range(2):  # one retry on malformed JSON — LLM output isn't deterministic
         try:
-            text = await _call_claude(prompt, api_key)
+            text = await _call_claude(prompt, creds, tier="smart")
             if not text:
                 raise ValueError("Claude returned an empty modeled pack")
             pack = json.loads(text)
@@ -435,11 +516,10 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
         if transcript is None and not blockers:
             blockers.append("Transcript wasn't available — modeled from the title, thumbnail, and metadata instead.")
 
-        from vault import get_secret
-        api_key = await get_secret("anthropic_api_key", str(tenant_id))
-        if not api_key:
+        creds = await _resolve_claude_creds(tenant_id)
+        if not creds:
             _set("failed", error=user_facing(
-                "Add your Anthropic (Claude) API key in Settings → Keys, then retry."
+                "Add your Kie.ai API key in Settings → Keys, then retry."
             ))
             return
 
@@ -447,25 +527,9 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
         _set("running", "Analyzing what makes it work…")
         dna = None
         try:
-            from distillation.distiller import distill_full_video_dna
-            day_idx = info.get("published_day_of_week")
-            dna = await distill_full_video_dna(
-                title=info.get("title") or "",
-                channel=info.get("channel") or "",
-                views=info.get("views") or 0,
-                vph=0,
-                duration_seconds=info.get("duration_seconds") or 0,
-                transcript=transcript or (info.get("description") or info.get("title") or ""),
-                api_key=api_key,
-                likes=info.get("likes") or 0,
-                comment_count=info.get("comment_count") or 0,
-                channel_subs=info.get("channel_subscriber_count") or 0,
-                like_ratio=info.get("like_ratio") or 0,
-                views_per_sub_ratio=info.get("views_per_sub_ratio") or 0,
-                published_day=calendar.day_name[day_idx] if isinstance(day_idx, int) and 0 <= day_idx <= 6 else "Unknown",
-                published_hour=info.get("published_hour") or 0,
-                has_chapters=bool(info.get("has_chapters")),
-                description=info.get("description") or "",
+            dna = await _distill_dna(
+                creds, info,
+                transcript or (info.get("description") or info.get("title") or ""),
             )
         except Exception:
             blockers.append("Deep style analysis was unavailable — modeled from raw metadata.")
@@ -477,7 +541,7 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
             "FROM channel_profiles WHERE tenant_id = $1",
             tenant_id,
         )
-        pack = await _generate_modeled_pack(api_key, info, dna, profile, transcript)
+        pack = await _generate_modeled_pack(creds, info, dna, profile, transcript)
 
         # 4. Persist everything before any generation credits are spent
         _set("running", "Writing your prompt pack…")

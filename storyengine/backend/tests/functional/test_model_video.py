@@ -45,25 +45,17 @@ def _install_stubs():
     fake_niche._extract_video_info = None  # set per-test
     sys.modules["routes.niche"] = fake_niche
 
+    # Configurable per-test vault: keys present for the tenant
     fake_vault = types.ModuleType("vault")
+    fake_vault.SECRETS = {"kie_ai_api_key": "kie-test-key"}
     async def get_secret(name, tenant_id=None):
-        return "sk-test-key"
+        return fake_vault.SECRETS.get(name)
     fake_vault.get_secret = get_secret
     sys.modules["vault"] = fake_vault
 
-    fake_dist_pkg = types.ModuleType("distillation")
-    fake_distiller = types.ModuleType("distillation.distiller")
-    async def distill_full_video_dna(**kwargs):
-        return {
-            "summary": "Reference works via mystery hook + escalating stakes.",
-            "structured_metadata": {"hook_dna": {"type": "mystery_question"}},
-            "model_used": "stub",
-        }
-    fake_distiller.distill_full_video_dna = distill_full_video_dna
-    fake_dist_pkg.distiller = fake_distiller
-    sys.modules["distillation"] = fake_dist_pkg
-    sys.modules["distillation.distiller"] = fake_distiller
-
+    # NOTE: distillation.distiller is imported for real (it only needs json/httpx)
+    # — model_video uses its FULL_VIDEO_DNA_PROMPT constant but routes the call
+    # through its own provider-aware _call_claude, which tests patch.
     return statuses
 
 
@@ -134,13 +126,21 @@ def _patch_db_and_claude(pack=VALID_PACK, profile_extra=None):
             return row
         return None
 
-    async def fake_call_claude(prompt, api_key, model=mv.SONNET_MODEL, max_tokens=6000):
+    calls = []
+
+    async def fake_call_claude(prompt, creds, tier="smart", max_tokens=6000):
+        calls.append({"provider": creds["provider"], "tier": tier})
+        if tier == "fast":  # DNA distillation pass
+            return json.dumps({
+                "summary": "Reference works via mystery hook + escalating stakes.",
+                "hook_dna": {"type": "mystery_question"},
+            })
         return json.dumps(pack)
 
     mv.execute = fake_execute
     mv.fetch_one = fake_fetch_one
     mv._call_claude = fake_call_claude
-    return executed
+    return executed, calls
 
 
 def _run(coro):
@@ -174,8 +174,9 @@ def test_url_parsing():
 
 def test_happy_path_persists_everything():
     STATUSES.clear()
+    sys.modules["vault"].SECRETS = {"kie_ai_api_key": "kie-test-key"}
     sys.modules["routes.niche"]._extract_video_info = lambda vid: dict(REF_INFO)
-    executed = _patch_db_and_claude()
+    executed, claude_calls = _patch_db_and_claude()
 
     _run(mv._run_modeling("tenant-1", "video-1", "dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"))
 
@@ -198,7 +199,39 @@ def test_happy_path_persists_everything():
     assert len(comp_upserts) == 1 and "ON CONFLICT (tenant_id, video_id)" in comp_upserts[0]
     # Retry path clears prior modeled prompt rows first
     assert any(q.startswith("DELETE FROM assets") for q, _ in executed)
+    # Kie.ai is the preferred Claude provider: DNA on fast tier, pack on smart tier
+    assert {"provider": "kie", "tier": "fast"} in claude_calls, claude_calls
+    assert {"provider": "kie", "tier": "smart"} in claude_calls, claude_calls
     print("PASS test_happy_path_persists_everything")
+
+
+def test_anthropic_fallback_when_no_kie_key():
+    STATUSES.clear()
+    sys.modules["vault"].SECRETS = {"anthropic_api_key": "sk-ant-test"}
+    sys.modules["routes.niche"]._extract_video_info = lambda vid: dict(REF_INFO)
+    _, claude_calls = _patch_db_and_claude()
+
+    _run(mv._run_modeling("tenant-1", "video-6", "dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"))
+
+    assert STATUSES[-1]["status"] == "completed", STATUSES
+    assert all(c["provider"] == "anthropic" for c in claude_calls), claude_calls
+    sys.modules["vault"].SECRETS = {"kie_ai_api_key": "kie-test-key"}
+    print("PASS test_anthropic_fallback_when_no_kie_key")
+
+
+def test_no_keys_fails_with_kie_instruction():
+    STATUSES.clear()
+    sys.modules["vault"].SECRETS = {}
+    sys.modules["routes.niche"]._extract_video_info = lambda vid: dict(REF_INFO)
+    _patch_db_and_claude()
+
+    _run(mv._run_modeling("tenant-1", "video-7", "dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"))
+
+    final = STATUSES[-1]
+    assert final["status"] == "failed", STATUSES
+    assert "Kie.ai API key" in (final["error"] or ""), final
+    sys.modules["vault"].SECRETS = {"kie_ai_api_key": "kie-test-key"}
+    print("PASS test_no_keys_fails_with_kie_instruction")
 
 
 def test_transcript_missing_falls_back_with_blocker():
@@ -248,7 +281,7 @@ def test_bot_blocked_extraction_uses_oembed_fallback():
             "description": "",
         }
     mv._oembed_fallback = fake_oembed
-    executed = _patch_db_and_claude()
+    executed, _ = _patch_db_and_claude()
 
     _run(mv._run_modeling("tenant-1", "video-5", "dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"))
 
@@ -280,4 +313,6 @@ if __name__ == "__main__":
     test_unreadable_video_fails_friendly()
     test_bot_blocked_extraction_uses_oembed_fallback()
     test_bad_pack_fails_without_raw_leak()
-    print("\nALL MODEL-VIDEO TESTS PASSED (6/6)")
+    test_anthropic_fallback_when_no_kie_key()
+    test_no_keys_fails_with_kie_instruction()
+    print("\nALL MODEL-VIDEO TESTS PASSED (8/8)")
