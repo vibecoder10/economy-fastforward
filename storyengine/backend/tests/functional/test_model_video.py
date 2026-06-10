@@ -93,6 +93,9 @@ VALID_PACK = {
     "script_guidance": "Open with a mystery hook, then 4 escalating acts.",
     "visual_style_brief": "Dark cinematic macro-finance look, 35mm, teal/amber.",
     "thumbnail_prompt": "Split-lit central banker silhouette before a cracked dollar seal.",
+    "image_dna": "Photorealistic macro-finance noir: 35mm, Rembrandt lighting, teal/amber palette, recurring melting-coin motif.",
+    "motion_dna": "Slow push-ins and lateral drifts, 5-8s clips, atmospheric particulate, no whip pans.",
+    "thumbnail_dna": "High-contrast face-plus-object composition, alarmed expression left third, single bold color block.",
     "negative_prompts": ["no text overlays", "no watermarks"],
     "scene_concepts": [
         {
@@ -190,8 +193,17 @@ def test_happy_path_persists_everything():
     assert any("Analyzing" in (m or "") for m in messages)
     assert any("Creating" in (m or "") for m in messages)
 
-    video_updates = [q for q, a in executed if q.startswith("UPDATE videos SET video_title")]
+    video_updates = [(q, a) for q, a in executed if q.startswith("UPDATE videos SET video_title")]
     assert len(video_updates) == 1, [q[:60] for q, _ in executed]
+    uq, ua = video_updates[0]
+    # Modeled DNA must land in the pipeline's steering columns so downstream
+    # clicks (script/images/thumbnail/clips) actually generate "modeled" output
+    assert "image_style_override" in uq and "thumbnail_style_override" in uq and "video_motion_system_prompt" in uq
+    flat = " | ".join(str(x) for x in ua)
+    assert "macro-finance noir" in flat, "image_dna not persisted"
+    assert "push-ins" in flat, "motion_dna not persisted"
+    assert "alarmed expression" in flat, "thumbnail_dna not persisted"
+    assert "no text overlays" in flat, "negative prompts not folded into image DNA"
     asset_inserts = [(q, a) for q, a in executed if "INSERT INTO assets" in q]
     assert len(asset_inserts) == 8, len(asset_inserts)
     assert all("'modeled'" in q for q, _ in asset_inserts)

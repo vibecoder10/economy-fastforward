@@ -94,7 +94,12 @@ async def _resolve_claude_creds(tenant_id) -> Optional[dict]:
 
 
 async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens: int = 6000) -> Optional[str]:
-    """Call Claude via the resolved provider; return raw text (fences stripped)."""
+    """Call Claude via the resolved provider; return raw text (fences stripped).
+
+    Retries transient upstream failures (5xx, timeouts, connection drops) —
+    Kie.ai returned a raw 500 mid-run in production and a single blip
+    shouldn't fail a 90-second modeling task.
+    """
     model = CLAUDE_MODELS[creds["provider"]][tier]
     if creds["provider"] == "kie":
         url = KIE_CLAUDE_API_URL
@@ -121,11 +126,25 @@ async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens
             "messages": [{"role": "user", "content": prompt}],
         }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        # Kie.ai omits the Content-Type header on success — parse text directly.
-        data = json.loads(response.text)
+    data = None
+    last_err: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                # Kie.ai omits the Content-Type header on success — parse text directly.
+                data = json.loads(response.text)
+            break
+        except (httpx.TransportError, httpx.HTTPStatusError) as e:
+            transient = isinstance(e, httpx.TransportError) or e.response.status_code >= 500
+            if not transient or attempt == 2:
+                raise
+            last_err = e
+            logger.warning("[model_video] transient Claude error (attempt %d): %s", attempt + 1, str(e)[:200])
+            await asyncio.sleep(2 * (attempt + 1))
+    if data is None:
+        raise last_err or RuntimeError("Claude call failed")
 
     # Kie.ai returns HTTP 200 with {"code": 401, "msg": ...} on auth/quota
     # failures — HTTP status alone is a lie for this provider.
@@ -223,6 +242,9 @@ Return ONLY valid JSON with exactly this shape:
   "script_guidance": "markdown: hook formula to use (modeled on the reference's hook structure), act-by-act structure beats, pacing/retention pattern, open-loop strategy (150-250 words)",
   "visual_style_brief": "markdown: overall visual style, thumbnail style, shot language, camera/lens/motion vocabulary, recurring image motifs to establish (100-200 words)",
   "thumbnail_prompt": "one self-contained image-generation prompt for the thumbnail, modeled on the reference's thumbnail style (40-70 words)",
+  "image_dna": "style directives for EVERY still image in the video: art style, palette, lighting, lens vocabulary, recurring motifs — written as instructions an image-prompt writer must follow (60-100 words)",
+  "motion_dna": "directives for EVERY video clip prompt: camera movement vocabulary, pacing, subject motion, atmosphere — modeled on the reference's shot language (40-80 words)",
+  "thumbnail_dna": "style directives for thumbnail generation modeled on the reference's thumbnail approach: composition, face/emotion usage, color blocking, text treatment (40-80 words)",
   "negative_prompts": ["3-6 short style constraints to avoid, e.g. 'no text overlays', 'no watermarks'"],
   "scene_concepts": [
     {{
@@ -317,18 +339,38 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         "dna_summary": (dna or {}).get("summary"),
         "blockers": blockers,
     }
+    # original_dna is never touched by pipeline stages (research overwrites
+    # research_payload), so it keeps the full modeled pack permanently.
     original_dna = {
-        "summary": (dna or {}).get("summary"),
+        "summary": (dna or {}).get("summary") or "DNA analysis unavailable — modeled from metadata only.",
         **((dna or {}).get("structured_metadata") or {}),
-    } if dna else {"summary": "DNA analysis unavailable — modeled from metadata only."}
+        "modeled_pack": research_payload,
+    }
+
+    # Steering text for downstream stages. The pipeline already consumes these
+    # channels: writer_guidance (script brief), image_style_override (image
+    # prompt engine), thumbnail_style_override (thumbnail engine, APPEND mode),
+    # video_motion_system_prompt (clip-prompt bot via per-video override).
+    visual_brief = str(pack.get("visual_style_brief") or "")
+    negatives = pack.get("negative_prompts") or []
+    avoid_line = ("\nAvoid: " + "; ".join(str(n) for n in negatives)) if negatives else ""
+    image_dna = (str(pack.get("image_dna") or "") or visual_brief) + avoid_line
+    thumbnail_dna = str(pack.get("thumbnail_dna") or "") or visual_brief
+    motion_dna = str(pack.get("motion_dna") or "") or visual_brief
+    motion_override = (
+        "Modeled motion DNA from a reference video the creator wants to emulate. "
+        "Apply this shot language to every video clip prompt you write:\n\n" + motion_dna
+    ) if motion_dna.strip() else None
 
     await execute(
         """UPDATE videos SET
            video_title = $1, headline = $1, thesis = $2, idea_reasoning = $3,
            writer_guidance = $4, title_candidates = $5, thumbnail_prompt = $6,
            source_views = $7, source_channel = $8,
-           original_dna = $9, research_payload = $10, updated_at = now()
-           WHERE id = $11 AND tenant_id = $12""",
+           original_dna = $9, research_payload = $10,
+           image_style_override = $11, thumbnail_style_override = $12,
+           video_motion_system_prompt = $13, updated_at = now()
+           WHERE id = $14 AND tenant_id = $15""",
         title,
         str(pack.get("angle_thesis") or ""),
         f"Modeled from reference: {info.get('title') or reference_url}",
@@ -339,6 +381,9 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         info.get("channel"),
         json.dumps(original_dna),
         json.dumps(research_payload),
+        image_dna.strip() or None,
+        thumbnail_dna.strip() or None,
+        motion_override,
         video_id, tenant_id,
     )
 
@@ -393,6 +438,9 @@ def _brief_markdown(pack: dict, info: dict, reference_url: str, blockers: list[s
         "", "## Research Brief", str(pack.get("research_brief") or ""),
         "", "## Script Guidance", str(pack.get("script_guidance") or ""),
         "", "## Visual Style Brief", str(pack.get("visual_style_brief") or ""),
+        "", "## Image Creation DNA", str(pack.get("image_dna") or "(see visual style brief)"),
+        "", "## Video Motion DNA", str(pack.get("motion_dna") or "(see visual style brief)"),
+        "", "## Thumbnail DNA", str(pack.get("thumbnail_dna") or "(see visual style brief)"),
         "", "## Thumbnail Prompt", str(pack.get("thumbnail_prompt") or ""),
         "", "## Negative Prompts / Constraints",
         *[f"- {n}" for n in (pack.get("negative_prompts") or [])],

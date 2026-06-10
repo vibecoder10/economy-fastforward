@@ -14,12 +14,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-# Requests per minute by plan
+# Requests per minute by plan. Includes BOTH naming generations (starter/
+# creator/studio here, starter/pro/agency in routes/billing.py) so whichever
+# string the account carries resolves to a real limit instead of free.
+# free floor is 60/min: the dashboard fires ~6 queries per page plus a 3s task
+# poller (20/min alone) — 15/min made the app unusable for free users.
 PLAN_LIMITS: dict[str, int] = {
-    "free": 15,
-    "starter": 30,
-    "creator": 100,
-    "studio": 300,
+    "free": 60,
+    "starter": 100,
+    "creator": 200,
+    "pro": 200,
+    "studio": 400,
+    "agency": 400,
 }
 
 # Concurrent pipeline job limits per plan
@@ -27,7 +33,9 @@ PLAN_JOB_LIMITS: dict[str, int] = {
     "free": 1,
     "starter": 1,
     "creator": 3,
+    "pro": 3,
     "studio": 5,
+    "agency": 5,
 }
 
 # Paths that skip rate limiting entirely
@@ -57,16 +65,42 @@ def _extract_tenant_from_jwt(request: Request) -> Optional[str]:
 
 
 async def _get_tenant_plan(tenant_id: str) -> str:
-    """Get tenant plan with lightweight caching (60s TTL)."""
+    """Get tenant plan with lightweight caching (60s TTL).
+
+    Mirrors routes.billing._get_tenant_plan: the plan lives on accounts (via
+    membership), and an active trial upgrades free -> pro. This middleware
+    previously read tenants.plan, which is 'free' for trial users — every
+    dashboard poll then counted against the free bucket and 429-stormed
+    their whole session.
+    """
     now = time.time()
     cached = _plan_cache.get(tenant_id)
     if cached and now - cached[1] < _PLAN_CACHE_TTL:
         return cached[0]
 
     from database import fetch_one
+    import uuid as _uuid
+    try:
+        tenant_uuid = _uuid.UUID(str(tenant_id))
+    except ValueError:
+        return "free"
 
-    row = await fetch_one("SELECT plan FROM tenants WHERE id = $1", tenant_id)
-    plan = (row or {}).get("plan", "free")
+    plan = "free"
+    row = await fetch_one(
+        """SELECT a.plan, a.trial_ends_at FROM accounts a
+           JOIN memberships m ON m.user_id = a.id
+           WHERE m.tenant_id = $1 LIMIT 1""",
+        tenant_uuid,
+    )
+    if row:
+        plan = row.get("plan") or "free"
+        if plan == "free" and row.get("trial_ends_at"):
+            from datetime import datetime, timezone
+            if row["trial_ends_at"] > datetime.now(timezone.utc):
+                plan = "pro"  # Active trial gets pro limits
+    else:
+        legacy = await fetch_one("SELECT plan FROM tenants WHERE id = $1", tenant_uuid)
+        plan = (legacy or {}).get("plan") or "free"
     _plan_cache[tenant_id] = (plan, now)
     return plan
 
