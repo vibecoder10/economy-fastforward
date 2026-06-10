@@ -1230,6 +1230,21 @@ directions, no labels, no headings inside them."""
 
             current_status = video.get("status")
 
+            # Modeled videos: the Model A Video flow seeds per-scene CONCEPT
+            # rows (generation_method='modeled') as inspectable pre-prompts.
+            # They carry image_prompt values, so the engine's resume logic sees
+            # every scene as "completed" and generates nothing. Clear them on a
+            # full run — the pack stays archived in original_dna/research_payload
+            # — so the engine builds the real per-scene prompt set (styled via
+            # image_style_override, which carries the modeled image DNA).
+            if scene is None and video.get("source") == "modeled":
+                cleared = await execute(
+                    "DELETE FROM assets WHERE video_id = $1 AND tenant_id = $2 "
+                    "AND generation_method = 'modeled'",
+                    video_id, self.tenant_id,
+                )
+                print(f"[Prompts] Cleared modeled concept rows before full generation ({cleared})", flush=True)
+
             if scene is not None and index is not None:
                 log_msg = f"Generating prompt for scene {scene} segment {index}"
             elif scene is not None:
