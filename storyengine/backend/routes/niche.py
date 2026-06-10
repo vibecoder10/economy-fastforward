@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -317,6 +318,33 @@ async def cancel_scrape(tenant_id: str = Depends(get_tenant_id)):
 # --- yt-dlp helpers (synchronous — called via asyncio.to_thread) ---
 
 
+def _ytdlp_antibot_opts() -> dict:
+    """yt-dlp options to get past YouTube's datacenter-IP bot check.
+
+    YouTube blocks watch-page/player extraction from the VPS egress IP
+    ("Sign in to confirm you're not a bot") — flat channel listing still
+    works, but per-video metadata and transcripts fail. Verified 2026-06-10:
+    alternate player_clients, latest yt-dlp, and PO-token providers do NOT
+    get around it; only authenticated cookies or a clean egress IP do.
+
+      YTDLP_COOKIES_FILE — Netscape-format cookies.txt exported from a
+                           browser logged into YouTube
+      YTDLP_PROXY        — proxy URL (http/socks5) with a residential or
+                           otherwise unflagged egress IP
+    """
+    opts: dict = {}
+    cookies = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
+    if cookies:
+        if os.path.isfile(cookies):
+            opts["cookiefile"] = cookies
+        else:
+            print(f"[yt-dlp] YTDLP_COOKIES_FILE set but not found: {cookies}")
+    proxy = os.environ.get("YTDLP_PROXY", "").strip()
+    if proxy:
+        opts["proxy"] = proxy
+    return opts
+
+
 def _normalize_channel_url(url: str) -> str:
     """Normalize YouTube channel URL to /videos tab for yt-dlp playlist extraction."""
     url = url.rstrip("/")
@@ -342,6 +370,7 @@ def _list_channel_videos(channel_url: str, max_results: int = 20) -> list[dict]:
         "quiet": True,
         "no_warnings": True,
         "ignoreerrors": True,
+        **_ytdlp_antibot_opts(),
     }
 
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -413,14 +442,23 @@ def _extract_video_info(video_id: str) -> Optional[dict]:
         "subtitleslangs": ["en"],
         "quiet": True,
         "no_warnings": True,
-        "ignoreerrors": True,
+        # NOT ignoreerrors: let DownloadError reach the except below so the
+        # bot-check failure is logged with a fix hint instead of swallowed.
+        **_ytdlp_antibot_opts(),
     }
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
-        print(f"[yt-dlp] Error extracting {video_id}: {e}")
+        if "Sign in to confirm" in str(e):
+            print(
+                f"[yt-dlp] {video_id}: YouTube bot check blocked this egress IP. "
+                "Set YTDLP_COOKIES_FILE (exported browser cookies) or YTDLP_PROXY "
+                "in storyengine/backend/.env to restore transcripts/metadata."
+            )
+        else:
+            print(f"[yt-dlp] Error extracting {video_id}: {e}")
         return None
 
     if not info:
