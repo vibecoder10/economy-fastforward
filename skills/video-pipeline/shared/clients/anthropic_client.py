@@ -138,14 +138,52 @@ Return ONLY the image generation prompt. No explanations, no JSON, no labels. \
 The prompt should be 100-150 words."""
 
 
+# Kie.ai's Claude gateway only knows undated model aliases
+# (claude-sonnet-4-5, not claude-sonnet-4-5-20250929).
+_DATED_MODEL_RE = re.compile(r"^(claude-[a-z]+-\d(?:-\d)?)-\d{8}$")
+
+
 class AnthropicClient:
-    """Client for Anthropic Claude API."""
-    
+    """Client for Anthropic Claude API.
+
+    When ANTHROPIC_BASE_URL is set (e.g. https://api.kie.ai/claude — Kie.ai's
+    Anthropic-compatible gateway), the client switches to gateway mode:
+    Bearer auth instead of x-api-key, a custom User-Agent (Kie's WAF blocks
+    the SDK's default UA), undated model aliases, and server-side tools
+    (web_search) stripped because the gateway doesn't execute them.
+    """
+
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY not found in environment")
-        self.client = Anthropic(api_key=self.api_key)
+        base_url = os.getenv("ANTHROPIC_BASE_URL")
+        self._gateway_mode = bool(base_url)
+        if base_url:
+            self.client = Anthropic(
+                auth_token=self.api_key,
+                base_url=base_url,
+                default_headers={"User-Agent": "StoryEngine/1.0"},
+            )
+        else:
+            self.client = Anthropic(api_key=self.api_key)
+
+    def _normalize_model(self, model: str) -> str:
+        """Map dated model ids to undated aliases in gateway mode."""
+        if not self._gateway_mode:
+            return model
+        match = _DATED_MODEL_RE.match(model or "")
+        return match.group(1) if match else model
+
+    def _filter_tools(self, tools):
+        """Drop Anthropic server-side tools (web_search) in gateway mode —
+        the gateway returns them unexecuted, which yields empty text."""
+        if not self._gateway_mode or not tools:
+            return tools
+        kept = [t for t in tools if not str(t.get("type", "")).startswith("web_search")]
+        if len(kept) != len(tools):
+            print("    ⚠️ Gateway mode: dropped server-side web_search tool (gateway doesn't execute it)")
+        return kept or None
     
     async def generate(
         self,
@@ -179,13 +217,14 @@ class AnthropicClient:
 
         # Build kwargs - only include system if provided
         kwargs = {
-            "model": model,
+            "model": self._normalize_model(model),
             "max_tokens": max_tokens,
             "temperature": temperature,
             "messages": messages,
         }
         if system_prompt:
             kwargs["system"] = system_prompt
+        tools = self._filter_tools(tools)
         if tools:
             kwargs["tools"] = tools
 

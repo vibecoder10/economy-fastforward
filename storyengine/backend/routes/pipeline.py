@@ -57,13 +57,13 @@ class PipelineStatus(BaseModel):
 # --- Pipeline Readiness Check ---
 
 PIPELINE_REQUIRED_KEYS = [
-    {"key": "anthropic_api_key", "label": "Anthropic (Claude)", "reason": "Scripts, research, and analysis", "url": "https://console.anthropic.com"},
     {"key": "elevenlabs_api_key", "label": "ElevenLabs API Key", "reason": "Voice narration synthesis", "url": "https://elevenlabs.io"},
     {"key": "elevenlabs_voice_id", "label": "ElevenLabs Voice ID", "reason": "Voice selection for narration", "url": "https://elevenlabs.io"},
-    {"key": "kie_ai_api_key", "label": "Kie.ai", "reason": "Image and video generation", "url": "https://kie.ai"},
+    {"key": "kie_ai_api_key", "label": "Kie.ai", "reason": "Images, video, and Claude (scripts, research, analysis)", "url": "https://kie.ai"},
 ]
 
 PIPELINE_OPTIONAL_KEYS = [
+    {"key": "anthropic_api_key", "label": "Anthropic (Claude)", "reason": "Claude runs through your Kie.ai key — add only for direct Anthropic access", "url": "https://console.anthropic.com"},
     {"key": "openai_api_key", "label": "OpenAI (Whisper)", "reason": "Audio transcription for captions — pipeline still runs without it", "url": "https://platform.openai.com"},
     {"key": "gemini_api_key", "label": "Gemini", "reason": "Thumbnail analysis — skipped without this", "url": "https://aistudio.google.com"},
 ]

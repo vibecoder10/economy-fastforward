@@ -84,7 +84,7 @@ class PipelineExecutor:
             "openai_api_key",
             "gemini_api_key",
         ]
-        env_names_to_clear = [k.upper() for k in keys_to_load] + ["WAVESPEED_API_KEY"]
+        env_names_to_clear = [k.upper() for k in keys_to_load] + ["WAVESPEED_API_KEY", "ANTHROPIC_BASE_URL"]
         for env_name in env_names_to_clear:
             os.environ.pop(env_name, None)
 
@@ -103,6 +103,17 @@ class PipelineExecutor:
                     print(f"[INIT]   - {key_name} not found", flush=True)
             except Exception as e:
                 print(f"[INIT]   ✗ {key_name} error: {e}", flush=True)
+
+        # Kie.ai covers Claude ("we use kie ai for any claude calls"): when the
+        # tenant has no direct Anthropic key, route the pipeline's Claude calls
+        # through Kie's Anthropic-compatible gateway. AnthropicClient reads
+        # ANTHROPIC_BASE_URL and switches to Bearer auth + undated model aliases.
+        if not os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("KIE_AI_API_KEY"):
+            os.environ["ANTHROPIC_API_KEY"] = os.environ["KIE_AI_API_KEY"]
+            os.environ["ANTHROPIC_BASE_URL"] = os.getenv(
+                "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
+            )
+            print("[INIT] Claude routed via Kie.ai gateway (no direct Anthropic key)", flush=True)
 
         # Create a lightweight pipeline object that only has what we need.
         # We can't import VideoPipeline directly because it imports ALL clients
