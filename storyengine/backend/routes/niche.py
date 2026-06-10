@@ -339,6 +339,14 @@ def _ytdlp_antibot_opts() -> dict:
             opts["cookiefile"] = cookies
         else:
             print(f"[yt-dlp] YTDLP_COOKIES_FILE set but not found: {cookies}")
+    else:
+        # Zero-config default: drop an exported cookies.txt here and it's
+        # picked up on the next request — no .env edit or restart needed.
+        default_cookies = os.path.expanduser(
+            "~/.config/storyengine/youtube_cookies.txt"
+        )
+        if os.path.isfile(default_cookies):
+            opts["cookiefile"] = default_cookies
     proxy = os.environ.get("YTDLP_PROXY", "").strip()
     if proxy:
         opts["proxy"] = proxy
