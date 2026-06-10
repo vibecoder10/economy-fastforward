@@ -17,7 +17,7 @@ See `.env.example` for all required variables. Critical ones:
 | `SLACK_CHANNEL_ID` | Slack | `C0A9U1X8NSW` |
 | `REDIS_URL` | Redis / arq queue | `redis://localhost:6379` (default). Used by StoryEngine backend and arq worker. If Redis is unreachable, pipeline stages fall back to in-process BackgroundTasks (no error — check logs for "Redis/arq pool not available" warning). |
 | `PER_USER_KEYS_ENABLED` | StoryEngine vault | Feature flag. Default `false`. When `true`, `vault.get_secret()` resolves user-scoped key first (`tenant:user:name`), then falls back to tenant-shared key (`tenant:name`). Raises `KeyError` if neither exists. Enable for PRD slice 4+ (per-user API key UI). |
-| `YTDLP_COOKIES_FILE` | yt-dlp (StoryEngine backend) | Path to Netscape-format `cookies.txt` exported from a browser logged into YouTube. Fixes the "Sign in to confirm you're not a bot" block on the VPS IP that kills transcripts/metadata in `routes/niche.py` (Model A Video, competitor scraping, voice-learn). Optional — unset means yt-dlp runs unauthenticated. |
+| `YTDLP_COOKIES_FILE` | yt-dlp (StoryEngine backend) | Path to Netscape-format `cookies.txt` exported from a browser logged into YouTube. Fixes the "Sign in to confirm you're not a bot" block on the VPS IP that kills transcripts/metadata in `routes/niche.py` (Model A Video, competitor scraping, voice-learn). Optional — when unset, `~/.config/storyengine/youtube_cookies.txt` is used automatically if it exists (zero-config: drop the file, no restart needed). |
 | `YTDLP_PROXY` | yt-dlp (StoryEngine backend) | Proxy URL (`http://` or `socks5://`) with an unflagged egress IP. Alternative to `YTDLP_COOKIES_FILE` for the same bot-check block. |
 
 ## Rules
