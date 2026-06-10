@@ -19,6 +19,7 @@ any paid image/video generation. Nothing renders or uploads from here.
 import asyncio
 import calendar
 import json
+import logging
 import os
 import re
 import uuid as _uuid
@@ -31,6 +32,8 @@ from pydantic import BaseModel
 from auth import get_tenant_id
 from database import execute, fetch_one
 from error_utils import humanize_error, user_facing
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/model-video", tags=["model-video"])
 
@@ -166,13 +169,21 @@ def _format_dna_prompt(info: dict, transcript: str) -> str:
 
 
 async def _distill_dna(creds: dict, info: dict, transcript: str) -> Optional[dict]:
-    """Style-DNA extraction via the provider-aware caller (fast tier)."""
-    text = await _call_claude(_format_dna_prompt(info, transcript), creds, tier="fast", max_tokens=2048)
-    if not text:
-        return None
-    metadata = json.loads(text)
-    summary = metadata.pop("summary", "")
-    return {"summary": summary, "structured_metadata": metadata}
+    """Style-DNA extraction via the provider-aware caller (fast tier).
+    One retry on malformed JSON — LLM output isn't deterministic."""
+    prompt = _format_dna_prompt(info, transcript)
+    last_err: Optional[Exception] = None
+    for _attempt in range(2):
+        try:
+            text = await _call_claude(prompt, creds, tier="fast", max_tokens=2048)
+            if not text:
+                return None
+            metadata = json.loads(text)
+            summary = metadata.pop("summary", "")
+            return {"summary": summary, "structured_metadata": metadata}
+        except (json.JSONDecodeError, ValueError) as e:
+            last_err = e
+    raise last_err
 
 
 MODELED_PACK_PROMPT = """You are a YouTube content strategist and cinematic prompt director.
@@ -531,7 +542,8 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
                 creds, info,
                 transcript or (info.get("description") or info.get("title") or ""),
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("[model_video] DNA distillation failed for %s: %s", youtube_id, str(e)[:300])
             blockers.append("Deep style analysis was unavailable — modeled from raw metadata.")
 
         # 3. Generate the new idea + prompt pack
