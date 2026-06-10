@@ -608,7 +608,7 @@ class ImageClient:
     async def generate_with_reference(
         self,
         prompt: str,
-        reference_image_url: str,
+        reference_image_url,
         aspect_ratio: str = "16:9",
     ) -> Optional[dict]:
         """Generate an image using a reference for character consistency.
@@ -629,11 +629,16 @@ class ImageClient:
             "Content-Type": "application/json",
         }
 
+        # Accepts one URL or a list (multi-character casts) — Kie's
+        # image_input is a list either way.
+        refs = reference_image_url if isinstance(reference_image_url, list) else [reference_image_url]
+        refs = [r for r in refs if r][:6]
+
         payload = {
             "model": self.THUMBNAIL_MODEL,  # nano-banana-pro
             "input": {
                 "prompt": prompt,
-                "image_input": [reference_image_url],
+                "image_input": refs,
                 "aspect_ratio": aspect_ratio,
                 "resolution": "1K",  # Required with image_input to enforce aspect ratio
             },

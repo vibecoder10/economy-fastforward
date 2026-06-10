@@ -95,6 +95,7 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
         scene_filter=scene_filter,
         progress_callback=progress_callback,
         should_cancel=getattr(pipeline, "should_cancel", None),
+        character_reference_urls=getattr(pipeline, "character_reference_urls", None),
     )
 
     if result.get("error"):

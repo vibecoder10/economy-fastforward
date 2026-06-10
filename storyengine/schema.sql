@@ -996,3 +996,29 @@ CREATE TABLE notification_preferences (
 
 INSERT INTO tenants (name, slug) VALUES ('Economy FastForward', 'eff');
 INSERT INTO accounts (id, email, display_name) VALUES ('00000000-0000-0000-0000-000000000001', 'dev@local', 'Dev User');
+
+
+-- =============================================
+-- VIDEO CHARACTERS (per-video character design — migration 046)
+-- Designed/uploaded character references, approved before storyboards;
+-- approved refs feed Nano Banana image_input for consistency.
+-- =============================================
+CREATE TABLE video_characters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+  video_id UUID REFERENCES videos(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  reference_url TEXT,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
+  source TEXT DEFAULT 'generated' CHECK (source IN ('generated', 'uploaded', 'project')),
+  sort INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_video_characters_video ON video_characters(video_id);
+CREATE INDEX idx_video_characters_tenant ON video_characters(tenant_id);
+-- videos.characters_approved_at TIMESTAMPTZ added by migration 046
+
+-- videos.story_locked_at TIMESTAMPTZ (storyboard lock gate) added by migration 047
+-- scripts.storyboard_on_off DEFAULT 'On' as of migration 047

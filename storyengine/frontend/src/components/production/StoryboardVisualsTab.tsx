@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
-  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors, X, ChevronRight,
+  Lock, Unlock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors, X, ChevronRight,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -20,7 +20,7 @@ import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
   clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
-  getAudioToken, advanceVideo,
+  getAudioToken, advanceVideo, lockStory, unlockStory,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
@@ -131,11 +131,17 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
   const [togglingStoryboard, setTogglingStoryboard] = useState(false);
 
   useEffect(() => {
+    // Storyboarding is MANDATORY (Creator Control Run, phase 3): boards are
+    // the only path to image spend. Force mode on and persist it so the
+    // backend scripts rows agree.
     if (scriptScenes && scriptScenes.length > 0) {
-      const anyOn = scriptScenes.some((s) => s.storyboard_on_off === "On");
-      setStoryboardMode(anyOn);
+      setStoryboardMode(true);
+      const anyOff = scriptScenes.some((s) => s.storyboard_on_off !== "On");
+      if (anyOff) {
+        updateStoryboardMode(video.id, true).catch(() => { /* best-effort */ });
+      }
     }
-  }, [scriptScenes]);
+  }, [scriptScenes, video.id]);
 
   const handleToggleStoryboard = useCallback(async () => {
     setTogglingStoryboard(true);
@@ -528,6 +534,37 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
 
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
+
+  // --- Story lock (mandatory storyboard gate) ---
+  const storyLocked = !!video.story_locked_at;
+  const [locking, setLocking] = useState(false);
+  const handleLockStory = useCallback(async () => {
+    if (!window.confirm(
+      "Lock the story? This confirms you've reviewed the boards — extraction and image generation unlock. You can unlock to keep editing."
+    )) return;
+    setLocking(true);
+    try {
+      await lockStory(video.id);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      toast.success("Story locked — extract panels to create the final images.");
+    } catch (err) {
+      toast.error((err as Error).message || "Couldn't lock the story.");
+    } finally {
+      setLocking(false);
+    }
+  }, [video.id, queryClient, toast]);
+  const handleUnlockStory = useCallback(async () => {
+    setLocking(true);
+    try {
+      await unlockStory(video.id);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      toast.info("Story unlocked — keep iterating on the boards.");
+    } catch (err) {
+      toast.error((err as Error).message || "Couldn't unlock the story.");
+    } finally {
+      setLocking(false);
+    }
+  }, [video.id, queryClient, toast]);
   const handleExtractPanels = useCallback(async () => {
     setExtracting(true);
     setExtractError(null);
@@ -776,8 +813,28 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
             </button>
             {storyboardMode && (
               <>
+                {!storyLocked ? (
+                  <button onClick={handleLockStory}
+                    disabled={locking || taskRunning || storyboardReadyScenes === 0}
+                    title={storyboardReadyScenes === 0 ? "Generate storyboard grids first" : "Confirm the boards are right — unlocks final image creation"}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-bold disabled:opacity-40 transition-all hover:brightness-110"
+                    style={{ background: "var(--gold)", color: "var(--bg-void)" }}>
+                    {locking ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Lock size={12} className="inline mr-1" />}
+                    Lock Story
+                  </button>
+                ) : (
+                  <button onClick={handleUnlockStory}
+                    disabled={locking || taskRunning}
+                    title="Unlock to keep editing boards"
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all"
+                    style={{ color: "var(--green)", border: "1px solid var(--green)", background: "rgba(0,230,138,0.08)" }}>
+                    {locking ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Unlock size={12} className="inline mr-1" />}
+                    Locked ✓
+                  </button>
+                )}
                 <button onClick={handleExtractPanels}
-                  disabled={extracting || taskRunning || (extractedSegments >= totalSegments && totalSegments > 0)}
+                  disabled={!storyLocked || extracting || taskRunning || (extractedSegments >= totalSegments && totalSegments > 0)}
+                  title={!storyLocked ? "Lock the story first" : "Extract approved panels into final images"}
                   className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
                   style={{ background: "var(--green)", color: "var(--bg-void)" }}>
                   {(extracting || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Scissors size={12} className="inline mr-1" />}
@@ -800,6 +857,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
               {clearingAllStoryboards ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Trash2 size={12} className="inline mr-1" />}
               Reset
             </button>
+            <StopGenerationButton videoId={video.id} running={taskRunning} />
             <div className="flex-1" />
             <button
               onClick={handleAdvanceStage}
@@ -1465,53 +1523,35 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
 
 // --- Storyboard toggle sub-component ---
 
-function StoryboardToggle({
-  enabled,
-  toggling,
-  onToggle,
-}: {
+function StoryboardToggle(_props: {
   enabled: boolean;
   toggling: boolean;
   onToggle: () => void;
 }) {
+  // Storyboarding is mandatory — this is an informational badge now, kept as
+  // a component so both call sites stay untouched.
   return (
     <GlassCard className="p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span
-            className="text-xs font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Storyboard Mode
-          </span>
-          <span
-            className="text-[10px] font-mono px-2 py-0.5 rounded-full"
-            style={{
-              color: enabled ? "var(--green)" : "var(--text-tertiary)",
-              background: enabled ? "rgba(0, 230, 138, 0.1)" : "rgba(255,255,255,0.04)",
-              border: `1px solid ${enabled ? "rgba(0, 230, 138, 0.2)" : "rgba(255,255,255,0.06)"}`,
-            }}
-          >
-            {enabled ? "ON" : "OFF"}
-          </span>
-        </div>
-        <button
-          onClick={onToggle}
-          disabled={toggling}
-          className="transition-all disabled:opacity-50"
-          style={{ color: enabled ? "var(--green)" : "var(--text-tertiary)" }}
+      <div className="flex items-center gap-3">
+        <span
+          className="text-xs font-semibold uppercase tracking-wider"
+          style={{ color: "var(--text-secondary)" }}
         >
-          {toggling ? (
-            <Loader2 size={20} className="animate-spin" />
-          ) : enabled ? (
-            <ToggleRight size={28} />
-          ) : (
-            <ToggleLeft size={28} />
-          )}
-        </button>
+          Storyboard First
+        </span>
+        <span
+          className="text-[10px] font-mono px-2 py-0.5 rounded-full"
+          style={{
+            color: "var(--green)",
+            background: "rgba(0, 230, 138, 0.1)",
+            border: "1px solid rgba(0, 230, 138, 0.2)",
+          }}
+        >
+          REQUIRED
+        </span>
       </div>
       <p className="text-[10px] mt-1" style={{ color: "var(--text-tertiary)" }}>
-        When on, storyboard grids are generated before individual images for visual consistency.
+        Grids ($0.075 each) come first. Redo any board, then Lock Story to create the final images.
       </p>
     </GlassCard>
   );

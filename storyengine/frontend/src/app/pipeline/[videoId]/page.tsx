@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
   BarChart3, Search, Video, Upload, Loader2, RotateCcw, Brain, Volume2, Download, ExternalLink, X,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +17,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { PipelineStepper } from "@/components/production/PipelineStepper";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { ResearchTab } from "@/components/production/ResearchTab";
+import { CharactersTab } from "@/components/production/CharactersTab";
 import { ScriptVoiceTab } from "@/components/production/ScriptVoiceTab";
 import { StoryboardVisualsTab } from "@/components/production/StoryboardVisualsTab";
 import { VideoClipsTab } from "@/components/production/VideoClipsTab";
@@ -73,6 +75,7 @@ const PIPELINE_ORDER = [
 const TABS = [
   { id: "research", label: "Research", icon: Search },
   { id: "script-voice", label: "Script", icon: FileText },
+  { id: "characters", label: "Characters", icon: Users },
   { id: "storyboard-visuals", label: "Storyboard & Visuals", icon: ImageIcon },
   { id: "clips", label: "Video Clips", icon: Video },
   { id: "sound", label: "Sound", icon: Volume2 },
@@ -546,6 +549,7 @@ export default function VideoDetailPage() {
       <motion.div variants={item}>
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} />}
         {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("storyboard-visuals")} />}
+        {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("storyboard-visuals")} />}
         {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onAdvanced={() => setActiveTab("clips")} />}
         {currentTab === "clips" && <VideoClipsTab video={videoForTabs} onAdvanced={() => setActiveTab("sound")} />}
         {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} />}

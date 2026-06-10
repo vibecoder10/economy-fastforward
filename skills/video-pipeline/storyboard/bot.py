@@ -1772,7 +1772,7 @@ async def generate_contact_sheet(
     contact_sheet_prompt: str,
     real_panel_count: int = 9,
     image_client=None,
-    character_reference_url: str | None = None,
+    character_reference_url=None,
 ) -> str:
     """Generate a 3x3 contact sheet via Nano Banana Pro.
 
@@ -2221,6 +2221,7 @@ async def run_storyboard_images(
     scene_filter: Optional[int] = None,
     progress_callback=None,
     should_cancel=None,
+    character_reference_urls=None,
 ) -> dict:
     """Phase 1B: Generate storyboard images from prompts.
 
@@ -2261,8 +2262,10 @@ async def run_storyboard_images(
     video_title = fields.get("Video Title", "")
     idea_id = idea_record.get("id", "")
 
-    # Load character reference image for BYOC visual lock
-    character_ref_url = _load_character_reference(fields)
+    # Load character reference(s) for BYOC visual lock. The approved cast
+    # (video_characters) arrives as a list and wins over the legacy single
+    # Character Reference field.
+    character_ref_url = character_reference_urls or _load_character_reference(fields)
 
     # Get script records for reading prompts and writing images
     script_records = airtable_client.get_scripts_by_title(video_title)

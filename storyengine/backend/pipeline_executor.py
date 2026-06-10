@@ -128,6 +128,7 @@ class PipelineExecutor:
             scene_filter = None
             image_filter = None
             should_cancel = None  # armed per-run by _install_cancel_support
+            character_reference_urls = None  # approved cast, loaded per-run
 
             @property
             def _is_targeted_run(self):
@@ -523,6 +524,30 @@ class PipelineExecutor:
                 return False
 
         self._pipeline.should_cancel = _should_cancel
+
+    async def _load_character_refs(self, video_id: str, video: dict):
+        """Load the approved cast onto the pipeline for reference-locked
+        generation. Returns an error string when characters exist but the cast
+        isn't approved yet (the character-design gate); None otherwise.
+        Videos with no designed characters skip the step entirely."""
+        try:
+            rows = await fetch_all(
+                "SELECT reference_url FROM video_characters "
+                "WHERE video_id = $1 AND tenant_id = $2 AND reference_url IS NOT NULL "
+                "ORDER BY sort, created_at",
+                video_id, self.tenant_id,
+            )
+        except Exception:
+            rows = []
+        if not rows:
+            self._pipeline.character_reference_urls = None
+            return None
+        if not video.get("characters_approved_at"):
+            self._pipeline.character_reference_urls = None
+            return ("Your cast is designed but not approved yet — open the Characters tab, "
+                    "review the portraits, and hit Approve before generating visuals.")
+        self._pipeline.character_reference_urls = [r["reference_url"] for r in rows][:6]
+        return None
 
     async def _persist_url(self, source_url: str, storage_path: str) -> str:
         """Re-upload a temporary URL to Google Drive for permanent access.
@@ -1440,6 +1465,11 @@ directions, no labels, no headings inside them."""
 
             self._load_idea_from_video(video_id)
 
+            gate = await self._load_character_refs(video_id, video)
+            if gate and scene is None:
+                await self._log_activity(bot_name, video_id, "failed", gate)
+                return {"status": "failed", "error": gate}
+
             await self._install_cancel_support(video_id)
             result = await self._pipeline.run_storyboard_images(
                 scene_filter=scene,
@@ -1499,6 +1529,14 @@ directions, no labels, no headings inside them."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+
+            # Mandatory storyboard gate: extraction turns approved boards into
+            # final images (the paid upscale pass) — locked stories only.
+            if not video.get("story_locked_at"):
+                msg = ("Lock your story first — review the storyboard grids and hit "
+                       "'Lock story' before extracting panels into final images.")
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                return {"status": "failed", "error": msg}
 
             current_status = video.get("status")
             video_title = video.get("video_title", "")
@@ -1767,6 +1805,20 @@ directions, no labels, no headings inside them."""
                     reset_sql += " AND image_index = $3"
                     reset_params.append(index)
                 await execute(reset_sql, *reset_params)
+
+            # Mandatory storyboard gate: image spend only happens on a story
+            # the creator reviewed and explicitly locked. Targeted single-image
+            # regens bypass (they're post-lock fixes by definition).
+            if scene is None and not video.get("story_locked_at"):
+                msg = ("Lock your story first — review the storyboard grids and hit "
+                       "'Lock story' on the Storyboard tab before generating images.")
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                return {"status": "failed", "error": msg}
+
+            gate = await self._load_character_refs(video_id, video)
+            if gate and scene is None:
+                await self._log_activity(bot_name, video_id, "failed", gate)
+                return {"status": "failed", "error": gate}
 
             await self._install_cancel_support(video_id)
             result = await self._pipeline.run_image_bot()

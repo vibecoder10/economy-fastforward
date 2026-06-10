@@ -150,7 +150,9 @@ async def list_videos(
             total_cost=float(r.get("total_cost") or 0),
             views=r.get("views") or 0,
             ctr=float(r["ctr"]) if r.get("ctr") else None,
-            created_at=r.get("created_at"),
+            characters_approved_at=r.get("characters_approved_at"),
+        story_locked_at=r.get("story_locked_at"),
+        created_at=r.get("created_at"),
             updated_at=r.get("updated_at"),
         )
         for r in rows
@@ -218,6 +220,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   suggestion_scores, suggestion_status,
                   video_motion_system_prompt,
                   script_system_prompt, thumbnail_system_prompt, sound_system_prompt,
+                  characters_approved_at::text, story_locked_at::text,
                   created_at::text, updated_at::text
            FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL""",
         video_id, tenant_id,
@@ -777,6 +780,50 @@ async def update_storyboard_mode(
         value, video_id, tenant_id,
     )
     return {"status": "updated", "storyboard_mode": value}
+
+
+@router.post("/{video_id}/lock-story")
+async def lock_story(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Lock the storyboard: the explicit, reviewed moment before image spend.
+
+    Requires at least one storyboard grid to exist — you can't lock a story
+    you haven't seen. Unlocked again via /unlock-story while iterating.
+    """
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    grids = await fetch_one(
+        "SELECT count(*) AS c FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+        "AND (storyboard_1_url IS NOT NULL OR storyboard_2_url IS NOT NULL OR storyboard_3_url IS NOT NULL)",
+        video_id, tenant_id,
+    )
+    if not grids or int(grids.get("c") or 0) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Generate storyboard grids first — locking means you've reviewed the boards.",
+        )
+
+    await execute(
+        "UPDATE videos SET story_locked_at = now(), updated_at = now() "
+        "WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    return {"status": "locked"}
+
+
+@router.post("/{video_id}/unlock-story")
+async def unlock_story(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Unlock to keep iterating on boards (does not delete anything)."""
+    await execute(
+        "UPDATE videos SET story_locked_at = NULL, updated_at = now() "
+        "WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    return {"status": "unlocked"}
 
 
 @router.delete("/{video_id}/storyboards")

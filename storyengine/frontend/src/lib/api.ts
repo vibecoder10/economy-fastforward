@@ -940,6 +940,83 @@ export const clearExtractedPanel = (videoId: string, assetId: string) =>
     method: "DELETE",
   });
 
+// --- Video characters (per-video character design) ---
+
+export interface VideoCharacter {
+  id: string;
+  name: string;
+  description?: string | null;
+  reference_url?: string | null;
+  status: "draft" | "approved";
+  source: "generated" | "uploaded" | "project";
+  sort: number;
+}
+
+export const lockStory = (videoId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/lock-story`, { method: "POST" });
+
+export const unlockStory = (videoId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/unlock-story`, { method: "POST" });
+
+export const getVideoCharacters = (videoId: string) =>
+  fetchApi<{ characters: VideoCharacter[]; approved_at: string | null }>(
+    `/api/videos/${videoId}/characters`
+  );
+
+export const designCharacters = (videoId: string) =>
+  fetchApi<{ status: string; message: string }>(`/api/videos/${videoId}/characters/generate`, {
+    method: "POST",
+  });
+
+export const regenerateCharacter = (videoId: string, charId: string) =>
+  fetchApi<{ status: string; message: string }>(
+    `/api/videos/${videoId}/characters/${charId}/regenerate`,
+    { method: "POST" }
+  );
+
+export const updateCharacter = (videoId: string, charId: string, data: { name?: string; description?: string }) =>
+  fetchApi<VideoCharacter>(`/api/videos/${videoId}/characters/${charId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteCharacter = (videoId: string, charId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/characters/${charId}`, {
+    method: "DELETE",
+  });
+
+export const approveCast = (videoId: string) =>
+  fetchApi<{ status: string; count: number }>(`/api/videos/${videoId}/characters/approve`, {
+    method: "POST",
+  });
+
+export const saveCastToProject = (videoId: string) =>
+  fetchApi<{ status: string; count: number }>(`/api/videos/${videoId}/characters/save-to-project`, {
+    method: "POST",
+  });
+
+export const importCastFromProject = (videoId: string) =>
+  fetchApi<{ status: string; count: number }>(`/api/videos/${videoId}/characters/import-from-project`, {
+    method: "POST",
+  });
+
+export const uploadCharacterImage = async (
+  videoId: string,
+  charId: string,
+  file: File,
+): Promise<{ status: string; reference_url: string }> => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_URL}/api/videos/${videoId}/characters/${charId}/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
 export const uploadStoryboardGrid = async (
   videoId: string,
   scene: number,
@@ -1008,6 +1085,8 @@ export interface VideoSummary {
 }
 
 export interface VideoDetail extends VideoSummary {
+  characters_approved_at?: string | null;
+  story_locked_at?: string | null;
   airtable_record_id: string | null;
   headline: string | null;
   source: string | null;
