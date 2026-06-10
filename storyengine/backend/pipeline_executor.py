@@ -766,6 +766,98 @@ class PipelineExecutor:
         except Exception as e:
             print(f"[Script] Error injecting learnings: {e}")
 
+    async def _run_modeled_script(self, video_id: str, video: dict) -> dict:
+        """Script generation for style-replicated ('Model A Video') videos.
+
+        The brief_translator is hardwired as a documentary writer (power-doctrine
+        frameworks, number-density validation) and steamrolls any style override —
+        a replicated kids-animation video came out as 'The Hidden Economics of
+        Compassion'. Modeled videos instead get a direct generation in the
+        reference's style, structured around the modeled scene concepts, and skip
+        the documentary-specific editorial validation.
+        """
+        bot_name = "Script Bot"
+        await self._log_activity(bot_name, video_id, "started", "Writing script in the reference's style")
+        current_status = video.get("status")
+
+        import json as _json
+        original_dna = video.get("original_dna")
+        if isinstance(original_dna, str):
+            try:
+                original_dna = _json.loads(original_dna)
+            except Exception:
+                original_dna = {}
+        pack = (original_dna or {}).get("modeled_pack") or {}
+        concepts = pack.get("scene_concepts") or []
+        concept_lines = "\n".join(
+            f"{i}. {c.get('concept')}" for i, c in enumerate(concepts, start=1)
+        ) or "Structure the story into 8 natural scenes."
+        minutes = int(video.get("video_length_minutes") or 10)
+        target_words = max(300, minutes * 145)
+
+        research = video.get("research_payload")
+        if isinstance(research, dict):
+            research = _json.dumps(research)
+        research_excerpt = (research or "")[:4000]
+
+        prompt = f"""Write the complete narration script for a video titled "{video.get('video_title')}".
+
+{video.get('writer_guidance') or ''}
+
+SCENE PLAN — write one section per scene, in this order:
+{concept_lines}
+
+Target length: about {target_words} words total, spread across the scenes.
+
+Background material you may draw from (use only what fits the video's style and audience):
+{research_excerpt}
+
+Return ONLY valid JSON, no markdown fences:
+{{"scenes": [{{"scene": 1, "text": "narration text for scene 1"}}, ...]}}
+
+The "text" fields are exactly what the narrator will read aloud — no stage
+directions, no labels, no headings inside them."""
+
+        style_system = video.get("script_system_prompt") or ""
+        raw = await self._pipeline.anthropic.generate(
+            prompt=prompt,
+            system_prompt=style_system,
+            max_tokens=16000,
+            temperature=0.7,
+        )
+        text = raw.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        scenes = _json.loads(text).get("scenes") or []
+        scenes = [s for s in scenes if (s.get("text") or "").strip()]
+        if len(scenes) < 3:
+            raise Exception("Modeled script came back with too few scenes")
+
+        full_script = "\n\n".join(s["text"].strip() for s in scenes)
+        await execute(
+            """UPDATE videos SET script = $1, script_validation = $2, status = $3, updated_at = now()
+               WHERE id = $4 AND tenant_id = $5""",
+            full_script,
+            _json.dumps({"passed": True, "checks": [
+                {"name": "style_replication", "passed": True,
+                 "detail": "Documentary editorial checks skipped — script written in the reference video's style"}]}),
+            "ready_for_voice",
+            video_id, self.tenant_id,
+        )
+        await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, self.tenant_id)
+        for i, scene in enumerate(scenes, start=1):
+            await execute(
+                """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                   VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
+                self.tenant_id, video_id, i, scene["text"].strip(),
+                video.get("video_title"), "UgBBYS2sOqTuMpoF3BR0",
+            )
+
+        await self._log_transition(video_id, current_status, "ready_for_voice", "api")
+        await self._log_activity(bot_name, video_id, "completed",
+                                 f"Modeled-style script complete ({len(scenes)} scenes, {len(full_script.split())} words)")
+        return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}
+
     async def run_script(self, video_id: str) -> dict:
         """Generate script for a video.
 
@@ -786,6 +878,11 @@ class PipelineExecutor:
             current_status = video.get("status")
             if not is_at_or_past_stage(current_status, "ready_for_scripting"):
                 return {"status": "failed", "error": f"Video not ready for scripting (status: {current_status})"}
+
+            # Style-replicated videos get a dedicated script path — the
+            # brief_translator's documentary machinery ignores their style.
+            if video.get("source") == "modeled" and video.get("script_system_prompt"):
+                return await self._run_modeled_script(video_id, video)
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
 
