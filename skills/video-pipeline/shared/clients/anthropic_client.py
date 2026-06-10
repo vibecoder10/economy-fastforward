@@ -231,6 +231,16 @@ class AnthropicClient:
         if tools:
             kwargs["tools"] = tools
 
+        def _create():
+            if self._gateway_mode:
+                # Kie's gateway 500s when a non-streaming response takes longer
+                # than ~110s to generate (verified live: every 16k-token research
+                # call failed; the same call streamed completes fine). Stream
+                # and accumulate so long generations survive.
+                with self.client.messages.stream(**kwargs) as stream:
+                    return stream.get_final_message()
+            return self.client.messages.create(**kwargs)
+
         async def _create_with_5xx_retry():
             """The SDK already retries transient statuses internally; this outer
             loop covers longer upstream blips (Kie 500s can persist past the
@@ -239,10 +249,10 @@ class AnthropicClient:
             last = None
             for attempt, delay in enumerate((0, 15, 45)):
                 if delay:
-                    print(f"    ⚠️ Upstream 5xx — retrying in {delay}s (attempt {attempt + 1}/3)...")
+                    print(f"    ⚠️ Upstream 5xx — retrying in {delay}s (attempt {attempt + 1}/3)...", flush=True)
                     await _asyncio.sleep(delay)
                 try:
-                    return await _asyncio.to_thread(self.client.messages.create, **kwargs)
+                    return await _asyncio.to_thread(_create)
                 except _anthropic.APIStatusError as e:
                     if e.status_code < 500:
                         raise
