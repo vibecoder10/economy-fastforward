@@ -317,6 +317,11 @@ async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
 async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id: str,
                         info: dict, dna: Optional[dict], pack: dict, blockers: list[str]) -> None:
     title = str(pack["selected_title"]).strip()[:300]
+    # "Super similar" includes length: match the reference's duration when we
+    # have it (yt-dlp path); fall back to 10 min (oEmbed path has no duration).
+    # Required: script generation refuses to run without a video length.
+    duration = info.get("duration_seconds") or 0
+    video_length_minutes = min(30, max(3, round(duration / 60))) if duration else 10
     research_payload = {
         "type": "modeled_idea",
         "reference": {
@@ -369,8 +374,9 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
            source_views = $7, source_channel = $8,
            original_dna = $9, research_payload = $10,
            image_style_override = $11, thumbnail_style_override = $12,
-           video_motion_system_prompt = $13, updated_at = now()
-           WHERE id = $14 AND tenant_id = $15""",
+           video_motion_system_prompt = $13,
+           video_length_minutes = COALESCE(video_length_minutes, $14), updated_at = now()
+           WHERE id = $15 AND tenant_id = $16""",
         title,
         str(pack.get("angle_thesis") or ""),
         f"Modeled from reference: {info.get('title') or reference_url}",
@@ -384,6 +390,7 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         image_dna.strip() or None,
         thumbnail_dna.strip() or None,
         motion_override,
+        video_length_minutes,
         video_id, tenant_id,
     )
 
