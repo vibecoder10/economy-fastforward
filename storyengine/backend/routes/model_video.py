@@ -93,14 +93,26 @@ async def _resolve_claude_creds(tenant_id) -> Optional[dict]:
     return None
 
 
-async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens: int = 6000) -> Optional[str]:
+async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens: int = 6000,
+                       image_url: Optional[str] = None) -> Optional[str]:
     """Call Claude via the resolved provider; return raw text (fences stripped).
+
+    image_url attaches a vision block (used to show Claude the reference
+    thumbnail so it can replicate the observed visual style — verified working
+    through the Kie gateway).
 
     Retries transient upstream failures (5xx, timeouts, connection drops) —
     Kie.ai returned a raw 500 mid-run in production and a single blip
     shouldn't fail a 90-second modeling task.
     """
     model = CLAUDE_MODELS[creds["provider"]][tier]
+    if image_url:
+        content = [
+            {"type": "image", "source": {"type": "url", "url": image_url}},
+            {"type": "text", "text": prompt},
+        ]
+    else:
+        content = prompt
     if creds["provider"] == "kie":
         url = KIE_CLAUDE_API_URL
         headers = {
@@ -111,7 +123,7 @@ async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens
             "model": model,
             "stream": False,  # Kie.ai defaults to streaming — must opt out
             "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": content}],
         }
     else:
         url = ANTHROPIC_API_URL
@@ -123,7 +135,7 @@ async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens
         payload = {
             "model": model,
             "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": content}],
         }
 
     data = None
@@ -205,20 +217,24 @@ async def _distill_dna(creds: dict, info: dict, transcript: str) -> Optional[dic
     raise last_err
 
 
-MODELED_PACK_PROMPT = """You are a YouTube content strategist and cinematic prompt director.
+MODELED_PACK_PROMPT = """You are a video replication director.
 
-A creator wants to MODEL a reference video — not copy it. Study why the reference
-works (title formula, hook psychology, script structure, pacing/retention pattern,
-visual style, thumbnail style, shot language, camera/lens/motion vocabulary,
-recurring image motifs) and create a BRAND-NEW video concept for the creator's own
-channel that applies those mechanics to a fresh angle. Never reuse the reference's
-exact topic framing, title, or script lines.
+A creator dropped in a REFERENCE video. Design a NEW video that could be the very
+next upload on the SAME channel — same topic domain, same audience, same format,
+same visual style, same script style. It must feel like a sibling episode of the
+reference, NOT an adaptation to a different niche or genre. Ignore everything you
+might assume about the creator; the reference IS the brief.
 
-CREATOR'S CHANNEL:
-- Channel: {channel_name}
-- Niche: {niche}
-- Audience: {audience}
-- Voice/style: {style_description}
+Stay inside the reference's world:
+- Same genre and format (if it's a beginner-English animated listening story, make
+  another beginner-English animated listening story; if it's a finance documentary,
+  make another finance documentary)
+- Same audience, tone, and language level
+- Same title formula (emoji usage, punctuation, structure, suffix pattern)
+- Same visual style — if a thumbnail image is attached, describe what you actually
+  SEE (art style, palette, character design) and replicate exactly that style
+- NEW but adjacent subject matter: a sibling story/topic the same channel would
+  publish next. Never copy the reference's exact story, characters, or script lines.
 
 REFERENCE VIDEO:
 - Title: {ref_title}
@@ -235,35 +251,35 @@ TRANSCRIPT EXCERPT (may be empty if unavailable):
 
 Return ONLY valid JSON with exactly this shape:
 {{
-  "selected_title": "the single best new title for the creator's video",
-  "title_options": ["5 alternative new titles using the reference's title formula"],
-  "angle_thesis": "2-3 sentences: the new video's angle and thesis — clearly distinct from the reference's topic",
-  "research_brief": "markdown bullet list: what to research, key questions to answer, types of stats/sources to find (150-250 words)",
-  "script_guidance": "markdown: hook formula to use (modeled on the reference's hook structure), act-by-act structure beats, pacing/retention pattern, open-loop strategy (150-250 words)",
-  "visual_style_brief": "markdown: overall visual style, thumbnail style, shot language, camera/lens/motion vocabulary, recurring image motifs to establish (100-200 words)",
-  "thumbnail_prompt": "one self-contained image-generation prompt for the thumbnail, modeled on the reference's thumbnail style (40-70 words)",
-  "image_dna": "style directives for EVERY still image in the video: art style, palette, lighting, lens vocabulary, recurring motifs — written as instructions an image-prompt writer must follow (60-100 words)",
-  "motion_dna": "directives for EVERY video clip prompt: camera movement vocabulary, pacing, subject motion, atmosphere — modeled on the reference's shot language (40-80 words)",
-  "thumbnail_dna": "style directives for thumbnail generation modeled on the reference's thumbnail approach: composition, face/emotion usage, color blocking, text treatment (40-80 words)",
-  "negative_prompts": ["3-6 short style constraints to avoid, e.g. 'no text overlays', 'no watermarks'"],
+  "selected_title": "the single best title for the sibling video, using the reference's exact title formula",
+  "title_options": ["5 alternative titles, all using the reference's title formula"],
+  "angle_thesis": "2-3 sentences: what this sibling video is about and why the reference's audience would watch it next",
+  "research_brief": "markdown bullet list: what content/material to gather for THIS kind of video (for story/educational formats: story beats, vocabulary, facts; for documentary formats: stats and sources) (100-200 words)",
+  "script_guidance": "markdown: replicate the reference's script approach — hook style, structure, pacing, segment pattern (150-250 words)",
+  "script_dna": "direct instructions to the scriptwriter to replicate the reference's script STYLE: narration vs dialogue, language level, sentence length, tone, recurring segment patterns (e.g. comprehension questions, recaps) (60-120 words)",
+  "visual_style_brief": "markdown: the reference's visual style as observed (art style, palette, character design, composition), to be replicated across all visuals (100-200 words)",
+  "thumbnail_prompt": "one self-contained image-generation prompt for the sibling video's thumbnail in the reference's exact thumbnail style (40-70 words)",
+  "image_dna": "style directives for EVERY still image: art style, palette, character design, lighting, recurring motifs — matching the reference's observed visual style (60-100 words)",
+  "motion_dna": "directives for EVERY video clip prompt: camera movement, pacing, subject motion matching the reference's format (40-80 words)",
+  "thumbnail_dna": "style directives for thumbnail generation matching the reference's thumbnail approach: composition, characters/faces, color blocking, text treatment (40-80 words)",
+  "negative_prompts": ["3-6 short style constraints to avoid (styles that would break consistency with the reference, plus 'no watermarks')"],
   "scene_concepts": [
     {{
-      "concept": "one sentence: what this scene communicates in the new video's narrative arc",
-      "image_prompt": "self-contained cinematic image-generation prompt: subject + environment + camera/lens + lighting (40-70 words)",
+      "concept": "one sentence: what this scene shows in the sibling video's story/narrative",
+      "image_prompt": "self-contained image-generation prompt in the reference's visual style: subject + environment + composition (40-70 words)",
       "video_prompt": "motion direction for animating that image into a 5-8s clip: camera movement, subject motion, atmosphere (20-40 words)"
     }}
   ]
 }}
 
 Rules:
-- scene_concepts must contain exactly 8 entries covering the new video's narrative arc in order (hook, context, escalation, reveal, implication, close).
-- Image prompts must share a coherent visual language (consistent style, palette, lens vocabulary) derived from the visual_style_brief.
-- All prompts must be about the NEW video's topic, not the reference's."""
+- scene_concepts must contain exactly 8 entries covering the sibling video's story arc in order.
+- Every image prompt must explicitly carry the reference's art style (e.g. "3D Pixar-style animation, soft saturated colors") — an image generator seeing one prompt in isolation must still produce the right style.
+- All prompts are about the NEW sibling video's content, in the REFERENCE's style."""
 
 
-def _build_pack_prompt(info: dict, dna: Optional[dict], profile: Optional[dict], transcript: Optional[str]) -> str:
-    profile = profile or {}
-    dna_payload = "Not available — rely on the metadata and transcript above."
+def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str]) -> str:
+    dna_payload = "Not available — rely on the metadata, transcript, and attached thumbnail."
     if dna:
         dna_payload = json.dumps(
             {"summary": dna.get("summary"), **(dna.get("structured_metadata") or {})},
@@ -271,10 +287,6 @@ def _build_pack_prompt(info: dict, dna: Optional[dict], profile: Optional[dict],
         )[:6000]
     excerpt = (transcript or "")[:TRANSCRIPT_PROMPT_CHAR_CAP] or "(transcript unavailable)"
     return MODELED_PACK_PROMPT.format(
-        channel_name=profile.get("channel_name") or "Unknown",
-        niche=profile.get("niche") or "Not specified",
-        audience=profile.get("target_audience") or "Not specified",
-        style_description=(profile.get("style_description") or "Not specified")[:1500],
         ref_title=info.get("title") or "Unknown",
         ref_channel=info.get("channel") or "Unknown",
         ref_views=info.get("views") or 0,
@@ -292,12 +304,15 @@ _REQUIRED_PACK_KEYS = (
 
 
 async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
-                                 profile: Optional[dict], transcript: Optional[str]) -> dict:
-    prompt = _build_pack_prompt(info, dna, profile, transcript)
+                                 transcript: Optional[str]) -> dict:
+    prompt = _build_pack_prompt(info, dna, transcript)
+    image_url = info.get("thumbnail_url")
     last_err: Optional[Exception] = None
-    for _attempt in range(2):  # one retry on malformed JSON — LLM output isn't deterministic
+    # Two attempts with the thumbnail attached (vision = style fidelity), then a
+    # final attempt without it in case the provider rejects the image itself.
+    for attempt_image in (image_url, image_url, None):
         try:
-            text = await _call_claude(prompt, creds, tier="smart")
+            text = await _call_claude(prompt, creds, tier="smart", image_url=attempt_image)
             if not text:
                 raise ValueError("Claude returned an empty modeled pack")
             pack = json.loads(text)
@@ -307,7 +322,7 @@ async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
             if not isinstance(pack["scene_concepts"], list) or len(pack["scene_concepts"]) < 4:
                 raise ValueError("Modeled pack has too few scene concepts")
             return pack
-        except (json.JSONDecodeError, ValueError) as e:
+        except (json.JSONDecodeError, ValueError, RuntimeError) as e:
             last_err = e
     raise last_err
 
@@ -366,6 +381,12 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         "Modeled motion DNA from a reference video the creator wants to emulate. "
         "Apply this shot language to every video clip prompt you write:\n\n" + motion_dna
     ) if motion_dna.strip() else None
+    script_dna = str(pack.get("script_dna") or "")
+    script_override = (
+        "You are writing a video that replicates the style of a reference video the "
+        "creator dropped in. Follow these style instructions exactly — they override "
+        "any other voice or genre conventions:\n\n" + script_dna
+    ) if script_dna.strip() else None
 
     await execute(
         """UPDATE videos SET
@@ -375,8 +396,11 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
            original_dna = $9, research_payload = $10,
            image_style_override = $11, thumbnail_style_override = $12,
            video_motion_system_prompt = $13,
-           video_length_minutes = COALESCE(video_length_minutes, $14), updated_at = now()
-           WHERE id = $15 AND tenant_id = $16""",
+           video_length_minutes = COALESCE(video_length_minutes, $14),
+           script_system_prompt = $15,
+           script = NULL, script_validation = NULL, status = 'idea_logged',
+           updated_at = now()
+           WHERE id = $16 AND tenant_id = $17""",
         title,
         str(pack.get("angle_thesis") or ""),
         f"Modeled from reference: {info.get('title') or reference_url}",
@@ -391,6 +415,14 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         thumbnail_dna.strip() or None,
         motion_override,
         video_length_minutes,
+        script_override,
+        video_id, tenant_id,
+    )
+
+    # Re-modeling supersedes prior generated artifacts: stale scene rows from an
+    # earlier direction would otherwise feed voice/images with the wrong content.
+    await execute(
+        "DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
 
@@ -444,6 +476,7 @@ def _brief_markdown(pack: dict, info: dict, reference_url: str, blockers: list[s
         *[f"- {t}" for t in (pack.get("title_options") or [])],
         "", "## Research Brief", str(pack.get("research_brief") or ""),
         "", "## Script Guidance", str(pack.get("script_guidance") or ""),
+        "", "## Script Style DNA", str(pack.get("script_dna") or "(see script guidance)"),
         "", "## Visual Style Brief", str(pack.get("visual_style_brief") or ""),
         "", "## Image Creation DNA", str(pack.get("image_dna") or "(see visual style brief)"),
         "", "## Video Motion DNA", str(pack.get("motion_dna") or "(see visual style brief)"),
@@ -601,14 +634,11 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
             logger.warning("[model_video] DNA distillation failed for %s: %s", youtube_id, str(e)[:300])
             blockers.append("Deep style analysis was unavailable — modeled from raw metadata.")
 
-        # 3. Generate the new idea + prompt pack
+        # 3. Generate the sibling video + prompt pack (reference-only — the
+        #    channel profile is deliberately NOT injected: the feature replicates
+        #    the dropped-in video, it doesn't adapt it to the creator's niche)
         _set("running", "Creating your modeled idea…")
-        profile = await fetch_one(
-            "SELECT channel_name, niche, target_audience, style_description "
-            "FROM channel_profiles WHERE tenant_id = $1",
-            tenant_id,
-        )
-        pack = await _generate_modeled_pack(creds, info, dna, profile, transcript)
+        pack = await _generate_modeled_pack(creds, info, dna, transcript)
 
         # 4. Persist everything before any generation credits are spent
         _set("running", "Writing your prompt pack…")

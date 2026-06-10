@@ -91,6 +91,7 @@ VALID_PACK = {
     "angle_thesis": "A fresh angle on FX power shifts, distinct from the reference.",
     "research_brief": "- Find BIS settlement data\n- Map petroyuan deals",
     "script_guidance": "Open with a mystery hook, then 4 escalating acts.",
+    "script_dna": "Simple narration, short sentences, recap question every two scenes.",
     "visual_style_brief": "Dark cinematic macro-finance look, 35mm, teal/amber.",
     "thumbnail_prompt": "Split-lit central banker silhouette before a cracked dollar seal.",
     "image_dna": "Photorealistic macro-finance noir: 35mm, Rembrandt lighting, teal/amber palette, recurring melting-coin motif.",
@@ -131,8 +132,8 @@ def _patch_db_and_claude(pack=VALID_PACK, profile_extra=None):
 
     calls = []
 
-    async def fake_call_claude(prompt, creds, tier="smart", max_tokens=6000):
-        calls.append({"provider": creds["provider"], "tier": tier})
+    async def fake_call_claude(prompt, creds, tier="smart", max_tokens=6000, image_url=None):
+        calls.append({"provider": creds["provider"], "tier": tier, "image": bool(image_url)})
         if tier == "fast":  # DNA distillation pass
             return json.dumps({
                 "summary": "Reference works via mystery hook + escalating stakes.",
@@ -199,11 +200,19 @@ def test_happy_path_persists_everything():
     # Modeled DNA must land in the pipeline's steering columns so downstream
     # clicks (script/images/thumbnail/clips) actually generate "modeled" output
     assert "image_style_override" in uq and "thumbnail_style_override" in uq and "video_motion_system_prompt" in uq
+    assert "script_system_prompt" in uq, "script style override column missing"
     flat = " | ".join(str(x) for x in ua)
     assert "macro-finance noir" in flat, "image_dna not persisted"
     assert "push-ins" in flat, "motion_dna not persisted"
     assert "alarmed expression" in flat, "thumbnail_dna not persisted"
     assert "no text overlays" in flat, "negative prompts not folded into image DNA"
+    assert "recap question" in flat, "script_dna not persisted"
+    # Re-modeling resets stale generated artifacts
+    assert "script = NULL" in uq and "status = 'idea_logged'" in uq
+    assert any(q.startswith("DELETE FROM scripts") for q, _ in executed), "stale scene rows not cleared"
+    # The pack call must attach the reference thumbnail (vision = style fidelity)
+    smart_calls = [c for c in claude_calls if c["tier"] == "smart"]
+    assert smart_calls and smart_calls[0]["image"], "thumbnail not attached to pack generation"
     asset_inserts = [(q, a) for q, a in executed if "INSERT INTO assets" in q]
     assert len(asset_inserts) == 8, len(asset_inserts)
     assert all("'modeled'" in q for q, _ in asset_inserts)
@@ -212,8 +221,8 @@ def test_happy_path_persists_everything():
     # Retry path clears prior modeled prompt rows first
     assert any(q.startswith("DELETE FROM assets") for q, _ in executed)
     # Kie.ai is the preferred Claude provider: DNA on fast tier, pack on smart tier
-    assert {"provider": "kie", "tier": "fast"} in claude_calls, claude_calls
-    assert {"provider": "kie", "tier": "smart"} in claude_calls, claude_calls
+    assert any(c["provider"] == "kie" and c["tier"] == "fast" for c in claude_calls), claude_calls
+    assert any(c["provider"] == "kie" and c["tier"] == "smart" for c in claude_calls), claude_calls
     print("PASS test_happy_path_persists_everything")
 
 
