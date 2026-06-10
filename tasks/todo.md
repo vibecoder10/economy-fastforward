@@ -1,5 +1,45 @@
 # Task Tracking
 
+## Handoff (2026-06-10 pt 2 — Kie-routed Claude + modeled click-through path)
+
+Ryan's goal: paste link → modeled title/script/image DNA/video DNA → click through to a
+similar finished video. Shipped and verified live on his video f32ed182 (tenant ee93e6d1):
+
+- **All Claude calls via Kie.ai** (his directive). model_video routes kie-first; the
+  PIPELINE bots too: `AnthropicClient` gateway mode via `ANTHROPIC_BASE_URL`
+  (set by pipeline_executor when tenant has kie key but no anthropic key).
+  Gateway traps found live: Bearer auth (SDK `auth_token`), Kie WAF blocks the SDK
+  User-Agent (override it), dated model ids 422 (normalize to undated aliases),
+  server-side web_search tools not executed (stripped in gateway mode), and **Kie 500s
+  any non-streaming response taking >~110s — gateway mode must STREAM** (12/12 research
+  calls failed non-streaming; identical call streams fine).
+- **Modeled DNA steers downstream stages** via existing channels: writer_guidance
+  (script), image_style_override (image prompts), thumbnail_style_override (thumbnail),
+  video_motion_system_prompt (clip prompts). Pack prompt outputs explicit
+  image_dna/motion_dna/thumbnail_dna. Full pack archived in original_dna (research
+  stage overwrites research_payload by design). video_length_minutes now set from
+  reference duration (script gen refuses to run without it).
+- **Bug fixes en route:** psycopg2 UUID adapter registered in supabase_adapter
+  (research save crashed: "can't adapt type 'UUID'"); rate limiter 429-storm fixed
+  (read tenants.plan instead of accounts+trial → trial users got free-tier 15/min;
+  also free floor now 60/min, both plan-name generations mapped).
+- **Verified click-path on prod DB:** Model → idea+DNA ✓ → Research click (41KB
+  payload, Kie-streamed, ~4min) ✓ → Script click (11.7KB script, editorial validation
+  PASSED, ready_for_voice) ✓. Voice is the next click and needs Ryan's ElevenLabs key
+  (BYOK) — that's where it correctly stops today.
+
+### Open items
+1. Ryan must add his ElevenLabs key (Settings → Keys) for voice; then images/clips run
+   on his kie credit via existing buttons.
+2. Script stage produced ONE scripts row holding the whole script (scene=1). Pre-existing
+   script-stage behavior, not modeling-specific — verify voice/image stages handle it,
+   or whether 6-scene splitting should happen here.
+3. yt-dlp cookies support merged (PR #456): export YouTube cookies to
+   ~/.config/storyengine/youtube_cookies.txt to unlock transcripts.
+4. Other storyengine routes (learn-voice, suggest-titles, distiller) still anthropic-direct
+   — task chip open ("Route all backend Claude calls through Kie.ai", partially done:
+   pipeline bots + model_video covered).
+
 ## Handoff (2026-06-10 — Model A Video shipped)
 
 ### What shipped
