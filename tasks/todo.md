@@ -1,5 +1,25 @@
 # Task Tracking
 
+## Handoff (2026-06-10 pt 4 — voice via Kie + full click-path to ready_for_images)
+
+Ryan: "voice uses kie as well." Shipped + verified live on the bird video (f32ed182):
+- ElevenLabsClient Kie gateway mode: createTask/recordInfo jobs against
+  elevenlabs/text-to-speech-multilingual-v2 (SoundClient pattern). Kie only accepts
+  its OWN voice roster — off-roster ids rejected with "not within the range of
+  allowed options"; falls back to "Mark" (1SM7GgM6IMuvQlz2BwM3) with a logged warning.
+  Kie.ai is now the ONLY required pipeline key (anthropic + elevenlabs both optional).
+- Voice click: 8/8 scenes voiced via Kie, audio in Drive. NOTE: voice_duration_seconds
+  not recorded in Kie mode (engine falls back to word-count timing) — worth fixing.
+- Prompts click first produced ZERO prompts: the modeled concept asset rows carry
+  image_prompt values, so the engine's resume logic saw all scenes "completed."
+  Fixed: full prompt runs on modeled videos clear generation_method='modeled' rows
+  first (pack stays archived in original_dna). Re-run: 74 prompts across 8 scenes,
+  ALL carrying the animation style (image_style_override active in the engine log).
+- Current state: f32ed182 at ready_for_images with 74 styled prompts. Next click
+  (Images) costs ~$1.85 kie credit + clips after — left for Ryan per cost rules.
+- Watch items: prompts came out "2D animated illustration" (profile prefix blends
+  with the 3D-Pixar override — consider selecting visual profile from the modeled
+  DNA); story_bible column empty though the engine generated one in-run.
 ## Handoff (2026-06-10 pt 3 — replicate mode shipped + modeled script path)
 
 Ryan's correction: Model A Video must REPLICATE the dropped-in video (same genre/
