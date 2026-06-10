@@ -1,6 +1,6 @@
 # System State — Economy FastForward
 
-> Last updated: 2026-04-06
+> Last updated: 2026-06-10
 
 ---
 
@@ -629,3 +629,29 @@ The CAPS word in the title must be visceral (PURGE, TRAP, KILLED, CRUSHED, WEAPO
 - Branch names follow the pattern: `claude/<description>-<session-id>`
 - Never force-push or push directly to `main` without explicit permission
 - On push failure due to network errors: retry up to 4 times with exponential backoff (2s, 4s, 8s, 16s)
+
+---
+
+## Model A Video (added 2026-06-10)
+
+Dashboard button → modal (YouTube URL) → async modeling task → new video at
+`idea_logged` with a full prompt-asset pack. Nothing renders/uploads without
+explicit user action.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/routes/model_video.py` | API: `POST /api/model-video`, `POST /api/model-video/{id}/retry`. Background task: yt-dlp extract (oEmbed fallback) → DNA distill (Haiku) → modeled idea + prompt pack (Sonnet) → persist (videos fields, 8 assets prompt rows, competitor_videos attribution, best-effort Drive brief). Status polled via existing `GET /api/pipeline/task/{video_id}`. |
+| `storyengine/backend/tests/functional/test_model_video.py` | 6 stubbed runtime tests (happy path, transcript fallback, oEmbed fallback, friendly failures, URL parsing) |
+| `storyengine/frontend/src/components/dashboard/model-video-modal.tsx` | Modal: URL input → task progress → failed/retry states → redirect to `/pipeline/{id}` |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/main.py` | Registered `model_video.router` |
+| `storyengine/backend/error_utils.py` | Added `user_facing()` marker so deliberate user copy survives the `_set_task_status` humanize funnel |
+| `storyengine/frontend/src/lib/api.ts` | `modelVideo()`, `retryModelVideo()`, `ModelVideoResponse` |
+| `storyengine/frontend/src/app/dashboard/page.tsx` | "Model A Video" button + modal wiring |
+| `storyengine/frontend/src/components/dashboard/index.ts` | Export `ModelVideoModal` |
+
+No DB migration needed — reuses `videos.reference_url/original_dna/research_payload/title_candidates/thumbnail_prompt`, `assets.image_prompt/video_prompt`, `competitor_videos.our_video_id/modeled_at`.

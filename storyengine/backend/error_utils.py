@@ -24,6 +24,18 @@ from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
+# Marker for strings that are ALREADY user-facing copy. Background-task funnels
+# (e.g. _set_task_status) humanize every failure error at the write boundary,
+# which flattens unrecognized strings to the generic fallback — including
+# deliberate, actionable messages like "Add your Anthropic key in Settings".
+# Wrapping such copy with user_facing() lets it survive the funnel verbatim.
+USER_FACING_PREFIX = "[[user-facing]] "
+
+
+def user_facing(message: str) -> str:
+    """Mark a message as already-safe user copy (survives humanize_error)."""
+    return USER_FACING_PREFIX + message
+
 
 def humanize_error(
     err: Union[Exception, str, None],
@@ -40,6 +52,11 @@ def humanize_error(
     - Falls back to `fallback` if nothing matches.
     """
     raw = str(err) if err is not None else ""
+
+    # Explicitly-marked user copy passes through verbatim (no warning log —
+    # it isn't a raw error, it's copy a developer wrote for the user).
+    if raw.startswith(USER_FACING_PREFIX):
+        return raw[len(USER_FACING_PREFIX):]
 
     if raw:
         logger.warning(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -14,6 +14,7 @@ import {
   CalendarDays,
   Key,
   ArrowRight,
+  Wand2,
 } from "lucide-react";
 
 // Mirrors the key set in `app/onboarding/page.tsx`. Dashboard reads this
@@ -27,7 +28,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { WelcomeQuest } from "@/components/dashboard";
+import { WelcomeQuest, ModelVideoModal } from "@/components/dashboard";
 import { FirstRunChecklist } from "@/components/onboarding/FirstRunChecklist";
 import {
   getDashboardSummary,
@@ -73,6 +74,7 @@ function computeProgress(status: string | null): number {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const [showModelModal, setShowModelModal] = useState(false);
 
   const { data: onboarding, isLoading: onboardingLoading } = useQuery({
     queryKey: ["onboarding-status"],
@@ -281,10 +283,17 @@ export default function DashboardPage() {
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
           Dashboard
         </h1>
-        <ActionButton icon={Plus} onClick={() => router.push("/pipeline")}>
-          New Video
-        </ActionButton>
+        <div className="flex items-center gap-3">
+          <ActionButton icon={Wand2} variant="outline" onClick={() => setShowModelModal(true)}>
+            Model A Video
+          </ActionButton>
+          <ActionButton icon={Plus} onClick={() => router.push("/pipeline")}>
+            New Video
+          </ActionButton>
+        </div>
       </motion.div>
+
+      <ModelVideoModal open={showModelModal} onClose={() => setShowModelModal(false)} />
 
       {/* Stat Cards */}
       <motion.div variants={item} className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

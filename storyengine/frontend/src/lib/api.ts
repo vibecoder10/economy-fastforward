@@ -226,6 +226,23 @@ export const createVideo = (data: {
     body: JSON.stringify(data),
   });
 
+export interface ModelVideoResponse {
+  video_id: string;
+  status: string;
+  message?: string | null;
+}
+
+export const modelVideo = (videoUrl: string) =>
+  fetchApi<ModelVideoResponse>("/api/model-video", {
+    method: "POST",
+    body: JSON.stringify({ video_url: videoUrl }),
+  });
+
+export const retryModelVideo = (videoId: string) =>
+  fetchApi<ModelVideoResponse>(`/api/model-video/${videoId}/retry`, {
+    method: "POST",
+  });
+
 export const advanceVideo = (id: string) =>
   fetchApi<{ status: string }>(`/api/videos/${id}/advance`, { method: "PATCH" });
 

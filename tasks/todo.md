@@ -1,5 +1,41 @@
 # Task Tracking
 
+## Handoff (2026-06-10 — Model A Video shipped)
+
+### What shipped
+"Model A Video" Dashboard feature: button → modal (one field: YouTube URL) →
+`POST /api/model-video` creates a tenant-scoped video row at `idea_logged` and runs a
+background task (extract via yt-dlp with oEmbed fallback → style-DNA distill via Haiku →
+new modeled idea + prompt pack via Sonnet → persist). Pack lands in: videos fields
+(title/headline, thesis, writer_guidance, title_candidates, thumbnail_prompt,
+original_dna, research_payload incl. 8 scene_concepts + blockers), 8 `assets` rows
+(image_prompt + video_prompt, generation_method='modeled'), `competitor_videos`
+attribution upsert (our_video_id, modeled_at), best-effort Drive markdown brief.
+Progress polled via existing `/api/pipeline/task/{video_id}` + `useTaskPoller`.
+Retry endpoint: `POST /api/model-video/{video_id}/retry`. No migration needed.
+
+### Verified
+- Backend functional tests 6/6 (`tests/functional/test_model_video.py`), humanization suite still green
+- `tsc --noEmit` clean, `npm run build` passes
+- Live E2E on VPS against real DB (disposable test tenant, cleaned up): full happy path
+  with mock Claude endpoint (ANTHROPIC_API_URL override), real oEmbed fallback (yt-dlp is
+  bot-blocked on this VPS IP — see lessons), plan-limit 402 enforced, 401 unauthenticated,
+  invalid-URL 400, missing-key actionable error
+- Playwright UI E2E: button → modal → validation → failed state w/ Retry → modeled video
+  visible in Pipeline list + detail page
+
+### Known gaps / follow-ups
+1. **No live-Claude run yet** — there is NO working Anthropic key anywhere on the VPS
+   (root .env key returns 401; product is BYOK and Ryan's tenant vault only has kie_ai).
+   First real modeled pack runs when Ryan adds his Anthropic key in Settings → Keys.
+   JSON-shape risk mitigated: required-keys validation + one retry on malformed JSON.
+2. yt-dlp is bot-blocked on the VPS IP ("Sign in to confirm you're not a bot") — oEmbed
+   fallback covers title/channel/thumbnail, but transcripts won't extract until cookies
+   or a different egress is configured. Affects competitor scraping too, worth its own fix.
+3. Videos whose modeling failed keep the "Modeling a reference video…" placeholder title
+   in Pipeline; retry from the modal fixes them, but a retry affordance on the video card
+   would be nicer.
+
 ## Handoff (2026-04-19 — Osiris full-autonomy overnight ship mode started)
 
 ### Context
