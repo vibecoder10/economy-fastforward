@@ -1,5 +1,24 @@
 # Task Tracking
 
+## Handoff (2026-06-10 pt 3 — replicate mode shipped + modeled script path)
+
+Ryan's correction: Model A Video must REPLICATE the dropped-in video (same genre/
+style/audience, sibling topic), NOT adapt it to his channel. Shipped + verified on
+his video f32ed182 (ESL turtle reference fVdj037FNYI):
+- Pack prompt rewritten to replicate-mode, channel profile removed, reference
+  thumbnail attached as vision input. Result: "🐦😱 What Should We Do To Help The
+  Injured Baby Bird? | Easy English Listening for Beginners (A2 Level)" + image DNA
+  "3D Pixar/Disney CG animation style..." (observed from the thumbnail).
+- New `script_dna` → `videos.script_system_prompt`; `pipeline_executor.run_script`
+  branches for source='modeled' → `_run_modeled_script` (direct generation in the
+  reference's style, 8 scene rows, documentary validation skipped). Verified: script
+  opens "Look! A baby bird is on the ground. It cannot fly. What should we do?" —
+  8 scenes, ready_for_voice.
+- Click path verified end-to-end through script. Voice is next and needs Ryan's
+  ElevenLabs key; then images/clips run on kie credit via existing buttons (the
+  image prompts stage should honor image_style_override — NOT yet verified live,
+  next test after voice).
+
 ## Handoff (2026-06-10 pt 2 — Kie-routed Claude + modeled click-through path)
 
 Ryan's goal: paste link → modeled title/script/image DNA/video DNA → click through to a
