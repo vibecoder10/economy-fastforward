@@ -22,6 +22,10 @@ from typing import Any, Optional
 import psycopg2
 import psycopg2.extras
 
+# auth.get_tenant_id returns uuid.UUID objects; psycopg2 can't adapt UUID
+# params without this ("can't adapt type 'UUID'" killed a research save).
+psycopg2.extras.register_uuid()
+
 
 # Column names interpolated into f-string SQL must match this allowlist.
 # Values come from the FIELD_MAP dicts below (all hand-written constants),
