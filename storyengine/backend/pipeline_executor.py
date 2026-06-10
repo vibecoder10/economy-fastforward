@@ -127,6 +127,7 @@ class PipelineExecutor:
 
             scene_filter = None
             image_filter = None
+            should_cancel = None  # armed per-run by _install_cancel_support
 
             @property
             def _is_targeted_run(self):
@@ -502,6 +503,26 @@ class PipelineExecutor:
             # Set on pipeline: per-video wins, then tenant, then None
             resolved = per_video or tenant or None
             setattr(self._pipeline, pipeline_attr, resolved)
+
+    async def _install_cancel_support(self, video_id: str):
+        """Arm cooperative cancellation for a paid generation run.
+
+        Clears any stale cancel request first (a Stop from a previous run must
+        never kill the resume), then exposes pipeline.should_cancel — an async
+        callable the generation loops poll between paid items. Works across
+        processes (arq worker) via the background_tasks 'cancelled' marker row.
+        """
+        from cancel_registry import is_cancel_requested, reset_for_new_run
+        await reset_for_new_run(self.tenant_id, video_id)
+        tenant_id = self.tenant_id
+
+        async def _should_cancel() -> bool:
+            try:
+                return await is_cancel_requested(tenant_id, video_id)
+            except Exception:
+                return False
+
+        self._pipeline.should_cancel = _should_cancel
 
     async def _persist_url(self, source_url: str, storage_path: str) -> str:
         """Re-upload a temporary URL to Google Drive for permanent access.
@@ -958,7 +979,15 @@ directions, no labels, no headings inside them."""
                 self._pipeline.scene_filter = scene
 
             # Run voice generation
+            await self._install_cancel_support(video_id)
             result = await self._pipeline.run_voice_bot()
+
+            if result.get("cancelled"):
+                kept = result.get("voice_count", 0)
+                msg = f"Stopped — kept {kept} completed voice track(s). Run Voice again to resume."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                self._pipeline.scene_filter = None
+                return {"status": "cancelled", "video_id": video_id, "error": msg}
 
             if result.get("error"):
                 raise Exception(result["error"])
@@ -1411,10 +1440,17 @@ directions, no labels, no headings inside them."""
 
             self._load_idea_from_video(video_id)
 
+            await self._install_cancel_support(video_id)
             result = await self._pipeline.run_storyboard_images(
                 scene_filter=scene,
                 progress_callback=progress_callback,
             )
+
+            if result.get("cancelled"):
+                kept = result.get("grids_generated", 0)
+                msg = f"Stopped — kept {kept} completed grid(s). Run grids again to resume."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "cancelled", "video_id": video_id, "error": msg}
 
             if result.get("error"):
                 raise Exception(result["error"])
@@ -1732,11 +1768,19 @@ directions, no labels, no headings inside them."""
                     reset_params.append(index)
                 await execute(reset_sql, *reset_params)
 
+            await self._install_cancel_support(video_id)
             result = await self._pipeline.run_image_bot()
 
             # Always reset filters after run
             self._pipeline.scene_filter = None
             self._pipeline.image_filter = None
+
+            if result.get("cancelled"):
+                kept = result.get("image_count", 0)
+                await self._persist_asset_urls(video_id)
+                msg = f"Stopped — kept {kept} completed image(s). Run Images again to resume."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "cancelled", "video_id": video_id, "error": msg}
 
             if result.get("error"):
                 raise Exception(result["error"])
@@ -2024,7 +2068,14 @@ directions, no labels, no headings inside them."""
 
             self._load_idea_from_video(video_id)
 
+            await self._install_cancel_support(video_id)
             result = await self._pipeline.run_video_gen_bot()
+
+            if result.get("cancelled"):
+                kept = result.get("video_count", 0)
+                msg = f"Stopped — kept {kept} completed clip(s). Run clip generation again to resume."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "cancelled", "video_id": video_id, "error": msg}
 
             if result.get("error"):
                 raise Exception(result["error"])

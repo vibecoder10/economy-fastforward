@@ -39,8 +39,21 @@ async def run(pipeline) -> dict:
     if pipeline.scene_filter is not None:
         scripts = [s for s in scripts if s.get("scene") == pipeline.scene_filter]
 
+    _should_cancel = getattr(pipeline, "should_cancel", None)
+
+    async def _cancelled() -> bool:
+        try:
+            return bool(_should_cancel) and await _should_cancel()
+        except Exception:
+            return False
+
     voice_count = 0
+    cancelled = False
     for script in scripts:
+        if await _cancelled():
+            print("  🛑 Stop requested — halting voice generation")
+            cancelled = True
+            break
         scene_number = script.get("scene", 0)
 
         # CHECK: Is voice already done?
@@ -74,6 +87,10 @@ async def run(pipeline) -> dict:
             voice_count += 1
 
     # UPDATE STATUS (skip if targeted run)
+    if cancelled:
+        print(f"  🛑 Stopped by user — kept {voice_count} completed voice track(s)")
+        return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count, "cancelled": True}
+
     if pipeline._is_targeted_run:
         print(f"  🎯 Targeted run — status NOT advanced")
         return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count, "targeted": True}

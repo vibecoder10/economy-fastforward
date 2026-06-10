@@ -19,6 +19,7 @@ import {
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 
 interface VisualsTabProps {
   video: VideoDetail & { id: string };
@@ -493,19 +494,22 @@ export function VisualsTab({ video }: VisualsTabProps) {
           </div>
         </GlassCard>
 
-        <ActionButton
-          variant="filled"
-          icon={(generatingAll || taskRunning) ? Loader2 : ImageIcon}
-          className="w-full"
-          onClick={handleGenerateAll}
-          disabled={generatingAll || taskRunning || pendingSegments === 0}
-        >
-          {taskRunning
-            ? (taskMessage || "Generating...")
-            : generatingAll
-              ? "Starting..."
-              : `Generate All Remaining (${pendingSegments})`}
-        </ActionButton>
+        <div className="flex items-stretch gap-2">
+          <ActionButton
+            variant="filled"
+            icon={(generatingAll || taskRunning) ? Loader2 : ImageIcon}
+            className="w-full"
+            onClick={handleGenerateAll}
+            disabled={generatingAll || taskRunning || pendingSegments === 0}
+          >
+            {taskRunning
+              ? (taskMessage || "Generating...")
+              : generatingAll
+                ? "Starting..."
+                : `Generate All Remaining (${pendingSegments})`}
+          </ActionButton>
+          <StopGenerationButton videoId={video.id} running={taskRunning} />
+        </div>
       </div>
     </div>
   );

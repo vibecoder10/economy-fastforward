@@ -51,6 +51,15 @@ async def run(pipeline) -> dict:
     # Concurrent generation with semaphore-based rate limiting
     MAX_CONCURRENT_VIDEOS = 3
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_VIDEOS)
+
+    _should_cancel = getattr(pipeline, "should_cancel", None)
+
+    async def _cancelled() -> bool:
+        """Cooperative Stop check — called before each paid clip generation."""
+        try:
+            return bool(_should_cancel) and await _should_cancel()
+        except Exception:
+            return False
     print(f"    Concurrency: {MAX_CONCURRENT_VIDEOS} parallel video generations")
 
     async def generate_single_video(i, img_record):
@@ -80,6 +89,8 @@ async def run(pipeline) -> dict:
         clip_duration = 10 if segment_duration > 6.0 else 6
 
         async with semaphore:
+            if await _cancelled():
+                return  # Stop requested — skip queued clips, keep in-flight ones
             print(f"    [{i}/{total}] Scene {scene}, Image {index} "
                   f"({segment_duration:.1f}s → {clip_duration}s clip"
                   f"{'  HERO' if clip_duration == 10 else ''})")
@@ -127,6 +138,17 @@ async def run(pipeline) -> dict:
 
     print(f"    ✅ Generated {video_count}/{total} videos"
           f"{f' ({failed_count} failed)' if failed_count else ''}")
+
+    # User pressed Stop — keep completed clips, don't advance status
+    if await _cancelled():
+        print(f"  🛑 Stopped by user — kept {video_count} completed clip(s)")
+        pipeline.slack.notify(f"🛑 Video generation stopped by user ({video_count}/{total} done)")
+        return {
+            "bot": "Video Gen Bot",
+            "video_title": pipeline.video_title,
+            "video_count": video_count,
+            "cancelled": True,
+        }
 
     if pipeline._is_targeted_run:
         print(f"  🎯 Targeted run — status NOT advanced")

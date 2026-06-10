@@ -447,6 +447,11 @@ export const runNextStep = (videoId: string) =>
 export const getPipelineStatus = (videoId: string) =>
   fetchApi<PipelineStatus>(`/api/pipeline/status/${videoId}`);
 
+export const cancelPipelineTask = (videoId: string) =>
+  fetchApi<{ status: string; message: string }>(`/api/pipeline/cancel/${videoId}`, {
+    method: "POST",
+  });
+
 export const getPipelineTaskStatus = (videoId: string) =>
   fetchApi<TaskStatus>(`/api/pipeline/task/${videoId}`);
 

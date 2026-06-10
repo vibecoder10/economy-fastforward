@@ -65,6 +65,14 @@ async def _run_stage(
         result = await method(video_id)
 
         status = result.get("status", "unknown")
+        if status == "cancelled":
+            await db_persist_task(
+                tenant_id, video_id, stage, "cancelled",
+                message=result.get("error") or "Stopped by user — completed work kept",
+                job_id=job_id, attempt=attempt,
+            )
+            logger.info("[%s] cancelled by user video=%s", stage, video_id)
+            return result
         if status == "failed":
             error_msg = result.get("error", "Stage returned failed status")
             await db_persist_task(

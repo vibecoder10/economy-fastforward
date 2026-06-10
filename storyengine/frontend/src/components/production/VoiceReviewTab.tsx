@@ -15,6 +15,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { getVideoScript, getVideoAssets, advanceVideo, runPipelineStage, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 
 interface VoiceReviewTabProps {
   video: VideoDetail & { id: string; title?: string; status?: string };
@@ -245,14 +246,17 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
           The script must be completed before voice generation can begin.
           Current stage: <span style={{ color: "var(--turquoise)" }}>{(video.status || "").replace(/_/g, " ")}</span>
         </p>
-        <ActionButton
-          variant="filled"
-          icon={(isGeneratingVoice || taskRunning) ? Loader2 : Mic}
-          onClick={handleGenerateVoice}
-          disabled={isGeneratingVoice || taskRunning}
-        >
-          {taskRunning ? (taskMessage || "Generating Voice...") : isGeneratingVoice ? "Starting..." : "Generate Voice"}
-        </ActionButton>
+        <div className="flex items-center justify-center gap-2">
+          <ActionButton
+            variant="filled"
+            icon={(isGeneratingVoice || taskRunning) ? Loader2 : Mic}
+            onClick={handleGenerateVoice}
+            disabled={isGeneratingVoice || taskRunning}
+          >
+            {taskRunning ? (taskMessage || "Generating Voice...") : isGeneratingVoice ? "Starting..." : "Generate Voice"}
+          </ActionButton>
+          <StopGenerationButton videoId={video.id} running={taskRunning} />
+        </div>
       </GlassCard>
     );
   }

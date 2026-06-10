@@ -25,6 +25,7 @@ import {
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 
 /** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
 function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number }) {
@@ -706,6 +707,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
               {(generatingAll || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
               {taskRunning ? (taskMessage || (storyboardMode ? "Generating Storyboard Grids..." : "Generating Images...")) : generatingAll ? "Starting..." : (storyboardMode ? "Generate Storyboard Grids" : "Generate All Images")}
             </button>
+            <StopGenerationButton videoId={video.id} running={taskRunning} />
           </div>
         </GlassCard>
       </div>

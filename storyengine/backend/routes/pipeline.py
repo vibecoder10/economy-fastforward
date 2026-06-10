@@ -140,11 +140,15 @@ async def _db_persist_task(
                     "VALUES ($1, $2, $3, 'running', $4, now())",
                     tenant_id, video_id, task_type, message,
                 )
-        elif status in ("completed", "failed"):
+        elif status in ("completed", "failed", "cancelled"):
+            # 'cancelled' also closes the marker row the cancel endpoint wrote
+            # (status='cancelled', completed_at NULL) — setting completed_at
+            # consumes the cancel request so future runs start clean.
             await execute(
                 "UPDATE background_tasks "
                 "SET status = $1, message = $2, error_message = $3, completed_at = now() "
-                "WHERE video_id = $4 AND status = 'running'",
+                "WHERE video_id = $4 AND (status = 'running' "
+                "      OR (status = 'cancelled' AND completed_at IS NULL))",
                 status, message, error, video_id,
             )
     except Exception:
@@ -183,9 +187,17 @@ def _set_task_status(
     bug, not a recoverable runtime state.
 
     Normalizes status to: running | completed | failed
+    ('cancelled' reads as completed to pollers — the message tells the story —
+    but persists as 'cancelled' in background_tasks for history.)
     """
+    db_status = None
     # Normalize: anything not running/failed is completed
-    if status not in ("running", "failed"):
+    if status == "cancelled":
+        normalized = "completed"
+        db_status = "cancelled"
+        if not message:
+            message = "Stopped — completed work was kept. Run the stage again to resume."
+    elif status not in ("running", "failed"):
         normalized = "completed"
     else:
         normalized = status
@@ -213,7 +225,7 @@ def _set_task_status(
             asyncio.get_running_loop().create_task(
                 _db_persist_task(
                     str(tenant_id), video_id, task_type,
-                    normalized, resolved_message, resolved_error,
+                    db_status or normalized, resolved_message, resolved_error,
                 )
             )
         except RuntimeError:
@@ -1318,6 +1330,37 @@ async def get_pipeline_status(
         next_action=next_actions.get(status),
         airtable_synced=bool(video.get("airtable_record_id")),
     )
+
+
+@router.post("/cancel/{video_id}")
+async def cancel_pipeline_task(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Stop a running generation for this video.
+
+    Cooperative: the in-flight item finishes, queued items are skipped, all
+    completed (paid) work is kept. Running the stage again resumes — the
+    existing resume logic only generates what's missing.
+    """
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    from cancel_registry import request_cancel
+    task = _get_task_status(video_id, tenant_id)
+    marked_db = await request_cancel(tenant_id, video_id)
+
+    if (not task or task.get("status") != "running") and not marked_db:
+        return {"status": "not_running", "message": "Nothing is running for this video."}
+
+    return {
+        "status": "cancelling",
+        "message": "Stopping — the current item will finish, then generation halts. Completed work is kept.",
+    }
 
 
 @router.get("/task/{video_id}")

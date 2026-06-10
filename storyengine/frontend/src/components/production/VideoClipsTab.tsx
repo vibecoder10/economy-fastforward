@@ -15,6 +15,7 @@ import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles, ad
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, Asset } from "@/lib/api";
+import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 
 function getClipStatus(asset: Asset): "pending" | "generating" | "done" {
   if (asset.video_clip_url) return "done";
@@ -241,6 +242,7 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
             {(isGeneratingClips || (taskRunning && taskStage === "clips")) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Film size={12} className="inline mr-1" />}
             {confirmGenerate ? `Confirm — $${estimatedCost.toFixed(2)}` : "Generate All Clips"}
           </button>
+          <StopGenerationButton videoId={video.id} running={taskRunning} />
           {confirmGenerate && (
             <button
               onClick={() => setConfirmGenerate(false)}

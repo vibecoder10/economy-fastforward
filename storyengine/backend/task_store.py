@@ -50,11 +50,12 @@ async def db_persist_task(
             )
             if existing:
                 return
-        elif status in ("completed", "failed"):
+        elif status in ("completed", "failed", "cancelled"):
             await execute(
                 "UPDATE background_tasks "
                 "SET status = $1, message = $2, error_message = $3, completed_at = now() "
-                "WHERE video_id = $4 AND status IN ('running', 'pending')",
+                "WHERE video_id = $4 AND (status IN ('running', 'pending') "
+                "      OR (status = 'cancelled' AND completed_at IS NULL))",
                 status, message, error, video_id,
             )
             return

@@ -35,6 +35,16 @@ async def run(pipeline) -> dict:
     # Run the internal image bot
     result = await _generate_images(pipeline)
 
+    # User pressed Stop — keep completed work, don't verify or advance status
+    if result.get("cancelled"):
+        print(f"  🛑 Stopped by user — kept {result.get('image_count', 0)} completed image(s)")
+        return {
+            "bot": "Image Bot",
+            "video_title": pipeline.video_title,
+            "image_count": result.get("image_count", 0),
+            "cancelled": True,
+        }
+
     # Targeted run — don't verify or advance status
     if pipeline._is_targeted_run:
         print(f"  🎯 Targeted run — status NOT advanced")
@@ -98,6 +108,15 @@ async def _generate_images(pipeline) -> dict:
     MAX_CONCURRENT = 3
     DELAY_BETWEEN_SCENES = 2.0
 
+    _should_cancel = getattr(pipeline, "should_cancel", None)
+
+    async def _cancelled() -> bool:
+        """Cooperative Stop check — called between paid generations."""
+        try:
+            return bool(_should_cancel) and await _should_cancel()
+        except Exception:
+            return False
+
     pipeline.slack.notify_images_start()
     print(f"\n  🖼️ IMAGE BOT: Generating images...")
     print(f"     Rate limit: {MAX_CONCURRENT} concurrent generations")
@@ -155,6 +174,10 @@ async def _generate_images(pipeline) -> dict:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     for scene_idx, scene_num in enumerate(sorted(scenes.keys())):
+        if await _cancelled():
+            print(f"    🛑 Stop requested — halting before scene {scene_num}")
+            pipeline.slack.notify(f"🛑 Image generation stopped by user ({image_count}/{total_pending} done)")
+            return {"image_count": image_count, "failed_count": failed_count, "cancelled": True}
         scene_images = scenes[scene_num]
         scene_total = len(scene_images)
         print(f"\n    Scene {scene_num} ({scene_idx + 1}/{len(scenes)}): {scene_total} images")
@@ -163,6 +186,8 @@ async def _generate_images(pipeline) -> dict:
             nonlocal image_count, failed_count
 
             async with semaphore:
+                if await _cancelled():
+                    return None  # Stop requested — skip queued images, keep in-flight ones
                 prompt = img_record.get(ImageFields.IMAGE_PROMPT, "")
                 index = img_record.get(ImageFields.IMAGE_INDEX, 0)
                 record_id = img_record["id"]
@@ -232,6 +257,9 @@ async def _generate_images(pipeline) -> dict:
 
     max_retries = 3
     for retry_round in range(max_retries):
+        if await _cancelled():
+            print("    🛑 Stop requested — skipping retry rounds")
+            return {"image_count": image_count, "failed_count": failed_count, "cancelled": True}
         all_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
         pending = [img for img in all_images if img.get(ImageFields.STATUS) != ImageFields.STATUS_DONE and img.get(ImageFields.IMAGE_PROMPT)]
 

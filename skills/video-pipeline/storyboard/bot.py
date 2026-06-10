@@ -2220,6 +2220,7 @@ async def run_storyboard_images(
     slack_client=None,
     scene_filter: Optional[int] = None,
     progress_callback=None,
+    should_cancel=None,
 ) -> dict:
     """Phase 1B: Generate storyboard images from prompts.
 
@@ -2317,7 +2318,15 @@ async def run_storyboard_images(
                     existing[beat_idx] = url
         scene_existing_grids[scene_num] = existing
 
+    async def _cancelled() -> bool:
+        """Cooperative Stop check — called before each paid grid generation."""
+        try:
+            return bool(should_cancel) and await should_cancel()
+        except Exception:
+            return False
+
     total_cost = 0.0
+    was_cancelled = False
     failed_beats: list[tuple[int, int]] = []  # (scene, beat)
     total_grids = 0
     # scene_grid_urls: beat_num → url (preserves beat→column mapping even on failure)
@@ -2345,7 +2354,13 @@ async def run_storyboard_images(
         existing_beats = scene_existing_grids.get(scene_num, {})
         scene_grid_urls.setdefault(scene_num, {})
 
+        if was_cancelled:
+            break
         for beat_num, prompt in prompts:
+            if await _cancelled():
+                logger.info("Stop requested — halting storyboard grid generation")
+                was_cancelled = True
+                break
             # Skip already-completed beats (check by beat number, not count)
             if beat_num in existing_beats:
                 logger.info(f"Scene {scene_num}, Beat {beat_num} grid already exists, skipping")
@@ -2434,6 +2449,9 @@ async def run_storyboard_images(
         "grids_generated": total_grids,
         "total_cost": total_cost,
     }
+
+    if was_cancelled:
+        result["cancelled"] = True
 
     if failed_beats:
         result["failed_beats"] = failed_beats

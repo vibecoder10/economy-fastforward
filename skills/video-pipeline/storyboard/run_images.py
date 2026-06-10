@@ -94,6 +94,7 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
         slack_client=pipeline.slack,
         scene_filter=scene_filter,
         progress_callback=progress_callback,
+        should_cancel=getattr(pipeline, "should_cancel", None),
     )
 
     if result.get("error"):
@@ -109,6 +110,17 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
     grids_generated = result.get("grids_generated", 0)
     failed_beats = result.get("failed_beats", [])
     total_cost = result.get("total_cost", 0)
+
+    # User pressed Stop — keep completed grids, don't advance status
+    if result.get("cancelled"):
+        print(f"  🛑 Stopped by user — kept {grids_generated} completed grid(s)")
+        pipeline.slack.notify(f"🛑 Storyboard grids stopped by user ({grids_generated}/{beat_count} done) for *{pipeline.video_title}*")
+        return {
+            "bot": "Storyboard Images",
+            "video_title": pipeline.video_title,
+            "grids_generated": grids_generated,
+            "cancelled": True,
+        }
 
     if failed_beats:
         print(f"  ⚠️ Partial: {grids_generated}/{beat_count} grids (failed: {failed_beats})")
