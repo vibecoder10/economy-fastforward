@@ -1,5 +1,36 @@
 # Task Tracking
 
+## Handoff (2026-06-11 pt 3 — grandma-proof guided flow + storage reliability)
+
+Ryan's storyboard run silently failed + "UI is confusing, needs next-next-next."
+
+Root causes found & fixed:
+1. Kie rejected character refs ('image_input file type not supported') — the stored
+   drive.google.com URLs had degraded into HTML interstitials (even lh3 CDN form).
+   FIX: dual persistence — Drive stays the organized library, Supabase Storage is the
+   serving copy and the URL we store (storage.py drive branch). Public 'assets' bucket
+   created. Bird video backfilled (6 portraits + grids + 74 images) via authorized
+   Drive download.
+2. generate_with_reference poll budget was 120s; multi-ref grids take 2-4 min →
+   silent 'returned None'. Budget now 450s. Misleading "$0.07 so far" log on failure
+   still exists (bot.py increments cost before checking result) — minor, open.
+3. Bird video storyboard now COMPLETE: 12 grids across 8 scenes (scene 4 was deleted
+   by Ryan mid-debug; regenerated per-scene). Story still UNLOCKED — Ryan reviews
+   boards → Lock → Create final pictures.
+
+Guided UX (from 7-agent audit + synthesis, full report in workflow output):
+- lib/next-action.ts: getNextAction() decision table → ONE plain-English next action
+  per state (label, cost, tab, step N of 10).
+- GuidedNextStep banner on the video page: big single CTA, live progress + Stop,
+  PERSISTENT failure card with Try Again (replaces 6s toasts).
+- Tabs renumbered 1·Research … 10·Results; storyboard tab buttons in plain English.
+
+UX backlog (synthesis items not yet built): Advanced overflow menus per tab (hide
+Reset/Skip/Upscale), disabled-button reason captions, per-segment failed badges with
+"Fix missing pictures (N)", tab lock icons for not-ready tabs, cost-confirm pattern
+for every >$0.50 action, stepper/pill unification via STATUS_LABELS. Full decision
+table + per-tab hierarchy in the uiux-map workflow output.
+
 ## Handoff (2026-06-11 pt 2 — Drive consolidated under RAD Creations/Projects/Storyengine)
 
 Everything now lives in ONE tree (Ryan's requested layout):

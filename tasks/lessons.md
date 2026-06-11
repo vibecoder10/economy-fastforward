@@ -2,6 +2,11 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-06-11 pt 3 — Drive is a library, never a CDN
+- **Google Drive URLs degrade unpredictably into HTML interstitials** (virus-scan/quota pages) — breaking BOTH <img> rendering and Kie image_input ingestion ('file type not supported' = Kie fetched HTML). Even the lh3 CDN form degraded within hours. Architecture rule: Drive = creator-facing organized library only; Supabase Storage public URLs are the serving layer for browsers and APIs. storage.py dual-writes and returns the Supabase URL.
+- **Poll budgets must match real task duration**: multi-reference image generation (6-character casts) takes 2-4 minutes; a 120s poll budget turned successful Kie tasks into silent 'returned None' failures. Verify task duration empirically before setting timeouts.
+- **The guided-flow primitives**: lib/next-action.ts (decision table → one action) + GuidedNextStep banner (idle/running/failed/celebrate). Every future stage/state must be added to getNextAction or beginners get stranded again.
+
 ## Session 2026-06-11 pt 2 — Drive asset-folder unification + image rendering
 - **Two upload paths = two Drive trees.** Pipeline bots upload via `pipeline.google` into the TITLE-named folder; storyengine/backend/storage.py uploaded into "StoryEngine Assets/<video-uuid>" — so a video's Drive folder silently missed portraits/grids/persisted images. storage.py now resolves the video title from the DB and uploads into the same title folder (category subfolders). When two modules write "the same" destination, diff their folder-resolution logic explicitly.
 - **GoogleClient.get_or_create_folder searches names GLOBALLY** — using it for generic subfolder names ('characters') would collide across videos. Scope folder lookups with a `'<parent>' in parents` query (see storage._get_or_create_child_folder).
