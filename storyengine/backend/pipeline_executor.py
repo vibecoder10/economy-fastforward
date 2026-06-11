@@ -34,7 +34,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
         sys.path.append(bot_path)
 
 from database import fetch_one, fetch_all, execute
-from error_utils import humanize_error
+from error_utils import humanize_error, user_facing
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
 from extraction import extract_grid
@@ -544,8 +544,8 @@ class PipelineExecutor:
             return None
         if not video.get("characters_approved_at"):
             self._pipeline.character_reference_urls = None
-            return ("Your cast is designed but not approved yet — open the Characters tab, "
-                    "review the portraits, and hit Approve before generating visuals.")
+            return user_facing("Your cast is designed but not approved yet — open the Characters tab, "
+                               "review the portraits, and hit Approve before generating visuals.")
         self._pipeline.character_reference_urls = [r["reference_url"] for r in rows][:6]
         return None
 
@@ -1533,8 +1533,8 @@ directions, no labels, no headings inside them."""
             # Mandatory storyboard gate: extraction turns approved boards into
             # final images (the paid upscale pass) — locked stories only.
             if not video.get("story_locked_at"):
-                msg = ("Lock your story first — review the storyboard grids and hit "
-                       "'Lock story' before extracting panels into final images.")
+                msg = user_facing("Lock your story first — review the storyboard grids and hit "
+                                  "'Lock story' before extracting panels into final images.")
                 await self._log_activity(bot_name, video_id, "failed", msg)
                 return {"status": "failed", "error": msg}
 
@@ -1810,8 +1810,8 @@ directions, no labels, no headings inside them."""
             # the creator reviewed and explicitly locked. Targeted single-image
             # regens bypass (they're post-lock fixes by definition).
             if scene is None and not video.get("story_locked_at"):
-                msg = ("Lock your story first — review the storyboard grids and hit "
-                       "'Lock story' on the Storyboard tab before generating images.")
+                msg = user_facing("Lock your story first — review the storyboard grids and hit "
+                                  "'Lock story' on the Storyboard tab before generating images.")
                 await self._log_activity(bot_name, video_id, "failed", msg)
                 return {"status": "failed", "error": msg}
 
