@@ -20,6 +20,7 @@ import {
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 interface VisualsTabProps {
   video: VideoDetail & { id: string };
@@ -367,7 +368,7 @@ export function VisualsTab({ video }: VisualsTabProps) {
                               >
                                 {seg.imageUrl ? (
                                   <img
-                                    src={seg.imageUrl}
+                                    src={toDisplayImageUrl(seg.imageUrl)}
                                     alt={seg.segmentId}
                                     className="absolute inset-0 w-full h-full object-cover"
                                   />

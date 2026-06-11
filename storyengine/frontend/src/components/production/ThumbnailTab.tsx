@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import type { VideoDetail } from "@/lib/api";
 import { getStageIndex, getStageLabel } from "@/lib/constants";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 const ACCENT_COLORS = [
   { name: "Cold Teal", value: "#4A9E9E" },
@@ -244,7 +245,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
           >
             {thumbnailUrl ? (
               <img
-                src={thumbnailUrl}
+                src={toDisplayImageUrl(thumbnailUrl)}
                 alt="Thumbnail preview"
                 className="w-full h-full object-cover"
               />
@@ -471,7 +472,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
               {video.suggested_thumbnail_urls!.map((thumb, i) => (
                 <div key={i} className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border-subtle)" }}>
                   <img
-                    src={thumb.url}
+                    src={toDisplayImageUrl(thumb.url)}
                     alt={`Suggestion ${i + 1}`}
                     className="w-full aspect-video object-cover"
                   />

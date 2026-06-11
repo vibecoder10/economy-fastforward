@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Asset, getImageVariants, runImageForSegment, runImageVariants } from "@/lib/api";
 import { PromptExpander } from "./prompt-expander";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 interface ImageSegmentCardProps {
   asset: Asset;
@@ -76,7 +77,7 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
       >
         {hasImage ? (
           <img
-            src={asset.image_url!}
+            src={toDisplayImageUrl(asset.image_url)}
             alt={asset.sentence_text || "Scene image"}
             className="w-full h-full object-cover"
           />
@@ -235,7 +236,7 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
               >
                 {variant.image_url ? (
                   <img
-                    src={variant.image_url}
+                    src={toDisplayImageUrl(variant.image_url)}
                     alt={`Variant ${variant.panel_position || ""}`}
                     className="w-full h-full object-cover"
                   />

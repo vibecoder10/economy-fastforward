@@ -26,3 +26,19 @@ export function timeAgo(dateStr: string | null): string {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
 }
+
+
+/**
+ * Google Drive `uc?export=download` links don't render in <img> tags (redirect
+ * interstitials, no CORS, hard rate limits) — every asset stored on Drive was
+ * showing as a broken image. Drive's image CDN serves the same public files
+ * reliably: https://lh3.googleusercontent.com/d/<id>=w<width>.
+ * Non-Drive URLs pass through untouched.
+ */
+export function toDisplayImageUrl(url?: string | null, width = 1920): string | undefined {
+  if (!url) return undefined;
+  if (!/^https?:\/\/drive\.google\.com\//.test(url)) return url;
+  const m = url.match(/[?&]id=([\w-]+)/);
+  if (!m) return url;
+  return `https://lh3.googleusercontent.com/d/${m[1]}=w${width}`;
+}

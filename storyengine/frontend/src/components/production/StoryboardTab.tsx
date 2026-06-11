@@ -9,6 +9,7 @@ import { getVideoScript, runPipelineStage, advanceVideo, clearStaleTask, approve
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { ScriptScene } from "@/lib/api";
 import { PromptExpander } from "@/components/video-detail/prompt-expander";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 interface StoryboardTabProps {
   video: any;
@@ -291,7 +292,7 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
                     >
                       {panel.url ? (
                         <img
-                          src={panel.url}
+                          src={toDisplayImageUrl(panel.url)}
                           alt={`Scene ${scene.sceneNumber} panel ${panelIdx + 1}`}
                           className="absolute inset-0 w-full h-full object-cover"
                         />

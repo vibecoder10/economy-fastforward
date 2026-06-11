@@ -16,6 +16,7 @@ import { useTaskPoller } from "@/hooks/use-task-poller";
 import { VoicePlayer } from "./voice-player";
 import { PanelMagnifier } from "./panel-magnifier";
 import { PromptExpander } from "./prompt-expander";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 interface StoryboardViewerProps {
   scene: ScriptScene;
@@ -360,7 +361,7 @@ export function StoryboardViewer({ scene, assets, videoId, videoStatus, onRefres
                   >
                     {/* Full grid image */}
                     <img
-                      src={gridUrl}
+                      src={toDisplayImageUrl(gridUrl)}
                       alt={`Grid ${gridIdx + 1}`}
                       className="w-full h-full object-cover"
                       draggable={false}

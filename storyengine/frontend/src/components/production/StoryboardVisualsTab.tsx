@@ -26,6 +26,7 @@ import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 /** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
 function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number }) {
@@ -1110,7 +1111,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
               {allExtracted.map((seg) => (
                 <div key={seg.id} className="flex-shrink-0 group cursor-pointer relative" onClick={() => { const el = document.getElementById(`scene-${seg.sceneNumber}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
                   <div className="w-[220px] h-[124px] rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
-                    <img src={seg.imageUrl!} alt={seg.segmentId} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
+                    <img src={toDisplayImageUrl(seg.imageUrl)} alt={seg.segmentId} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
                   </div>
                   <button
                     className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity rounded-full p-0.5"
@@ -1239,7 +1240,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                               >
                                 {beat.gridUrl ? (
                                   <img
-                                    src={beat.gridUrl}
+                                    src={toDisplayImageUrl(beat.gridUrl)}
                                     alt={`S${scene.sceneNumber}.${beat.beatNumber}`}
                                     className="w-full h-full object-cover"
                                   />
@@ -1419,7 +1420,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                                 >
                                   {seg.imageUrl ? (
                                     <img
-                                      src={seg.imageUrl}
+                                      src={toDisplayImageUrl(seg.imageUrl)}
                                       alt={seg.segmentId}
                                       className="absolute inset-0 w-full h-full object-cover"
                                     />

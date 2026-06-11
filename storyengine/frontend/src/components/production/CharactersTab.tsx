@@ -31,6 +31,7 @@ import {
   type VideoDetail,
 } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 interface CharactersTabProps {
   video: VideoDetail & { id: string };
@@ -232,7 +233,7 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
               >
                 {c.reference_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.reference_url} alt={c.name} className="w-full h-full object-cover" />
+                  <img src={toDisplayImageUrl(c.reference_url)} alt={c.name} className="w-full h-full object-cover" />
                 ) : (
                   <Users size={32} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
                 )}
