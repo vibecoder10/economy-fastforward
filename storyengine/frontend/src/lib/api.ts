@@ -925,6 +925,12 @@ export const clearSceneStoryboard = (videoId: string, scene: number) =>
     method: "DELETE",
   });
 
+/** Remove ONE storyboard grid image — prompts and other boards stay. */
+export const clearStoryboardSlot = (videoId: string, scene: number, beat: number) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/storyboards/${scene}/${beat}`, {
+    method: "DELETE",
+  });
+
 export const clearAllStoryboards = (videoId: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/storyboards`, {
     method: "DELETE",

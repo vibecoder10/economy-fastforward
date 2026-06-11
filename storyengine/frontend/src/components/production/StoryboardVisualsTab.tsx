@@ -18,7 +18,7 @@ import { PromptExpander } from "@/components/video-detail/prompt-expander";
 import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
-  clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
+  clearStoryboardSlot, clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
   getAudioToken, advanceVideo, lockStory, unlockStory,
 } from "@/lib/api";
@@ -226,6 +226,10 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
   const [clearingExtracted, setClearingExtracted] = useState(false);
   const [uploadingGrid, setUploadingGrid] = useState<string | null>(null); // "scene-beat"
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [clearingSlot, setClearingSlot] = useState<string | null>(null); // "scene-beat"
+  // Replacing a board reuses the same Drive file (same URL) — bump a cache
+  // key per slot so the <img> actually refetches the new pixels.
+  const [gridBust, setGridBust] = useState<Record<string, number>>({});
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -356,7 +360,9 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
   }, [video.id, queryClient]);
 
   const handleClearSceneStoryboard = useCallback(async (sceneNumber: number) => {
-    const confirmed = window.confirm(`Clear storyboard prompts and storyboard grids for Scene ${sceneNumber}?`);
+    const confirmed = window.confirm(
+      `Start Scene ${sceneNumber} over? This deletes the scene's storyboard images AND its prompts (full redo).\n\nTo remove just one picture, hover it and click the X instead.`
+    );
     if (!confirmed) return;
 
     setClearingScene(sceneNumber);
@@ -445,9 +451,10 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
       setScenes((prev) =>
         prev.map((scene) => {
           if (scene.sceneNumber !== sceneNumber) return scene;
+          const wasEmpty = !scene.storyboardBeats.find((b) => b.beatNumber === beatNumber)?.gridUrl;
           return {
             ...scene,
-            storyboardGridCount: scene.storyboardGridCount + 1,
+            storyboardGridCount: scene.storyboardGridCount + (wasEmpty ? 1 : 0),
             hasStoryboardData: true,
             storyboardStatus: result.all_grids_complete ? "grids_generated" : scene.storyboardStatus,
             storyboardBeats: scene.storyboardBeats.map((b) =>
@@ -456,14 +463,45 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
           };
         }),
       );
+      setGridBust((prev) => ({ ...prev, [key]: Date.now() }));
+      toast.success(`Your image is now storyboard S${sceneNumber}.${beatNumber}.`);
       await queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
-    } catch {
-      // silent
+    } catch (err) {
+      toast.error(`Upload failed: ${(err as Error).message || "please try again."}`);
     } finally {
       setUploadingGrid(null);
       setDragOver(null);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, toast]);
+
+  const handleClearGridSlot = useCallback(async (sceneNumber: number, beatNumber: number) => {
+    if (!window.confirm(
+      `Remove storyboard picture S${sceneNumber}.${beatNumber}? Your scene descriptions and prompts stay — only this image goes. You can regenerate it or drop in your own.`
+    )) return;
+    const key = `${sceneNumber}-${beatNumber}`;
+    setClearingSlot(key);
+    try {
+      await clearStoryboardSlot(video.id, sceneNumber, beatNumber);
+      setScenes((prev) =>
+        prev.map((scene) => {
+          if (scene.sceneNumber !== sceneNumber) return scene;
+          return {
+            ...scene,
+            storyboardGridCount: Math.max(0, scene.storyboardGridCount - 1),
+            storyboardStatus: scene.storyboardStatus === "grids_generated" ? "prompts_ready" : scene.storyboardStatus,
+            storyboardBeats: scene.storyboardBeats.map((b) =>
+              b.beatNumber === beatNumber ? { ...b, gridUrl: null } : b,
+            ),
+          };
+        }),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    } catch (err) {
+      toast.error(`Couldn't remove that picture: ${(err as Error).message || "please try again."}`);
+    } finally {
+      setClearingSlot(null);
+    }
+  }, [video.id, queryClient, toast]);
 
   const handleClearExtractedPanel = useCallback(async (assetId: string) => {
     try {
@@ -1205,15 +1243,21 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                     {(scene.storyboardBeats.length > 0 || scene.hasStoryboardData) && (
                       <div className="mb-3">
                         <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
-                          {scene.storyboardBeats.map((beat) => (
-                            <div key={`grid-${scene.sceneNumber}-${beat.beatNumber}`} className="flex-shrink-0">
+                          {scene.storyboardBeats.map((beat) => {
+                            const slotKey = `${scene.sceneNumber}-${beat.beatNumber}`;
+                            const bust = gridBust[slotKey];
+                            const displayUrl = beat.gridUrl
+                              ? `${toDisplayImageUrl(beat.gridUrl)}${bust ? `?cb=${bust}` : ""}`
+                              : undefined;
+                            return (
+                            <div key={`grid-${slotKey}`} className="flex-shrink-0 relative group/board">
                               <div
-                                className="rounded-lg overflow-hidden cursor-pointer transition-all hover:ring-2 hover:ring-[var(--purple)]"
+                                className="relative rounded-lg overflow-hidden cursor-pointer transition-all hover:ring-2 hover:ring-[var(--purple)]"
                                 style={{
                                   width: 340,
                                   height: 200,
                                   background: "var(--bg-elevated)",
-                                  border: dragOver === `${scene.sceneNumber}-${beat.beatNumber}`
+                                  border: dragOver === slotKey
                                     ? "2px solid var(--green)"
                                     : beat.gridUrl
                                       ? "1px solid rgba(0, 230, 138, 0.25)"
@@ -1226,7 +1270,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                                     handleGenerateSceneGrids(scene.sceneNumber);
                                   }
                                 }}
-                                onDragOver={(e) => { e.preventDefault(); setDragOver(`${scene.sceneNumber}-${beat.beatNumber}`); }}
+                                onDragOver={(e) => { e.preventDefault(); setDragOver(slotKey); }}
                                 onDragLeave={() => setDragOver(null)}
                                 onDrop={(e) => {
                                   e.preventDefault();
@@ -1236,14 +1280,38 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                                     handleGridDrop(scene.sceneNumber, beat.beatNumber, file);
                                   }
                                 }}
-                                title={beat.gridUrl ? "Click to open full size" : "Click to generate or drag & drop an image"}
+                                title={beat.gridUrl ? "Click to open full size · drop an image here to replace it" : "Click to generate or drag & drop an image"}
                               >
                                 {beat.gridUrl ? (
-                                  <img
-                                    src={toDisplayImageUrl(beat.gridUrl)}
-                                    alt={`S${scene.sceneNumber}.${beat.beatNumber}`}
-                                    className="w-full h-full object-cover"
-                                  />
+                                  <>
+                                    <img
+                                      src={displayUrl}
+                                      alt={`S${scene.sceneNumber}.${beat.beatNumber}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    {(dragOver === slotKey || uploadingGrid === slotKey || clearingSlot === slotKey) && (
+                                      <div
+                                        className="absolute inset-0 flex flex-col items-center justify-center gap-2"
+                                        style={{ background: "rgba(0,0,0,0.65)" }}
+                                      >
+                                        {uploadingGrid === slotKey || clearingSlot === slotKey ? (
+                                          <>
+                                            <Loader2 size={22} className="animate-spin" style={{ color: "var(--green)" }} />
+                                            <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+                                              {uploadingGrid === slotKey ? "Saving your image..." : "Removing..."}
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <ImageIcon size={22} style={{ color: "var(--green)" }} />
+                                            <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+                                              Drop to replace this picture
+                                            </span>
+                                          </>
+                                        )}
+                                      </div>
+                                    )}
+                                  </>
                                 ) : (
                                   <div className="w-full h-full flex flex-col items-center justify-center gap-2 transition-colors hover:bg-[rgba(168,85,247,0.08)]">
                                     {uploadingGrid === `${scene.sceneNumber}-${beat.beatNumber}` ? (
@@ -1278,11 +1346,23 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                                   </div>
                                 )}
                               </div>
+                              {beat.gridUrl && clearingSlot !== slotKey && uploadingGrid !== slotKey && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleClearGridSlot(scene.sceneNumber, beat.beatNumber); }}
+                                  disabled={taskRunning}
+                                  title="Remove just this picture (prompts stay)"
+                                  className="absolute top-1.5 right-1.5 rounded-full p-1 opacity-0 group-hover/board:opacity-100 transition-opacity disabled:opacity-0"
+                                  style={{ background: "rgba(0,0,0,0.75)", color: "rgba(239, 68, 68, 0.95)" }}
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
                               <p className="text-center mt-1.5 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                                 S{scene.sceneNumber}.{beat.beatNumber}
                               </p>
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
                       </div>
                     )}

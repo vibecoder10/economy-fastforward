@@ -1,6 +1,8 @@
 """Video CRUD + stage transitions."""
 
+import asyncio
 import json
+import logging
 import re
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
@@ -102,6 +104,7 @@ def _parse_json_field(val: Any) -> Optional[dict]:
     return None
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
+logger = logging.getLogger(__name__)
 
 
 def _next_stage(current: str) -> Optional[str]:
@@ -901,6 +904,73 @@ async def clear_scene_storyboard(
     return {"status": "cleared", "scope": "scene", "video_id": video_id, "scene": scene}
 
 
+def _drive_file_id(url: str | None) -> str | None:
+    if not url:
+        return None
+    m = re.search(r"[?&]id=([\w-]+)", url) or re.search(r"/d/([\w-]+)", url)
+    return m.group(1) if m else None
+
+
+def _trash_drive_file(file_id: str) -> None:
+    """Move a Drive file to trash (recoverable for 30 days)."""
+    import sys
+    from pathlib import Path
+    pipeline_path = Path(__file__).resolve().parents[3] / "skills" / "video-pipeline"
+    if str(pipeline_path) not in sys.path:
+        sys.path.insert(0, str(pipeline_path))
+    from shared.clients.google_client import GoogleClient
+    GoogleClient().drive_service.files().update(
+        fileId=file_id, body={"trashed": True}
+    ).execute()
+
+
+@router.delete("/{video_id}/storyboards/{scene}/{beat}")
+async def clear_storyboard_slot(
+    video_id: str,
+    scene: int,
+    beat: int,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Remove ONE storyboard grid image — prompts and the other boards stay.
+
+    The whole-scene clear wipes prompts too (full redo); this is the X button
+    for "just this picture is wrong". The Drive copy is trashed so the folder
+    matches what's on screen, and regeneration only fills the empty slot
+    (the bot skips beats that already have grids).
+    """
+    if beat < 1 or beat > 5:
+        raise HTTPException(status_code=400, detail="Beat must be 1-5")
+
+    col = f"storyboard_{beat}_url"
+    row = await fetch_one(
+        f"SELECT id, {col} AS url FROM scripts WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+        video_id, scene, tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    if not row.get("url"):
+        raise HTTPException(status_code=404, detail="No storyboard image in that slot")
+
+    await execute(
+        f"""UPDATE scripts
+            SET {col} = NULL,
+                storyboard_status = CASE WHEN storyboard_status = 'grids_generated'
+                                         THEN 'prompts_ready' ELSE storyboard_status END,
+                updated_at = now()
+            WHERE id = $1""",
+        row["id"],
+    )
+
+    file_id = _drive_file_id(row["url"])
+    if file_id:
+        try:
+            await asyncio.to_thread(_trash_drive_file, file_id)
+        except Exception as e:
+            logger.warning("[storyboard] couldn't trash Drive file %s: %s", file_id, str(e)[:200])
+
+    return {"status": "cleared", "scope": "slot", "scene": scene, "beat": beat}
+
+
 @router.delete("/{video_id}/extracted-panels")
 async def clear_all_extracted_panels(
     video_id: str,
@@ -968,11 +1038,12 @@ async def upload_storyboard_grid(
     if beat < 1 or beat > 5:
         raise HTTPException(status_code=400, detail="Beat must be 1-5")
 
-    # Read file and upload to storage
+    # Read file and upload to storage. Same Drive subfolder + filename the
+    # storyboard bot uses, so a manual upload REPLACES the bot's grid in
+    # place instead of orphaning it in a separate "grids" folder.
     data = await file.read()
-    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "png"
-    path = f"{video_id}/grids/S{scene}-B{beat}.{ext}"
-    perm_url = await upload_bytes(data, path)
+    path = f"{video_id}/storyboard/S{scene}-B{beat}.png"
+    perm_url = await upload_bytes(data, path, content_type=file.content_type or "image/png")
 
     # SECURITY: column name built from validated integer (1-5 only, checked above).
     # Values use parameterized $1/$2 — no injection risk.
