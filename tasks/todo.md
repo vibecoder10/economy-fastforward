@@ -1,5 +1,40 @@
 # Task Tracking
 
+## Handoff (2026-06-11 — Creator Control Run shipped: Stop, Characters, Story Lock)
+
+All three phases of docs/superpowers/specs/2026-06-10-creator-control-run.md are LIVE:
+- Stop button on Visuals/Clips/Storyboard/Voice tabs; cooperative cancel keeps paid
+  work, stage re-run resumes. Live-verified twice (grids stopped mid-run; a found
+  cancel-eaten race + stale-clear race fixed and re-verified with a 3s cancel).
+- Characters tab between Script and Storyboard: design cast → 6/6 portraits generated
+  live for the bird video (Tom, Lisa, Mom, Dad, Dr. May, Baby Bird), approve gate
+  blocks grids/images until approved (verified live), cast saved to project.
+- Mandatory storyboard: storyboard_on_off defaults On, toggle replaced with REQUIRED
+  badge, Lock Story (needs ≥1 reviewed grid) gates full image runs + extraction
+  (both refusals verified live), unlock-story to iterate.
+- Adversarial review pre-deploy: 11 claims refuted, 2 confirmed + fixed (cancel
+  endpoint was blocked by the concurrent-job limiter; schema.sql missing
+  video_characters RLS).
+
+### Bird video state (f32ed182) — heads up
+During live testing a cancel race let an image run complete: the video now sits at
+ready_for_sound_design with 74 generated images (~$1.85, styled by the modeled
+Pixar DNA — review them, they're likely usable). Cast is approved + saved to the
+project; scene 1 has a storyboard grid; story is UNLOCKED. For a clean full-flow
+test of the new gates, model a fresh video: script → Characters tab → approve →
+grids → redo boards → Lock Story → Extract.
+
+### Open items
+1. Storyboard grid generation is not yet blocked AFTER lock (only images/extract are
+   gated) — locking then regenerating boards is possible; unlock-to-iterate is the
+   official path. Consider gating grids post-lock or auto-unlocking on grid regen.
+2. Stale 'running' background_tasks rows accumulate when a task's terminal write
+   misses (cleaned by recover_stale_tasks on restart) — they inflate the concurrent-
+   job count between restarts.
+3. voice_duration_seconds still not recorded in Kie voice mode (word-count fallback).
+4. Characters tab does not auto-resume polling if the page reloads mid-design
+   (background task continues; refresh shows the finished cast).
+
 ## Handoff (2026-06-10 pt 4 — voice via Kie + full click-path to ready_for_images)
 
 Ryan: "voice uses kie as well." Shipped + verified live on the bird video (f32ed182):

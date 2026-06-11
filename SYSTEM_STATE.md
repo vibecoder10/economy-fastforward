@@ -1,6 +1,6 @@
 # System State — Economy FastForward
 
-> Last updated: 2026-06-10
+> Last updated: 2026-06-11
 
 ---
 
@@ -655,3 +655,34 @@ explicit user action.
 | `storyengine/frontend/src/components/dashboard/index.ts` | Export `ModelVideoModal` |
 
 No DB migration needed — reuses `videos.reference_url/original_dna/research_payload/title_candidates/thumbnail_prompt`, `assets.image_prompt/video_prompt`, `competitor_videos.our_video_id/modeled_at`.
+
+
+---
+
+## Creator Control Run (added 2026-06-11)
+
+Spec: docs/superpowers/specs/2026-06-10-creator-control-run.md. Three shipped phases:
+Stop button (cooperative cancel), per-video Character Design step, mandatory
+storyboard gate (Lock Story before image spend).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/cancel_registry.py` | Dual-layer cancel flags (in-memory TTL + background_tasks 'cancelled' marker row for cross-process/arq). Stale cleanup happens at run-start in `_set_task_status`. |
+| `storyengine/backend/routes/characters.py` | `/api/videos/{id}/characters/*`: design cast (bible or Claude-reads-script) → Kie portraits, regenerate/edit/upload/delete, approve (gates visuals), save/import project cast |
+| `storyengine/backend/migrations/046_video_characters.sql` | video_characters table (+RLS) + videos.characters_approved_at |
+| `storyengine/backend/migrations/047_story_lock.sql` | videos.story_locked_at; scripts.storyboard_on_off default 'On' |
+| `storyengine/backend/tests/functional/test_cancel_generation.py` | 7 tests: registry semantics, image-bot halt, contract pins, job-limit exemption |
+| `storyengine/backend/tests/functional/test_characters.py` | 5 tests: cast extraction, wiring + lock-gate pins |
+| `storyengine/frontend/src/components/production/StopGenerationButton.tsx` | Red Stop beside running generation (Visuals, Clips, Storyboard, Voice tabs) |
+| `storyengine/frontend/src/components/production/CharactersTab.tsx` | Characters tab: portrait cards, approve bar, save/use saved cast |
+
+### Key wiring
+- `POST /api/pipeline/cancel/{video_id}` — exempt from the concurrent-job rate limit
+  (`_JOB_LIMIT_EXEMPT_PREFIXES` in rate_limit.py). Loops check `pipeline.should_cancel`
+  between paid items (images, clips, grids, voice). Stop keeps paid work; stage re-run resumes.
+- Approved cast → `pipeline.character_reference_urls` → storyboard bot →
+  `image_client.generate_with_reference` (Kie image_input list).
+- Gates in pipeline_executor: characters pending approval block grids/images;
+  `story_locked_at` required for full image runs + storyboard extraction.
+  `POST /{video_id}/lock-story` requires ≥1 reviewed grid; unlock-story to iterate.
