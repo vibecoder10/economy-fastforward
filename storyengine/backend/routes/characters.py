@@ -17,8 +17,10 @@ and imported into the next video — same family across a series.
 """
 
 import asyncio
+import io
 import json
 import logging
+import re
 import uuid as _uuid
 from typing import Optional
 
@@ -431,6 +433,93 @@ async def delete_character(video_id: str, char_id: str, tenant_id=Depends(get_te
     return {"status": "deleted"}
 
 
+def _drive_file_id(url: str):
+    m = re.search(r"[?&]id=([\w-]+)", url or "") or re.search(r"/drive/([\w-]+)", url or "")
+    return m.group(1) if m else None
+
+
+async def _fetch_image_bytes(url: str) -> bytes:
+    """Portrait bytes — authorized Drive API when it's a Drive file (public
+    links degrade), plain fetch otherwise."""
+    fid = _drive_file_id(url)
+    if fid and "drive.google.com" in url:
+        from routes.media import _download_via_drive_api
+        data, _ = await asyncio.to_thread(_download_via_drive_api, fid)
+        return data
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        return r.content
+
+
+async def _build_cast_sheet(tenant_id, video_id: str, cast: list[dict]) -> Optional[str]:
+    """ONE labeled reference image beats N competing portraits: compose the
+    approved cast into a single sheet (portrait + name under each) so the
+    image model can map names in the prompt to faces in the reference.
+    Returns the stored URL, or None on failure (callers degrade gracefully)."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        tiles = []
+        for ch in cast[:8]:
+            raw = await _fetch_image_bytes(ch["reference_url"])
+            img = Image.open(io.BytesIO(raw)).convert("RGB")
+            img.thumbnail((512, 512))
+            tile = Image.new("RGB", (512, 572), (245, 245, 245))
+            tile.paste(img, ((512 - img.width) // 2, (512 - img.height) // 2))
+            draw = ImageDraw.Draw(tile)
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
+            except Exception:
+                font = ImageFont.load_default()
+            name = ch["name"][:24]
+            bbox = draw.textbbox((0, 0), name, font=font)
+            draw.text(((512 - (bbox[2] - bbox[0])) // 2, 522), name, fill=(10, 10, 10), font=font)
+            tiles.append(tile)
+        if not tiles:
+            return None
+        sheet = Image.new("RGB", (512 * len(tiles), 572), (245, 245, 245))
+        for i, t in enumerate(tiles):
+            sheet.paste(t, (512 * i, 0))
+        buf = io.BytesIO()
+        sheet.save(buf, format="PNG")
+        from storage import upload_bytes
+        return await upload_bytes(buf.getvalue(), f"{video_id}/characters/cast-sheet.png",
+                                  "image/png", str(tenant_id))
+    except Exception as e:
+        logger.warning("[characters] cast sheet build failed: %s", str(e)[:200])
+        return None
+
+
+async def _sync_bible_to_cast(video_id: str, tenant_id, cast: list[dict]) -> None:
+    """The storyboard prompts are written from the Story Bible — if its
+    character descriptions disagree with the approved portraits, text and
+    reference image fight each other and consistency dies. Overwrite bible
+    descriptions with the approved cast's."""
+    try:
+        video = await fetch_one(
+            "SELECT story_bible FROM videos WHERE id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        bible = _parse_json((video or {}).get("story_bible"))
+        if not bible or not isinstance(bible.get("characters"), list):
+            return
+        by_name = {c["name"].strip().lower(): c for c in cast if c.get("name")}
+        changed = False
+        for ch in bible["characters"]:
+            match = by_name.get((ch.get("name") or "").strip().lower())
+            if match and match.get("description"):
+                ch["description"] = match["description"]
+                ch["costume"] = match["description"]
+                changed = True
+        if changed:
+            await execute(
+                "UPDATE videos SET story_bible = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                json.dumps(bible), video_id, tenant_id,
+            )
+    except Exception as e:
+        logger.warning("[characters] bible sync failed: %s", str(e)[:200])
+
+
 @router.post("/{video_id}/characters/approve")
 async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
     """Lock the cast: every character with a reference becomes 'approved',
@@ -456,12 +545,17 @@ async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
         "WHERE video_id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
+
+    cast = [dict(r) for r in with_refs]
+    sheet_url = await _build_cast_sheet(tenant_id, video_id, cast)
+    await _sync_bible_to_cast(video_id, tenant_id, cast)
+
     await execute(
         "UPDATE videos SET characters_approved_at = now(), character_reference_url = $1, "
         "updated_at = now() WHERE id = $2 AND tenant_id = $3",
-        with_refs[0]["reference_url"], video_id, tenant_id,
+        sheet_url or with_refs[0]["reference_url"], video_id, tenant_id,
     )
-    return {"status": "approved", "count": len(with_refs)}
+    return {"status": "approved", "count": len(with_refs), "cast_sheet": bool(sheet_url)}
 
 
 @router.post("/{video_id}/characters/save-to-project")

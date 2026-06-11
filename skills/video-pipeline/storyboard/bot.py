@@ -1805,6 +1805,14 @@ async def generate_contact_sheet(
             f"contain scene imagery.\n\n"
         )
 
+    if character_reference_url:
+        full_prompt += (
+            "CHARACTER REFERENCE: the attached image is the official cast sheet — "
+            "each character is labeled with their name. Every panel MUST depict these "
+            "EXACT characters (same faces, hair, outfits) whenever they appear. "
+            "Do not invent new looks for named characters.\n\n"
+        )
+
     full_prompt += contact_sheet_prompt
 
     if character_reference_url:

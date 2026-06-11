@@ -548,7 +548,14 @@ class PipelineExecutor:
             self._pipeline.character_reference_urls = None
             return user_facing("Your cast is designed but not approved yet — open the Characters tab, "
                                "review the portraits, and hit Approve before generating visuals.")
-        self._pipeline.character_reference_urls = [r["reference_url"] for r in rows][:6]
+        # ONE labeled cast sheet conditions far better than N competing
+        # portraits (live finding: 6 refs at once = inconsistent characters).
+        # approve_cast stores the sheet on character_reference_url.
+        sheet = video.get("character_reference_url")
+        if sheet:
+            self._pipeline.character_reference_urls = [sheet]
+        else:
+            self._pipeline.character_reference_urls = [r["reference_url"] for r in rows][:6]
         return None
 
     async def _persist_url(self, source_url: str, storage_path: str) -> str:
