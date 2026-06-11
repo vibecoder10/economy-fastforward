@@ -20,6 +20,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import re
 import uuid as _uuid
 from typing import Optional
@@ -547,6 +548,39 @@ async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
     )
 
     cast = [dict(r) for r in with_refs]
+
+    # Pixel-accurate descriptions: the portraits were GENERATED from the text,
+    # but image models take liberties — when the saved text says "light blue
+    # tee" and the approved portrait shows red, downstream prompts fight the
+    # reference sheet and costumes drift. Rewrite each description from the
+    # actual approved image (vision pass), best-effort per character.
+    try:
+        from routes.model_video import _call_claude, _resolve_claude_creds
+        creds = await _resolve_claude_creds(tenant_id)
+        if creds:
+            base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+            for ch in cast:
+                fid = _drive_file_id(ch.get("reference_url") or "")
+                img_url = f"{base}/api/media/drive/{fid}" if fid else ch.get("reference_url")
+                try:
+                    desc = await _call_claude(
+                        f"Describe EXACTLY how this character looks so an image generator can redraw the SAME character: "
+                        f"hair (style + color), face/age, and every clothing item WITH ITS COLOR. "
+                        f"40-60 words, no preamble. The character's name is {ch['name']}.",
+                        creds, tier="fast", max_tokens=300, image_url=img_url,
+                    )
+                    if desc and len(desc) > 20:
+                        ch["description"] = desc.strip()[:1000]
+                        await execute(
+                            "UPDATE video_characters SET description = $1, updated_at = now() "
+                            "WHERE id = $2 AND tenant_id = $3",
+                            ch["description"], ch["id"], tenant_id,
+                        )
+                except Exception as e:
+                    logger.warning("[characters] vision description failed for %s: %s", ch["name"], str(e)[:150])
+    except Exception as e:
+        logger.warning("[characters] vision sync skipped: %s", str(e)[:150])
+
     sheet_url = await _build_cast_sheet(tenant_id, video_id, cast)
     await _sync_bible_to_cast(video_id, tenant_id, cast)
 
