@@ -669,9 +669,11 @@ class ImageClient:
                     print(f"      ❌ No task ID returned")
                     return None
 
-                # Wait and poll
+                # Wait and poll — multi-reference generations (character casts)
+                # routinely take 2-4 minutes; the old 120s budget timed out on
+                # real grids and read as silent failures.
                 await asyncio.sleep(5)
-                result_urls = await self.poll_for_completion(task_id, max_attempts=60, poll_interval=2.0)
+                result_urls = await self.poll_for_completion(task_id, max_attempts=90, poll_interval=5.0)
 
                 if result_urls:
                     return {"url": result_urls[0]}
