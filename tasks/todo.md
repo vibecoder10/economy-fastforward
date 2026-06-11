@@ -1,5 +1,30 @@
 # Task Tracking
 
+## Handoff (2026-06-12 — style drift root causes + vision QA loop)
+
+Ryan: "scene styles still don't match, stale extracted images showing, last scene has
+three of the same images." All three fixed + verified by eye:
+1. STALE EXTRACTED: 74 pre-storyboard asset images (image_url set, never extracted)
+   showed in the Extracted Panels section. Cleared (image_url/drive_image_url NULL,
+   status pending). Drive files remain in the library.
+2. DUPLICATE PANELS: the director template's HERO BEAT EXPANSION explicitly asked for
+   sub-shots showing "the SAME subject — don't change what's shown" (3 crayon panels,
+   4 chair holds). Rules now demand visually distinct panels / fewer keyframes + blanks.
+3. STYLE DRIFT (2D/photoreal mixed with 3D): two layers —
+   a. Template preamble HARDCODED "Cinematic 2D animated illustration..." (the April
+      never-hardcode-style lesson again). Now interpolates profile.visual_style_directive
+      (= the video's Image Style Override).
+   b. Even with correct prompts everywhere, nano-banana-pro stochastically rendered
+      photoreal ~1 in 4-12 grids. Instructions can't fix randomness → added a vision
+      QA loop: every reference-conditioned grid is compared to the cast sheet
+      (Haiku via Kie) and regenerated once on mismatch. Caught a live drift on its
+      first run.
+KIE CLAUDE VISION GATEWAY QUIRKS (calibrated live, see bot._grid_style_matches_reference):
+   URL image sources unreliable, assistant prefill IGNORED, small max_tokens IGNORED
+   on vision calls → use base64 images + parse a 'FINAL: YES/NO' closing line.
+Bird video: 12/12 boards now style-consistent (audited via the calibrated checker +
+eyeballed S1/S5/S8). Ready for review → Lock Story.
+
 ## Handoff (2026-06-11 pt 4 — character consistency: labeled cast sheet)
 
 Ryan: "character styles are all over the place in the boards." Root causes + fixes:
