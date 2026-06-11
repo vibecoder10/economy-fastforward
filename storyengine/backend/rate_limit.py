@@ -42,6 +42,12 @@ PLAN_JOB_LIMITS: dict[str, int] = {
 _SKIP_PATHS = frozenset({"/api/health", "/api/health/detailed"})
 _SKIP_PREFIXES = ("/api/auth/",)
 
+# Control-plane POSTs under /api/pipeline that don't START a job — exempt from
+# the concurrent-job check. Stop/cancel is only ever called WHILE a job is
+# running; counting it against the job limit made the Stop button physically
+# unreachable for plans with job limit 1 (found in adversarial review).
+_JOB_LIMIT_EXEMPT_PREFIXES = ("/api/pipeline/cancel/",)
+
 # In-memory state
 _request_timestamps: dict[str, list[float]] = defaultdict(list)
 _plan_cache: dict[str, tuple[str, float]] = {}
@@ -139,8 +145,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         fresh.append(now)
 
-        # Pipeline concurrent job check (POST only)
-        if path.startswith("/api/pipeline/") and request.method == "POST":
+        # Pipeline concurrent job check (POST only; control-plane paths exempt)
+        if (path.startswith("/api/pipeline/") and request.method == "POST"
+                and not any(path.startswith(p) for p in _JOB_LIMIT_EXEMPT_PREFIXES)):
             job_limit = PLAN_JOB_LIMITS.get(plan, 1)
             from database import fetch_one
 

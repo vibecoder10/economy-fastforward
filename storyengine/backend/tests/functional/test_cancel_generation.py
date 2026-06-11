@@ -172,6 +172,18 @@ def test_storyboard_bot_cancel_contract():
     print("PASS test_storyboard_bot_cancel_contract")
 
 
+def test_cancel_endpoint_exempt_from_job_limit():
+    """The Stop endpoint must not be blocked by the concurrent-job limiter —
+    it is only ever called while a job is running (adversarial-review find)."""
+    src = open(os.path.join(os.path.abspath(BACKEND), "rate_limit.py")).read()
+    assert "_JOB_LIMIT_EXEMPT_PREFIXES" in src
+    assert '"/api/pipeline/cancel/"' in src
+    assert "_JOB_LIMIT_EXEMPT_PREFIXES)" in src.split("Pipeline concurrent job check")[1][:400],         "job-limit branch must consult the exemption list"
+    schema = open(os.path.join(REPO, "storyengine", "schema.sql")).read()
+    assert "video_characters_tenant_isolation" in schema,         "schema.sql must carry the video_characters RLS policy (parity with migration 046)"
+    print("PASS test_cancel_endpoint_exempt_from_job_limit")
+
+
 if __name__ == "__main__":
     test_registry_local_flag()
     test_image_bot_cancels_before_first_scene()
@@ -179,4 +191,5 @@ if __name__ == "__main__":
     test_voice_bot_cancel_contract()
     test_clip_bot_cancel_contract()
     test_storyboard_bot_cancel_contract()
-    print("\nALL CANCEL TESTS PASSED (6/6)")
+    test_cancel_endpoint_exempt_from_job_limit()
+    print("\nALL CANCEL TESTS PASSED (7/7)")

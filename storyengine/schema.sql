@@ -1018,6 +1018,17 @@ CREATE TABLE video_characters (
 );
 CREATE INDEX idx_video_characters_video ON video_characters(video_id);
 CREATE INDEX idx_video_characters_tenant ON video_characters(tenant_id);
+
+ALTER TABLE video_characters ENABLE ROW LEVEL SECURITY;
+CREATE POLICY video_characters_tenant_isolation ON video_characters
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+    OR tenant_id = current_setting('app.tenant_id', true)::uuid
+  );
 -- videos.characters_approved_at TIMESTAMPTZ added by migration 046
 
 -- videos.story_locked_at TIMESTAMPTZ (storyboard lock gate) added by migration 047
