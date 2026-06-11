@@ -1,5 +1,25 @@
 # Task Tracking
 
+## Handoff (2026-06-11 pt 4 — character consistency: labeled cast sheet)
+
+Ryan: "character styles are all over the place in the boards." Root causes + fixes:
+1. SIX separate portrait refs in image_input dilute each other — model can't map
+   names to faces. FIX: approve_cast composes ONE labeled cast sheet (PIL, portrait
+   + name per tile) -> videos.character_reference_url; executor passes it as the
+   single reference; generate_contact_sheet prompt says "match these EXACT labeled
+   characters."
+2. Story Bible character text diverged from approved portraits (text fought image).
+   FIX: approval syncs bible descriptions to the cast.
+3. Stored descriptions described what portraits were generated FROM, not what they
+   show (gen takes liberties: "light blue tee" -> red). FIX: vision pass at approval
+   rewrites each description from the actual portrait pixels.
+Result (visually verified): all 13 boards across 8 scenes now share one cast —
+same Tom/Lisa/Mom/Dad/Dr. May in every panel. Boards ready for Ryan to review+lock.
+Note: per-scene storyboard CLEAR also wipes that scene's prompts — regen prompts
+before grids (bit Ryan on scene 4, me on scene 1; worth auto-chaining later).
+Also this session: media proxy (/api/media/drive/{id}) replaced Supabase serving
+copies — Supabase bucket purged (92 objects), Drive is sole media store.
+
 ## Handoff (2026-06-11 pt 3 — grandma-proof guided flow + storage reliability)
 
 Ryan's storyboard run silently failed + "UI is confusing, needs next-next-next."
