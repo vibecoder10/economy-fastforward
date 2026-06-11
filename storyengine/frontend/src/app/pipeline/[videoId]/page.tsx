@@ -18,6 +18,7 @@ import { PipelineStepper } from "@/components/production/PipelineStepper";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { ResearchTab } from "@/components/production/ResearchTab";
 import { CharactersTab } from "@/components/production/CharactersTab";
+import { GuidedNextStep } from "@/components/production/GuidedNextStep";
 import { ScriptVoiceTab } from "@/components/production/ScriptVoiceTab";
 import { StoryboardVisualsTab } from "@/components/production/StoryboardVisualsTab";
 import { VideoClipsTab } from "@/components/production/VideoClipsTab";
@@ -73,16 +74,16 @@ const PIPELINE_ORDER = [
 ];
 
 const TABS = [
-  { id: "research", label: "Research", icon: Search },
-  { id: "script-voice", label: "Script", icon: FileText },
-  { id: "characters", label: "Characters", icon: Users },
-  { id: "storyboard-visuals", label: "Storyboard & Visuals", icon: ImageIcon },
-  { id: "clips", label: "Video Clips", icon: Video },
-  { id: "sound", label: "Sound", icon: Volume2 },
-  { id: "thumbnail", label: "Thumbnail", icon: Film },
-  { id: "render", label: "Render", icon: Film },
-  { id: "upload", label: "Upload", icon: Upload },
-  { id: "performance", label: "Performance", icon: BarChart3 },
+  { id: "research", label: "1 · Research", icon: Search },
+  { id: "script-voice", label: "2 · Script & Voice", icon: FileText },
+  { id: "characters", label: "3 · Characters", icon: Users },
+  { id: "storyboard-visuals", label: "4 · Storyboard", icon: ImageIcon },
+  { id: "clips", label: "5 · Video Clips", icon: Video },
+  { id: "sound", label: "6 · Sound", icon: Volume2 },
+  { id: "thumbnail", label: "7 · Thumbnail", icon: Film },
+  { id: "render", label: "8 · Finish", icon: Film },
+  { id: "upload", label: "9 · Upload", icon: Upload },
+  { id: "performance", label: "10 · Results", icon: BarChart3 },
 ];
 
 function parseInjectedLearnings(writerGuidance: string | null | undefined): { use: string[]; avoid: string[] } {
@@ -496,6 +497,9 @@ export default function VideoDetailPage() {
           </motion.div>
         );
       })()}
+
+      {/* Guided next step — the one big button that always knows what's next */}
+      <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} />
 
       {/* Tab navigation */}
       <motion.div variants={item}>

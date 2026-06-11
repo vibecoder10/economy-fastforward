@@ -733,7 +733,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                 : generatingPrompts
                   ? "Starting..."
                   : storyboardMode
-                    ? (!hasStoryBible ? "Generate Story Bible First" : (storyboardPrereqsMet ? "Generate Storyboard Prompts" : "Generate Image Prompts First"))
+                    ? (!hasStoryBible ? "Plan the story first" : (storyboardPrereqsMet ? "Describe the scenes" : "Plan your shots first"))
                     : "Generate All Image Prompts"}
             </button>
             <button
@@ -743,7 +743,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
               style={{ background: "var(--orange)", color: "var(--bg-void)" }}
             >
               {(generatingAll || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
-              {taskRunning ? (taskMessage || (storyboardMode ? "Generating Storyboard Grids..." : "Generating Images...")) : generatingAll ? "Starting..." : (storyboardMode ? "Generate Storyboard Grids" : "Generate All Images")}
+              {taskRunning ? (taskMessage || (storyboardMode ? "Generating Storyboard Grids..." : "Generating Images...")) : generatingAll ? "Starting..." : (storyboardMode ? "Create storyboard" : "Create all images")}
             </button>
             <StopGenerationButton videoId={video.id} running={taskRunning} />
           </div>
@@ -802,7 +802,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
               style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
               {(generatingPrompts || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Pencil size={12} className="inline mr-1" />}
               {storyboardMode
-                ? (!hasStoryBible ? "Story Bible" : (storyboardPrereqsMet ? "Storyboard Prompts" : "Image Prompts"))
+                ? (!hasStoryBible ? "Plan story" : (storyboardPrereqsMet ? "Describe scenes" : "Plan shots"))
                 : "Image Prompts"}
             </button>
             <button onClick={handleGenerateAllImages}
@@ -810,7 +810,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
               className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
               style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
               {(generatingAll || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <ImageIcon size={12} className="inline mr-1" />}
-              {storyboardMode ? "Storyboard Grids" : `Images (${pendingSegments})`}
+              {storyboardMode ? "Create storyboard" : `Create images (${pendingSegments})`}
             </button>
             {storyboardMode && (
               <>
@@ -839,7 +839,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                   className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
                   style={{ background: "var(--green)", color: "var(--bg-void)" }}>
                   {(extracting || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Scissors size={12} className="inline mr-1" />}
-                  Extract
+                  Create final pictures
                 </button>
                 {extractedSegments > 0 && (
                   <button onClick={handleUpscalePanels}
