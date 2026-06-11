@@ -951,14 +951,18 @@ async def clear_storyboard_slot(
     if not row.get("url"):
         raise HTTPException(status_code=404, detail="No storyboard image in that slot")
 
+    # Only downgrade the scene status when the removed slot is one of the
+    # ACTIVE beats — clearing a stray out-of-range slot shouldn't un-complete
+    # a scene whose real boards are all still there.
     await execute(
         f"""UPDATE scripts
             SET {col} = NULL,
                 storyboard_status = CASE WHEN storyboard_status = 'grids_generated'
+                                          AND $2::int <= COALESCE(storyboard_beat_count, 1)
                                          THEN 'prompts_ready' ELSE storyboard_status END,
                 updated_at = now()
             WHERE id = $1""",
-        row["id"],
+        row["id"], beat,
     )
 
     file_id = _drive_file_id(row["url"])
