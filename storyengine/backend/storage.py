@@ -90,14 +90,81 @@ def _path_to_filename(path: str) -> tuple[str, str]:
     return "unsorted", path.replace("/", "_")
 
 
+def _split_storage_path(path: str) -> tuple[str, Optional[str], str]:
+    """"video_id/subdir/file.png" -> (video_id, "subdir", "file.png")."""
+    parts = path.split("/")
+    if len(parts) >= 3:
+        return parts[0], parts[1], "_".join(parts[2:])
+    if len(parts) == 2:
+        return parts[0], None, parts[1]
+    return "unsorted", None, path
+
+
+def _get_or_create_child_folder(client, parent_id: str, name: str) -> str:
+    """Scoped child-folder lookup. GoogleClient.get_or_create_folder searches
+    by name GLOBALLY, so a generic name like 'characters' would collide across
+    videos — this constrains the search to the parent."""
+    cache_key = f"{parent_id}/{name}"
+    if cache_key in _folder_cache:
+        return _folder_cache[cache_key]
+    escaped = name.replace("'", "\\'")
+    query = (
+        f"name = '{escaped}' and "
+        f"'{parent_id}' in parents and "
+        f"mimeType = 'application/vnd.google-apps.folder' and "
+        f"trashed = false"
+    )
+    results = client.drive_service.files().list(q=query, fields="files(id, name)").execute()
+    files = results.get("files", [])
+    folder_id = files[0]["id"] if files else client.create_folder(name, parent_id=parent_id)["id"]
+    _folder_cache[cache_key] = folder_id
+    return folder_id
+
+
+async def _resolve_video_drive_folder(video_id: str) -> str:
+    """The video's ASSET FOLDER on Drive — the same title-named folder the
+    pipeline bots upload scene images/clips/voice into. Everything saved
+    through this module (portraits, grids, panels, briefs) lands beside them
+    instead of a hidden 'StoryEngine Assets/<uuid>' tree. Falls back to the
+    legacy uuid folder when the video row can't be resolved."""
+    cache_key = f"video:{video_id}"
+    if cache_key in _folder_cache:
+        return _folder_cache[cache_key]
+
+    title = None
+    try:
+        from database import fetch_one
+        row = await fetch_one("SELECT video_title FROM videos WHERE id = $1", video_id)
+        title = ((row or {}).get("video_title") or "").strip() or None
+    except Exception:
+        title = None
+
+    def _sync_resolve() -> str:
+        client = _get_google_client()
+        if title:
+            return client.get_or_create_folder(title)["id"]
+        return _get_video_folder(video_id)
+
+    folder_id = await asyncio.to_thread(_sync_resolve)
+    _folder_cache[cache_key] = folder_id
+    return folder_id
+
+
 def _sync_upload_drive(data: bytes, path: str, content_type: str) -> str:
-    """Synchronous upload to Google Drive. Returns public URL."""
+    """Synchronous upload to Google Drive (legacy uuid-folder layout)."""
     video_id, filename = _path_to_filename(path)
     folder_id = _get_video_folder(video_id)
+    return _sync_upload_drive_into(data, filename, content_type, folder_id, None)
+
+
+def _sync_upload_drive_into(data: bytes, filename: str, content_type: str,
+                            folder_id: str, subfolder: Optional[str]) -> str:
+    """Upload into a specific Drive folder (optionally a named subfolder)."""
     client = _get_google_client()
+    target = _get_or_create_child_folder(client, folder_id, subfolder) if subfolder else folder_id
 
     result = client.upload_file(
-        data, filename, folder_id, mime_type=content_type
+        data, filename, target, mime_type=content_type
     )
     file_id = result["id"]
 
@@ -218,7 +285,11 @@ async def upload_bytes(
             raise ValueError("tenant_id is required for supabase storage backend")
         return await _supabase_upload(data, path, ct, tenant_id)
 
-    return await asyncio.to_thread(_sync_upload_drive, data, path, ct)
+    # Drive: land in the video's asset folder (title-named, beside the
+    # pipeline's scene images), organized by category subfolder.
+    video_id, subdir, filename = _split_storage_path(path)
+    folder_id = await _resolve_video_drive_folder(video_id)
+    return await asyncio.to_thread(_sync_upload_drive_into, data, filename, ct, folder_id, subdir)
 
 
 async def download_bytes(url: str) -> bytes:
