@@ -786,7 +786,10 @@ For each hero beat, output sub-shots using this format:
 Rules for hero expansion:
 - Only expand moments with HIGH emotional stakes, dramatic reveals, or major transitions
 - Sub-shot durations MUST sum to the original keyframe's duration
-- Each sub-shot MUST show the SAME subject/scene as the parent keyframe — add camera angles and details, don't change what's being shown
+- Each sub-shot stays in the parent keyframe's scene BUT must be visually DISTINCT from \
+its siblings: a different shot type AND a different visual focus (face vs hands vs object). \
+If the moment can't support genuinely different sub-shots, do NOT expand it — three \
+near-identical panels ruin the contact sheet
 - Maximum 3 hero beats per sequence
 - If no moment warrants expansion, output: "No hero expansions needed for this beat."
 
@@ -798,9 +801,7 @@ generation model (NOT a language model — it must be pure visual description).
 The contact sheet prompt MUST follow this EXACT structure:
 
 PREAMBLE (one paragraph):
-"Generate in 16:9 widescreen aspect ratio. Cinematic 2D animated illustration in muted \
-earthy color palette with ink outlines and dramatic lighting, featuring stylized characters \
-with expressive faces, strong jawlines, and angular features. Create a 3×3 grid layout \
+"Generate in 16:9 widescreen aspect ratio. {profile.visual_style_directive}. Create a 3×3 grid layout \
 (3 rows, 3 columns) with clearly separated black borders between panels. Each panel shows \
 a keyframe from a cinematic sequence about [TOPIC SUMMARY], maintaining strict visual \
 continuity across all [PANEL_COUNT] panels: consistent [DOMINANT PALETTE] dominant color \
@@ -830,6 +831,11 @@ Per-panel RULES:
 - Every panel with a character MUST describe gaze direction
 - When a panel shows the same setting as a previous panel, state "SAME [setting] from KF[N]"
 - When a visual element bridges two panels, explicitly state "SAME [element] from KF[N]"
+- Every panel MUST be visually DISTINCT from every other panel: different composition, \
+framing, or visual focus. NEVER output panels that read as near-copies of each other \
+(e.g., the same desk at three slightly different zooms, or "settled"/"final hold" \
+duplicates of a previous frame). If the beat has fewer distinct visual moments than \
+panels, output FEWER keyframes and leave the remaining panels blank.
 
 TECHNICAL FOOTER (one paragraph):
 "**Technical specs across all panels:** [focal range], cinematic motion blur feel, subtle \
@@ -1810,7 +1816,11 @@ async def generate_contact_sheet(
             "CHARACTER REFERENCE: the attached image is the official cast sheet — "
             "each character is labeled with their name. Every panel MUST depict these "
             "EXACT characters (same faces, hair, outfits) whenever they appear. "
-            "Do not invent new looks for named characters.\n\n"
+            "Do not invent new looks for named characters. "
+            "STYLE LOCK: render every panel in the EXACT same art style and rendering "
+            "quality as the attached reference image — if the reference is a full 3D CG "
+            "render, every panel must be a full 3D CG render. Never switch to flat 2D "
+            "illustration or change the art style between panels.\n\n"
         )
 
     full_prompt += contact_sheet_prompt
