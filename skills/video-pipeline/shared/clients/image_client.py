@@ -47,6 +47,19 @@ def _valid_scene_models_from_profile() -> dict:
     }
 
 
+def _kie_fetchable_url(url: str) -> str:
+    """Drive links -> backend media proxy URL (Kie can't ingest Drive's
+    interstitial-prone public links). Other hosts pass through."""
+    import re as _re
+    if not url or "drive.google.com" not in url:
+        return url
+    m = _re.search(r"[?&]id=([\w-]+)", url) or _re.search(r"/d/([\w-]+)", url)
+    if not m:
+        return url
+    base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+    return f"{base}/api/media/drive/{m.group(1)}"
+
+
 class ImageClient:
     """Client for image and video generation via Kie.ai API."""
 
@@ -432,7 +445,7 @@ class ImageClient:
             "model": self.SCENE_MODEL,
             "input": {
                 "prompt": prompt,
-                "image_input": [reference_image_url],
+                "image_input": [_kie_fetchable_url(reference_image_url)],
                 "aspect_ratio": "16:9",
                 "resolution": "1K",
                 "output_format": "png",
@@ -630,9 +643,12 @@ class ImageClient:
         }
 
         # Accepts one URL or a list (multi-character casts) — Kie's
-        # image_input is a list either way.
+        # image_input is a list either way. Drive URLs are rewritten to the
+        # backend media proxy: Kie fetches reference images over plain HTTP,
+        # and Drive's public links degrade into HTML interstitials ('file
+        # type not supported' rejections seen live).
         refs = reference_image_url if isinstance(reference_image_url, list) else [reference_image_url]
-        refs = [r for r in refs if r][:6]
+        refs = [_kie_fetchable_url(r) for r in refs if r][:6]
 
         payload = {
             "model": self.THUMBNAIL_MODEL,  # nano-banana-pro

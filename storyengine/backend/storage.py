@@ -285,22 +285,13 @@ async def upload_bytes(
             raise ValueError("tenant_id is required for supabase storage backend")
         return await _supabase_upload(data, path, ct, tenant_id)
 
-    # Drive backend = dual persistence:
-    # 1. Google Drive — the creator's organized library
-    #    (Storyengine/<video title>/<category>/...).
-    # 2. Supabase Storage serving copy — the URL we RETURN and store. Drive
-    #    links randomly degrade into HTML interstitials (rate limits / virus
-    #    scan pages), which breaks both <img> rendering and Kie image_input
-    #    ingestion. Supabase public URLs are stable for both.
+    # Drive only — Supabase stays lean (profile/operational data, no media
+    # blobs). Drive's public links degrade into HTML interstitials, so
+    # browsers and Kie consume Drive files through the backend media proxy
+    # (/api/media/drive/{id}), which streams via the authorized Drive API.
     video_id, subdir, filename = _split_storage_path(path)
     folder_id = await _resolve_video_drive_folder(video_id)
-    drive_url = await asyncio.to_thread(_sync_upload_drive_into, data, filename, ct, folder_id, subdir)
-    try:
-        if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
-            return await _supabase_upload(data, path, ct, tenant_id or "shared")
-    except Exception as e:
-        logger.warning("Supabase serving copy failed (%s) — falling back to Drive URL", str(e)[:150])
-    return drive_url
+    return await asyncio.to_thread(_sync_upload_drive_into, data, filename, ct, folder_id, subdir)
 
 
 async def download_bytes(url: str) -> bytes:

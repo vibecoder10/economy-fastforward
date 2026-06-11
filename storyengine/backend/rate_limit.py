@@ -40,7 +40,7 @@ PLAN_JOB_LIMITS: dict[str, int] = {
 
 # Paths that skip rate limiting entirely
 _SKIP_PATHS = frozenset({"/api/health", "/api/health/detailed"})
-_SKIP_PREFIXES = ("/api/auth/",)
+_SKIP_PREFIXES = ("/api/auth/", "/api/media/")  # media: public cacheable proxy, 74 imgs/page
 
 # Control-plane POSTs under /api/pipeline that don't START a job — exempt from
 # the concurrent-job check. Stop/cancel is only ever called WHILE a job is
