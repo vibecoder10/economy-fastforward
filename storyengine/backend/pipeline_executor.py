@@ -513,8 +513,10 @@ class PipelineExecutor:
         callable the generation loops poll between paid items. Works across
         processes (arq worker) via the background_tasks 'cancelled' marker row.
         """
-        from cancel_registry import is_cancel_requested, reset_for_new_run
-        await reset_for_new_run(self.tenant_id, video_id)
+        # NOTE: stale-cancel cleanup happens at run start in _set_task_status
+        # (routes/pipeline.py) — resetting here raced with real Stop requests
+        # arriving while the executor was still initializing.
+        from cancel_registry import is_cancel_requested
         tenant_id = self.tenant_id
 
         async def _should_cancel() -> bool:

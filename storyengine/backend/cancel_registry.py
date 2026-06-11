@@ -42,10 +42,13 @@ def clear_local(tenant_id, video_id) -> None:
     _flags.pop(_key(tenant_id, video_id), None)
 
 
-async def request_cancel(tenant_id, video_id) -> bool:
-    """Record a cancel request in both layers. Returns True if a running
-    background_tasks row existed to mark."""
-    request_local(tenant_id, video_id)
+async def request_cancel(tenant_id, video_id, set_local: bool = True) -> bool:
+    """Record a cancel request. Returns True if a running background_tasks row
+    existed to mark. set_local=False skips the in-memory flag (used when the
+    caller can't confirm an in-process task is live — avoids planting a stale
+    cancel for the next run)."""
+    if set_local:
+        request_local(tenant_id, video_id)
     result = await execute(
         "UPDATE background_tasks SET status = 'cancelled', "
         "message = 'Stop requested — finishing the current item' "

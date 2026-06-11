@@ -216,12 +216,25 @@ def _set_task_status(
     if normalized == "failed" and resolved_error:
         resolved_error = humanize_error(resolved_error)
     key = (tenant_id, video_id)
+    previous = _running_tasks.get(key)
     _running_tasks[key] = {
         "status": normalized,
         "message": resolved_message,
         "error": resolved_error,
-        "started_at": _running_tasks.get(key, {}).get("started_at", _time.time()),
+        "started_at": (previous or {}).get("started_at", _time.time()),
     }
+
+    # A run is STARTING (no live entry before): consume any stale cancel
+    # request now, at the chokepoint every stage passes through. Doing this in
+    # the executor raced with real Stop requests that arrived in the seconds
+    # between task start and executor arm-up (live-test find: the cancel was
+    # eaten and 74 images generated anyway).
+    if normalized == "running" and (not previous or previous.get("status") != "running"):
+        try:
+            from cancel_registry import reset_for_new_run
+            asyncio.get_running_loop().create_task(reset_for_new_run(tenant_id, video_id))
+        except RuntimeError:
+            pass
 
     # Persist key transitions to DB (fire-and-forget)
     if normalized in ("running", "completed", "failed"):
@@ -276,7 +289,15 @@ async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict
 
 
 def _clear_task_status(video_id: str, tenant_id: str):
-    """Clear task status after completion (dict only — DB row stays for history)."""
+    """Clear task status after completion (dict only — DB row stays for history).
+
+    Never clears a RUNNING entry: each task's deferred 30s cleanup would
+    otherwise wipe a newer task that started in the meantime (live-test find —
+    the poller went blind mid-generation).
+    """
+    entry = _running_tasks.get((tenant_id, video_id))
+    if entry and entry.get("status") == "running":
+        return
     _running_tasks.pop((tenant_id, video_id), None)
 
 
@@ -1354,11 +1375,15 @@ async def cancel_pipeline_task(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    from cancel_registry import request_cancel
+    from cancel_registry import request_cancel, request_local
     task = _get_task_status(video_id, tenant_id)
-    marked_db = await request_cancel(tenant_id, video_id)
+    in_memory_running = bool(task and task.get("status") == "running")
+    # request_cancel only flips DB rows that are 'running'; the local flag is
+    # set only when we know a task is live — flagging when nothing runs would
+    # plant a stale cancel for the next run.
+    marked_db = await request_cancel(tenant_id, video_id, set_local=in_memory_running)
 
-    if (not task or task.get("status") != "running") and not marked_db:
+    if not in_memory_running and not marked_db:
         return {"status": "not_running", "message": "Nothing is running for this video."}
 
     return {
