@@ -1,5 +1,22 @@
 # Task Tracking
 
+## Handoff (2026-06-11 pt 2 — Drive consolidated under RAD Creations/Projects/Storyengine)
+
+Everything now lives in ONE tree (Ryan's requested layout):
+  Storyengine/<video title>/{characters/, storyboard/, images/} + scripts/voice/briefs in root.
+- StoryEngine backend GOOGLE_DRIVE_FOLDER_ID redirected to the Storyengine folder
+  (old value in storyengine/.env.bak-20260611). google_client folder lookups are now
+  parent-scoped (global name search would have resurrected old folders / collided on
+  generic subfolder names). Path routing: scene images + extracted panels -> images/,
+  grids -> storyboard/, portraits -> characters/.
+- Migrations executed (file ids unchanged, all stored URLs intact): both video folders
+  moved + internally sorted; legacy 'StoryEngine Assets' uuid tree emptied + trashed;
+  the legacy Power Doctrine pipeline's 'Economy Fastforward' folder moved WHOLESALE
+  under Storyengine — its folder id is unchanged so the root .env and all existing
+  links keep working without modification.
+- Frontend renders Drive images via lh3.googleusercontent.com CDN (toDisplayImageUrl)
+  since uc?export=download links don't load in <img> tags.
+
 ## Handoff (2026-06-11 — Creator Control Run shipped: Stop, Characters, Story Lock)
 
 All three phases of docs/superpowers/specs/2026-06-10-creator-control-run.md are LIVE:
