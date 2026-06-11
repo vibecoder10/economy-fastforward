@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
-from error_utils import humanize_error
+from error_utils import humanize_error, USER_FACING_PREFIX
 from pipeline_executor import PipelineExecutor
 from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage
 from job_queue import enqueue_stage
@@ -203,8 +203,12 @@ def _set_task_status(
         normalized = status
     resolved_error = error
     resolved_message = message
+    # user_facing() markers are consumed by humanize_error on the error path;
+    # strip them from the message path too so the raw marker never shows.
+    if resolved_message and resolved_message.startswith(USER_FACING_PREFIX):
+        resolved_message = resolved_message[len(USER_FACING_PREFIX):]
     if normalized == "failed" and not resolved_error:
-        resolved_error = message
+        resolved_error = resolved_message
     # Humanize failure errors at the write boundary so raw str(e) from
     # ~15 call sites never reaches the UI via /task-status polling.
     # The raw error is logged to WARNING with a [humanize_error] prefix
