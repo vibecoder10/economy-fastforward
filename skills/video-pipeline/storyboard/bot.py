@@ -1777,33 +1777,45 @@ def is_blank_panel(panel_image, threshold: int = 15) -> bool:
 async def _grid_style_matches_reference(grid_url: str, reference_url: str, api_key: str) -> bool:
     """Vision QA: image models randomly drift art style (a correct '3D Pixar'
     prompt + style lock still produced a photorealistic grid ~1 in 12 times).
-    Cheap Haiku-vision check against the cast sheet; failures get one retry."""
+    Haiku-vision comparison against the cast sheet; failures get one retry.
+
+    Gateway quirks (calibrated live): URL image sources, assistant prefill and
+    small max_tokens are unreliable on Kie's Claude gateway for vision — so
+    images go as base64 and the verdict is parsed from a 'FINAL: YES/NO'
+    closing line."""
     try:
+        import base64 as _b64
         import httpx as _httpx
         import json as _json
-        base = os.getenv("KIE_CLAUDE_API_URL", "https://api.kie.ai/claude/v1/messages")
         from shared.clients.image_client import _kie_fetchable_url
-        content = [
-            {"type": "image", "source": {"type": "url", "url": _kie_fetchable_url(reference_url)}},
-            {"type": "image", "source": {"type": "url", "url": _kie_fetchable_url(grid_url)}},
-            {"type": "text", "text": (
-                "Image 1 is the official art-style reference (a character cast sheet). "
-                "Image 2 is a storyboard grid. Answer ONLY YES or NO: is image 2 rendered "
-                "in the same art style as image 1? (Both must be the same medium — e.g. both "
-                "3D CG animation. If one is photorealistic/live-action and the other is "
-                "animated, the answer is NO.)"
-            )},
-        ]
-        async with _httpx.AsyncClient(timeout=90.0) as client:
+
+        base = os.getenv("KIE_CLAUDE_API_URL", "https://api.kie.ai/claude/v1/messages")
+        async with _httpx.AsyncClient(timeout=240.0, follow_redirects=True) as client:
+            imgs = []
+            for u in (reference_url, grid_url):
+                raw = (await client.get(_kie_fetchable_url(u))).content
+                imgs.append({"type": "image", "source": {
+                    "type": "base64", "media_type": "image/png",
+                    "data": _b64.b64encode(raw).decode()}})
             r = await client.post(
                 base,
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": "claude-haiku-4-5", "stream": False, "max_tokens": 5,
-                      "messages": [{"role": "user", "content": content}]},
+                json={"model": "claude-haiku-4-5", "stream": False, "max_tokens": 300,
+                      "messages": [{"role": "user", "content": imgs + [{"type": "text", "text": (
+                          "Image 1 is the official art-style reference (cast sheet). Image 2 is a "
+                          "storyboard grid. Compare ONLY the art style/medium (not content). If one "
+                          "image is photorealistic/live-action and the other is animated/CG, they do "
+                          "NOT match. End your reply with exactly 'FINAL: YES' if the styles match "
+                          "or 'FINAL: NO' if they don't.")}]}]},
             )
         data = _json.loads(r.text)
-        text = ((data.get("content") or [{}])[0].get("text") or "")
-        return "YES" in text.upper()
+        text = (((data.get("content") or [{}])[0]).get("text") or "").upper()
+        if "FINAL: NO" in text:
+            return False
+        if "FINAL: YES" in text:
+            return True
+        logger.warning("style QA verdict unparseable — accepting grid")
+        return True
     except Exception as e:
         logger.warning("style QA unavailable (%s) — accepting grid", str(e)[:120])
         return True
