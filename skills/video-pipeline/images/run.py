@@ -121,6 +121,16 @@ async def _generate_images(pipeline) -> dict:
     print(f"\n  🖼️ IMAGE BOT: Generating images...")
     print(f"     Rate limit: {MAX_CONCURRENT} concurrent generations")
 
+    # Scene images live in the video folder's images/ subfolder
+    # (Drive layout: Storyengine/<video title>/images/).
+    try:
+        images_folder = pipeline.google.get_or_create_folder(
+            "images", parent_id=pipeline.project_folder_id
+        )
+        images_folder_id = images_folder["id"] if isinstance(images_folder, dict) else pipeline.project_folder_id
+    except Exception:
+        images_folder_id = pipeline.project_folder_id
+
     # RESUME LOGIC: Get only pending images
     all_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
     done_count = len([img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_DONE])
@@ -209,7 +219,7 @@ async def _generate_images(pipeline) -> dict:
                         drive_download_url = None
                         filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                         try:
-                            drive_file = pipeline.google.upload_image(image_content, filename, pipeline.project_folder_id)
+                            drive_file = pipeline.google.upload_image(image_content, filename, images_folder_id)
                             drive_download_url = pipeline.google.make_file_public(drive_file["id"])
                         except Exception as drive_err:
                             print(f"      ⚠️ Scene {scene_num}, Image {index} → Drive upload failed: {drive_err}")
@@ -298,7 +308,7 @@ async def _generate_images(pipeline) -> dict:
                         filename = f"Scene_{str(s_num).zfill(2)}_{str(index).zfill(2)}.png"
                         drive_download_url = None
                         try:
-                            drive_file = pipeline.google.upload_image(image_content, filename, pipeline.project_folder_id)
+                            drive_file = pipeline.google.upload_image(image_content, filename, images_folder_id)
                             drive_download_url = pipeline.google.make_file_public(drive_file["id"])
                         except Exception:
                             pass

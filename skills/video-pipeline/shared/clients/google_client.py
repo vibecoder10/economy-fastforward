@@ -175,19 +175,24 @@ class GoogleClient:
         Returns:
             Dict with folder id, name, and mimeType
         """
-        # First try to find existing folder
-        existing = self.search_folder(name)
+        # Find existing folder INSIDE the effective parent — a global name
+        # search would resurrect same-named folders from old Drive locations
+        # after the root folder is redirected.
+        parent = parent_id or self.parent_folder_id
+        existing = self.search_folder(name, parent_id=parent)
         if existing:
             return existing
-        
+
         # Create new folder
-        return self.create_folder(name, parent_id)
+        return self.create_folder(name, parent)
     
-    def search_folder(self, name: str) -> Optional[dict]:
-        """Search for a folder by name.
+    def search_folder(self, name: str, parent_id: Optional[str] = None) -> Optional[dict]:
+        """Search for a folder by name (optionally scoped to a parent).
 
         Args:
             name: Folder name to search for
+            parent_id: Constrain the search to this parent folder. Without it
+                the search is Drive-wide — dangerous for generic names.
 
         Returns:
             Folder dict or None if not found
@@ -195,6 +200,8 @@ class GoogleClient:
         # Escape single quotes in folder name
         escaped_name = name.replace("'", "\\'")
         query = f"name = '{escaped_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        if parent_id:
+            query += f" and '{parent_id}' in parents"
 
         def _search():
             return self.drive_service.files().list(

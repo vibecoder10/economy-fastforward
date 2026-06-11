@@ -611,7 +611,7 @@ class PipelineExecutor:
                 col = f"storyboard_{beat}_url"
                 url = sc.get(col)
                 if url and "drive.google.com" not in url and "supabase.co/storage" not in url:
-                    path = f"{video_id}/grids/S{sc['scene']}-B{beat}.png"
+                    path = f"{video_id}/storyboard/S{sc['scene']}-B{beat}.png"
                     new_url = await self._persist_url(url, path)
                     if new_url != url:
                         updates.append(f"{col} = ${idx}")
@@ -1653,7 +1653,7 @@ directions, no labels, no headings inside them."""
                             reference_image_url=panel_url,
                         )
                         if result and result.get("url"):
-                            path = f"{video_id}/extracted/S{sc_num}-B{bt_num}-P{img_idx}_hd.png"
+                            path = f"{video_id}/images/S{sc_num}-B{bt_num}-P{img_idx}_hd.png"
                             upscaled_url = await upload_from_url(result["url"], path)
                             await execute(
                                 "UPDATE assets SET image_url = $1, updated_at = now() WHERE id = $2",
@@ -1732,7 +1732,7 @@ directions, no labels, no headings inside them."""
                         reference_image_url=panel["image_url"],
                     )
                     if result and result.get("url"):
-                        path = f"{video_id}/extracted/S{panel['scene']}-I{panel['image_index']}_hd.png"
+                        path = f"{video_id}/images/S{panel['scene']}-I{panel['image_index']}_hd.png"
                         upscaled_url = await upload_from_url(result["url"], path)
                         await execute(
                             "UPDATE assets SET image_url = $1, updated_at = now() WHERE id = $2",

@@ -200,7 +200,7 @@ async def extract_grid(
     results = []
     for seq, (orig_idx, panel) in enumerate(real_panels):
         image_index = panel_offset + seq + 1  # 1-indexed
-        path = f"{video_id}/extracted/S{scene}-B{beat}-P{seq}.png"
+        path = f"{video_id}/images/S{scene}-B{beat}-P{seq}.png"
         panel_bytes = image_to_bytes(panel)
         panel_url = await upload_bytes(panel_bytes, path)
         results.append({"image_index": image_index, "panel_url": panel_url})
@@ -232,7 +232,7 @@ async def extract_grid(
                     return panel_result
 
                 # Persist upscaled version, overwriting the cropped one
-                path = f"{video_id}/extracted/S{scene}-B{beat}-P{index}.png"
+                path = f"{video_id}/images/S{scene}-B{beat}-P{index}.png"
                 upscaled_url = await upload_from_url(result["url"], path)
                 return {"image_index": panel_result["image_index"], "panel_url": upscaled_url}
             except Exception as e:
