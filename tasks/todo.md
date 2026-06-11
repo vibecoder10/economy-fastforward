@@ -1,5 +1,30 @@
 # Task Tracking
 
+## Handoff (2026-06-12 pt 2 — per-board X delete, drop-to-replace, stale cache fix)
+
+Ryan: "Drive images aren't what's on screen; no clean way to delete ONE storyboard
+image without losing prompts; want to drag Drive images onto a board." All three done:
+1. STALE SCREEN: boards regenerate IN PLACE on Drive (same file id) but the media
+   proxy said max-age=86400 immutable → browser showed yesterday's pixels for a day.
+   Proxy now: ETag = Drive md5Checksum, Cache-Control public no-cache, If-None-Match
+   → 304 without download. Verified live (200 + md5 etag, 304 on revalidate).
+   → Ryan: a hard refresh once and from then on boards are always current.
+2. PER-BOARD X: DELETE /api/videos/{id}/storyboards/{scene}/{beat} clears ONE slot,
+   keeps prompts + other boards, trashes the Drive copy (folder matches screen),
+   guards scene status (only downgrades grids_generated→prompts_ready for in-range
+   beats). Hover X on every filled board card. Bot's per-beat resume skip means
+   "create storyboard" after an X only regenerates the missing slot (~$0.07).
+3. DROP-TO-REPLACE: drag-drop existed but was invisible (replace-in-place + cached
+   URL = nothing seemed to happen). Now: "Drop to replace this picture" overlay,
+   uploads land in {video}/storyboard/S{n}-B{m}.png (replaces bot grid in place,
+   was orphan grids/ folder), cache-busted <img> after upload, success/error toasts.
+   Per-scene Clear confirm now warns it's a FULL redo and points at the X.
+Also: trashed empty duplicate Drive video folder (created by a root-.env diagnostic
+script — see lessons). Full cycle (upload→proxy-serve→X-delete→Drive-trash) verified
+on prod against the bird video's unused slot 5. Tests 5/5 + 7/7, tsc clean.
+
+Bird video remains: review boards → Lock Story → Create final pictures.
+
 ## Handoff (2026-06-12 — style drift root causes + vision QA loop)
 
 Ryan: "scene styles still don't match, stale extracted images showing, last scene has
