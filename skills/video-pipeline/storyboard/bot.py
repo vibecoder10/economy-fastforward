@@ -1774,6 +1774,41 @@ def is_blank_panel(panel_image, threshold: int = 15) -> bool:
 # Contact Sheet Generation + Upscaling
 # =============================================================================
 
+async def _grid_style_matches_reference(grid_url: str, reference_url: str, api_key: str) -> bool:
+    """Vision QA: image models randomly drift art style (a correct '3D Pixar'
+    prompt + style lock still produced a photorealistic grid ~1 in 12 times).
+    Cheap Haiku-vision check against the cast sheet; failures get one retry."""
+    try:
+        import httpx as _httpx
+        import json as _json
+        base = os.getenv("KIE_CLAUDE_API_URL", "https://api.kie.ai/claude/v1/messages")
+        from shared.clients.image_client import _kie_fetchable_url
+        content = [
+            {"type": "image", "source": {"type": "url", "url": _kie_fetchable_url(reference_url)}},
+            {"type": "image", "source": {"type": "url", "url": _kie_fetchable_url(grid_url)}},
+            {"type": "text", "text": (
+                "Image 1 is the official art-style reference (a character cast sheet). "
+                "Image 2 is a storyboard grid. Answer ONLY YES or NO: is image 2 rendered "
+                "in the same art style as image 1? (Both must be the same medium — e.g. both "
+                "3D CG animation. If one is photorealistic/live-action and the other is "
+                "animated, the answer is NO.)"
+            )},
+        ]
+        async with _httpx.AsyncClient(timeout=90.0) as client:
+            r = await client.post(
+                base,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": "claude-haiku-4-5", "stream": False, "max_tokens": 5,
+                      "messages": [{"role": "user", "content": content}]},
+            )
+        data = _json.loads(r.text)
+        text = ((data.get("content") or [{}])[0].get("text") or "")
+        return "YES" in text.upper()
+    except Exception as e:
+        logger.warning("style QA unavailable (%s) — accepting grid", str(e)[:120])
+        return True
+
+
 async def generate_contact_sheet(
     contact_sheet_prompt: str,
     real_panel_count: int = 9,
@@ -1826,14 +1861,24 @@ async def generate_contact_sheet(
     full_prompt += contact_sheet_prompt
 
     if character_reference_url:
-        # Use reference-based generation for character consistency
-        result = await image_client.generate_with_reference(
-            prompt=full_prompt,
-            reference_image_url=character_reference_url,
-            aspect_ratio="16:9",
-        )
-        # generate_with_reference returns dict with 'url' key
-        return result.get("url") if isinstance(result, dict) else result
+        ref_for_qa = character_reference_url[0] if isinstance(character_reference_url, list) else character_reference_url
+        # Use reference-based generation for character consistency,
+        # with one style-QA retry (models drift style stochastically)
+        for attempt in range(2):
+            result = await image_client.generate_with_reference(
+                prompt=full_prompt,
+                reference_image_url=character_reference_url,
+                aspect_ratio="16:9",
+            )
+            grid_url = result.get("url") if isinstance(result, dict) else result
+            if not grid_url:
+                return grid_url
+            if await _grid_style_matches_reference(grid_url, ref_for_qa, image_client.api_key):
+                return grid_url
+            if attempt == 0:
+                logger.warning("Grid failed style QA (wrong art style) — regenerating once")
+        logger.warning("Grid failed style QA twice — keeping last attempt")
+        return grid_url
     else:
         # No reference image — use standard text-to-image
         result = await image_client.generate_and_wait(
