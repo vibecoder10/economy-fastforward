@@ -2,6 +2,11 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-06-11 pt 2 — Drive asset-folder unification + image rendering
+- **Two upload paths = two Drive trees.** Pipeline bots upload via `pipeline.google` into the TITLE-named folder; storyengine/backend/storage.py uploaded into "StoryEngine Assets/<video-uuid>" — so a video's Drive folder silently missed portraits/grids/persisted images. storage.py now resolves the video title from the DB and uploads into the same title folder (category subfolders). When two modules write "the same" destination, diff their folder-resolution logic explicitly.
+- **GoogleClient.get_or_create_folder searches names GLOBALLY** — using it for generic subfolder names ('characters') would collide across videos. Scope folder lookups with a `'<parent>' in parents` query (see storage._get_or_create_child_folder).
+- **Drive uc?export=download links don't render in <img> tags** (interstitials, no CORS, rate limits). Drive's image CDN `lh3.googleusercontent.com/d/<id>=w<px>` serves the same public files reliably — frontend `toDisplayImageUrl()` rewrites at render time; stored URLs stay as download links for server-side consumers. Moving Drive files between folders does NOT change file ids, so stored URLs survive reorganization.
+
 ## Session 2026-06-11 — Creator Control Run (stop button, characters, storyboard gate)
 - **A "stale-state reset" at the WORKER side of an async boundary eats real user commands.** The executor cleared "stale" cancel flags when it armed itself — but a real Stop arriving in the seconds between route-accept and executor-arm-up got consumed as stale, and $1.85 of images generated against an explicit cancel. Rule: consume stale state at the moment the new run is REGISTERED (the chokepoint every path passes through, here `_set_task_status('running')`), never later in the worker. Pair every "clear stale X" with the question: how does a FRESH X arriving concurrently survive?
 - **Deferred cleanup must check what it's deleting.** Each task's `finally: sleep(30); _clear_task_status()` wiped the dict entry of whatever task was CURRENT — including a newer run started within the 30s window, leaving the poller blind while money was spent. Guards on deferred deletes: only delete terminal entries.
