@@ -243,8 +243,8 @@ export const retryModelVideo = (videoId: string) =>
     method: "POST",
   });
 
-export const advanceVideo = (id: string) =>
-  fetchApi<{ status: string }>(`/api/videos/${id}/advance`, { method: "PATCH" });
+export const advanceVideo = (id: string, to?: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${id}/advance${to ? `?to=${encodeURIComponent(to)}` : ""}`, { method: "PATCH" });
 
 export const updateVideo = (id: string, data: Record<string, unknown>) =>
   fetchApi<{ status: string }>(`/api/videos/${id}`, {

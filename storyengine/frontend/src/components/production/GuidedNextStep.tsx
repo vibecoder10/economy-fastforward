@@ -8,6 +8,7 @@ import { StopGenerationButton } from "@/components/production/StopGenerationButt
 import { useToast } from "@/components/ui/toast";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
 import {
+  advanceVideo,
   designCharacters,
   getVideoAssets,
   getVideoCharacters,
@@ -38,6 +39,23 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
   const [starting, setStarting] = useState(false);
   const [locking, setLocking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [skipConfirm, setSkipConfirm] = useState(false);
+  const [skipping, setSkipping] = useState(false);
+
+  const doSkip = async () => {
+    if (!action.skip) return;
+    setSkipping(true);
+    try {
+      await advanceVideo(video.id, action.skip.to);
+      setSkipConfirm(false);
+      refreshAll();
+      toast.success("Skipped — on to the next step.");
+    } catch (err) {
+      toast.error(humanizeError(err, "We couldn't skip that step."));
+    } finally {
+      setSkipping(false);
+    }
+  };
 
   const { data: charData } = useQuery({
     queryKey: ["video-characters", video.id],
@@ -222,7 +240,7 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
     );
   }
 
-  // ---------- IDLE: the one big next button ----------
+  // ---------- IDLE: the one big next button (+ a clear Skip for optional steps) ----------
   return (
     <GlassCard className="!p-5 mb-4" style={{ border: "1px solid var(--turquoise)" }}>
       <div className="flex items-center gap-4 flex-wrap">
@@ -253,6 +271,35 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
           {action.kind !== "lock" && <ArrowRight size={18} />}
         </button>
       </div>
+      {action.skip && !skipConfirm && (
+        <div className="flex justify-end mt-2">
+          <button
+            onClick={() => setSkipConfirm(true)}
+            className="text-xs px-2 py-1 rounded-lg transition-colors hover:bg-white/5"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            I don&apos;t need this — skip it →
+          </button>
+        </div>
+      )}
+      {action.skip && skipConfirm && (
+        <div className="flex items-center gap-3 mt-3 pt-3 flex-wrap" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          <p className="text-xs flex-1 min-w-[200px]" style={{ color: "var(--text-secondary)" }}>
+            {action.skip.note} You can come back to it any time.
+          </p>
+          <button
+            onClick={doSkip}
+            disabled={skipping}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 transition-all hover:brightness-110"
+            style={{ background: "rgba(255,255,255,0.12)", color: "var(--text-primary)" }}
+          >
+            {skipping ? "Skipping…" : "Yes, skip this step"}
+          </button>
+          <button onClick={() => setSkipConfirm(false)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+            Keep it
+          </button>
+        </div>
+      )}
     </GlassCard>
   );
 }

@@ -343,8 +343,15 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
 
 
 @router.patch("/{video_id}/advance")
-async def advance_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
-    """Move video to the next pipeline stage."""
+async def advance_video(video_id: str, to: Optional[str] = None,
+                        tenant_id: str = Depends(get_tenant_id)):
+    """Move video to the next pipeline stage.
+
+    `to` (optional) jumps FORWARD to a specific status — the guided banner's
+    Skip button targets the stage after the skipped element (e.g. skipping
+    clips lands at ready_for_thumbnail). Validated by walking the stage
+    chain from the current status, so only known, forward statuses work.
+    """
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -352,7 +359,22 @@ async def advance_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    next_status = _next_stage(video["status"])
+    if to:
+        cursor = video["status"]
+        found = False
+        for _ in range(30):
+            cursor = _next_stage(cursor)
+            if cursor is None:
+                break
+            if cursor == to:
+                found = True
+                break
+        if not found:
+            raise HTTPException(status_code=400,
+                                detail=f"Can't skip to '{to}' from '{video['status']}'")
+        next_status = to
+    else:
+        next_status = _next_stage(video["status"])
     if not next_status:
         raise HTTPException(status_code=400, detail="Video is already at final stage")
 

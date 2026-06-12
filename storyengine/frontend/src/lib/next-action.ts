@@ -28,6 +28,9 @@ export interface NextAction {
   stage?: string;
   /** 1-based step number for "Step X of 10" */
   step: number;
+  /** When set, this step is optional: Skip jumps the video to `to` (a
+   * forward status) and `note` says plainly what the video loses. */
+  skip?: { to: string; note: string };
 }
 
 const TOTAL_STEPS = 10;
@@ -79,11 +82,13 @@ export function getNextAction(i: NextActionInputs): NextAction {
   // 1. Research
   if (!at("ready_for_scripting") && !v.research_payload) {
     return { key: "research", label: "Research your topic", step: 1, tab: "research", kind: "run", stage: "research",
-      description: "We gather the facts and angles your video will be built on." };
+      description: "We gather the facts and angles your video will be built on.",
+      skip: { to: "ready_for_scripting", note: "The script writes itself from the title alone — no research brief." } };
   }
   if (!at("ready_for_scripting")) {
     return { key: "approve-research", label: "Review the research", step: 1, tab: "research", kind: "review",
-      description: "Read it over and approve to move on." };
+      description: "Read it over and approve to move on.",
+      skip: { to: "ready_for_scripting", note: "Move on without reviewing the research." } };
   }
 
   // 2. Script
@@ -95,7 +100,8 @@ export function getNextAction(i: NextActionInputs): NextAction {
   // 3. Voice
   if (!at("ready_for_image_prompts")) {
     return { key: "voice", label: "Create the voiceover", step: 3, tab: "script-voice", kind: "run", stage: "voice",
-      description: "Every scene gets narrated audio.", cost: "≈ $0.50" };
+      description: "Every scene gets narrated audio.", cost: "≈ $0.50",
+      skip: { to: "ready_for_image_prompts", note: "No narrator track — your clips' own audio carries the video." } };
   }
 
   // 4. Characters (after voice, before any visuals)
@@ -175,17 +181,20 @@ export function getNextAction(i: NextActionInputs): NextAction {
     if (clipsTotal > 0 && clipsDone === 0) {
       return { key: "clips-taste", label: "Animate scene 1", step: 8, tab: "clips", kind: "review",
         description: "Tap any picture on the Clips tab to bring it to life — start with scene 1 and make sure the motion feels right before animating everything.",
-        cost: `≈ $${perClip.toFixed(2)} per clip` };
+        cost: `≈ $${perClip.toFixed(2)} per clip`,
+        skip: { to: "ready_for_thumbnail", note: "No motion clips — the video uses your still pictures with gentle zoom." } };
     }
     if (clipsTotal > 0 && clipsDone < clipsTotal) {
       const left = clipsTotal - clipsDone;
       return { key: "clips-rest", label: "Animate the rest", step: 8, tab: "clips", kind: "review",
         description: `${left} picture${left === 1 ? "" : "s"} still need${left === 1 ? "s" : ""} motion. Happy with how it moves? Finish the set — you'll see the exact price and confirm first.`,
-        cost: `≈ $${clipCost(v.video_model, left).toFixed(2)}` };
+        cost: `≈ $${clipCost(v.video_model, left).toFixed(2)}`,
+        skip: { to: "ready_for_thumbnail", note: "Keep the clips you have — pictures without one use gentle zoom." } };
     }
     if (clipsTotal > 0) {
       return { key: "thumbnail", label: "Create your thumbnail", step: 9, tab: "thumbnail", kind: "run", stage: "thumbnail",
-        description: "Every picture is animated. Next: the cover image people click on.", cost: "≈ $0.08" };
+        description: "Every picture is animated. Next: the cover image people click on.", cost: "≈ $0.08",
+        skip: { to: "ready_to_render", note: "YouTube picks a frame automatically — you can add one later." } };
     }
     // No animatable pictures at all — recovery path back to finals.
     return { key: "extract", label: "Finish making your pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",
@@ -195,11 +204,13 @@ export function getNextAction(i: NextActionInputs): NextAction {
   // 9. Sound + thumbnail
   if (status === "ready_for_sound_effects") {
     return { key: "sound", label: "Add sound effects", step: 9, tab: "sound", kind: "run", stage: "sound-effects",
-      description: "Optional polish — you can skip it from the Sound tab.", cost: "< $1" };
+      description: "Optional polish for extra depth.", cost: "< $1",
+      skip: { to: "ready_for_thumbnail", note: "No extra sound effects." } };
   }
   if (status === "ready_for_thumbnail") {
     return { key: "thumbnail", label: "Create your thumbnail", step: 9, tab: "thumbnail", kind: "run", stage: "thumbnail",
-      description: "The cover image people click on.", cost: "≈ $0.08" };
+      description: "The cover image people click on.", cost: "≈ $0.08",
+      skip: { to: "ready_to_render", note: "YouTube picks a frame automatically — you can add one later." } };
   }
 
   // 10. Render + upload
