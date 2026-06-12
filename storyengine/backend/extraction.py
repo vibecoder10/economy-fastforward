@@ -99,6 +99,67 @@ def _is_padding_panel(panel: Image.Image, threshold: float = 15.0) -> bool:
     return ImageStat.Stat(panel.convert("L")).mean[0] < threshold
 
 
+def detect_panel_rects(img: Image.Image) -> list[tuple[int, int, int, int]]:
+    """Detect the ACTUAL panel rectangles from the grid's separator lines.
+
+    The image generator does not honor uniform grids: scene 2's board came
+    back 3-panels-top / 2-wider-panels-bottom, which no rows×cols crop can
+    cut correctly (the S2.4/S2.5 split). Real geometry: full-width dark
+    rows split the grid into horizontal bands; within each band, dark
+    columns spanning the band split it into panels. Row-major order.
+
+    Returns [] when no separators are found (single-panel or no grid).
+    """
+    gray = img.convert("L")
+    w, h = gray.size
+    px = gray.load()
+    xstep = max(1, w // 300)
+    ystep = max(1, h // 300)
+
+    def _row_dark(y: int) -> bool:
+        n = dark = 0
+        for x in range(0, w, xstep):
+            n += 1
+            if px[x, y] < 40:
+                dark += 1
+        return dark / n >= 0.92
+
+    def _col_dark(x: int, y0: int, y1: int) -> bool:
+        n = dark = 0
+        for y in range(y0, y1, ystep):
+            n += 1
+            if px[x, y] < 40:
+                dark += 1
+        return n > 0 and dark / n >= 0.92
+
+    row_sep = [_row_dark(y) for y in range(h)]
+
+    def _spans(mask: list[bool], min_size: int) -> list[tuple[int, int]]:
+        spans = []
+        start = None
+        for i, sep in enumerate(mask):
+            if not sep and start is None:
+                start = i
+            elif sep and start is not None:
+                if i - start >= min_size:
+                    spans.append((start, i))
+                start = None
+        if start is not None and len(mask) - start >= min_size:
+            spans.append((start, len(mask)))
+        return spans
+
+    rects = []
+    for y0, y1 in _spans(row_sep, max(20, h // 10)):
+        col_sep = [_col_dark(x, y0, y1) for x in range(w)]
+        for x0, x1 in _spans(col_sep, max(20, w // 12)):
+            rects.append((x0, y0, x1, y1))
+    # A single full-image rect means no separators were found — report []
+    # so callers fall back to uniform cropping.
+    if len(rects) <= 1:
+        return []
+    return rects
+
+
 # ---------------------------------------------------------------------------
 # PIL cropping (always correct)
 # ---------------------------------------------------------------------------
@@ -312,10 +373,12 @@ async def extract_grid(
     image_client=None,
     rows: int = 0,
     cols: int = 0,
+    expected_panels: int = 0,
 ) -> list[dict]:
     """Extract panels from a grid: PIL crop for accuracy, AI upscale for quality.
 
-    Step 1: Download grid → auto-detect layout → PIL crop into panels
+    Step 1: Download grid → separator-detected rects (the truth) or uniform
+            grid fallback → PIL crop into panels → validate, heal chips
     Step 2: Filter out black padding panels
     Step 3: Upload each cropped panel to Google Drive
     Step 4: If image_client available, upscale each panel via Nano Banana
@@ -327,39 +390,55 @@ async def extract_grid(
         beat: Beat/grid number within the scene (1-indexed)
         panel_offset: Starting image_index offset for asset mapping
         image_client: Optional ImageClient for AI upscaling
-        rows: Grid rows (0 = auto-detect from image)
-        cols: Grid columns (0 = auto-detect from image)
+        rows: Grid rows for the uniform fallback (0 = auto-detect)
+        cols: Grid columns for the uniform fallback (0 = auto-detect)
+        expected_panels: How many panels the story expects from this grid
+            (0 = unknown). Guards rect detection against under/over-counts.
 
     Returns:
-        List of dicts with {image_index, panel_url} for each extracted panel
+        List of dicts with {image_index, panel_url, flags} per panel
     """
-    # Step 1: Download and detect layout
+    # Step 1: Download. The image generator does NOT honor uniform grids
+    # (scene 2 came back 3-top/2-wider-bottom), so the separator-detected
+    # rectangles are the ground truth; uniform cropping is the fallback.
     raw = await download_bytes(grid_url)
     img = Image.open(io.BytesIO(raw))
 
-    if rows == 0 or cols == 0:
-        rows, cols = detect_grid_layout(img)
+    panels = None
+    used_rects = False
+    rects = detect_panel_rects(img)
+    if rects and (expected_panels == 0 or len(rects) == expected_panels):
+        inset = 2
+        panels = [img.crop((x0 + inset, y0 + inset, x1 - inset, y1 - inset))
+                  for (x0, y0, x1, y1) in rects]
+        used_rects = True
+        logger.info("Scene %d beat %d: %d panels via separator rects", scene, beat, len(panels))
 
-    panels = crop_panels(img, rows=rows, cols=cols)
+    if panels is None:
+        if rows == 0 or cols == 0:
+            rows, cols = detect_grid_layout(img)
+        panels = crop_panels(img, rows=rows, cols=cols)
 
-    # Validate the crops. A gutter_split means the layout was WRONG for this
-    # grid (slot counts drift when a scene is re-split after grids were
-    # drawn — S2.4/S2.5 were halves of neighbouring panels). Pixel-detected
-    # geometry gets a second opinion; keep whichever layout produces fewer
-    # bad crops.
+    # Validate the crops; if the uniform layout split panels, give the
+    # pixel-detected uniform layout a second opinion. Compare flags PER
+    # PANEL — raw totals are biased toward whichever cut produces fewer,
+    # bigger crops (a 1x2 mis-cut of a 5-panel grid "wins" on raw count).
     flags_per_panel = [panel_flags(p) for p in panels]
-    if any("gutter_split" in f for f in flags_per_panel):
+    if any("gutter_split" in f for f in flags_per_panel) and not used_rects:
         alt_rows, alt_cols = detect_grid_layout(img)
         if (alt_rows, alt_cols) != (rows, cols):
             alt_panels = crop_panels(img, rows=alt_rows, cols=alt_cols)
             alt_flags = [panel_flags(p) for p in alt_panels]
-            if sum(map(len, alt_flags)) < sum(map(len, flags_per_panel)):
+            better = (sum(map(len, alt_flags)) / max(1, len(alt_panels))
+                      < sum(map(len, flags_per_panel)) / max(1, len(panels)))
+            count_ok = (expected_panels == 0 and len(alt_panels) >= len(panels)) \
+                or len(alt_panels) == expected_panels
+            if better and count_ok:
                 logger.info(
                     "Scene %d beat %d: %dx%d layout produced split crops; "
                     "pixel-detected %dx%d is cleaner — using it",
                     scene, beat, rows, cols, alt_rows, alt_cols,
                 )
-                rows, cols = alt_rows, alt_cols
                 panels, flags_per_panel = alt_panels, alt_flags
 
     # Leaked chips are burned into the panel pixels — trim them off when the

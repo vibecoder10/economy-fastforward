@@ -1989,7 +1989,7 @@ directions, no labels, no headings inside them."""
                         # Fast: PIL crop only (no image_client = no upscale)
                         panels = await extract_grid(
                             grid_url, video_id, scene_num, beat_num, panel_offset,
-                            rows=rows, cols=cols,
+                            rows=rows, cols=cols, expected_panels=expected,
                         )
                         for p in panels:
                             flags = p.get("flags") or []
@@ -2161,7 +2161,8 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "started",
                                      f"Re-cropping S{scene_num} beat {beat_num}")
             panels = await extract_grid(grid_url, video_id, scene_num, beat_num,
-                                        panel_offset, rows=rows, cols=cols)
+                                        panel_offset, rows=rows, cols=cols,
+                                        expected_panels=expected)
             updated = 0
             for p in panels:
                 flags = p.get("flags") or []
