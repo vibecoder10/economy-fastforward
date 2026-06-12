@@ -808,16 +808,23 @@ class ImageClient:
                     task_data = response.json()
                     print(f"      DEBUG: API Response (Attempt {attempt+1}): {task_data}")
                     
-                    # Safe access
+                    # Safe access. Back off before retrying — Kie fetches our
+                    # media-proxy URLs at createTask, and right after a backend
+                    # restart the proxy serves cold-start 502 HTML, which Kie
+                    # reports as "File type not supported". Three instant
+                    # retries all land in the same cold window and a clip tap
+                    # taken seconds after a deploy fails 100% (S1.4, twice).
                     data_obj = task_data.get("data")
                     if not data_obj:
                         print(f"      ERROR: No 'data' in response: {task_data}")
+                        await asyncio.sleep(4 * (attempt + 1))
                         continue # Retry
-                        
+
                     task_id = data_obj.get("taskId")
-                    
+
                     if not task_id:
                         print(f"❌ Failed to get video task ID: {task_data}")
+                        await asyncio.sleep(4 * (attempt + 1))
                         continue # Retry
                         
                     print(f"    🎬 Video task started: {task_id}")
