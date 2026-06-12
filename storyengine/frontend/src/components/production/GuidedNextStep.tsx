@@ -272,11 +272,11 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
         </button>
       </div>
       {action.skip && !skipConfirm && (
-        <div className="flex justify-end mt-2">
+        <div className="flex justify-end mt-2.5">
           <button
             onClick={() => setSkipConfirm(true)}
-            className="text-xs px-2 py-1 rounded-lg transition-colors hover:bg-white/5"
-            style={{ color: "var(--text-tertiary)" }}
+            className="text-sm font-medium px-3 py-1.5 rounded-xl transition-all hover:brightness-110 hover:bg-white/10"
+            style={{ color: "var(--text-primary)", border: "1px solid rgba(255,255,255,0.25)" }}
           >
             I don&apos;t need this — skip it →
           </button>

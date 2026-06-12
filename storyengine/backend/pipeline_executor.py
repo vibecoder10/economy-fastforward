@@ -1233,11 +1233,25 @@ directions, no labels, no headings inside them."""
             # up" this video): grok_native lets Grok voice the exact
             # scripted words itself; voice_over overlays ElevenLabs lines.
             native_voices = (video.get("dialogue_audio") or "voice_over") == "grok_native"
+            cast_names = ""
+            if (video.get("dialogue_mode") or "") == "character_dialogue":
+                name_rows = await fetch_all(
+                    "SELECT name FROM video_characters WHERE video_id = $1 ORDER BY sort", video_id)
+                cast_names = ", ".join((c["name"] or "").strip() for c in name_rows if c.get("name"))
 
             def _decorate(core_prompt: str) -> str:
+                # @image1 is the GROUND TRUTH for this shot. The sheet alone
+                # didn't stop drift (S1.4: Tom shrank into a different boy
+                # WITH refs:2 in the logs) — the anti-change language has to
+                # be explicit and the panel has to outrank everything.
                 p = f"Animate @image1: {core_prompt}"
+                p += (" Keep every character EXACTLY as they appear in @image1 — same face,"
+                      " age, height, body proportions and clothing. Do not replace, shrink,"
+                      " age down or restyle anyone, and do not add or remove characters.")
                 if sheet:
-                    p += " Every character must look exactly as they do in @image2 (the labeled cast sheet)."
+                    p += (f" @image2 is the official cast sheet"
+                          + (f" ({cast_names})" if cast_names else "")
+                          + " — the people in @image1 are these exact characters; match their designs precisely.")
                 if style_note:
                     p += f" Art style: {style_note}"
                 return p
