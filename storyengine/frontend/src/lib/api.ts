@@ -1179,6 +1179,9 @@ export interface Asset {
   sound_prompt: string | null;
   sound_effect_url: string | null;
   sound_volume: number | null;
+  duration_seconds?: number | null;
+  /** Bad-crop validation flags from extraction: 'label_leak', 'gutter_split' */
+  extraction_flags?: string[] | null;
   created_at: string | null;
 }
 
@@ -1200,6 +1203,13 @@ export const getDialogueMap = (videoId: string) =>
 
 export const deleteClip = (videoId: string, assetId: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/clips/${assetId}`, { method: "DELETE" });
+
+/** One-tap fix for a red "bad crop" badge: re-crops the picture's whole
+ * storyboard beat (free), then auto re-animates any clips the new pictures
+ * made stale (~$0.10 each). Background task — watch the task pill. */
+export const recropAsset = (videoId: string, assetId: string) =>
+  fetchApi<{ status: string; message: string }>(
+    `/api/videos/${videoId}/assets/${assetId}/recrop`, { method: "POST" });
 
 export interface ImageVariant {
   id: string;

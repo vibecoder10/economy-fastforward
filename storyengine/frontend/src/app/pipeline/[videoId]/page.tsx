@@ -20,8 +20,7 @@ import { ResearchTab } from "@/components/production/ResearchTab";
 import { CharactersTab } from "@/components/production/CharactersTab";
 import { GuidedNextStep } from "@/components/production/GuidedNextStep";
 import { ScriptVoiceTab } from "@/components/production/ScriptVoiceTab";
-import { StoryboardVisualsTab } from "@/components/production/StoryboardVisualsTab";
-import { VideoClipsTab } from "@/components/production/VideoClipsTab";
+import { ScenesWorkspaceTab } from "@/components/production/ScenesWorkspaceTab";
 import { ThumbnailTab } from "@/components/production/ThumbnailTab";
 import { RenderTab } from "@/components/production/RenderTab";
 import { UploadTab } from "@/components/production/UploadTab";
@@ -77,14 +76,20 @@ const TABS = [
   { id: "research", label: "1 · Research", icon: Search },
   { id: "script-voice", label: "2 · Script & Voice", icon: FileText },
   { id: "characters", label: "3 · Characters", icon: Users },
-  { id: "storyboard-visuals", label: "4 · Storyboard", icon: ImageIcon },
-  { id: "clips", label: "5 · Video Clips", icon: Video },
-  { id: "sound", label: "6 · Sound", icon: Volume2 },
-  { id: "thumbnail", label: "7 · Thumbnail", icon: Film },
-  { id: "render", label: "8 · Finish", icon: Film },
-  { id: "upload", label: "9 · Upload", icon: Upload },
-  { id: "performance", label: "10 · Results", icon: BarChart3 },
+  { id: "scenes", label: "4 · Scenes", icon: Video },
+  { id: "sound", label: "5 · Sound", icon: Volume2 },
+  { id: "thumbnail", label: "6 · Thumbnail", icon: Film },
+  { id: "render", label: "7 · Finish", icon: Film },
+  { id: "upload", label: "8 · Upload", icon: Upload },
+  { id: "performance", label: "9 · Results", icon: BarChart3 },
 ];
+
+/** The old Storyboard and Video Clips tabs collapsed into Scenes (Ryan's
+ * answer 1) — stored prefs and getNextAction keys may still say the old ids. */
+const LEGACY_TAB_IDS: Record<string, string> = {
+  "storyboard-visuals": "scenes",
+  clips: "scenes",
+};
 
 function parseInjectedLearnings(writerGuidance: string | null | undefined): { use: string[]; avoid: string[] } {
   if (!writerGuidance) return { use: [], avoid: [] };
@@ -105,8 +110,7 @@ function getDefaultTab(status: string): string {
   const idx = PIPELINE_ORDER.indexOf(status);
   if (idx <= 2) return "research";
   if (idx <= 6) return "script-voice";
-  if (idx <= 12) return "storyboard-visuals";
-  if (idx <= 14) return "clips";
+  if (idx <= 14) return "scenes";
   if (idx <= 15) return "thumbnail";
   if (idx <= 18) return "render";
   return "performance";
@@ -203,7 +207,8 @@ export default function VideoDetailPage() {
     URL.revokeObjectURL(url);
   };
 
-  const currentTab = activeTab || defaultTab;
+  const rawTab = activeTab || defaultTab;
+  const currentTab = LEGACY_TAB_IDS[rawTab] ?? rawTab;
 
   const handleRunNext = async () => {
     setRunningNext(true);
@@ -536,10 +541,9 @@ export default function VideoDetailPage() {
       {/* Tab content */}
       <motion.div variants={item}>
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} />}
-        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("storyboard-visuals")} />}
-        {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("storyboard-visuals")} />}
-        {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onAdvanced={() => setActiveTab("clips")} />}
-        {currentTab === "clips" && <VideoClipsTab video={videoForTabs} onAdvanced={() => setActiveTab("sound")} />}
+        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("scenes")} />}
+        {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} />}
+        {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onAdvanced={() => setActiveTab("sound")} />}
         {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} />}
         {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} />}
         {currentTab === "render" && <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} />}

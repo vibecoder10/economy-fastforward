@@ -124,21 +124,21 @@ export function getNextAction(i: NextActionInputs): NextAction {
 
   // 5. Shot plan (image prompts)
   if (!at("ready_for_storyboards")) {
-    return { key: "prompts", label: "Plan your shots", step: 5, tab: "storyboard-visuals", kind: "run", stage: "prompts",
+    return { key: "prompts", label: "Plan your shots", step: 5, tab: "scenes", kind: "run", stage: "prompts",
       description: "We describe every picture the video needs." };
   }
 
   // 6. Storyboard prompts + grids
   if (!at("ready_for_storyboard_images")) {
-    return { key: "storyboard-prompts", label: "Describe your storyboard", step: 6, tab: "storyboard-visuals", kind: "run", stage: "storyboards",
+    return { key: "storyboard-prompts", label: "Describe your storyboard", step: 6, tab: "scenes", kind: "run", stage: "storyboards",
       description: "Scene-by-scene plans for the storyboard." };
   }
   if (!at("ready_for_storyboard_extraction") && i.scenesWithGrids === 0) {
-    return { key: "grids", label: "Create your storyboard", step: 6, tab: "storyboard-visuals", kind: "run", stage: "storyboard-images",
+    return { key: "grids", label: "Create your storyboard", step: 6, tab: "scenes", kind: "run", stage: "storyboard-images",
       description: "Cheap preview boards — redo any board until the story feels right.", cost: "≈ $0.08 per board" };
   }
   if (!at("ready_for_storyboard_extraction") && i.scenesWithGrids < i.totalScenes) {
-    return { key: "finish-grids", label: "Finish your storyboard", step: 6, tab: "storyboard-visuals", kind: "run", stage: "storyboard-images",
+    return { key: "finish-grids", label: "Finish your storyboard", step: 6, tab: "scenes", kind: "run", stage: "storyboard-images",
       description: `${i.totalScenes - i.scenesWithGrids} scene(s) still need boards — this only creates the missing ones.`, cost: "≈ $0.08 per board" };
   }
 
@@ -150,14 +150,14 @@ export function getNextAction(i: NextActionInputs): NextAction {
     // You can't lock a story you haven't seen: if boards were skipped past or
     // deleted, route back to creating them — never offer a zero-board lock.
     if (i.scenesWithGrids === 0) {
-      return { key: "grids", label: "Create your storyboard", step: 6, tab: "storyboard-visuals", kind: "run", stage: "storyboard-images",
+      return { key: "grids", label: "Create your storyboard", step: 6, tab: "scenes", kind: "run", stage: "storyboard-images",
         description: "Cheap preview boards — redo any board until the story feels right.", cost: "≈ $0.08 per board" };
     }
     if (i.totalScenes > 0 && i.scenesWithGrids < i.totalScenes) {
-      return { key: "finish-grids", label: "Finish your storyboard", step: 6, tab: "storyboard-visuals", kind: "run", stage: "storyboard-images",
+      return { key: "finish-grids", label: "Finish your storyboard", step: 6, tab: "scenes", kind: "run", stage: "storyboard-images",
         description: `${i.totalScenes - i.scenesWithGrids} scene(s) still need boards — this only creates the missing ones.`, cost: "≈ $0.08 per board" };
     }
-    return { key: "lock", label: "Lock the story", step: 7, tab: "storyboard-visuals", kind: "lock",
+    return { key: "lock", label: "Lock the story", step: 7, tab: "scenes", kind: "lock",
       description: "Look at every board below — redo any you don't love. Locking means you're happy and ready for the final pictures." };
   }
   // Extraction normally runs AUTOMATICALLY right after locking — this branch
@@ -166,7 +166,7 @@ export function getNextAction(i: NextActionInputs): NextAction {
   // (e.g. ready_for_images with 86/86 extracted) falls through to clips.
   const extractionIncomplete = (i.totalSegments ?? 0) > 0 && (i.extractedCount ?? 0) < (i.totalSegments ?? 0);
   if (finalsMissing || (!at("ready_for_sound_design") && extractionIncomplete && (status === "ready_for_storyboard_extraction" || status === "ready_for_images"))) {
-    return { key: "extract", label: "Finish making your pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",
+    return { key: "extract", label: "Finish making your pictures", step: 7, tab: "scenes", kind: "run", stage: "storyboard-extract",
       description: "Your pictures didn't all finish — this picks up where it left off and only makes the missing ones.", cost: "≈ $0.03 per picture" };
   }
 
@@ -179,14 +179,14 @@ export function getNextAction(i: NextActionInputs): NextAction {
     const clipsDone = i.clipsDone ?? 0;
     const perClip = clipCost(v.video_model, 1);
     if (clipsTotal > 0 && clipsDone === 0) {
-      return { key: "clips-taste", label: "Animate scene 1", step: 8, tab: "clips", kind: "review",
+      return { key: "clips-taste", label: "Animate scene 1", step: 8, tab: "scenes", kind: "review",
         description: "Tap any picture on the Clips tab to bring it to life — start with scene 1 and make sure the motion feels right before animating everything.",
         cost: `≈ $${perClip.toFixed(2)} per clip`,
         skip: { to: "ready_for_thumbnail", note: "No motion clips — the video uses your still pictures with gentle zoom." } };
     }
     if (clipsTotal > 0 && clipsDone < clipsTotal) {
       const left = clipsTotal - clipsDone;
-      return { key: "clips-rest", label: "Animate the rest", step: 8, tab: "clips", kind: "review",
+      return { key: "clips-rest", label: "Animate the rest", step: 8, tab: "scenes", kind: "review",
         description: `${left} picture${left === 1 ? "" : "s"} still need${left === 1 ? "s" : ""} motion. Happy with how it moves? Finish the set — you'll see the exact price and confirm first.`,
         cost: `≈ $${clipCost(v.video_model, left).toFixed(2)}`,
         skip: { to: "ready_for_thumbnail", note: "Keep the clips you have — pictures without one use gentle zoom." } };
@@ -197,7 +197,7 @@ export function getNextAction(i: NextActionInputs): NextAction {
         skip: { to: "ready_to_render", note: "YouTube picks a frame automatically — you can add one later." } };
     }
     // No animatable pictures at all — recovery path back to finals.
-    return { key: "extract", label: "Finish making your pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",
+    return { key: "extract", label: "Finish making your pictures", step: 7, tab: "scenes", kind: "run", stage: "storyboard-extract",
       description: "Clips animate your final pictures, but none exist yet — this creates them.", cost: "≈ $0.03 per picture" };
   }
 
@@ -228,7 +228,7 @@ export function getNextAction(i: NextActionInputs): NextAction {
   }
 
   // Fallback — shouldn't happen, but never strand the user
-  return { key: "fallback", label: "Continue your video", step: Math.min(TOTAL_STEPS, 5), tab: "storyboard-visuals", kind: "review",
+  return { key: "fallback", label: "Continue your video", step: Math.min(TOTAL_STEPS, 5), tab: "scenes", kind: "review",
     description: "Pick up where you left off." };
 }
 
