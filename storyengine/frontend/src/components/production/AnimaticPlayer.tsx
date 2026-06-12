@@ -26,6 +26,7 @@ interface AnimaticPlayerProps {
  */
 export function AnimaticPlayer({ videoId, scene, panels }: AnimaticPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const retriedRef = useRef(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -65,6 +66,22 @@ export function AnimaticPlayer({ videoId, scene, panels }: AnimaticPlayerProps) 
     setPanelIdx(idx === -1 ? panels.length - 1 : idx);
   };
 
+  // Audio tokens expire in 5 minutes — a player that's been sitting on the
+  // page needs a fresh one. Retry once with a new token before declaring
+  // failure, and even then NEVER unmount (a vanishing player reads as a bug).
+  const refreshToken = async (): Promise<string | null> => {
+    try {
+      const { token } = await getAudioToken(videoId);
+      const url = `${API_URL}/api/videos/${videoId}/audio/${scene}?token=${token}`;
+      setAudioUrl(url);
+      setFailed(false);
+      return url;
+    } catch {
+      setFailed(true);
+      return null;
+    }
+  };
+
   const toggle = async () => {
     const a = audioRef.current;
     if (!a) return;
@@ -74,16 +91,32 @@ export function AnimaticPlayer({ videoId, scene, panels }: AnimaticPlayerProps) 
     }
     setLoading(true);
     try {
+      if (failed || a.error) {
+        const url = await refreshToken();
+        if (!url) return;
+        a.src = url;
+        a.load();
+      }
       if (a.ended) a.currentTime = 0;
       await a.play();
+      retriedRef.current = false;
     } catch {
+      if (!retriedRef.current) {
+        retriedRef.current = true;
+        const url = await refreshToken();
+        if (url) {
+          a.src = url;
+          a.load();
+          try { await a.play(); return; } catch { /* fall through */ }
+        }
+      }
       setFailed(true);
     } finally {
       setLoading(false);
     }
   };
 
-  if (failed || panels.length === 0) return null;
+  if (panels.length === 0) return null;
 
   return (
     <div className="mb-3" style={{ maxWidth: 480 }}>
@@ -147,7 +180,7 @@ export function AnimaticPlayer({ videoId, scene, panels }: AnimaticPlayerProps) 
           onPause={() => setPlaying(false)}
           onEnded={() => { setPlaying(false); setProgress(0); setPanelIdx(0); }}
           onTimeUpdate={onTimeUpdate}
-          onError={() => setFailed(true)}
+          onError={() => setFailed(true) /* recoverable — toggle() refreshes the token */}
         />
       )}
     </div>

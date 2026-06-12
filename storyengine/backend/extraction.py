@@ -24,6 +24,28 @@ logger = logging.getLogger(__name__)
 # Grid layout detection (pure PIL)
 # ---------------------------------------------------------------------------
 
+def grid_layout_for(panel_count: int) -> tuple[int, int]:
+    """The layout the storyboard bot USES when it builds a grid for N panels.
+
+    MUST mirror skills/video-pipeline/storyboard/bot.py:_grid_layout — grids
+    are generated with this exact geometry, so cropping with it is exact.
+    Pixel-detection (below) is only the fallback when the count is unknown;
+    it mis-read a 2x3 grid as full-width rows and produced 3-panels-in-one
+    "extracted" images (bird video, scene 2).
+    """
+    if panel_count <= 1:
+        return (1, 1)
+    if panel_count <= 2:
+        return (1, 2)
+    if panel_count <= 3:
+        return (1, 3)
+    if panel_count <= 4:
+        return (2, 2)
+    if panel_count <= 6:
+        return (2, 3)
+    return (3, 3)
+
+
 def detect_grid_layout(img: Image.Image) -> tuple[int, int]:
     """Detect grid rows×cols by scanning for dark separator bands.
 

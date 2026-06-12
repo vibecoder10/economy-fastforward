@@ -1582,14 +1582,38 @@ directions, no labels, no headings inside them."""
                 if not beat_urls:
                     continue
 
+                # Resume: a scene whose every slot already has a final picture
+                # is done — re-runs only touch scenes with missing panels.
+                slot_rows = await fetch_all(
+                    "SELECT image_url FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+                    video_id, scene_num, self.tenant_id,
+                )
+                if slot_rows and all(r.get("image_url") for r in slot_rows):
+                    continue
+
+                # The grids were GENERATED with grid_layout_for(panel_count),
+                # slots chunked 9 per beat in order — crop with the same
+                # geometry instead of guessing from pixels.
+                from extraction import grid_layout_for
+                slot_total = len(slot_rows)
+                beat_panel_counts = []
+                remaining = slot_total
+                for _ in beat_urls:
+                    take = min(9, remaining) if remaining > 0 else 0
+                    beat_panel_counts.append(take)
+                    remaining -= take
+
                 scenes_done += 1
                 panel_offset = 0
-                for beat_num, grid_url in beat_urls:
+                for bi, (beat_num, grid_url) in enumerate(beat_urls):
+                    expected = beat_panel_counts[bi] if bi < len(beat_panel_counts) else 0
+                    rows, cols = grid_layout_for(expected) if expected > 0 else (0, 0)
                     try:
                         await _report(f"Extracting Scene {scenes_done}/{total_scenes}, Beat {beat_num}...")
                         # Fast: PIL crop only (no image_client = no upscale)
                         panels = await extract_grid(
                             grid_url, video_id, scene_num, beat_num, panel_offset,
+                            rows=rows, cols=cols,
                         )
                         for p in panels:
                             existing = await fetch_one(
@@ -1639,7 +1663,15 @@ directions, no labels, no headings inside them."""
                 msg += f" ({len(scene_errors)} beat errors skipped)"
 
             # ── Pass 2: AI upscale (slow, but panels already visible) ──
-            image_client = getattr(self._pipeline, "image_client", None)
+            # DISABLED by default: nano-banana-2 refuses to regenerate images
+            # of children ("Google's Generative AI Prohibited Use policy") —
+            # on the bird video ALL 82 upscales were filtered (0 credits, ~40
+            # wasted minutes). Until a non-generative upscaler (ESRGAN-class)
+            # is wired in, extraction returns the clean crops and the manual
+            # "Upscale" action (run_upscale_panels) remains for retries.
+            import os as _os
+            upscale_enabled = _os.getenv("EXTRACT_AUTO_UPSCALE", "false").lower() == "true"
+            image_client = getattr(self._pipeline, "image_client", None) if upscale_enabled else None
             upscaled = 0
             if image_client and all_panel_records:
                 await _report(f"Panels extracted! Upscaling {len(all_panel_records)} images...")
