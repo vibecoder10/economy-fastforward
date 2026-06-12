@@ -1,5 +1,45 @@
 # Task Tracking
 
+## Handoff (2026-06-12 pt 4 — animatic player, silent extraction, dead audio fix, Grok Imagine validated)
+
+Ryan: voice player dead on the storyboard page; extraction should be invisible
+("do it in the background"); build the animatic player; switch clips to Grok
+Imagine (cheaper) — research what Kie expects. All done except the Grok pipeline
+wiring (researched + smoke-tested, integration is THE next build):
+1. DEAD AUDIO, two root causes: (a) SecureAudioPlayer guessed
+   `https://<host>:8001` for the API (unreachable port in prod); (b) the backend
+   audio proxy streamed Drive PUBLIC links → HTML interstitial served as
+   "200 audio/mpeg" — players sat at 0:00/0:00. Fixed: API_URL from env +
+   authorized Drive API download (same as routes/media.py). Verified: real
+   ID3/MPEG bytes, Playwright played scene 1 to 6.7s/28.7s.
+2. ANIMATIC PLAYER (AnimaticPlayer.tsx): per-scene $0 preview — final pictures
+   under the scene's narration, per-panel duration = sentence word-count share,
+   caption overlay, progress bar, panel counter. Mounted on scene cards when
+   finals exist; falls back to plain voice player until then. Live: 8 players.
+3. SILENT EXTRACTION: Lock Story now auto-starts storyboard-extract (banner
+   shows progress; visible step remains only as failure recovery, relabeled
+   "Finish making your pictures"). next-action gained finalsMissing guard:
+   clips step can never show for a video with 0 finals (the skip-trap Ryan
+   screenshotted). Bird video: locked + extracted in background → 82/85 panels
+   (3 slots skipped as blank boards — per-segment regen exists in scene
+   details if they matter). Upscale ran but no _hd URLs recorded — check
+   whether upscale writes in place now (cache fix makes that fine) or skipped.
+4. GROK IMAGINE (clips at ~1/6 the cost) — researched on Kie docs + LIVE
+   smoke test: model `grok-imagine/image-to-video`, same jobs API
+   (createTask/recordInfo), input {image_urls:[proxy URL], prompt, mode:
+   "normal", duration:"6"–"30" STRING, resolution:"480p"|"720p"}. Test clip
+   from real S1 panel: $0.048, 31s generation, on-model Pixar look, real story
+   beat (Tom kneels to the bird). 720p ≈ $0.09–0.12/clip vs Veo Fast $0.30
+   (video drops $6–12 → ~$2–4). NO start/end-frame support (Veo keeps that);
+   audio always baked in (strip/duck under narration); result URLs expire 24h
+   (download immediately); resultJson is a JSON STRING with resultUrls.
+   Veo 3.1 Lite ($0.15 flat) is the middle option.
+
+NEXT BUILD (agreed direction): per-scene "Animate this scene" button (clips
+appear beside the boards, scene 1 = motion taste-test gate before bulk run),
+clip model selector defaulting to grok-imagine/image-to-video, motion presets
+by shot type (LS=push-in, ECU=parallax, etc.), then bulk "animate everything".
+
 ## Handoff (2026-06-12 pt 3 — ONE-button consolidation of the pipeline page)
 
 Ryan (with screenshot): the storyboard stage had FOUR competing "what now" surfaces

@@ -2,6 +2,12 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-06-12 pt 4 — dead audio, silent steps, cheap clips
+- **A proxy that re-serves Drive PUBLIC links is broken even when it returns 200 with the right Content-Type.** The audio endpoint streamed `uc?export=download` and served an HTML interstitial labeled `audio/mpeg` — `file` on the bytes is the test, not the status code. Every Drive fetch in backend routes must go through the authorized API (`routes/media._download_via_drive_api`); grep for `httpx` + `drive.google.com` when a media element silently doesn't play.
+- **Never derive the API base from `window.location` + a port.** `https://storyengine.dev:8001` is unreachable from browsers; the baked `API_URL` from lib/env is the only correct base. The same bug pattern existed in SecureAudioPlayer after it was fixed everywhere else.
+- **Ryan's pipeline philosophy: steps that are plumbing, not decisions, run silently.** Extraction now auto-starts on Lock; the visible action remains only as failure recovery. Pattern for future stages: decision → big button; plumbing → auto-run with progress in the banner + recovery branch in getNextAction.
+- **Grok Imagine via Kie (validated live)**: `grok-imagine/image-to-video`, duration is a STRING ("6"–"30"), 480p/720p only, no start/end-frame, always adds its own audio, `resultJson` is a JSON string containing `resultUrls`, URLs expire ~24h. $0.048/6s@480p, ~30s generation. Veo 3.1 Fast stays for first/last-frame interpolation shots; Veo Lite ($0.15) is the middle tier.
+
 ## Session 2026-06-12 pt 3 — One-button consolidation (Ryan's standing design bar)
 - **Ryan's product bar, stated explicitly: ONE primary action per page, Apple-esque, "a grandma could do it."** Every stage page must have exactly one filled CTA (the guided banner); everything else is per-item contextual controls or an ⋯ Advanced menu. New CTAs added anywhere else on the pipeline page are a regression by definition — extend `getNextAction()` instead.
 - **Surfaces multiply silently.** The storyboard stage accumulated FOUR "what now" answers (header runner, banner, action bar, tracker-with-CTA) because each feature shipped its own buttons. The activity log showed the cost in production: Ryan clicked a top-level runner that failed with "Lock your story first" — a gate firing as an error because the surface that offered the action didn't know about the gate. Rule: an action button must be gated by the SAME logic that decides the next action, or live behind Advanced.
