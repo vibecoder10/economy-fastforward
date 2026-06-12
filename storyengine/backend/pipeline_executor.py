@@ -905,7 +905,10 @@ directions, no labels, no headings inside them."""
                 """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
                    VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
                 self.tenant_id, video_id, i, scene["text"].strip(),
-                video.get("video_title"), "UgBBYS2sOqTuMpoF3BR0",
+                # Mark — on Kie's allowed roster. The previous id was
+                # off-roster, so every TTS call burned a wasted createTask
+                # before the client's fallback (which lands on Mark anyway).
+                video.get("video_title"), "1SM7GgM6IMuvQlz2BwM3",
             )
 
         await self._log_transition(video_id, current_status, "ready_for_voice", "api")
@@ -1046,10 +1049,87 @@ directions, no labels, no headings inside them."""
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
             await self._log_activity(bot_name, video_id, "completed", "Voice generated")
 
+            # Dialogue-mode videos also get their per-segment performance
+            # track (narrator + character lines) — silent plumbing, like the
+            # tag-dialogue hook: best-effort, never fails the voice stage.
+            if scene is None and (video.get("dialogue_mode") or "") == "character_dialogue":
+                try:
+                    seg_result = await self.run_dialogue_voice(video_id)
+                    print(f"[dialogue-voice] {video_id}: {seg_result}", flush=True)
+                except Exception as e:
+                    print(f"[dialogue-voice] hook failed for {video_id}: {str(e)[:200]}", flush=True)
+
             return {
                 "status": to_supabase(new_status),
                 "video_id": video_id,
             }
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_dialogue_voice(self, video_id: str, scene: int = None, progress_callback=None) -> dict:
+        """Voice every dialogue_segments entry (per-segment performance track).
+
+        Narration segments use the scene's narrator voice; dialogue lines use
+        the character's cast voice (video_characters.voice_name). Additive —
+        does not touch scripts.voice_over_url or advance the video status.
+        Untagged videos get the dialogue intelligence pass first (unattended
+        north-star: no manual prerequisite steps).
+        """
+        await self._ensure_initialized()
+        bot_name = "Dialogue Voice Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            if not self._pipeline.elevenlabs:
+                return {"status": "failed", "error": user_facing(
+                    "Voice synthesis isn't configured — add a Kie.ai or ElevenLabs key in Settings → Keys.")}
+
+            if not video.get("dialogue_mode"):
+                from dialogue_intelligence import tag_video_dialogue, cast_character_voices
+                tag_result = await tag_video_dialogue(video_id, self.tenant_id)
+                if tag_result.get("dialogue_mode") == "character_dialogue":
+                    await cast_character_voices(video_id, self.tenant_id)
+                video = await self._get_video(video_id)
+
+            if (video.get("dialogue_mode") or "") != "character_dialogue":
+                msg = "Narration-only video — no per-segment voices needed"
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "completed", "video_id": video_id, "message": msg}
+
+            label = f"Voicing dialogue segments (scene {scene})" if scene else "Voicing dialogue segments"
+            await self._log_activity(bot_name, video_id, "started", label)
+            await self._install_cancel_support(video_id)
+
+            from dialogue_voice import synthesize_video_segments
+            result = await synthesize_video_segments(
+                video_id,
+                self.tenant_id,
+                tts=self._pipeline.elevenlabs,
+                scene_filter=scene,
+                progress_callback=progress_callback,
+                cancel_check=self._pipeline.should_cancel,
+            )
+
+            if result.get("cancelled"):
+                msg = (f"Stopped — kept {result['segments_voiced']} voiced segment(s). "
+                       "Run again to resume.")
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "cancelled", "video_id": video_id, "error": msg, **result}
+
+            msg = (f"Voiced {result['segments_voiced']} segment(s) across "
+                   f"{result['scenes']} scene(s)"
+                   + (f", {result['segments_skipped']} already done" if result["segments_skipped"] else "")
+                   + (f" — {len(result['warnings'])} warning(s)" if result["warnings"] else ""))
+            for w in result["warnings"]:
+                print(f"[dialogue-voice] {video_id}: ⚠ {w}", flush=True)
+            await self._log_activity(bot_name, video_id, "completed", msg)
+            return {"status": "completed", "video_id": video_id, "message": msg, **result}
 
         except Exception as e:
             error_msg = str(e)

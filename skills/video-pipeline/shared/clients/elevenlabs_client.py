@@ -64,6 +64,8 @@ class ElevenLabsClient:
         voice: str,
         stability: float,
         similarity_boost: float,
+        style: Optional[float] = None,
+        speed: Optional[float] = None,
     ) -> dict:
         """Generate TTS through Kie.ai's async job API; returns audio bytes."""
         import asyncio as _asyncio
@@ -73,6 +75,18 @@ class ElevenLabsClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        tts_input = {
+            "text": text[:5000],
+            "stability": stability,
+            "similarity_boost": similarity_boost,
+        }
+        # Character-dialogue knobs (verified live on the Kie gateway):
+        # style adds acting, speed 1.05 reads younger. Never send
+        # language_code on multilingual-v2 — the gateway rejects it.
+        if style is not None:
+            tts_input["style"] = style
+        if speed is not None:
+            tts_input["speed"] = speed
         last_error = "unknown"
         for candidate in dict.fromkeys([voice, self.KIE_FALLBACK_VOICE]):
             async with httpx.AsyncClient() as client:
@@ -81,12 +95,7 @@ class ElevenLabsClient:
                     headers=headers,
                     json={
                         "model": self.KIE_TTS_MODEL,
-                        "input": {
-                            "text": text[:5000],
-                            "voice": candidate,
-                            "stability": stability,
-                            "similarity_boost": similarity_boost,
-                        },
+                        "input": {**tts_input, "voice": candidate},
                     },
                     timeout=60.0,
                 )
@@ -131,17 +140,23 @@ class ElevenLabsClient:
         voice_id: Optional[str] = None,
         similarity_boost: float = 0.75,
         stability: float = 0.5,
+        style: Optional[float] = None,
+        speed: Optional[float] = None,
     ) -> dict:
         """Generate voice audio from text via ElevenLabs API.
 
-        Returns audio bytes directly (no polling needed).
+        Returns audio bytes directly (no polling needed). style/speed are
+        optional character-performance knobs (used for dialogue lines); when
+        omitted the request is byte-identical to the pre-dialogue behavior.
 
         Returns:
             Dict with "audio_content" (bytes) on success, or "error" key on failure.
         """
         target_voice = voice_id or self.voice_id
         if self._kie_mode:
-            return await self._generate_via_kie(text, target_voice, stability, similarity_boost)
+            return await self._generate_via_kie(
+                text, target_voice, stability, similarity_boost, style=style, speed=speed
+            )
         url = f"{self.ELEVENLABS_API_URL}/{target_voice}"
 
         headers = {
@@ -150,14 +165,20 @@ class ElevenLabsClient:
             "Accept": "audio/mpeg",
         }
 
+        voice_settings = {
+            "stability": stability,
+            "similarity_boost": similarity_boost,
+            "use_speaker_boost": True,
+        }
+        if style is not None:
+            voice_settings["style"] = style
+        if speed is not None:
+            voice_settings["speed"] = speed
+
         payload = {
             "text": text,
             "model_id": "eleven_turbo_v2_5",
-            "voice_settings": {
-                "stability": stability,
-                "similarity_boost": similarity_boost,
-                "use_speaker_boost": True,
-            },
+            "voice_settings": voice_settings,
         }
 
         async with httpx.AsyncClient() as client:

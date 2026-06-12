@@ -2,6 +2,12 @@
 
 > Review this file at the start of every session. These are hard-won patterns.
 
+## Session 2026-06-12 pt 7 — per-segment voice synthesis
+- **Kie TTS flakes transiently ("internal error, please try again later") on individual createTask jobs** — hit twice in ~30 live calls. Any loop dispatching many Kie jobs needs per-item retries (dialogue_voice: 3 attempts, 5s backoff) AND per-item persistence, so a terminal failure resumes instead of re-paying. One try/except around the whole run is a money bug.
+- **Casting characters from the same roster as the narrator produces voice collisions.** Tom's cast voice was Mark — the exact narration voice — making his dialogue indistinguishable from the narrator in the turn-taking timeline. Any voice-casting prompt must exclude the narrator's voice from the offered roster (cast_character_voices now does this).
+- **When a column feeds an API with an allowlist, store an allowed value.** scripts.voice_id held an off-roster ElevenLabs id (written by the modeled-script INSERT) — every TTS call would burn a wasted createTask on it before the client's fallback kicked in. Bird video now stores Mark's roster id explicitly; the client fallback stays as a safety net, not the routine path.
+- **The dev repo has NO .env files** — one-off scripts against prod must load `/home/clawd/projects/economy-fastforward/storyengine/.env` (the prod checkout's). The dev repo only carries .env.example.
+
 ## Session 2026-06-12 pt 4 — dead audio, silent steps, cheap clips
 - **A proxy that re-serves Drive PUBLIC links is broken even when it returns 200 with the right Content-Type.** The audio endpoint streamed `uc?export=download` and served an HTML interstitial labeled `audio/mpeg` — `file` on the bytes is the test, not the status code. Every Drive fetch in backend routes must go through the authorized API (`routes/media._download_via_drive_api`); grep for `httpx` + `drive.google.com` when a media element silently doesn't play.
 - **Never derive the API base from `window.location` + a port.** `https://storyengine.dev:8001` is unreachable from browsers; the baked `API_URL` from lib/env is the only correct base. The same bug pattern existed in SecureAudioPlayer after it was fixed everywhere else.

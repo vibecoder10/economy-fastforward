@@ -147,6 +147,19 @@
 
 **Why this won:** Two disconnected systems = nobody learns, nothing is shared. One runner with priority routing (PRD > focus directive > task queue > standing orders) keeps everything unified.
 
+## 2026-06-12: Video Clips stage UX contract (Ryan answered 8 design questions)
+**Decision:** The clips stage is rebuilt around a trust ladder with these locked choices:
+1. **Three-rung granularity:** tap a card = generate that ONE clip (~$0.10); "Animate this scene" per scene group; "Animate everything" appears in the guided banner only AFTER the first scene's clips look good.
+2. **"Generate Prompts" button dies:** motion prompts auto-generate silently when the stage is reached (plumbing, cents); failures surface as a banner recovery card.
+3. **All clips, always:** every segment gets a motion clip on every video (~$8.60/video at Grok 6s). No stills/clips mix, no format detection for coverage.
+4. **Dialogue badge:** dialogue cards show a quiet 💬 + character name; tap behaves identically (system handles lips + ElevenLabs voice automatically).
+5. **Voice auto-chain:** tapping a dialogue card whose segment voice doesn't exist yet synthesizes that voice first, then the clip — one tap never dead-ends. Whole-video segment voice still runs as its own silent background step.
+6. **Cost confirm >$0.50:** card taps just go; scene/bulk actions get one confirm with the exact dollar amount. Cost math must use the real selected-model price (the hardcoded 86×$0.30=$25.80 was Veo pricing; Grok is $0.10/6s).
+7. **Card affordances:** tap plays inline; hover shows Redo ↻ and X (same as storyboard cards); failed cards turn red with Try Again on the card. No explicit approve step.
+8. **Tab layout:** one status strip + ⋯ Advanced (model picker, motion system prompt, re-run prompts, skip stage). Generate Prompts / Generate All Clips / Advance Stage buttons all die; the GuidedNextStep banner is the only big CTA.
+**Context:** Ryan (screenshot of the clips tab): "clunky… UI/UX needs to be so simple a grandma can hit a button and go… we are not trusting the system yet, so generate one by one by tapping the card." Also found: the model dropdown writes videos.video_model but the backend ignores it (Grok hardcoded) — wiring it is part of this build.
+**Why this won:** Matches the standing one-button design bar (2026-06-12 pt 3) and gives an explicit trust-graduation path from $0.10 taps to full-video runs.
+
 ## 2026-06-12: Dialogue-aware clips — voices, pauses, detection
 **Decision:** (1) Dialogue lines are voiced by ELEVENLABS character voices (via Kie), with Grok Imagine providing the on-screen lip movement (its native audio muted/replaced). (2) The narrator PAUSES during dialogue — clean turn-taking timeline, no overlap. (3) Dialogue handling sits behind an INTELLIGENCE layer: a per-video analysis detects whether the script/channel format uses character dialogue at all (dialogue_mode) — narration-only channels are untouched. No manual flags: detection must work unattended for any pasted reference video (north-star: full channel automation).
 **Alternatives:** Grok-native dialogue voices (free, perfect lips) — rejected as default: no voice lock, same character can sound different per clip; kept as a per-video experiment option.

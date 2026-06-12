@@ -12,3 +12,4 @@ Pillow>=10.0.0
 python-multipart>=0.0.9
 arq==0.28.0
 redis==5.2.1
+mutagen>=1.47.0  # MP3 duration for dialogue segment timing (graceful fallback if absent)

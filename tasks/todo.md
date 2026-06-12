@@ -36,7 +36,8 @@ hangs draining SSE). Dev repo = /home/clawd/economy-fastforward.
   recipe: ElevenLabs character voices + Grok lip movement, narrator pauses
   during dialogue (decisions.md 2026-06-12).
 
-**NEXT BUILDS (approved plan, in order):**
+**NEXT BUILDS (approved plan, in order — (a) DONE 2026-06-12 pt 7; clips UX
+contract locked in decisions.md "Video Clips stage UX contract"):**
 a. Per-segment voice synthesis (Kie ElevenLabs, voice ID param; narrator
    voice for narration segs, video_characters.voice_name for dialogue) →
    {video}/voice/S{n}-seg{i}.mp3, audio_url+duration into the jsonb.
@@ -56,6 +57,48 @@ f. Hook tag-dialogue into the non-modeled script path; audition Tom's
 hard-won traps: Drive HTML interstitials, env-loading order, watcher races,
 Kie quirks), tasks/decisions.md (dialogue decisions), docs/ + CLAUDE.md
 wiring protocol. Session history below.
+
+## Handoff (2026-06-12 pt 7 — clips UX contract locked + per-segment voice SHIPPED)
+
+Ryan answered 8 design questions for the clips stage (full contract appended to
+decisions.md as "Video Clips stage UX contract" — read it before touching the
+clips tab). Headlines: three-rung trust ladder (card tap ~$0.10 → "Animate this
+scene" → banner-gated "Animate everything"), Generate Prompts button dies
+(prompts auto-run silently), ALL segments get clips, 💬+name badge on dialogue
+cards, voice auto-chain on tap, cost confirm >$0.50 only, play-inline +
+hover Redo/X on cards, strip + ⋯ Advanced replaces all six header surfaces.
+Found during recon: VideoClipsTab cost is fake (86×$0.30 hardcoded = $25.80;
+Grok is ~$0.10/6s → ~$8.60), the model dropdown writes videos.video_model but
+the BACKEND IGNORES IT (Grok hardcoded in image_client.py:704-785), and no
+single-clip endpoint exists at all — both get wired during the clips build.
+
+STEP (a) PER-SEGMENT VOICE SYNTHESIS SHIPPED:
+- backend/dialogue_voice.py: walks scripts.dialogue_segments; narrator voice
+  (scripts.voice_id) for narration, video_characters.voice_name for dialogue
+  (stability .45 / style .2 / speed 1.05 — client gained style+speed params),
+  uploads {video}/voice/S{n}-seg{i}.mp3 via storage.upload_bytes, writes
+  audio_url + duration (+voice_name) into the jsonb AFTER EVERY segment
+  (resume-safe), 3 attempts/segment with 5s backoff (Kie TTS flakes
+  "internal error" transiently — hit twice live), cooperative cancel.
+- executor.run_dialogue_voice (auto-tags untagged videos first; narration-only
+  videos complete as a no-op) + silent auto-hook after full voice runs for
+  dialogue-mode videos + POST /api/pipeline/dialogue-voice/{video_id}?scene=N.
+- 6 functional tests: tests/functional/test_dialogue_voice.py (module-stub
+  pattern, zero network) — voice routing, resume skip, per-segment persist,
+  cancel-keeps-work, scene filter, helpers.
+- Bird video live: scene 1 verified (14/14 voiced; real MPEG bytes pulled via
+  authorized Drive API; header duration == db duration; 19.4s timeline).
+  Tom RECAST Mark→Finn (his cast voice was IDENTICAL to the narrator —
+  cast_character_voices now excludes the narrator's voice from the roster);
+  scripts.voice_id was an off-roster id, set to Mark explicitly. Full 8-scene
+  run (158 segs, ~$1-2 TTS) launched in background — check segment counts via
+  scripts.dialogue_segments before building (b).
+
+NEXT: (b) animatic plays the segment timeline (radio-play rehearsal, $0,
+Ryan approves rhythm here), then the clips build per the UX contract
+(c+d): silent prompt auto-run, single-clip endpoint + card tap, 💬 cards,
+per-scene buttons, banner trust ladder, real cost math, wire video_model.
+Invoke web-design-system skill before the clips tab UI work.
 
 ## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
 

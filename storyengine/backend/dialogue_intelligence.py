@@ -181,19 +181,31 @@ async def cast_character_voices(video_id: str, tenant_id) -> dict:
     todo = [c for c in chars if not c.get("voice_name")]
     if not todo:
         return {"cast": 0, "casting": {}}
+
+    # The narrator's voice is off-limits for characters — a character who
+    # shares it is indistinguishable from the narrator in the turn-taking
+    # timeline (live finding: Tom was cast as Mark = the narration voice).
+    narrator_row = await fetch_one(
+        "SELECT voice_id FROM scripts WHERE video_id = $1 AND voice_id IS NOT NULL ORDER BY scene LIMIT 1",
+        video_id,
+    )
+    narrator_voice = ((narrator_row or {}).get("voice_id") or "").strip()
+    roster = [v for v in VOICE_ROSTER if v["id"] != narrator_voice] or VOICE_ROSTER
+    roster_ids = {v["name"]: v["id"] for v in roster}
+
     reply = await _claude(
         "Cast voices for an animated video. For each CHARACTER pick the single "
         "best-fitting VOICE from the roster (match age, gender, energy). Voices "
         "may repeat only if unavoidable.\n\n"
         "CHARACTERS:\n" + "\n".join(f"- {c['name']}: {(c.get('description') or '')[:200]}" for c in todo)
-        + "\n\nVOICE ROSTER:\n" + "\n".join(f"- {v['name']}: {v['description']}" for v in VOICE_ROSTER)
+        + "\n\nVOICE ROSTER:\n" + "\n".join(f"- {v['name']}: {v['description']}" for v in roster)
         + '\n\nReply with ONLY JSON: {"casting": [{"character": "...", "voice": "<roster name>"}]}',
         tenant_id, tier="smart", max_tokens=600,
     )
     casting = {c["character"]: c["voice"] for c in _parse_json(reply).get("casting", [])}
     count = 0
     for c in todo:
-        voice_id = VOICE_ID_BY_NAME.get(casting.get(c["name"], ""))
+        voice_id = roster_ids.get(casting.get(c["name"], ""))
         if voice_id:
             await execute(
                 "UPDATE video_characters SET voice_name = $1 WHERE id = $2",

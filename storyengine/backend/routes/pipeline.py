@@ -830,6 +830,69 @@ async def run_storyboard_extract(
     return PipelineResponse(video_id=video_id, status="running", message="Storyboard extraction started")
 
 
+@router.post("/dialogue-voice/{video_id}", response_model=PipelineResponse)
+async def run_dialogue_voice(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    scene: Optional[int] = None,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Synthesize per-segment voices for a dialogue-mode video.
+
+    Walks scripts.dialogue_segments: narrator voice for narration entries,
+    the character's cast voice for dialogue lines. Resume-safe (already-voiced
+    segments are skipped). Narration-only videos complete as a no-op.
+
+    Args:
+        scene: If set, only voice this scene's segments (taste-test mode).
+    """
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if not is_at_or_past_stage(video["status"], "ready_for_voice"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video needs a script before voices can be made (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    scene_label = f" (scene {scene})" if scene else ""
+    _set_task_status(video_id, "running", f"Voicing dialogue segments{scene_label}...", tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+
+            async def _progress(msg: str):
+                _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
+
+            result = await executor.run_dialogue_voice(
+                video_id, scene=scene, progress_callback=_progress
+            )
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                result.get("error"),
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message=f"Dialogue voice synthesis started{scene_label}")
+
+
 @router.post("/upscale-panels/{video_id}", response_model=PipelineResponse)
 async def run_upscale_panels(
     video_id: str,
