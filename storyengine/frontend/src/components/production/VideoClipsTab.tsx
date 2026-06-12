@@ -7,9 +7,9 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import { getVideoAssets, getDialogueMap, runPipelineStage, clearStaleTask, updateVideoStyles, getDefaultVideoMotionPrompt, updateVideo, deleteClip } from "@/lib/api";
-import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
+import { clipCost } from "@/lib/next-action";
 import { toDisplayImageUrl } from "@/lib/utils";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useTaskWatcher } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, Asset } from "@/lib/api";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
@@ -40,8 +40,6 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const model = video.video_model || "grok-imagine";
   const perClip = clipCost(model, 1);
 
-  const [taskRunning, setTaskRunning] = useState(false);
-  const [taskKind, setTaskKind] = useState<"prompts" | "clips">("clips");
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
   const [confirmKey, setConfirmKey] = useState<string | null>(null); // "scene-3" | "all"
@@ -51,30 +49,19 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const promptsAutoRan = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const { data: assets = [] } = useQuery({
-    queryKey: ["video-assets", video.id],
-    queryFn: () => getVideoAssets(video.id),
-    refetchInterval: taskRunning ? 4000 : false,
-  });
-  const { data: dialogueMap } = useQuery({
-    queryKey: ["dialogue-map", video.id],
-    queryFn: () => getDialogueMap(video.id),
-    staleTime: 60_000,
-  });
-
-  const { message: taskMessage } = useTaskPoller({
+  // ALWAYS-ON watcher (the pt-3 lesson): the strip must show whatever holds
+  // the video's task slot — the silent prompt auto-run, the banner, another
+  // browser tab — not just work this component started. A caller-armed
+  // poller here made taps bounce off an invisible task with a bare 409.
+  const { running, message: taskMessage, markStarted } = useTaskWatcher({
     videoId: video.id,
-    enabled: taskRunning,
-    interval: 3000,
     onComplete: () => {
-      setTaskRunning(false);
       setGeneratingIds(new Set());
       setConfirmKey(null);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     },
     onFailed: (error) => {
-      setTaskRunning(false);
       // Cards that were in flight when the task died show Try Again in place.
       setFailedIds((prev) => new Set([...prev, ...generatingIds]));
       setGeneratingIds(new Set());
@@ -82,6 +69,17 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
       toast.error(error || "Clip generation hit a problem — tap the card to try again.");
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     },
+  });
+
+  const { data: assets = [] } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+    refetchInterval: running ? 4000 : false,
+  });
+  const { data: dialogueMap } = useQuery({
+    queryKey: ["dialogue-map", video.id],
+    queryFn: () => getDialogueMap(video.id),
+    staleTime: 60_000,
   });
 
   // Cards = every segment with a final picture (the contract: ALL get clips).
@@ -126,18 +124,17 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   // moment the tab sees cards without one. Failures surface via the banner's
   // task watcher; the strip shows quiet progress meanwhile.
   useEffect(() => {
-    if (promptsAutoRan.current || taskRunning || cards.length === 0 || promptlessCount === 0) return;
+    if (promptsAutoRan.current || running || cards.length === 0 || promptlessCount === 0) return;
     promptsAutoRan.current = true;
     (async () => {
       try {
         await runPipelineStage(video.id, "video-scripts");
-        setTaskKind("prompts");
-        setTaskRunning(true);
+        markStarted();
       } catch {
         promptsAutoRan.current = false; // 409 etc. — retry on next mount
       }
     })();
-  }, [cards.length, promptlessCount, taskRunning, video.id]);
+  }, [cards.length, promptlessCount, running, video.id, markStarted]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -149,8 +146,9 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   }, [menuOpen]);
 
   const startClipTask = useCallback(async (params: Record<string, string | number>, ids: string[]) => {
-    if (taskRunning) {
-      toast.info("One thing at a time — a clip is still generating.");
+    if (running) {
+      // Say WHAT is running — a bare "already running" reads as a bug.
+      toast.info(`Hang on — still working: ${taskMessage || "finishing the current step"}. This card will be tappable the moment it's done.`);
       return;
     }
     setFailedIds((prev) => {
@@ -159,17 +157,16 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
       return next;
     });
     setGeneratingIds(new Set(ids));
-    setTaskKind("clips");
     try {
       await runPipelineStage(video.id, "clip", params);
-      setTaskRunning(true);
+      markStarted();
     } catch (err) {
       const message = (err as Error).message || "";
       if (message.includes("409")) {
         try {
           await clearStaleTask(video.id);
           await runPipelineStage(video.id, "clip", params);
-          setTaskRunning(true);
+          markStarted();
           return;
         } catch (retryErr) {
           toast.error((retryErr as Error).message);
@@ -179,7 +176,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
       }
       setGeneratingIds(new Set());
     }
-  }, [taskRunning, video.id, toast]);
+  }, [running, taskMessage, video.id, toast, markStarted]);
 
   const animateOne = (asset: Asset, force = false) =>
     startClipTask(force ? { asset_id: asset.id, force: "true" } : { asset_id: asset.id }, [asset.id]);
@@ -250,17 +247,18 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
             <span style={{ color: "var(--text-tertiary)" }}> · ≈ ${remainingCost.toFixed(2)} to finish · {modelLabel}</span>
           )}
         </span>
-        {taskRunning && (
-          <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: "var(--purple)" }}>
+        {running && (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+            style={{ background: "rgba(139, 92, 246, 0.15)", color: "var(--purple)", border: "1px solid rgba(139, 92, 246, 0.35)" }}>
             <Loader2 size={12} className="animate-spin" />
-            {taskKind === "prompts" ? (taskMessage || "Writing motion directions…") : (taskMessage || "Animating…")}
+            {taskMessage || "Working…"}
           </span>
         )}
         <div className="flex-1" />
         {doneCount > 0 && pendingCount > 0 && (
           <button
             onClick={() => confirmable("all", remainingCost, animateAll)}
-            disabled={taskRunning}
+            disabled={running}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 transition-all hover:brightness-110"
             style={{ background: confirmKey === "all" ? "var(--gold)" : "var(--turquoise)", color: "var(--bg-void)" }}
           >
@@ -272,7 +270,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
             Cancel
           </button>
         )}
-        <StopGenerationButton videoId={video.id} running={taskRunning} />
+        <StopGenerationButton videoId={video.id} running={running} />
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
@@ -307,11 +305,10 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
               <button
                 onClick={() => {
                   setMenuOpen(false);
-                  setTaskKind("prompts");
-                  runPipelineStage(video.id, "video-scripts").then(() => setTaskRunning(true))
+                  runPipelineStage(video.id, "video-scripts").then(() => markStarted())
                     .catch((e) => toast.error((e as Error).message));
                 }}
-                disabled={taskRunning}
+                disabled={running}
                 className="w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 disabled:opacity-40 flex items-center gap-2"
                 style={{ color: "var(--text-secondary)" }}>
                 <Sparkles size={12} /> Re-write motion directions
@@ -368,7 +365,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
                   )}
                   <button
                     onClick={() => confirmable(sceneKey, sceneCost, () => animateScene(scene, scenePending.map((a) => a.id)))}
-                    disabled={taskRunning}
+                    disabled={running}
                     className="px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-40 transition-all hover:bg-white/5"
                     style={confirmKey === sceneKey
                       ? { background: "var(--gold)", color: "var(--bg-void)" }
@@ -388,7 +385,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
                   asset={asset}
                   speaker={speakerFor(asset)}
                   perClip={perClip}
-                  isGenerating={generatingIds.has(asset.id) && taskRunning}
+                  isGenerating={generatingIds.has(asset.id) && running}
                   isFailed={failedIds.has(asset.id)}
                   isPlaying={playingId === asset.id}
                   onTap={() => {
