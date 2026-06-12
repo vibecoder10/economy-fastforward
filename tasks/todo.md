@@ -1,5 +1,45 @@
 # Task Tracking
 
+## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
+
+Ryan greenlit the dialogue plan with decisions (recorded in decisions.md):
+ElevenLabs character voices + Grok lips; narrator pauses; convert bird video
+in place; everything must serve UNATTENDED channel automation (north-star,
+also in agent memory).
+
+DONE this session:
+1. LIP TEST PASSED: Grok clip from Lisa's portrait — she visibly speaks
+   (mouth movement, acting, leans to the bird Grok added from the prompt);
+   muxed with a Kie/ElevenLabs line → `lisa-dialogue-test.mp4` in the bird
+   video's Drive folder for Ryan to watch. Cost ~$0.06.
+2. DIALOGUE INTELLIGENCE LIVE (dialogue_intelligence.py + migration 048):
+   detect_dialogue_mode (whole script → character_dialogue|narration_only),
+   segment_scene (ordered narrator/speaker timeline, attributions dropped,
+   words verbatim, 60% retention sanity check), cast_character_voices
+   (stable Kie ElevenLabs voice ID per character; curated 13-voice subset;
+   full 67-voice enum + preview URLs in the session notes below).
+   POST /api/videos/{id}/script/tag-dialogue + auto-hook after modeled
+   script stage (best-effort). Bird video: character_dialogue, 8 scenes,
+   65 dialogue lines, cast: Tom=Mark, Lisa=Brittney, Mom=Tiffany, Dad=Brian,
+   Dr. May=Bella, Baby Bird=Emma. (Audit: Tom's 'Mark' is an adult voice —
+   audition via https://static.aiquickdraw.com/elevenlabs/voice/<id>.mp3,
+   Finn vBKc2FfBKJfcZNyEt1n6 is the boy option.)
+3. Kie ElevenLabs API facts: voice param takes the ID (names rejected),
+   input {text<=5000, voice, stability .45, style .2, speed 1.05 reads
+   younger}; do NOT send language_code on multilingual-v2.
+
+NEXT (in order, per the approved plan):
+a. Per-segment voice synthesis: walk dialogue_segments, TTS each segment
+   (narrator voice for narration, character voice_name for dialogue) via Kie,
+   upload {video}/voice/S{n}-seg{i}.mp3, write audio_url+duration into the
+   jsonb. Executor stage + banner progress.
+b. Animatic plays the new timeline (radio-play rehearsal, $0).
+c. Grok clip client in the pipeline (grok-imagine/image-to-video, duration
+   STRING, mux ElevenLabs line over dialogue clips, label-bar cleanup first).
+d. Per-scene "Animate this scene" + scene-gate + bulk with cost confirm.
+e. Render: Remotion timeline with narration pauses + dialogue clip audio.
+f. Auto-hook the NON-modeled script path too (only modeled path hooked now).
+
 ## Handoff (2026-06-12 pt 5 — extraction geometry fix, upscale policy wall, dialogue-clips plan)
 
 Ryan: scene 2 animatic showed 3-panels-in-one and didn't rotate; scenes 7/8 had
