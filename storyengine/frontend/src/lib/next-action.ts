@@ -156,7 +156,10 @@ export function getNextAction(i: NextActionInputs): NextAction {
   }
   // Extraction normally runs AUTOMATICALLY right after locking — this branch
   // only surfaces as the recovery path when it failed or was interrupted.
-  if (finalsMissing || (!at("ready_for_sound_design") && (status === "ready_for_storyboard_extraction" || status === "ready_for_images"))) {
+  // A video whose finals are COMPLETE but whose status string lags behind
+  // (e.g. ready_for_images with 86/86 extracted) falls through to clips.
+  const extractionIncomplete = (i.totalSegments ?? 0) > 0 && (i.extractedCount ?? 0) < (i.totalSegments ?? 0);
+  if (finalsMissing || (!at("ready_for_sound_design") && extractionIncomplete && (status === "ready_for_storyboard_extraction" || status === "ready_for_images"))) {
     return { key: "extract", label: "Finish making your pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",
       description: "Your pictures didn't all finish — this picks up where it left off and only makes the missing ones.", cost: "≈ $0.03 per picture" };
   }
@@ -164,7 +167,7 @@ export function getNextAction(i: NextActionInputs): NextAction {
   // 8. Clips — the trust ladder. Motion prompts are silent plumbing (the
   // clips tab auto-runs them on arrival); the banner walks the three rungs:
   // taste-test scene 1 → animate the rest → done.
-  const inClipsRegion = ["ready_for_sound_design", "ready_for_video_scripts", "ready_for_video_generation"].includes(status);
+  const inClipsRegion = ["ready_for_storyboard_extraction", "ready_for_images", "ready_for_sound_design", "ready_for_video_scripts", "ready_for_video_generation"].includes(status);
   if (inClipsRegion) {
     const clipsTotal = i.clipsTotal ?? 0;
     const clipsDone = i.clipsDone ?? 0;

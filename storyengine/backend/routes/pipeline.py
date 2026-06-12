@@ -915,7 +915,9 @@ async def run_clip(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_sound_design"):
+    # Relaxed gate (the lessons pattern): finals can exist from extraction
+    # onward — the executor itself only animates assets that HAVE a picture.
+    if not is_at_or_past_stage(video["status"], "ready_for_images"):
         raise HTTPException(
             status_code=400,
             detail=f"Final pictures must exist before clips (status: {video['status']})",
