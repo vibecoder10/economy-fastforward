@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.modules.setdefault("database", types.SimpleNamespace(fetch_all=None, fetch_one=None, execute=None))
 
 import asyncio  # noqa: E402
-from clip_dialogue import norm, match_lines, speaking_prompt, duck_audio, mux_voice  # noqa: E402
+from clip_dialogue import norm, match_lines, speaking_prompt, native_speaking_prompt, duck_audio, mux_voice  # noqa: E402
 
 LINES = [
     {"speaker": "Tom", "text": "Mom! Dad! Come here! Come quickly!", "audio_url": "u", "duration": 1.8},
@@ -39,6 +39,23 @@ def test_prompt():
     p = speaking_prompt([LINES[0]])
     assert "Tom speaks" in p and "Come quickly!" in p and "exactly as shown" in p
     print("✓ speaking prompt")
+
+
+def test_cross_card_line_and_native_prompt():
+    # S1.3 case: the tagged line spans two cards — sentence-level match
+    # catches the half on this card, and the native prompt feeds ONLY the
+    # covered words (not the neighbor card's half).
+    spanning = [{"speaker": "Tom", "text": "It is a baby bird. Something is wrong.",
+                 "audio_url": None, "duration": 1.9}]
+    card = 'He looks at the tiny bird. Tom says: "It is a baby bird."'
+    m = match_lines(card, spanning)
+    assert len(m) == 1, m
+    p = native_speaking_prompt(m, card)
+    assert "It is a baby bird." in p and "Something is wrong" not in p, p
+    assert "exactly these words" in p
+    # Two-word fragments don't false-match
+    assert match_lines("He waits. It is.", spanning) == []
+    print("✓ cross-card sentence matching + native verbatim prompt")
 
 
 def _make_clip(td):
@@ -83,5 +100,6 @@ def test_duck_and_mux():
 if __name__ == "__main__":
     test_matching()
     test_prompt()
+    test_cross_card_line_and_native_prompt()
     test_duck_and_mux()
-    print("\nALL 3 TESTS PASSED")
+    print("\nALL 4 TESTS PASSED")

@@ -1093,6 +1093,7 @@ export interface VideoSummary {
 export interface VideoDetail extends VideoSummary {
   characters_approved_at?: string | null;
   story_locked_at?: string | null;
+  dialogue_audio?: string | null;
   airtable_record_id: string | null;
   headline: string | null;
   source: string | null;

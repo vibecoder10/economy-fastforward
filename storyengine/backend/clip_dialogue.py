@@ -63,16 +63,51 @@ async def load_dialogue_lines(video_id: str, tenant_id) -> dict:
 
 
 def match_lines(sentence_text: Optional[str], scene_lines: Optional[list]) -> list:
-    """Dialogue lines whose spoken words appear inside this card's sentence."""
+    """Dialogue lines whose spoken words appear inside this card's sentence.
+
+    Sentence-level: a tagged line can span card boundaries (S1.3 carried
+    'It is a baby bird.' while 'Something is wrong.' fell on the next card —
+    whole-line matching missed it and Grok improvised different words), so a
+    line matches when ANY of its sentences (3+ words) appears in the card.
+    """
     text = norm(sentence_text)
     if not text or not scene_lines:
         return []
     matched = []
     for line in scene_lines:
         lt = norm(line.get("text"))
-        if lt and (lt in text or text in lt):
+        if not lt:
+            continue
+        if lt in text or text in lt:
             matched.append(line)
+            continue
+        for sent in re.split(r"[.!?]+", line.get("text") or ""):
+            ns = norm(sent)
+            if ns and len(ns.split()) >= 3 and ns in text:
+                matched.append(line)
+                break
     return matched
+
+
+def native_speaking_prompt(lines: list, card_text: Optional[str]) -> str:
+    """Grok-native voices: Grok speaks the lines itself, so the EXACT words
+    go in the prompt — only the words this card actually covers (a line can
+    span cards; feeding the whole line makes Grok say the neighbor card's
+    half too)."""
+    parts = []
+    for l in lines:
+        speaker = l.get("speaker") or "The character"
+        # Use the sentences of this line that appear on THIS card.
+        text = norm(card_text)
+        covered = [s.strip() for s in re.split(r"(?<=[.!?])\s+", l.get("text") or "")
+                   if s.strip() and norm(s) and norm(s) in text]
+        words = " ".join(covered) if covered else l["text"]
+        parts.append(f'{speaker} says exactly these words, clearly and in character: "{words}"')
+    spoken = ". Then ".join(parts)
+    return (
+        f"{spoken}. The words must be spoken exactly as written — no other "
+        "dialogue, no narration. Natural expression and small gestures."
+    )
 
 
 def speaking_prompt(lines: list) -> str:

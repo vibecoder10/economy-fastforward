@@ -302,6 +302,31 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
                 </div>
               ))}
               <div className="border-t my-1" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
+              <p className="px-2 pt-1 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                Speaking voices
+              </p>
+              {[
+                { id: "grok_native", label: "Grok native — speaks the script itself" },
+                { id: "voice_over", label: "Character voice-over (ElevenLabs)" },
+              ].map((opt) => (
+                <button key={opt.id}
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    try {
+                      await updateVideo(video.id, { dialogue_audio: opt.id });
+                      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+                      toast.info(`Speaking voices: ${opt.id === "grok_native" ? "Grok native" : "character voice-over"}. New clips use this; Redo a card to apply it.`);
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    }
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 flex items-center gap-2"
+                  style={{ color: (video.dialogue_audio || "voice_over") === opt.id ? "var(--turquoise)" : "var(--text-secondary)" }}>
+                  {(video.dialogue_audio || "voice_over") === opt.id ? <Check size={12} /> : <span className="w-3" />}
+                  {opt.label}
+                </button>
+              ))}
+              <div className="border-t my-1" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
               <button
                 onClick={() => {
                   setMenuOpen(false);

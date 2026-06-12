@@ -1217,8 +1217,8 @@ directions, no labels, no headings inside them."""
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       duck_audio, download_voice, mux_voice,
-                                       DIALOGUE_VOICE_LEAD_SECONDS)
+                                       native_speaking_prompt, duck_audio, download_voice,
+                                       mux_voice, DIALOGUE_VOICE_LEAD_SECONDS)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
 
@@ -1229,6 +1229,10 @@ directions, no labels, no headings inside them."""
             # (clips were drifting style on weaker panels).
             sheet = (video.get("character_reference_url") or "").strip()
             style_note = (video.get("image_style_override") or "").strip()[:180]
+            # Per-video choice (Ryan: the overlay is OPTIONAL — it "fucked
+            # up" this video): grok_native lets Grok voice the exact
+            # scripted words itself; voice_over overlays ElevenLabs lines.
+            native_voices = (video.get("dialogue_audio") or "voice_over") == "grok_native"
 
             def _decorate(core_prompt: str) -> str:
                 p = f"Animate @image1: {core_prompt}"
@@ -1244,16 +1248,19 @@ directions, no labels, no headings inside them."""
             dialogue_by_scene: dict = {}
             if (video.get("dialogue_mode") or "") == "character_dialogue":
                 dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
-                unvoiced_scenes = sorted({
-                    r["scene"] for r in todo
-                    if any(not l.get("audio_url")
-                           for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(r["scene"])))
-                })
-                for sc in unvoiced_scenes:
-                    await _report(f"Creating the voices for scene {sc} first…")
-                    await self.run_dialogue_voice(video_id, scene=sc, progress_callback=progress_callback)
-                if unvoiced_scenes:
-                    dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
+                # voice_over mode needs the segment voices to exist (auto-
+                # chain); grok_native voices the lines itself — no synthesis.
+                if (video.get("dialogue_audio") or "voice_over") != "grok_native":
+                    unvoiced_scenes = sorted({
+                        r["scene"] for r in todo
+                        if any(not l.get("audio_url")
+                               for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(r["scene"])))
+                    })
+                    for sc in unvoiced_scenes:
+                        await _report(f"Creating the voices for scene {sc} first…")
+                        await self.run_dialogue_voice(video_id, scene=sc, progress_callback=progress_callback)
+                    if unvoiced_scenes:
+                        dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
 
             done = failed = 0
             cost = 0.0
@@ -1275,15 +1282,16 @@ directions, no labels, no headings inside them."""
                     sc, idx = r["scene"], r["image_index"]
                     img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
                     lines = [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
-                             if l.get("audio_url")]
+                             if native_voices or l.get("audio_url")]
 
                     if lines:
-                        # Speaking card → Grok animates the FULL SCENE with a
-                        # speaking prompt; the line is overlaid with a small
-                        # lead. Loose sync by design (Ryan's call): scene
+                        # Speaking card → Grok animates the FULL SCENE.
+                        # Loose sync by design (Ryan's call): scene
                         # continuity beats mouth precision in this format —
                         # see decisions.md 2026-06-12.
-                        prompt = _decorate(speaking_prompt(lines))
+                        core = (native_speaking_prompt(lines, r.get("sentence_text"))
+                                if native_voices else speaking_prompt(lines))
+                        prompt = _decorate(core)
                         voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
                         # The line (plus its lead) has to fit inside the clip.
                         need = voice_secs + DIALOGUE_VOICE_LEAD_SECONDS
@@ -1319,12 +1327,13 @@ directions, no labels, no headings inside them."""
                         await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
                         return
                     clip_bytes = await client.download_image(clip_url)
-                    # Audio: speaking cards get the REAL line over Grok's
-                    # ambience kept as a quiet bed (dead silence around the
-                    # line was Ryan's 'no background sounds'); narration
-                    # cards keep quiet ambience for the renderer to mix over.
+                    # Audio per mode: grok_native keeps Grok's full audio on
+                    # speaking cards (its voices + ambience ARE the take);
+                    # voice_over lays the ElevenLabs line over a quiet bed.
+                    # Narration cards keep quiet ambience either way — the
+                    # renderer mixes narration and music over them.
                     try:
-                        if lines:
+                        if lines and not native_voices:
                             vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
                             if vbytes:
                                 lead = max(0.0, min(DIALOGUE_VOICE_LEAD_SECONDS,
@@ -1333,7 +1342,7 @@ directions, no labels, no headings inside them."""
                                                              delay_seconds=lead, bed_gain=0.2)
                             else:
                                 clip_bytes = await duck_audio(clip_bytes)
-                        elif getattr(profile, "strip_audio", False):
+                        elif not lines and getattr(profile, "strip_audio", False):
                             clip_bytes = await duck_audio(clip_bytes)
                     except Exception as e:
                         print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)

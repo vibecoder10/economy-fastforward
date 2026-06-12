@@ -186,10 +186,18 @@ videos!), storyboard vision QA loop, approve-cast description rewrite.
 NEEDS ITS OWN INVESTIGATION + canary. _call_claude now joins all text
 blocks (content[0] truncated multi-block replies).
 
-NEXT: (b) animatic plays the segment timeline (radio-play rehearsal, $0,
-Ryan approves rhythm here); (e) render: Remotion segment timeline
-(narration pauses ↔ dialogue cut-ins as inserts); (f) hook tag-dialogue
-into the non-modeled script path.
+DIALOGUE AUDIO IS NOW PER-VIDEO (migration 049, videos.dialogue_audio,
+toggle in clips ⋯ menu): 'grok_native' (bird video's setting — Grok speaks
+the EXACT scripted words, native_speaking_prompt feeds only the sentences
+covered by the card; no synthesis chain, full Grok audio kept) vs
+'voice_over' (ElevenLabs overlay + ambience bed). match_lines is now
+sentence-level (lines spanning cards — the S1.3 wrong-words bug).
+
+NEXT (priority per Ryan): SKIP-MATRIX UI — every pipeline element obviously
+optional per video ("sometimes they just want research/ideas/script — make
+it very obvious, a skip button on certain elements"). Then: (b) animatic
+segment timeline; (e) render (respecting dialogue_audio — grok_native clips
+carry their own dialogue audio); (f) tag-dialogue on non-modeled path.
 
 ## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
 

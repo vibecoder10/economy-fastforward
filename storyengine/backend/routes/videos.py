@@ -154,8 +154,8 @@ async def list_videos(
             views=r.get("views") or 0,
             ctr=float(r["ctr"]) if r.get("ctr") else None,
             characters_approved_at=r.get("characters_approved_at"),
-        story_locked_at=r.get("story_locked_at"),
-        created_at=r.get("created_at"),
+            story_locked_at=r.get("story_locked_at"),
+            created_at=r.get("created_at"),
             updated_at=r.get("updated_at"),
         )
         for r in rows
@@ -211,6 +211,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
                   accent_color, visual_style, image_style_override, image_model_override, video_model,
+                  dialogue_audio,
                   video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   source_views, source_channel, source_urls,
@@ -303,6 +304,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         # Selected above but never passed — the client saw null and the
         # banner re-offered "Lock the story" on already-locked videos.
         story_locked_at=r.get("story_locked_at"),
+        dialogue_audio=r.get("dialogue_audio"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )
@@ -318,7 +320,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio"}
     updates = []
     params = []
     idx = 1

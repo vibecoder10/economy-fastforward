@@ -150,6 +150,7 @@ CREATE TABLE videos (
   storyboard_preview_url TEXT,
   storyboard_beat_count INTEGER,
   video_model TEXT,
+  dialogue_audio TEXT,  -- 'voice_over' (default) | 'grok_native'
 
   -- Pipeline state
   scene_file_path TEXT,
