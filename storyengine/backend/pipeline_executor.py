@@ -1188,7 +1188,7 @@ directions, no labels, no headings inside them."""
                 params.append(scene)
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
-                f"video_clip_url, duration_seconds, sentence_text "
+                f"video_clip_url, duration_seconds, sentence_text, image_prompt "
                 f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
@@ -1301,6 +1301,15 @@ directions, no labels, no headings inside them."""
                     lines = [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
                              if native_voices or l.get("audio_url")]
 
+                    # Cutaway detection (Ryan: S1.4's bird close-up grew an
+                    # invented toddler): the image prompt names exactly who
+                    # is in the shot. No cast name in prompt or sentence and
+                    # no dialogue = nobody belongs on screen — hard rule.
+                    shot_text = f"{r.get('image_prompt') or ''} {r.get('sentence_text') or ''}".lower()
+                    has_cast = any(n.strip() and n.strip().lower() in shot_text
+                                   for n in cast_names.split(","))
+                    cutaway = not lines and not has_cast and bool(cast_names)
+
                     if lines:
                         # Speaking card → Grok animates the FULL SCENE.
                         # Loose sync by design (Ryan's call): scene
@@ -1327,6 +1336,11 @@ directions, no labels, no headings inside them."""
                             "Subtle cinematic motion: gentle camera push-in, soft natural "
                             "movement in the scene. Keep the characters, art style and "
                             "composition exactly as shown.")
+                        if cutaway:
+                            prompt = ("STRICT: this is a cutaway shot with NO PEOPLE. Never show a "
+                                      "person, face or body — animate only the scene, objects or "
+                                      "animal exactly as shown. At most a hand or foot may enter "
+                                      "the frame edge. " + prompt)
                         seg_dur = float(r.get("duration_seconds") or 0)
                         clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
                         if model_id.startswith("veo-3.1"):

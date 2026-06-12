@@ -193,6 +193,25 @@ covered by the card; no synthesis chain, full Grok audio kept) vs
 'voice_over' (ElevenLabs overlay + ambience bed). match_lines is now
 sentence-level (lines spanning cards — the S1.3 wrong-words bug).
 
+RYAN'S 4 ANSWERS (2026-06-12 late — the next build's spec):
+1. ONE SCENES WORKSPACE: merge storyboard + final pictures + clips into a
+   per-scene view (boards, pictures, clips side by side, redo at any level).
+   The separate storyboard/clips tabs collapse into it. THIS IS THE NEXT
+   BIG BUILD — invoke web-design-guidelines/react skills, plan from
+   tasks/decisions.md UX contract.
+2. AUTO RE-ANIMATE: redoing a picture auto-regenerates its clip (~$0.10,
+   cost note shown).
+3. CUTAWAYS (shipped same night): no-people hard rule prepended for cards
+   whose image_prompt+sentence mention no cast name and match no dialogue
+   line (deterministic — no vision needed). S1.4 class.
+4. BAD CROPS: extraction must VALIDATE panels (internal-gutter split check,
+   label-bar [KFn|XX|Ns] leak check — white-on-black text defeats the
+   brightness trim) → red 'bad crop' badge + one-tap 'Re-crop this picture'.
+   Ryan hit both on S2.4/S2.5 (split across two pictures) + a label leak.
+Also open: S1.4 regenerated the invented boy AGAIN even with constraints-
+first prompt (before the cutaway rule shipped) — verify the cutaway rule
+catches it on next redo.
+
 SKIP V1 SHIPPED: banner shows 'I don't need this — skip it →' on optional
 steps (research/review/voice/clips rungs/sound/thumbnail), inline
 consequence confirm, advance?to=<status> forward-jump (validated). S1.2/
