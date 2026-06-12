@@ -1,5 +1,35 @@
 # Task Tracking
 
+## Handoff (2026-06-12 pt 5 — extraction geometry fix, upscale policy wall, dialogue-clips plan)
+
+Ryan: scene 2 animatic showed 3-panels-in-one and didn't rotate; scenes 7/8 had
+no player; 82/85 mystery. All fixed + verified (Playwright: 8/8 players, S2
+plays 6 single panels, audio rolling):
+1. EXTRACTION GEOMETRY: extraction.py guessed grid layout from dark-band pixel
+   detection; scene 2's 2x3 grid was misread → full-row composite crops, 3
+   empty slots. Fix: `grid_layout_for(panel_count)` (mirrors bot._grid_layout),
+   executor chunks scene slots 9-per-beat and passes exact rows/cols; detection
+   is fallback only. Scene 2 re-extracted → 6 clean panels.
+2. PER-SCENE RESUME on extraction: scenes with all slots filled are skipped.
+3. UPSCALE = POLICY WALL, not a bug: nano-banana-2 refuses to regenerate
+   images of CHILDREN (Google Prohibited Use policy) — all 82 upscales filtered,
+   0 credits, ~40 min wasted. Auto-upscale now DISABLED (EXTRACT_AUTO_UPSCALE
+   env to re-enable). Needs an ESRGAN-class non-generative upscaler on Kie for
+   stills; clips path makes stills less critical.
+4. AnimaticPlayer: never unmounts on audio error; retries once with fresh
+   token (5-min TTL — players outlive it). Root cause of the missing 7/8
+   players was the pre-fix HTML audio killing the component at mount.
+5. Known warts for the clips phase: some panels keep their [KFn|MS|10s] label
+   bar (white-on-black text defeats the brightness>100 trim scan — fix before
+   clips, Grok will reproduce labels from reference); scene 2 gained a 6th
+   slot with no sentence_text (executor inserts rows for extra real panels).
+6. DB env gotcha: load backend/.env BEFORE root .env in scripts — root has a
+   dead DATABASE_URL and the legacy Drive parent.
+
+DIALOGUE-CLIPS PLAN written and reported to Ryan (NOT built — awaiting his
+sign-off on: Grok-native vs ElevenLabs character voices for dialogue;
+narration pauses vs ducks during dialogue; convert bird script in place).
+
 ## Handoff (2026-06-12 pt 4 — animatic player, silent extraction, dead audio fix, Grok Imagine validated)
 
 Ryan: voice player dead on the storyboard page; extraction should be invisible
