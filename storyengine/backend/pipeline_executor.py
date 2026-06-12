@@ -1347,6 +1347,13 @@ directions, no labels, no headings inside them."""
 
                     if not clip_url:
                         failed += 1
+                        # A no-clip return must leave a trail: which client
+                        # class ran, what it was fed. (S1.4 failed twice in
+                        # ~1.4s with zero journal output — undebuggable.)
+                        print(f"[clips] S{sc}.{idx} returned no clip — "
+                              f"client={type(client).__module__}.{type(client).__name__} "
+                              f"speaking={bool(lines)} dur={clip_dur} img={img[:90]}",
+                              flush=True)
                         await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
                         return
                     clip_bytes = await client.download_image(clip_url)
