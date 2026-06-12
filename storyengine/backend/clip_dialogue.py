@@ -110,6 +110,39 @@ def native_speaking_prompt(lines: list, card_text: Optional[str]) -> str:
     )
 
 
+CUTAWAY_PREFIX = (
+    "STRICT: this is a cutaway shot with NO PEOPLE. Never show a person, "
+    "face or body — animate only the scene, objects or animal exactly as "
+    "shown. At most a hand or foot may enter the frame edge. "
+)
+NO_NEW_PEOPLE_PREFIX = (
+    "STRICT: do not add any person or character who is not already visible "
+    "in the image. If someone is only implied at the frame edge (shoes, "
+    "feet, a hand, a shadow), they stay exactly that — never walk them into "
+    "frame, never reveal their face or body. "
+)
+
+
+def motion_guard(image_prompt: Optional[str], sentence_text: Optional[str],
+                 cast_names: str) -> str:
+    """People-rule prefix for a NON-SPEAKING card's motion prompt.
+
+    Cutaway (no cast name anywhere in the shot text) → absolute NO PEOPLE.
+    Everything else → nobody NEW. The weaker rule exists because the name
+    check can't catch the S1.4 class: "Tom's sneakers at frame edge —
+    implied presence without face" names Tom, yet Grok walked the whole boy
+    into frame. Blank shot text (extraction rows with no prompt or
+    sentence) is NO signal, not a no-cast signal — orphan panels must not
+    get a NO PEOPLE directive over a doctor close-up.
+    """
+    shot_text = f"{image_prompt or ''} {sentence_text or ''}".lower()
+    if not cast_names or not shot_text.strip():
+        return NO_NEW_PEOPLE_PREFIX
+    has_cast = any(n.strip() and n.strip().lower() in shot_text
+                   for n in cast_names.split(","))
+    return NO_NEW_PEOPLE_PREFIX if has_cast else CUTAWAY_PREFIX
+
+
 def speaking_prompt(lines: list) -> str:
     """Grok direction for a full-scene speaking shot."""
     parts = [

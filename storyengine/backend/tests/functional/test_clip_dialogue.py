@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.modules.setdefault("database", types.SimpleNamespace(fetch_all=None, fetch_one=None, execute=None))
 
 import asyncio  # noqa: E402
-from clip_dialogue import norm, match_lines, speaking_prompt, native_speaking_prompt, duck_audio, mux_voice  # noqa: E402
+from clip_dialogue import (norm, match_lines, speaking_prompt, native_speaking_prompt,  # noqa: E402
+                           motion_guard, CUTAWAY_PREFIX, NO_NEW_PEOPLE_PREFIX, duck_audio, mux_voice)
 
 LINES = [
     {"speaker": "Tom", "text": "Mom! Dad! Come here! Come quickly!", "audio_url": "u", "duration": 1.8},
@@ -97,9 +98,28 @@ def test_duck_and_mux():
     print("✓ ffmpeg duck + mux (delayed, with bed + concat)")
 
 
+def test_motion_guard():
+    cast = "Tom, Lisa, Mom, Dad, Baby Bird, Dr. May"
+    # True cutaway: no cast name anywhere → absolute NO PEOPLE.
+    assert motion_guard("Empty park bench, leaves drifting", "The morning is quiet.", cast) == CUTAWAY_PREFIX
+    # The S1.4 trap: cast named only as edge presence ("Tom's sneakers…")
+    # → weaker nobody-NEW rule, NOT a free pass.
+    assert motion_guard("Baby bird in grass. Tom's sneakers at upper-left edge.",
+                        'Something is wrong." He waits.', cast) == NO_NEW_PEOPLE_PREFIX
+    # Cast fully in shot → nobody-NEW.
+    assert motion_guard("Lisa kneels beside the bird", "Lisa looks closer.", cast) == NO_NEW_PEOPLE_PREFIX
+    # Orphan extraction row (no prompt, no sentence) = no signal → must NOT
+    # claim cutaway (S6.13 is a doctor close-up).
+    assert motion_guard(None, None, cast) == NO_NEW_PEOPLE_PREFIX
+    # Narration-only video with no cast sheet → no cutaway claims either.
+    assert motion_guard("A man walks through the city", "He thinks.", "") == NO_NEW_PEOPLE_PREFIX
+    print("✓ motion guard (cutaway vs nobody-new)")
+
+
 if __name__ == "__main__":
     test_matching()
     test_prompt()
     test_cross_card_line_and_native_prompt()
+    test_motion_guard()
     test_duck_and_mux()
-    print("\nALL 4 TESTS PASSED")
+    print("\nALL 5 TESTS PASSED")

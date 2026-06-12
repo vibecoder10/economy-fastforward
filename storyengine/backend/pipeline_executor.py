@@ -1217,8 +1217,8 @@ directions, no labels, no headings inside them."""
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       native_speaking_prompt, duck_audio, download_voice,
-                                       mux_voice, DIALOGUE_VOICE_LEAD_SECONDS)
+                                       native_speaking_prompt, motion_guard, duck_audio,
+                                       download_voice, mux_voice, DIALOGUE_VOICE_LEAD_SECONDS)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
 
@@ -1301,15 +1301,6 @@ directions, no labels, no headings inside them."""
                     lines = [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
                              if native_voices or l.get("audio_url")]
 
-                    # Cutaway detection (Ryan: S1.4's bird close-up grew an
-                    # invented toddler): the image prompt names exactly who
-                    # is in the shot. No cast name in prompt or sentence and
-                    # no dialogue = nobody belongs on screen — hard rule.
-                    shot_text = f"{r.get('image_prompt') or ''} {r.get('sentence_text') or ''}".lower()
-                    has_cast = any(n.strip() and n.strip().lower() in shot_text
-                                   for n in cast_names.split(","))
-                    cutaway = not lines and not has_cast and bool(cast_names)
-
                     if lines:
                         # Speaking card → Grok animates the FULL SCENE.
                         # Loose sync by design (Ryan's call): scene
@@ -1336,11 +1327,12 @@ directions, no labels, no headings inside them."""
                             "Subtle cinematic motion: gentle camera push-in, soft natural "
                             "movement in the scene. Keep the characters, art style and "
                             "composition exactly as shown.")
-                        if cutaway:
-                            prompt = ("STRICT: this is a cutaway shot with NO PEOPLE. Never show a "
-                                      "person, face or body — animate only the scene, objects or "
-                                      "animal exactly as shown. At most a hand or foot may enter "
-                                      "the frame edge. " + prompt)
+                        # People rule (Ryan: S1.4's bird close-up grew an
+                        # invented toddler — twice): cutaway cards get an
+                        # absolute NO PEOPLE, every other narration card gets
+                        # nobody-NEW. Decision table lives in motion_guard.
+                        prompt = motion_guard(r.get("image_prompt"),
+                                              r.get("sentence_text"), cast_names) + prompt
                         seg_dur = float(r.get("duration_seconds") or 0)
                         clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
                         if model_id.startswith("veo-3.1"):
