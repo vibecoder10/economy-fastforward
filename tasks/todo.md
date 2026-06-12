@@ -193,7 +193,11 @@ covered by the card; no synthesis chain, full Grok audio kept) vs
 'voice_over' (ElevenLabs overlay + ambience bed). match_lines is now
 sentence-level (lines spanning cards — the S1.3 wrong-words bug).
 
-NEXT (priority per Ryan): SKIP-MATRIX UI — every pipeline element obviously
+SKIP V1 SHIPPED: banner shows 'I don't need this — skip it →' on optional
+steps (research/review/voice/clips rungs/sound/thumbnail), inline
+consequence confirm, advance?to=<status> forward-jump (validated). S1.2/
+S1.3 regenerated grok_native and approved-ish by Ryan (S1.3 'love it').
+NEXT: full keep/skip matrix view — every pipeline element obviously
 optional per video ("sometimes they just want research/ideas/script — make
 it very obvious, a skip button on certain elements"). Then: (b) animatic
 segment timeline; (e) render (respecting dialogue_audio — grok_native clips
