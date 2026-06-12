@@ -1944,6 +1944,9 @@ directions, no labels, no headings inside them."""
             scene_errors = []
             # Collect panel DB records for upscale pass
             all_panel_records = []  # (asset_id, panel_url, scene, beat, seq)
+            # Assets whose picture got replaced under an existing clip —
+            # their clips re-animate after extraction (Ryan's answer 2).
+            stale_clip_assets = []
 
             # ── Pass 1: Fast crop + upload + write to DB ──
             scenes_done = 0
@@ -1994,13 +1997,15 @@ directions, no labels, no headings inside them."""
                         for p in panels:
                             flags = p.get("flags") or []
                             existing = await fetch_one(
-                                """SELECT id FROM assets
+                                """SELECT id, video_clip_url FROM assets
                                    WHERE video_id = $1 AND scene = $2 AND image_index = $3
                                    AND tenant_id = $4""",
                                 video_id, scene_num, p["image_index"], self.tenant_id,
                             )
                             if existing:
                                 asset_id = existing["id"]
+                                if existing.get("video_clip_url"):
+                                    stale_clip_assets.append(asset_id)
                                 await execute(
                                     """UPDATE assets SET image_url = $1, status = 'done',
                                               generation_method = 'storyboard_extract',
@@ -2096,6 +2101,18 @@ directions, no labels, no headings inside them."""
 
                 msg += f", {upscaled}/{len(all_panel_records)} upscaled"
 
+            # AUTO RE-ANIMATE (Ryan's answer 2): pictures replaced under an
+            # existing clip regenerate that clip — only clips that already
+            # existed, ~$0.10 each, no human in the loop.
+            if stale_clip_assets:
+                await _report(f"Pictures changed — re-animating {len(stale_clip_assets)} stale clip(s)…")
+                reanimated = 0
+                for aid in stale_clip_assets:
+                    res = await self.run_clip_generation(video_id, asset_id=aid, force=True)
+                    if res.get("clips_generated"):
+                        reanimated += res["clips_generated"]
+                msg += f" — re-animated {reanimated}/{len(stale_clip_assets)} stale clip(s)"
+
             await self._log_activity(bot_name, video_id, "completed", msg)
             return {"status": to_supabase(new_status), "video_id": video_id, "panels_extracted": total_panels}
 
@@ -2163,10 +2180,22 @@ directions, no labels, no headings inside them."""
             panels = await extract_grid(grid_url, video_id, scene_num, beat_num,
                                         panel_offset, rows=rows, cols=cols,
                                         expected_panels=expected)
+            # Which of the beat's assets already had a clip? Their clips go
+            # stale the moment the picture under them changes.
+            beat_range = await fetch_all(
+                "SELECT id, image_index, video_clip_url FROM assets "
+                "WHERE video_id = $1 AND scene = $2 AND tenant_id = $3 "
+                "AND image_index > $4 AND image_index <= $5",
+                video_id, scene_num, self.tenant_id,
+                panel_offset, panel_offset + max(expected, len(panels)),
+            )
+            had_clip = {r["image_index"]: r["id"] for r in beat_range if r.get("video_clip_url")}
+
             updated = 0
+            stale_clip_assets = []
             for p in panels:
                 flags = p.get("flags") or []
-                res = await execute(
+                await execute(
                     """UPDATE assets SET image_url = $1, status = 'done',
                               generation_method = 'storyboard_extract',
                               extraction_flags = $2, updated_at = now()
@@ -2176,12 +2205,28 @@ directions, no labels, no headings inside them."""
                     p["image_index"], self.tenant_id,
                 )
                 updated += 1
+                if p["image_index"] in had_clip:
+                    stale_clip_assets.append(had_clip[p["image_index"]])
+
             still_bad = sum(1 for p in panels if p.get("flags"))
             msg = (f"Re-cropped {updated} picture(s) on S{scene_num} beat {beat_num}"
                    + (f" — {still_bad} still flagged" if still_bad else ""))
+
+            # AUTO RE-ANIMATE (Ryan's answer 2): a redone picture regenerates
+            # its clip — only clips that already existed, ~$0.10 each, fully
+            # unattended (north star: no human in the loop).
+            reanimated = 0
+            for aid in stale_clip_assets:
+                res = await self.run_clip_generation(video_id, asset_id=aid, force=True)
+                if res.get("clips_generated"):
+                    reanimated += res["clips_generated"]
+            if stale_clip_assets:
+                msg += f" — re-animated {reanimated}/{len(stale_clip_assets)} stale clip(s) (~${0.10 * reanimated:.2f})"
+
             await self._log_activity(bot_name, video_id, "completed", msg)
             return {"status": "completed", "video_id": video_id, "message": msg,
-                    "panels": updated, "still_flagged": still_bad}
+                    "panels": updated, "still_flagged": still_bad,
+                    "reanimated": reanimated}
 
         except Exception as e:
             error_msg = str(e) or e.__class__.__name__

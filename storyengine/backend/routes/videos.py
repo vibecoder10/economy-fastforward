@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from auth import get_tenant_id
 from models import (
@@ -1210,17 +1210,41 @@ async def delete_clip(video_id: str, asset_id: str, tenant_id=Depends(get_tenant
 
 
 @router.post("/{video_id}/assets/{asset_id}/recrop")
-async def recrop_asset(video_id: str, asset_id: str, tenant_id=Depends(get_tenant_id)):
+async def recrop_asset(
+    video_id: str,
+    asset_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id=Depends(get_tenant_id),
+):
     """One-tap 'Re-crop this picture' for a red bad-crop badge: re-crops the
     asset's whole storyboard beat with self-healing grid geometry (a split
-    crop never comes alone). Free — pure PIL, replaces Drive content in
-    place. Synchronous: a beat re-crop takes a couple of seconds."""
+    crop never comes alone; free, replaces Drive content in place), then
+    AUTO RE-ANIMATES any clips the new pictures made stale (~$0.10 each).
+    Background task — the clip regens take ~40s apiece; watch the task pill."""
+    from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status
     from pipeline_executor import PipelineExecutor
-    executor = PipelineExecutor(tenant_id)
-    result = await executor.run_recrop_panel(video_id, asset_id)
-    if result.get("status") == "failed":
-        raise HTTPException(status_code=422, detail=result.get("error") or "Re-crop failed")
-    return result
+
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+    _set_task_status(video_id, "running", "Re-cropping this picture's storyboard beat…",
+                     tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_recrop_panel(video_id, asset_id)
+            _set_task_status(video_id, result.get("status", "unknown"),
+                             result.get("message") or result.get("error"),
+                             tenant_id=tenant_id)
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return {"video_id": video_id, "status": "running",
+            "message": "Re-crop started — stale clips re-animate automatically"}
 
 
 @router.get("/defaults/video-motion-prompt")
