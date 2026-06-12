@@ -146,3 +146,8 @@
 2. Merge into run-agent.sh with priority routing — single system, shared everything
 
 **Why this won:** Two disconnected systems = nobody learns, nothing is shared. One runner with priority routing (PRD > focus directive > task queue > standing orders) keeps everything unified.
+
+## 2026-06-12: Dialogue-aware clips — voices, pauses, detection
+**Decision:** (1) Dialogue lines are voiced by ELEVENLABS character voices (via Kie), with Grok Imagine providing the on-screen lip movement (its native audio muted/replaced). (2) The narrator PAUSES during dialogue — clean turn-taking timeline, no overlap. (3) Dialogue handling sits behind an INTELLIGENCE layer: a per-video analysis detects whether the script/channel format uses character dialogue at all (dialogue_mode) — narration-only channels are untouched. No manual flags: detection must work unattended for any pasted reference video (north-star: full channel automation).
+**Alternatives:** Grok-native dialogue voices (free, perfect lips) — rejected as default: no voice lock, same character can sound different per clip; kept as a per-video experiment option.
+**Why this won:** Voice consistency is brand-critical for repeat-viewer channels; ElevenLabs gives each character a stable voice forever while Grok still sells the visual of the character speaking.

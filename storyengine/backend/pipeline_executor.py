@@ -909,6 +909,19 @@ directions, no labels, no headings inside them."""
             )
 
         await self._log_transition(video_id, current_status, "ready_for_voice", "api")
+
+        # Dialogue intelligence runs unattended right after every script —
+        # the north-star is full automation, so format detection (performed
+        # dialogue vs pure voiceover) can never be a manual step. Best-effort:
+        # a tagging hiccup must not fail the script stage (manual retro
+        # trigger: POST /api/videos/{id}/script/tag-dialogue).
+        try:
+            from dialogue_intelligence import tag_video_dialogue
+            tag_result = await tag_video_dialogue(video_id, self.tenant_id)
+            _logger.info("[dialogue] %s: %s", video_id, tag_result)
+        except Exception as e:
+            _logger.warning("[dialogue] tagging failed for %s: %s", video_id, str(e)[:200])
+
         await self._log_activity(bot_name, video_id, "completed",
                                  f"Modeled-style script complete ({len(scenes)} scenes, {len(full_script.split())} words)")
         return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}

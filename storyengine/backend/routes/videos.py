@@ -1096,6 +1096,22 @@ async def upload_storyboard_grid(
     return {"status": "uploaded", "url": perm_url, "scene": scene, "beat": beat, "all_grids_complete": all_present}
 
 
+@router.post("/{video_id}/script/tag-dialogue")
+async def tag_dialogue(video_id: str, tenant_id=Depends(get_tenant_id)):
+    """Run the dialogue intelligence pass: detect whether this script performs
+    character dialogue, tag every scene's performance timeline, and cast a
+    stable voice per character. Idempotent; runs automatically after the
+    script stage for new videos — this endpoint is the manual/retro trigger."""
+    from dialogue_intelligence import tag_video_dialogue, cast_character_voices
+    try:
+        result = await tag_video_dialogue(video_id, tenant_id)
+        if result.get("dialogue_mode") == "character_dialogue":
+            result["voices"] = await cast_character_voices(video_id, tenant_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/defaults/video-motion-prompt")
 async def get_default_video_motion_prompt():
     """Return the default video motion system prompt template."""
