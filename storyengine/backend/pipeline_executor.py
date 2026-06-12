@@ -1188,7 +1188,7 @@ directions, no labels, no headings inside them."""
                 params.append(scene)
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
-                f"video_clip_url, duration FROM assets WHERE {where} ORDER BY scene, image_index",
+                f"video_clip_url, duration_seconds FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
             todo = [
@@ -1242,7 +1242,7 @@ directions, no labels, no headings inside them."""
                         "Subtle cinematic motion: gentle camera push-in, soft natural "
                         "movement in the scene. Keep the characters, art style and "
                         "composition exactly as shown.")
-                    seg_dur = float(r.get("duration") or 0)
+                    seg_dur = float(r.get("duration_seconds") or 0)
                     clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
                     img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
 
