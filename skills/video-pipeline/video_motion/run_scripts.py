@@ -57,10 +57,13 @@ async def run(pipeline) -> dict:
             print(f"    ⚠️ No Image Prompt found for Scene {scene}, skipping.")
             continue
 
-        # Get segment data
-        sentence_text = img_record.get(ImageFields.SENTENCE_TEXT, "")
-        shot_type = img_record.get(ImageFields.SHOT_TYPE, "medium_human_story")
-        duration = img_record.get(ImageFields.DURATION, 6.0)
+        # Get segment data. `or`-defaults, not .get defaults: extraction can
+        # insert extra panels whose columns EXIST as NULL (scene 2's 6th slot)
+        # — .get(key, default) returns None for those and `None > 6.0` killed
+        # the whole prompt run.
+        sentence_text = img_record.get(ImageFields.SENTENCE_TEXT) or ""
+        shot_type = img_record.get(ImageFields.SHOT_TYPE) or "medium_human_story"
+        duration = img_record.get(ImageFields.DURATION) or 6.0
 
         # Smart hero selection: duration > 6s gets 10s clip
         is_hero = duration > 6.0

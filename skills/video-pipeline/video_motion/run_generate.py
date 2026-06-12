@@ -84,8 +84,9 @@ async def run(pipeline) -> dict:
         # Convert to direct download URL for Grok Imagine
         image_url = pipeline.google.get_direct_drive_url(drive_url)
 
-        # Hero selection: duration > 6s gets 10s clip, otherwise 6s
-        segment_duration = img_record.get(ImageFields.DURATION, 6.0)
+        # Hero selection: duration > 6s gets 10s clip, otherwise 6s.
+        # `or`-default: the column can exist as NULL (extraction's extra panels).
+        segment_duration = img_record.get(ImageFields.DURATION) or 6.0
         clip_duration = 10 if segment_duration > 6.0 else 6
 
         async with semaphore:
