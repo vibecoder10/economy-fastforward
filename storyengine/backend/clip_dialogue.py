@@ -1,19 +1,15 @@
 """Dialogue-aware clip helpers — the 💬 cards SPEAK.
 
 A card (assets row) whose sentence_text contains one of the scene's tagged
-dialogue lines becomes a SPEAKING clip, generated audio-first: InfiniteTalk
-(image_client.generate_talking_video) takes an image plus the segment's
-ElevenLabs line and generates the mouth FROM the waveform — sync is inherent.
-(The earlier Grok+mux approach guessed the timing and missed in both
-directions; see lessons 2026-06-12 pt 8/9.)
-
-THE IMAGE IS THE SPEAKER'S APPROVED PORTRAIT, NOT THE PANEL: on
-multi-character panels the audio-driven models animate the most prominent
-face (Tom mouthed Lisa's line, live). A portrait cut-in has exactly one
-subject — the model cannot pick the wrong face — and it's deterministic:
-no vision localization in the loop (Claude-via-Kie vision drifted dead the
-day we tried it). It is also the exact recipe of the approved lip test
-(lisa-dialogue-test.mp4 = Lisa's portrait + her line).
+dialogue lines becomes a SPEAKING clip: Grok animates the FULL PANEL with a
+speaking prompt (scene, motion, every character preserved), then the
+segment's ElevenLabs line replaces Grok's invented audio with a small fixed
+lead. Lip-sync is deliberately LOOSE — Ryan's call after touring the
+alternatives (decisions.md 2026-06-12): per-clip alignment can't beat Grok's
+self-timed performances, audio-driven models either animate the wrong face
+on multi-character panels (InfiniteTalk full-panel) or destroy scene
+continuity (portrait cut-ins), and Kie hosts no video lip-RETARGETING model.
+Scene continuity outranks mouth precision in this format.
 
 Narration cards stay silent motion clips; the renderer narrates over them.
 Matching mirrors the frontend badge logic (VideoClipsTab.norm): the tagger
@@ -33,6 +29,11 @@ from typing import Optional
 from database import fetch_all
 
 logger = logging.getLogger(__name__)
+
+# Voice lead-in over a Grok speaking clip: characters rarely mouth words in
+# the very first frames, and a voice that lands at-or-after the mouth reads
+# far better than one that runs ahead of it.
+DIALOGUE_VOICE_LEAD_SECONDS = 0.5
 
 
 def norm(s: Optional[str]) -> str:
@@ -75,20 +76,77 @@ def match_lines(sentence_text: Optional[str], scene_lines: Optional[list]) -> li
 
 
 def speaking_prompt(lines: list) -> str:
-    """Guidance for the audio-driven generator: WHO speaks, in what mood."""
-    line = lines[0]
-    speaker = line.get("speaker") or "The character"
+    """Grok direction for a full-scene speaking shot."""
+    parts = [
+        f'{(l.get("speaker") or "The character")} speaks with clear natural mouth '
+        f'movement, saying: "{l["text"]}"'
+        for l in lines
+    ]
+    spoken = ". Then ".join(parts)
     return (
-        f'{speaker} speaks the line "{line["text"]}" with natural mouth movement, '
-        "a matching expression and small natural gestures. Keep the character "
-        "design and art style exactly as shown in the image."
+        f"{spoken}. The character starts speaking right away. Expressive face, "
+        "natural small gestures; other characters react subtly but do not talk. "
+        "Keep the characters, art style and scene exactly as shown in the image."
     )
+
+
+_DRIVE_ID = re.compile(r"[?&]id=([\w-]+)|/d/([\w-]+)")
+
+
+async def download_voice(url: Optional[str]) -> Optional[bytes]:
+    """Authorized Drive download — public links degrade into HTML (lessons)."""
+    m = _DRIVE_ID.search(url or "")
+    fid = (m.group(1) or m.group(2)) if m else None
+    if not fid:
+        return None
+    from routes.media import _download_via_drive_api
+    try:
+        return await asyncio.to_thread(_download_via_drive_api, fid)
+    except Exception as e:
+        logger.warning("voice download failed (%s): %s", fid, str(e)[:120])
+        return None
 
 
 def _run_ffmpeg(args: list) -> None:
     proc = subprocess.run(["ffmpeg", "-y", "-v", "error", *args], capture_output=True, timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode(errors='replace')[:300]}")
+
+
+async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: float = 0.0) -> bytes:
+    """Replace the clip's Grok-invented audio with the character line(s).
+
+    delay_seconds gives the voice its lead-in. No -shortest: the clip keeps
+    its full length and the line simply ends — the renderer owns precise
+    timing later.
+    """
+    def _sync() -> bytes:
+        with tempfile.TemporaryDirectory() as td:
+            clip = os.path.join(td, "clip.mp4")
+            out = os.path.join(td, "out.mp4")
+            with open(clip, "wb") as f:
+                f.write(clip_bytes)
+            inputs: list = []
+            for i, vb in enumerate(voice_bytes_list):
+                vp = os.path.join(td, f"v{i}.mp3")
+                with open(vp, "wb") as f:
+                    f.write(vb)
+                inputs += ["-i", vp]
+            n = len(voice_bytes_list)
+            if n == 1:
+                src = "[1:a]"
+                chain = ""
+            else:
+                src = "[c]"
+                chain = "".join(f"[{i + 1}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[c];"
+            ms = int(round(max(0.0, delay_seconds) * 1000))
+            tail = f"{src}adelay={ms}:all=1[a]" if ms > 0 else f"{src}anull[a]"
+            _run_ffmpeg(["-i", clip, *inputs, "-filter_complex", chain + tail,
+                         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", out])
+            with open(out, "rb") as f:
+                return f.read()
+
+    return await asyncio.to_thread(_sync)
 
 
 async def strip_audio(clip_bytes: bytes) -> bytes:

@@ -1217,7 +1217,8 @@ directions, no labels, no headings inside them."""
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       strip_audio)
+                                       strip_audio, download_voice, mux_voice,
+                                       DIALOGUE_VOICE_LEAD_SECONDS)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
 
@@ -1225,13 +1226,8 @@ directions, no labels, no headings inside them."""
             # A tap never dead-ends — scenes whose lines aren't voiced yet get
             # their segment voices synthesized first (contract: auto-chain).
             dialogue_by_scene: dict = {}
-            cast_portrait: dict = {}
             if (video.get("dialogue_mode") or "") == "character_dialogue":
                 dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
-                cast_rows = await fetch_all(
-                    "SELECT name, reference_url FROM video_characters WHERE video_id = $1", video_id)
-                cast_portrait = {(c["name"] or "").strip().casefold(): c.get("reference_url")
-                                 for c in cast_rows if c.get("reference_url")}
                 unvoiced_scenes = sorted({
                     r["scene"] for r in todo
                     if any(not l.get("audio_url")
@@ -1266,35 +1262,20 @@ directions, no labels, no headings inside them."""
                              if l.get("audio_url")]
 
                     if lines:
-                        # Speaking card → audio-DRIVEN generation (InfiniteTalk):
-                        # the mouth is generated from the line's waveform, so
-                        # sync is inherent. The model gets a SPEAKER CLOSE-UP,
-                        # not the full panel — on multi-character panels it
-                        # animates the most prominent face (Tom mouthed Lisa's
-                        # line live); with one face in frame it can't miss.
-                        line = lines[0]
-                        if len(lines) > 1:
-                            print(f"[clips] S{sc}.{idx}: {len(lines)} lines on one card — "
-                                  "lip-syncing the first (renderer assembles the rest)", flush=True)
-                        # The image is the speaker's APPROVED PORTRAIT — a
-                        # dialogue cut-in. Single subject, so the model can't
-                        # animate the wrong face; deterministic (no vision
-                        # call — Claude-via-Kie vision drifted dead, see
-                        # lessons); and it's the exact recipe of the lip test
-                        # Ryan approved (Lisa's portrait + her line).
-                        speaker = (line.get("speaker") or "").strip()
-                        portrait = cast_portrait.get(speaker.casefold())
-                        if portrait:
-                            speaker_img = _proxy_url(portrait)
-                        else:
-                            speaker_img = img
-                            print(f"[clips] S{sc}.{idx}: no portrait for '{speaker}' — "
-                                  "using the full panel (lip-sync may pick the wrong face)", flush=True)
-                        voice_secs = float(line.get("duration") or 2.0)
-                        clip_url = await client.generate_talking_video(
-                            speaker_img, _proxy_url(line["audio_url"]), speaking_prompt([line]))
-                        clip_dur = round(voice_secs, 1)
-                        clip_cost = round(max(1.0, voice_secs) * 0.015, 3)  # $0.015/s @480p
+                        # Speaking card → Grok animates the FULL SCENE with a
+                        # speaking prompt; the line is overlaid with a small
+                        # lead. Loose sync by design (Ryan's call): scene
+                        # continuity beats mouth precision in this format —
+                        # see decisions.md 2026-06-12.
+                        prompt = speaking_prompt(lines)
+                        voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
+                        # The line (plus its lead) has to fit inside the clip.
+                        need = voice_secs + DIALOGUE_VOICE_LEAD_SECONDS
+                        clip_dur = (max(durations)
+                                    if need > min(durations) - 0.5 and len(durations) > 1
+                                    else durations[0])
+                        clip_url = await client.generate_video(img, prompt, duration=clip_dur)
+                        clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
                         # card without one still animates (gentle default)
@@ -1318,14 +1299,22 @@ directions, no labels, no headings inside them."""
                         await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
                         return
                     clip_bytes = await client.download_image(clip_url)
-                    # Narration clips go silent (Grok bakes in invented audio);
-                    # the renderer lays real narration over them. Speaking
-                    # clips already carry their line from InfiniteTalk.
-                    if not lines and getattr(profile, "strip_audio", False):
-                        try:
+                    # Grok bakes in invented audio: speaking cards get the
+                    # REAL line overlaid (small lead, clamped to fit);
+                    # narration cards go silent for the renderer to narrate.
+                    try:
+                        if lines:
+                            vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
+                            if vbytes:
+                                lead = max(0.0, min(DIALOGUE_VOICE_LEAD_SECONDS,
+                                                    float(clip_dur) - voice_secs - 0.1))
+                                clip_bytes = await mux_voice(clip_bytes, vbytes, delay_seconds=lead)
+                            else:
+                                clip_bytes = await strip_audio(clip_bytes)
+                        elif getattr(profile, "strip_audio", False):
                             clip_bytes = await strip_audio(clip_bytes)
-                        except Exception as e:
-                            print(f"[clips] S{sc}.{idx} audio strip failed, keeping raw clip: {str(e)[:150]}", flush=True)
+                    except Exception as e:
+                        print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
                     drive_url = await upload_bytes(
                         clip_bytes, f"{video_id}/clips/S{sc:02d}-{idx:02d}.mp4", "video/mp4")
                     await execute(

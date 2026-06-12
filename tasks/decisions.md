@@ -160,6 +160,11 @@
 **Context:** Ryan (screenshot of the clips tab): "clunky… UI/UX needs to be so simple a grandma can hit a button and go… we are not trusting the system yet, so generate one by one by tapping the card." Also found: the model dropdown writes videos.video_model but the backend ignores it (Grok hardcoded) — wiring it is part of this build.
 **Why this won:** Matches the standing one-button design bar (2026-06-12 pt 3) and gives an explicit trust-graduation path from $0.10 taps to full-video runs.
 
+## 2026-06-12 (FINAL, supersedes the InfiniteTalk decision below): Dialogue clips = Grok full-scene + loose voice overlay
+**Decision (Ryan's):** 💬 cards generate with Grok on the FULL PANEL (speaking prompt: who talks, others react) and the segment's ElevenLabs line is overlaid with a fixed 0.5s lead. Lip-sync is deliberately loose. Portrait cut-ins are REJECTED: "it changed the entire clip from a scene in the animation to a talking head girl."
+**The full tour, so nobody re-walks it:** (1) mux at t=0 → voice leads mouth; (2) vision-aligned mux → Claude-via-Kie vision is dead (blind guesses); (3) InfiniteTalk on the panel → animates the most prominent face (Tom mouthed Lisa's line); (4) InfiniteTalk on the portrait → perfect sync, right character, but destroys scene continuity; (5) video lip-RETARGETING (Kling lipsync-on-video) would be the real answer (Grok scene + retargeted mouth) but Kie does not host one — re-probe occasionally.
+**Why this won:** scene continuity outranks mouth precision for this format (reference kids' channels are loose too); Grok is fast (~30s) and $0.10; the renderer owns final timing anyway.
+
 ## 2026-06-12: Dialogue clips are audio-DRIVEN (InfiniteTalk), not Grok + mux
 **Decision:** 💬 cards generate via Kie's `infinitalk/from-audio`: panel image + the segment's ElevenLabs mp3 + a who-speaks prompt → talking clip whose mouth is generated FROM the waveform. The Grok+mux approach (overlay the line on a Grok motion clip, align with vision onset detection) is retired — it missed in both directions across two live rounds because Grok times the performance itself. Narration cards stay Grok motion clips (audio stripped).
 **Context:** Ryan: "lip sync is way off... research how people actually do this." Industry standard for character speech is audio-driven talking-video models, not post-hoc alignment.
