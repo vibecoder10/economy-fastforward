@@ -13,6 +13,7 @@ without any extra model calls.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -24,6 +25,10 @@ from typing import Optional
 from database import fetch_all
 
 logger = logging.getLogger(__name__)
+
+# When onset detection fails, lead the voice in by this much — characters
+# almost never mouth words in Grok's very first frames.
+DEFAULT_SPEECH_LEAD_SECONDS = 0.8
 
 
 def norm(s: Optional[str]) -> str:
@@ -74,8 +79,9 @@ def speaking_prompt(lines: list) -> str:
     ]
     spoken = ". Then ".join(parts)
     return (
-        f"{spoken}. Expressive face, natural small gestures, gentle camera hold. "
-        "Keep the characters, art style and scene exactly as shown in the image."
+        f"{spoken}. The character starts speaking right away. Expressive face, "
+        "natural small gestures, gentle camera hold. Keep the characters, art "
+        "style and scene exactly as shown in the image."
     )
 
 
@@ -106,11 +112,13 @@ def _run_ffmpeg(args: list) -> None:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode(errors='replace')[:300]}")
 
 
-async def mux_voice(clip_bytes: bytes, voice_bytes_list: list) -> bytes:
+async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: float = 0.0) -> bytes:
     """Replace the clip's Grok-invented audio with the character line(s).
 
-    No -shortest: the clip keeps its full length and the line simply ends —
-    the renderer owns precise timing later.
+    delay_seconds shifts the voice to when the mouth actually starts moving
+    (Grok decides when the character speaks — sometimes after walking them
+    into frame). No -shortest: the clip keeps its full length and the line
+    simply ends — the renderer owns precise timing later.
     """
     def _sync() -> bytes:
         with tempfile.TemporaryDirectory() as td:
@@ -118,27 +126,93 @@ async def mux_voice(clip_bytes: bytes, voice_bytes_list: list) -> bytes:
             out = os.path.join(td, "out.mp4")
             with open(clip, "wb") as f:
                 f.write(clip_bytes)
-            voices = []
+            inputs: list = []
             for i, vb in enumerate(voice_bytes_list):
                 vp = os.path.join(td, f"v{i}.mp3")
                 with open(vp, "wb") as f:
                     f.write(vb)
-                voices.append(vp)
-            if len(voices) == 1:
-                _run_ffmpeg(["-i", clip, "-i", voices[0], "-map", "0:v", "-map", "1:a",
-                             "-c:v", "copy", "-c:a", "aac", out])
+                inputs += ["-i", vp]
+            n = len(voice_bytes_list)
+            if n == 1:
+                src = "[1:a]"
+                chain = ""
             else:
-                inputs: list = []
-                for vp in voices:
-                    inputs += ["-i", vp]
-                fc = "".join(f"[{i + 1}:a]" for i in range(len(voices))) + \
-                     f"concat=n={len(voices)}:v=0:a=1[a]"
-                _run_ffmpeg(["-i", clip, *inputs, "-filter_complex", fc,
-                             "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", out])
+                src = "[c]"
+                chain = "".join(f"[{i + 1}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[c];"
+            ms = int(round(max(0.0, delay_seconds) * 1000))
+            tail = f"{src}adelay={ms}:all=1[a]" if ms > 0 else f"{src}anull[a]"
+            _run_ffmpeg(["-i", clip, *inputs, "-filter_complex", chain + tail,
+                         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", out])
             with open(out, "rb") as f:
                 return f.read()
 
     return await asyncio.to_thread(_sync)
+
+
+def _extract_onset_frames(clip_bytes: bytes, fps: float = 2.0, max_frames: int = 10,
+                          width: int = 320) -> list:
+    """Timestamped small JPEGs from the clip's first seconds, for vision."""
+    with tempfile.TemporaryDirectory() as td:
+        clip = os.path.join(td, "c.mp4")
+        with open(clip, "wb") as f:
+            f.write(clip_bytes)
+        pattern = os.path.join(td, "f%03d.jpg")
+        _run_ffmpeg(["-i", clip, "-vf", f"fps={fps},scale={width}:-2",
+                     "-frames:v", str(max_frames), "-q:v", "5", pattern])
+        out = []
+        for i in range(1, max_frames + 1):
+            p = os.path.join(td, f"f{i:03d}.jpg")
+            if os.path.exists(p):
+                with open(p, "rb") as f:
+                    out.append(((i - 1) / fps, f.read()))
+        return out
+
+
+async def detect_speech_onset(clip_bytes: bytes, speaker: str, tenant_id,
+                              clip_seconds: float = 6.0) -> Optional[float]:
+    """Watch the clip: at which second does the speaker's mouth start talking?
+
+    Grok times the speech itself — S2.1 walked Lisa into frame for ~2s while
+    her line played over an empty shot. One cheap Haiku-vision pass per
+    dialogue clip aligns the mux to the actual mouth movement instead of
+    guessing a fixed offset. Returns None on any failure (caller falls back
+    to DEFAULT_SPEECH_LEAD_SECONDS).
+    """
+    try:
+        frames = await asyncio.to_thread(_extract_onset_frames, clip_bytes)
+        if not frames:
+            return None
+        from routes.model_video import _call_claude, _resolve_claude_creds
+        creds = await _resolve_claude_creds(str(tenant_id))
+        if not creds:
+            return None
+        content: list = []
+        for t, jb in frames:
+            content.append({"type": "text", "text": f"t={t:.1f}s"})
+            content.append({"type": "image", "source": {
+                "type": "base64", "media_type": "image/jpeg",
+                "data": base64.b64encode(jb).decode()}})
+        content.append({"type": "text", "text": (
+            f"These are timestamped frames from an animated clip in which {speaker} "
+            f"speaks a line out loud. I need the moment {speaker}'s MOUTH starts the "
+            "line, to sync audio.\n\n"
+            f"For each frame, state {speaker}'s mouth: not-visible / closed / open-talking.\n"
+            "Rules:\n"
+            f"- Running, entering the frame, or reacting with a closed mouth is NOT talking.\n"
+            "- Only a clearly OPEN mouth, as if mid-word, counts.\n"
+            "- The character usually settles into place BEFORE speaking — when torn "
+            "between two frames, pick the LATER one.\n"
+            f"- If {speaker} is already mid-word in the earliest frames, answer 0.\n\n"
+            "After the per-frame list, end with exactly: FINAL: <number of seconds>")})
+        reply = await _call_claude(content, creds, tier="fast", max_tokens=800)
+        m = re.search(r"FINAL:\s*([0-9]+(?:\.[0-9]+)?)", reply or "")
+        if not m:
+            return None
+        onset = float(m.group(1))
+        return onset if 0 <= onset <= clip_seconds else None
+    except Exception as e:
+        logger.warning("speech onset detection failed: %s", str(e)[:150])
+        return None
 
 
 async def strip_audio(clip_bytes: bytes) -> bytes:

@@ -66,6 +66,17 @@ def _streams(data):
     return sorted(s for s in out.strip().splitlines() if s)
 
 
+def _audio_duration(data):
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        f.write(data)
+        path = f.name
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                          "-show_entries", "stream=duration", "-of", "csv=p=0", path],
+                         capture_output=True, text=True).stdout
+    os.unlink(path)
+    return float(out.strip())
+
+
 def test_mux_and_strip():
     with tempfile.TemporaryDirectory() as td:
         clip, tone = _make_media(td)
@@ -75,11 +86,27 @@ def test_mux_and_strip():
         assert _streams(muxed2) == ["audio", "video"]
         silent = asyncio.run(strip_audio(clip))
         assert _streams(silent) == ["video"], _streams(silent)
-    print("✓ ffmpeg mux (single + concat) and strip")
+        # Delay path: 1s tone delayed 0.7s → audio stream ≈ 1.7s
+        delayed = asyncio.run(mux_voice(clip, [tone], delay_seconds=0.7))
+        d = _audio_duration(delayed)
+        assert 1.5 <= d <= 1.95, d
+    print("✓ ffmpeg mux (single + concat + delayed) and strip")
+
+
+def test_onset_frames():
+    from clip_dialogue import _extract_onset_frames
+    with tempfile.TemporaryDirectory() as td:
+        clip, _ = _make_media(td)
+        frames = _extract_onset_frames(clip)
+        assert 3 <= len(frames) <= 10, len(frames)
+        assert frames[0][0] == 0.0 and frames[1][0] == 0.5
+        assert frames[0][1][:2] == b"\xff\xd8"  # JPEG magic
+    print("✓ onset frame extraction (timestamps + jpeg)")
 
 
 if __name__ == "__main__":
     test_matching()
     test_prompt()
     test_mux_and_strip()
-    print("\nALL 3 TESTS PASSED")
+    test_onset_frames()
+    print("\nALL 4 TESTS PASSED")

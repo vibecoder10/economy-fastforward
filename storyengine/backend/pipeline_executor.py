@@ -1217,7 +1217,8 @@ directions, no labels, no headings inside them."""
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       download_voice, mux_voice, strip_audio)
+                                       download_voice, mux_voice, strip_audio,
+                                       detect_speech_onset, DEFAULT_SPEECH_LEAD_SECONDS)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
 
@@ -1263,7 +1264,10 @@ directions, no labels, no headings inside them."""
                     if lines:
                         prompt = speaking_prompt(lines)
                         voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
-                        clip_dur = (max(durations) if voice_secs > min(durations) - 1 and len(durations) > 1
+                        # Headroom for the speech-onset delay (Grok may walk
+                        # the speaker into frame first): lines over ~3s get
+                        # the long clip so delay + line still fit.
+                        clip_dur = (max(durations) if voice_secs > min(durations) - 3 and len(durations) > 1
                                     else durations[0])
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
@@ -1296,7 +1300,18 @@ directions, no labels, no headings inside them."""
                         if lines:
                             vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
                             if vbytes:
-                                clip_bytes = await mux_voice(clip_bytes, vbytes)
+                                # Align the voice to the moment the mouth
+                                # actually starts moving (vision pass; falls
+                                # back to a small fixed lead). Clamped so the
+                                # line always fits inside the clip.
+                                onset = await detect_speech_onset(
+                                    clip_bytes, lines[0].get("speaker") or "the character",
+                                    self.tenant_id, clip_seconds=float(clip_dur))
+                                delay = onset if onset is not None else DEFAULT_SPEECH_LEAD_SECONDS
+                                delay = max(0.0, min(delay, float(clip_dur) - voice_secs - 0.2))
+                                print(f"[clips] S{sc}.{idx} speech onset "
+                                      f"{'detected' if onset is not None else 'fallback'}: {delay:.1f}s", flush=True)
+                                clip_bytes = await mux_voice(clip_bytes, vbytes, delay_seconds=delay)
                             else:
                                 clip_bytes = await strip_audio(clip_bytes)
                         elif getattr(profile, "strip_audio", False):

@@ -145,6 +145,16 @@ ALSO fixed: NULL duration_seconds rows crashed the whole video-scripts run
 always-on useTaskWatcher (purple progress pill shows ANY running task, taps
 during a run explain what's running instead of a bare 409).
 
+LIP-SYNC ALIGNMENT (Ryan: "S2.1 lips ~1s delayed"): root cause = Grok walks
+the speaker into frame before they talk (Lisa wasn't in the S2.1 panel; her
+mouth moved at ~2s, line played at 0). Fix = vision-aligned mux:
+clip_dialogue.detect_speech_onset (frames @2fps → Haiku per-frame mouth
+states → FINAL: seconds, calibrated ±0.5s) → mux_voice(delay_seconds=onset,
+clamped so line fits). DEFAULT_SPEECH_LEAD 0.8s on detection failure.
+Speaking-prompt now says "starts speaking right away"; lines >3s get the 10s
+clip for entrance headroom. S1.2 (onset 0) + S2.1 (onset 1.5s) re-muxed in
+place for $0. Cost: ~half a cent of vision per dialogue clip.
+
 NEXT: (b) animatic plays the segment timeline (radio-play rehearsal, $0,
 Ryan approves rhythm here); (e) render: Remotion segment timeline
 (narration pauses ↔ dialogue clip audio); (f) hook tag-dialogue into the
