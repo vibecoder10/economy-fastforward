@@ -144,8 +144,11 @@ async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: fl
             ms = int(round(max(0.0, delay_seconds) * 1000))
             line = f"{src}adelay={ms}:all=1[ln];" if ms > 0 else f"{src}anull[ln];"
             if bed_gain > 0:
+                # duration=longest, NOT first: Grok sometimes returns a
+                # near-empty audio stub and 'first' truncated the whole mix
+                # to 0.05s (live finding — the line vanished).
                 mix = (f"[0:a]volume={bed_gain}[bed];"
-                       "[bed][ln]amix=inputs=2:duration=first:normalize=0[a]")
+                       "[bed][ln]amix=inputs=2:duration=longest:normalize=0[a]")
             else:
                 mix = "[ln]anull[a]"
             _run_ffmpeg(["-i", clip, *inputs, "-filter_complex", chain + line + mix,
