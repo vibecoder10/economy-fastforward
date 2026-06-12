@@ -1188,7 +1188,8 @@ directions, no labels, no headings inside them."""
                 params.append(scene)
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
-                f"video_clip_url, duration_seconds FROM assets WHERE {where} ORDER BY scene, image_index",
+                f"video_clip_url, duration_seconds, sentence_text "
+                f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
             todo = [
@@ -1215,8 +1216,28 @@ directions, no labels, no headings inside them."""
                 return f"{base}/api/media/drive/{m.group(1)}" if m else url
 
             from storage import upload_bytes
+            from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
+                                       download_voice, mux_voice, strip_audio)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
+
+            # 💬 cards speak: map this video's tagged dialogue lines to cards.
+            # A tap never dead-ends — scenes whose lines aren't voiced yet get
+            # their segment voices synthesized first (contract: auto-chain).
+            dialogue_by_scene: dict = {}
+            if (video.get("dialogue_mode") or "") == "character_dialogue":
+                dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
+                unvoiced_scenes = sorted({
+                    r["scene"] for r in todo
+                    if any(not l.get("audio_url")
+                           for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(r["scene"])))
+                })
+                for sc in unvoiced_scenes:
+                    await _report(f"Creating the voices for scene {sc} first…")
+                    await self.run_dialogue_voice(video_id, scene=sc, progress_callback=progress_callback)
+                if unvoiced_scenes:
+                    dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
+
             done = failed = 0
             cost = 0.0
             total = len(todo)
@@ -1235,15 +1256,25 @@ directions, no labels, no headings inside them."""
                     except Exception:
                         pass
                     sc, idx = r["scene"], r["image_index"]
-                    # Motion prompt from the video-scripts stage; a tapped card
-                    # without one still animates (gentle default) instead of
-                    # dead-ending.
-                    prompt = (r.get("video_prompt") or "").strip() or (
-                        "Subtle cinematic motion: gentle camera push-in, soft natural "
-                        "movement in the scene. Keep the characters, art style and "
-                        "composition exactly as shown.")
-                    seg_dur = float(r.get("duration_seconds") or 0)
-                    clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
+                    # Speaking card? Its tagged lines drive the prompt (lip
+                    # movement) and the clip must be long enough for the voice.
+                    lines = [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
+                             if l.get("audio_url")]
+                    if lines:
+                        prompt = speaking_prompt(lines)
+                        voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
+                        clip_dur = (max(durations) if voice_secs > min(durations) - 1 and len(durations) > 1
+                                    else durations[0])
+                    else:
+                        # Motion prompt from the video-scripts stage; a tapped
+                        # card without one still animates (gentle default)
+                        # instead of dead-ending.
+                        prompt = (r.get("video_prompt") or "").strip() or (
+                            "Subtle cinematic motion: gentle camera push-in, soft natural "
+                            "movement in the scene. Keep the characters, art style and "
+                            "composition exactly as shown.")
+                        seg_dur = float(r.get("duration_seconds") or 0)
+                        clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
                     img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
 
                     if model_id.startswith("veo-3.1"):
@@ -1258,6 +1289,20 @@ directions, no labels, no headings inside them."""
                         await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
                         return
                     clip_bytes = await client.download_image(clip_url)
+                    # Grok always bakes in invented audio (profile.strip_audio):
+                    # speaking cards get their REAL character line muxed in; the
+                    # rest go silent for the renderer to narrate over.
+                    try:
+                        if lines:
+                            vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
+                            if vbytes:
+                                clip_bytes = await mux_voice(clip_bytes, vbytes)
+                            else:
+                                clip_bytes = await strip_audio(clip_bytes)
+                        elif getattr(profile, "strip_audio", False):
+                            clip_bytes = await strip_audio(clip_bytes)
+                    except Exception as e:
+                        print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
                     drive_url = await upload_bytes(
                         clip_bytes, f"{video_id}/clips/S{sc:02d}-{idx:02d}.mp4", "video/mp4")
                     await execute(

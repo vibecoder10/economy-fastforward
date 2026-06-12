@@ -129,11 +129,26 @@ VERIFIED LIVE ON PROD (Playwright + API, Ryan's tenant):
   story_locked_at but never passed it to VideoDetail → banner re-offered
   Lock forever (one-line constructor fix).
 
+STEP (c) DIALOGUE SPEAKING CLIPS SHIPPED (same day, Ryan: "S1.2 got no
+dialogue — fix"): backend/clip_dialogue.py — norm/match_lines pairs a card's
+sentence_text with the scene's tagged dialogue lines (same containment logic
+as the frontend 💬 badge), speaking_prompt() directs Grok lip movement,
+mux_voice() replaces Grok's invented audio with the segment's ElevenLabs
+line(s) via ffmpeg (concat for multi-line cards), strip_audio() silences
+narration clips (renderer narrates over them). run_clip_generation now:
+speaking cards get the speaking prompt + a clip long enough for the line +
+the voice muxed in; unvoiced scenes auto-chain run_dialogue_voice first
+(contract Q5); mux failures keep the raw clip with a logged warning.
+3 functional tests incl. a REAL ffmpeg mux round-trip.
+ALSO fixed: NULL duration_seconds rows crashed the whole video-scripts run
+('.get(key, default)' ≠ NULL-safe — see lessons); clips tab switched to the
+always-on useTaskWatcher (purple progress pill shows ANY running task, taps
+during a run explain what's running instead of a bare 409).
+
 NEXT: (b) animatic plays the segment timeline (radio-play rehearsal, $0,
-Ryan approves rhythm here); (c) dialogue SPEAKING clips (Grok lips + mux
-the segment's ElevenLabs line over muted Grok audio — lisa-dialogue-test
-recipe) chained from the same clip endpoint for 💬 cards; (e) render.
-Full-video segment voice run finishing in background (scene 8 of 8).
+Ryan approves rhythm here); (e) render: Remotion segment timeline
+(narration pauses ↔ dialogue clip audio); (f) hook tag-dialogue into the
+non-modeled script path.
 
 ## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
 
