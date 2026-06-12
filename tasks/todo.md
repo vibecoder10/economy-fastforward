@@ -146,21 +146,33 @@ always-on useTaskWatcher (purple progress pill shows ANY running task, taps
 during a run explain what's running instead of a bare 409).
 
 LIP-SYNC, FINAL FORM (Ryan: "way off the other direction — research how
-people actually do this"): dialogue clips are now AUDIO-DRIVEN. 💬 cards →
-image_client.generate_talking_video (Kie `infinitalk/from-audio`: panel
-image + segment ElevenLabs mp3 via media-proxy URLs + who-speaks prompt
-→ talking clip, length = audio length, $0.015/s ≈ $0.04/line, ~7 min/clip,
-poll budget 15 min). Sync inherent — verified on S2.1's full-scene panel:
-Lisa talks, Tom doesn't, style preserved. Vision onset detection + mux
-RETIRED same day (git history pre-5346b90b); strip_audio stays for
-narration clips. media proxy allowlist now covers dialogue_segments jsonb
-audio (Kie fetches voices through it). Multi-line cards: first line only
-(renderer assembles exchanges). Decision logged in decisions.md.
+people actually do this", then "the BOY's lips moved with Lisa's line"):
+dialogue clips are AUDIO-DRIVEN PORTRAIT CUT-INS. 💬 cards →
+image_client.generate_talking_video (Kie `infinitalk/from-audio`: the
+SPEAKER'S APPROVED PORTRAIT (video_characters.reference_url) + segment
+ElevenLabs mp3 via media-proxy URLs + who-speaks prompt → talking clip,
+length = audio length, $0.015/s ≈ $0.03-0.05/line, 7-10 min/clip, poll
+budget 15 min). Why portrait not panel: on multi-character panels the
+model animates the MOST PROMINENT face (Tom mouthed Lisa's line — Ryan
+caught it watching; my still-frame check had called it wrong). Portrait =
+one subject = can't miss + deterministic + the approved lip-test recipe.
+Verified live on S2.1: Lisa alone, articulating, $0.03. Fallback: full
+panel when speaker has no portrait (logged warning). Vision onset
+detection + mux + speaker-crop all RETIRED (git history); strip_audio
+stays for narration clips. Multi-line cards: first line only.
+
+⚠ DISCOVERED: CLAUDE-VIA-KIE VISION IS DEAD (gateway drift) — images
+become /mnt-style file refs the model can't see (272 input tokens, no
+image; haiku refuses, sonnet preambles then ends; URL and base64 both).
+Likely silently degrading: model_video thumbnail style-DNA (modeled
+videos!), storyboard vision QA loop, approve-cast description rewrite.
+NEEDS ITS OWN INVESTIGATION + canary. _call_claude now joins all text
+blocks (content[0] truncated multi-block replies).
 
 NEXT: (b) animatic plays the segment timeline (radio-play rehearsal, $0,
 Ryan approves rhythm here); (e) render: Remotion segment timeline
-(narration pauses ↔ dialogue clip audio); (f) hook tag-dialogue into the
-non-modeled script path.
+(narration pauses ↔ dialogue cut-ins as inserts); (f) hook tag-dialogue
+into the non-modeled script path.
 
 ## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
 
