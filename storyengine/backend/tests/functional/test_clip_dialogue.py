@@ -39,6 +39,9 @@ def test_matching():
 def test_prompt():
     p = speaking_prompt([LINES[0]])
     assert "Tom speaks" in p and "Come quickly!" in p and "exactly as shown" in p
+    # Off-screen rule rides on every speaking prompt (S1.4: naming the
+    # speaker summoned him onto a bird close-up).
+    assert "OFF-SCREEN" in p
     print("✓ speaking prompt")
 
 

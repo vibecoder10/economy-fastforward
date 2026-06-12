@@ -89,6 +89,19 @@ def match_lines(sentence_text: Optional[str], scene_lines: Optional[list]) -> li
     return matched
 
 
+# A dialogue line can span cards (sentence-level match_lines), so a speaking
+# card may be a CUTAWAY where the speaker is off-screen — S1.4 is Tom's
+# "Something is wrong." over a ground-level bird close-up. Naming the speaker
+# summoned him: Grok walked the whole boy into frame (verified twice on live
+# frames). Grok has the pixels, so IT judges visibility; we just forbid the
+# summon. Inert when the speaker is actually in shot.
+OFF_SCREEN_SPEAKER_RULE = (
+    "STRICT: if the speaker is not visible in the image, their voice comes "
+    "from OFF-SCREEN — never add them or any new person to the scene. Keep "
+    "the framing and everything visible exactly as shown."
+)
+
+
 def native_speaking_prompt(lines: list, card_text: Optional[str]) -> str:
     """Grok-native voices: Grok speaks the lines itself, so the EXACT words
     go in the prompt — only the words this card actually covers (a line can
@@ -106,7 +119,8 @@ def native_speaking_prompt(lines: list, card_text: Optional[str]) -> str:
     spoken = ". Then ".join(parts)
     return (
         f"{spoken}. The words must be spoken exactly as written — no other "
-        "dialogue, no narration. Natural expression and small gestures."
+        "dialogue, no narration. Natural expression and small gestures. "
+        + OFF_SCREEN_SPEAKER_RULE
     )
 
 
@@ -154,7 +168,8 @@ def speaking_prompt(lines: list) -> str:
     return (
         f"{spoken}. The character starts speaking right away. Expressive face, "
         "natural small gestures; other characters react subtly but do not talk. "
-        "Keep the characters, art style and scene exactly as shown in the image."
+        "Keep the characters, art style and scene exactly as shown in the image. "
+        + OFF_SCREEN_SPEAKER_RULE
     )
 
 
