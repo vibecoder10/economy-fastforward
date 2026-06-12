@@ -224,9 +224,12 @@ def panel_flags(img: Image.Image) -> list[str]:
 
     # --- gutter split: uniform vertical band through the interior ---
     # Sample columns between 12% and 88% of the width; a gutter column is
-    # near-uniformly light (>195) or dark (<35) for >=82% of the height.
-    # Require >=3 adjacent gutter columns to avoid in-scene verticals
-    # (door frames, tree trunks are textured — a printed gutter is flat).
+    # near-uniformly paper-white (>240) or separator-black (<35) for >=82%
+    # of the height. The light threshold must be PAPER white: flat-lit
+    # interior walls measure 200-225 and false-fired three panels at >195
+    # (S5.4/S7.7/S8.3, checked by eye). Require >=3 adjacent gutter columns
+    # to avoid in-scene verticals — printed gutters are flat, scene
+    # verticals are textured.
     def _col_uniform(x: int) -> bool:
         light = dark = 0
         step = max(1, h // 200)
@@ -234,7 +237,7 @@ def panel_flags(img: Image.Image) -> list[str]:
         for y in range(0, h, step):
             v = px[x, y]
             n += 1
-            if v > 195:
+            if v > 240:
                 light += 1
             elif v < 35:
                 dark += 1
