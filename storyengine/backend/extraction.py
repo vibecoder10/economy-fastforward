@@ -230,6 +230,10 @@ def panel_flags(img: Image.Image) -> list[str]:
     # (S5.4/S7.7/S8.3, checked by eye). Require >=3 adjacent gutter columns
     # to avoid in-scene verticals — printed gutters are flat, scene
     # verticals are textured.
+    # A printed gutter runs EDGE TO EDGE; bright in-scene verticals (a
+    # window reflection on S7.11) don't reach both the first and last rows.
+    edge = max(2, h // 12)
+
     def _col_uniform(x: int) -> bool:
         light = dark = 0
         step = max(1, h // 200)
@@ -241,7 +245,16 @@ def panel_flags(img: Image.Image) -> list[str]:
                 light += 1
             elif v < 35:
                 dark += 1
-        return n > 0 and (light / n >= 0.82 or dark / n >= 0.82)
+        if n == 0 or (light / n < 0.82 and dark / n < 0.82):
+            return False
+        is_light = light >= dark
+        for y in (0, edge // 2, edge, h - 1 - edge, h - 1 - edge // 2, h - 1):
+            v = px[x, y]
+            if is_light and v <= 200:
+                return False
+            if not is_light and v >= 80:
+                return False
+        return True
 
     adjacent = 0
     for x in range(int(w * 0.12), int(w * 0.88)):
