@@ -1240,20 +1240,23 @@ directions, no labels, no headings inside them."""
                 cast_names = ", ".join((c["name"] or "").strip() for c in name_rows if c.get("name"))
 
             def _decorate(core_prompt: str) -> str:
-                # @image1 is the GROUND TRUTH for this shot. The sheet alone
-                # didn't stop drift (S1.4: Tom shrank into a different boy
-                # WITH refs:2 in the logs) — the anti-change language has to
-                # be explicit and the panel has to outrank everything.
-                p = f"Animate @image1: {core_prompt}"
-                p += (" Keep every character EXACTLY as they appear in @image1 — same face,"
-                      " age, height, body proportions and clothing. Do not replace, shrink,"
-                      " age down or restyle anyone, and do not add or remove characters.")
+                # @image1 is the GROUND TRUTH for this shot, and the
+                # constraints LEAD the prompt (early instructions win — the
+                # trailing version still let Grok invent a toddler on a
+                # panel that doesn't show Tom). References can only lock
+                # characters who are IN the picture; off-screen characters
+                # must stay off-screen.
+                p = ("Animate @image1 exactly as shown: same characters, same faces, ages,"
+                     " heights, proportions and clothing. NEVER introduce a character who"
+                     " is not visible in @image1 — if someone is off-screen, only hands or"
+                     " feet may enter the frame.")
                 if sheet:
                     p += (f" @image2 is the official cast sheet"
                           + (f" ({cast_names})" if cast_names else "")
-                          + " — the people in @image1 are these exact characters; match their designs precisely.")
+                          + " — anyone visible in @image1 must match it precisely.")
                 if style_note:
                     p += f" Art style: {style_note}"
+                p += f" Motion: {core_prompt}"
                 return p
 
             # 💬 cards speak: map this video's tagged dialogue lines to cards.
