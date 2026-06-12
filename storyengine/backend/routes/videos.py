@@ -300,6 +300,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         script_system_prompt=r.get("script_system_prompt"),
         thumbnail_system_prompt=r.get("thumbnail_system_prompt"),
         sound_system_prompt=r.get("sound_system_prompt"),
+        # Selected above but never passed — the client saw null and the
+        # banner re-offered "Lock the story" on already-locked videos.
+        story_locked_at=r.get("story_locked_at"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )
