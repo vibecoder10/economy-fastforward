@@ -163,7 +163,12 @@ async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens
     if "content" not in data:
         raise RuntimeError(f"Claude call via {creds['provider']} failed: {str(data.get('msg') or data)[:200]}")
 
-    text = data["content"][0]["text"].strip()
+    # Join ALL text blocks — vision replies arrive as multiple content
+    # blocks and content[0] alone truncated them to the preamble sentence
+    # (live finding: bbox replies ended at "Let me analyze...").
+    text = "\n".join(
+        b.get("text", "") for b in data["content"] if b.get("type") == "text"
+    ).strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     return text

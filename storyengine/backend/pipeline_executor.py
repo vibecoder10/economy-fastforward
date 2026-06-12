@@ -1217,8 +1217,7 @@ directions, no labels, no headings inside them."""
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       strip_audio, locate_speaker, crop_speaker,
-                                       stash_speaker_crop, download_drive)
+                                       strip_audio)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
 
@@ -1226,13 +1225,13 @@ directions, no labels, no headings inside them."""
             # A tap never dead-ends — scenes whose lines aren't voiced yet get
             # their segment voices synthesized first (contract: auto-chain).
             dialogue_by_scene: dict = {}
-            cast_desc: dict = {}
+            cast_portrait: dict = {}
             if (video.get("dialogue_mode") or "") == "character_dialogue":
                 dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
                 cast_rows = await fetch_all(
-                    "SELECT name, description FROM video_characters WHERE video_id = $1", video_id)
-                cast_desc = {(c["name"] or "").strip().casefold(): (c.get("description") or "")
-                             for c in cast_rows}
+                    "SELECT name, reference_url FROM video_characters WHERE video_id = $1", video_id)
+                cast_portrait = {(c["name"] or "").strip().casefold(): c.get("reference_url")
+                                 for c in cast_rows if c.get("reference_url")}
                 unvoiced_scenes = sorted({
                     r["scene"] for r in todo
                     if any(not l.get("audio_url")
@@ -1277,27 +1276,20 @@ directions, no labels, no headings inside them."""
                         if len(lines) > 1:
                             print(f"[clips] S{sc}.{idx}: {len(lines)} lines on one card — "
                                   "lip-syncing the first (renderer assembles the rest)", flush=True)
+                        # The image is the speaker's APPROVED PORTRAIT — a
+                        # dialogue cut-in. Single subject, so the model can't
+                        # animate the wrong face; deterministic (no vision
+                        # call — Claude-via-Kie vision drifted dead, see
+                        # lessons); and it's the exact recipe of the lip test
+                        # Ryan approved (Lisa's portrait + her line).
                         speaker = (line.get("speaker") or "").strip()
-                        speaker_img = img
-                        if line.get("speaker_crop_url"):
-                            speaker_img = _proxy_url(line["speaker_crop_url"])
+                        portrait = cast_portrait.get(speaker.casefold())
+                        if portrait:
+                            speaker_img = _proxy_url(portrait)
                         else:
-                            panel_bytes = await download_drive(
-                                r.get("drive_image_url") or r.get("image_url"))
-                            bbox = panel_bytes and await locate_speaker(
-                                panel_bytes, speaker or "the speaking character",
-                                cast_desc.get(speaker.casefold(), ""), self.tenant_id)
-                            if bbox:
-                                crop = crop_speaker(panel_bytes, bbox)
-                                crop_url = await upload_bytes(
-                                    crop, f"{video_id}/clips/S{sc:02d}-{idx:02d}-speaker.png", "image/png")
-                                # Stash BEFORE Kie fetches: being in the jsonb
-                                # is what allowlists it on the media proxy.
-                                await stash_speaker_crop(video_id, self.tenant_id, sc, line["text"], crop_url)
-                                speaker_img = _proxy_url(crop_url)
-                            else:
-                                print(f"[clips] S{sc}.{idx}: couldn't locate '{speaker}' in the panel — "
-                                      "using the full panel (lip-sync may pick the wrong face)", flush=True)
+                            speaker_img = img
+                            print(f"[clips] S{sc}.{idx}: no portrait for '{speaker}' — "
+                                  "using the full panel (lip-sync may pick the wrong face)", flush=True)
                         voice_secs = float(line.get("duration") or 2.0)
                         clip_url = await client.generate_talking_video(
                             speaker_img, _proxy_url(line["audio_url"]), speaking_prompt([line]))

@@ -7,14 +7,13 @@ ElevenLabs line and generates the mouth FROM the waveform — sync is inherent.
 (The earlier Grok+mux approach guessed the timing and missed in both
 directions; see lessons 2026-06-12 pt 8/9.)
 
-THE IMAGE IS A SPEAKER CLOSE-UP, NOT THE FULL PANEL: on multi-character
-panels the audio-driven models animate the most prominent face — Ryan
-watched Tom mouth Lisa's line while Lisa stood frozen. So we locate the
-named speaker with one cheap vision call, crop the panel around them
-(a dialogue cut-in, standard shot grammar), and hand the single-subject
-crop to the model: with one face in frame it cannot pick the wrong one.
-Crops are cached on the dialogue segment (speaker_crop_url — which also
-puts them on the media-proxy allowlist via dialogue_segments::text).
+THE IMAGE IS THE SPEAKER'S APPROVED PORTRAIT, NOT THE PANEL: on
+multi-character panels the audio-driven models animate the most prominent
+face (Tom mouthed Lisa's line, live). A portrait cut-in has exactly one
+subject — the model cannot pick the wrong face — and it's deterministic:
+no vision localization in the loop (Claude-via-Kie vision drifted dead the
+day we tried it). It is also the exact recipe of the approved lip test
+(lisa-dialogue-test.mp4 = Lisa's portrait + her line).
 
 Narration cards stay silent motion clips; the renderer narrates over them.
 Matching mirrors the frontend badge logic (VideoClipsTab.norm): the tagger
@@ -23,7 +22,6 @@ cards without any extra model calls.
 """
 
 import asyncio
-import io
 import json
 import logging
 import os
@@ -32,7 +30,7 @@ import subprocess
 import tempfile
 from typing import Optional
 
-from database import fetch_all, fetch_one, execute
+from database import fetch_all
 
 logger = logging.getLogger(__name__)
 
@@ -81,122 +79,10 @@ def speaking_prompt(lines: list) -> str:
     line = lines[0]
     speaker = line.get("speaker") or "The character"
     return (
-        f'{speaker} speaks the line "{line["text"]}" with natural mouth movement '
-        "and a matching expression. Other characters react subtly but do not "
-        "talk. Keep the characters, art style and scene exactly as shown in the image."
+        f'{speaker} speaks the line "{line["text"]}" with natural mouth movement, '
+        "a matching expression and small natural gestures. Keep the character "
+        "design and art style exactly as shown in the image."
     )
-
-
-_DRIVE_ID = re.compile(r"[?&]id=([\w-]+)|/d/([\w-]+)")
-
-
-def drive_file_id(url: Optional[str]) -> Optional[str]:
-    m = _DRIVE_ID.search(url or "")
-    return (m.group(1) or m.group(2)) if m else None
-
-
-async def download_drive(url: Optional[str]) -> Optional[bytes]:
-    """Authorized Drive download — public links degrade into HTML (lessons)."""
-    fid = drive_file_id(url)
-    if not fid:
-        return None
-    from routes.media import _download_via_drive_api
-    try:
-        return await asyncio.to_thread(_download_via_drive_api, fid)
-    except Exception as e:
-        logger.warning("drive download failed (%s): %s", fid, str(e)[:120])
-        return None
-
-
-async def locate_speaker(image_bytes: bytes, speaker: str, description: str,
-                         tenant_id) -> Optional[tuple]:
-    """One vision call: where is the named character in this panel?
-
-    Returns (x, y, w, h) as fractions of the image, or None when the
-    character can't be found (caller falls back to the full panel).
-    """
-    import base64 as _b64
-    try:
-        from PIL import Image
-        img = Image.open(io.BytesIO(image_bytes))
-        scale = min(1.0, 768 / max(img.size))
-        small = img.resize((int(img.width * scale), int(img.height * scale)))
-        buf = io.BytesIO()
-        small.convert("RGB").save(buf, format="JPEG", quality=80)
-
-        from routes.model_video import _call_claude, _resolve_claude_creds
-        creds = await _resolve_claude_creds(str(tenant_id))
-        if not creds:
-            return None
-        content = [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                         "data": _b64.b64encode(buf.getvalue()).decode()}},
-            {"type": "text", "text": (
-                f"Find the character {speaker} in this animated scene"
-                + (f" ({description[:200]})" if description else "") + ". "
-                "Give a box that tightly contains this character (head to feet if "
-                "visible) as PERCENTAGES of the image: left, top, width, height. "
-                "If the character is not in the image, answer NONE. "
-                "End with exactly: FINAL: <left>,<top>,<width>,<height> or FINAL: NONE")},
-        ]
-        reply = await _call_claude(content, creds, tier="fast", max_tokens=400)
-        m = re.search(r"FINAL:\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)", reply or "")
-        if not m:
-            return None
-        x, y, w, h = (float(v) / 100.0 for v in m.groups())
-        if w < 0.03 or h < 0.03 or x >= 1 or y >= 1:
-            return None
-        return (max(0.0, x), max(0.0, y), min(w, 1.0), min(h, 1.0))
-    except Exception as e:
-        logger.warning("locate_speaker failed for %s: %s", speaker, str(e)[:120])
-        return None
-
-
-def crop_speaker(image_bytes: bytes, bbox: tuple, pad: float = 0.22,
-                 min_px: int = 512) -> bytes:
-    """Cut the dialogue close-up: speaker bbox + breathing room, upscaled if
-    tiny (cartoon panels survive 2x fine)."""
-    from PIL import Image
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    W, H = img.size
-    x, y, w, h = bbox
-    px, py = w * pad, h * pad
-    left = max(0, int((x - px) * W))
-    top = max(0, int((y - py) * H))
-    right = min(W, int((x + w + px) * W))
-    bottom = min(H, int((y + h + py) * H))
-    crop = img.crop((left, top, right, bottom))
-    if min(crop.size) < min_px:
-        scale = min_px / min(crop.size)
-        crop = crop.resize((int(crop.width * scale), int(crop.height * scale)), Image.LANCZOS)
-    out = io.BytesIO()
-    crop.save(out, format="PNG")
-    return out.getvalue()
-
-
-async def stash_speaker_crop(video_id: str, tenant_id, scene: int,
-                             line_text: str, crop_url: str) -> None:
-    """Cache the crop on its dialogue segment — reused on Redo, and being in
-    dialogue_segments puts the file on the media-proxy allowlist."""
-    row = await fetch_one(
-        "SELECT id, dialogue_segments FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene = $3",
-        video_id, tenant_id, scene,
-    )
-    if not row:
-        return
-    raw = row.get("dialogue_segments")
-    segs = json.loads(raw) if isinstance(raw, str) else (raw or [])
-    target = norm(line_text)
-    changed = False
-    for s in segs:
-        if s.get("type") == "dialogue" and norm(s.get("text")) == target:
-            s["speaker_crop_url"] = crop_url
-            changed = True
-    if changed:
-        await execute(
-            "UPDATE scripts SET dialogue_segments = $1, updated_at = now() WHERE id = $2",
-            json.dumps(segs), row["id"],
-        )
 
 
 def _run_ffmpeg(args: list) -> None:
