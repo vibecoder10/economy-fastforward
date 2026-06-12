@@ -20,6 +20,8 @@ import { useTaskWatcher } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
+import { API_URL } from "@/lib/env";
+import { AnimaticPlayer } from "@/components/production/AnimaticPlayer";
 
 /** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
 function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number }) {
@@ -27,11 +29,11 @@ function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number 
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    const apiBase = typeof window !== "undefined"
-      ? (localStorage.getItem("storyengine_api_url") || `${window.location.protocol}//${window.location.hostname}:8001`)
-      : "";
     getAudioToken(videoId).then(({ token }) => {
-      if (!cancelled) setAudioUrl(`${apiBase}/api/videos/${videoId}/audio/${scene}?token=${token}`);
+      // API_URL, not window.location:8001 — the old guess produced
+      // https://storyengine.dev:8001 in prod, a port the browser can't reach,
+      // so every voice player rendered dead at 0:00/0:00.
+      if (!cancelled) setAudioUrl(`${API_URL}/api/videos/${videoId}/audio/${scene}?token=${token}`);
     }).catch(() => {
       if (!cancelled) setFailed(true);
     });
@@ -1120,13 +1122,20 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                       </div>
                     )}
 
-                    {/* Voice player — uses short-lived audio token instead of session JWT */}
-                    {scene.voiceOverUrl && (
-                      <SecureAudioPlayer videoId={video.id} scene={scene.sceneNumber} />
-                    )}
-                    {!scene.voiceOverUrl && (
-                      <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>
-                    )}
+                    {/* Animatic: pictures + narration = the scene as a film, $0.
+                        Falls back to the plain voice player until the final
+                        pictures exist (they're made automatically after lock). */}
+                    {(() => {
+                      const panels = scene.segments
+                        .filter((seg) => seg.imageUrl)
+                        .map((seg) => ({ url: toDisplayImageUrl(seg.imageUrl)!, text: seg.sentenceText }));
+                      if (panels.length > 0) {
+                        return <AnimaticPlayer videoId={video.id} scene={scene.sceneNumber} panels={panels} />;
+                      }
+                      return scene.voiceOverUrl
+                        ? <SecureAudioPlayer videoId={video.id} scene={scene.sceneNumber} />
+                        : <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>;
+                    })()}
 
                     {/* Narration text — collapsed, expandable */}
                     <details className="mb-3">

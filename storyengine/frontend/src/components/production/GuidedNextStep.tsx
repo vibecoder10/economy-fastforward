@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
 import {
   designCharacters,
+  getVideoAssets,
   getVideoCharacters,
   getVideoScript,
   lockStory,
@@ -46,8 +47,13 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
     queryKey: ["video-script", video.id],
     queryFn: () => getVideoScript(video.id),
   });
+  const { data: assetData } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+  });
 
   const scenes = scriptData ?? [];
+  const assets = assetData ?? [];
   const action = getNextAction({
     video,
     characters: charData?.characters ?? [],
@@ -56,6 +62,8 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
       (s) => s.storyboard_1_url || s.storyboard_2_url || s.storyboard_3_url
     ).length,
     totalScenes: scenes.length,
+    extractedCount: assets.filter((a) => a.image_url).length,
+    totalSegments: assets.length,
   });
 
   const refreshAll = () => {
@@ -87,7 +95,17 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
     try {
       await lockStory(video.id);
       refreshAll();
-      toast.success("Story locked — next up: create the final pictures.");
+      // The final pictures start AUTOMATICALLY — extraction is plumbing, not
+      // a decision, so the user never sees it as a step. Progress shows in
+      // this banner; if it fails, the banner's recovery action picks it up.
+      try {
+        try { await clearStaleTask(video.id); } catch { /* fine */ }
+        await runPipelineStage(video.id, "storyboard-extract");
+        markStarted();
+        toast.success("Story locked — making your final pictures now.");
+      } catch {
+        toast.success("Story locked.");
+      }
     } catch (err) {
       setFailure(humanizeError(err, "We couldn't lock the story."));
     } finally {

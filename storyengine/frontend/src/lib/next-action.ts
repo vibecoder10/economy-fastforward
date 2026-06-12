@@ -41,6 +41,10 @@ export interface NextActionInputs {
   scenesWithGrids: number;
   /** Total script scenes (0 = script not split yet) */
   totalScenes: number;
+  /** Asset rows with a final picture (0 = nothing extracted yet) */
+  extractedCount?: number;
+  /** Total asset rows (picture slots) */
+  totalSegments?: number;
 }
 
 export function getNextAction(i: NextActionInputs): NextAction {
@@ -116,8 +120,11 @@ export function getNextAction(i: NextActionInputs): NextAction {
       description: `${i.totalScenes - i.scenesWithGrids} scene(s) still need boards — this only creates the missing ones.`, cost: "≈ $0.08 per board" };
   }
 
-  // 7. Lock + finals
-  if (!v.story_locked_at && !at("ready_for_sound_design")) {
+  // 7. Lock + finals. finalsMissing catches videos whose status was skipped
+  // ahead (e.g. via Skip Stage) without final pictures — clips can't run on
+  // nothing, so route back here no matter how far the status string got.
+  const finalsMissing = (i.totalSegments ?? 0) > 0 && (i.extractedCount ?? 0) === 0;
+  if (!v.story_locked_at && (!at("ready_for_sound_design") || finalsMissing)) {
     // You can't lock a story you haven't seen: if boards were skipped past or
     // deleted, route back to creating them — never offer a zero-board lock.
     if (i.scenesWithGrids === 0) {
@@ -131,9 +138,11 @@ export function getNextAction(i: NextActionInputs): NextAction {
     return { key: "lock", label: "Lock the story", step: 7, tab: "storyboard-visuals", kind: "lock",
       description: "Look at every board below — redo any you don't love. Locking means you're happy and ready for the final pictures." };
   }
-  if (!at("ready_for_sound_design") && (status === "ready_for_storyboard_extraction" || status === "ready_for_images")) {
-    return { key: "extract", label: "Create the final pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",
-      description: "Your approved boards become the video's final images.", cost: "≈ $0.03 per picture" };
+  // Extraction normally runs AUTOMATICALLY right after locking — this branch
+  // only surfaces as the recovery path when it failed or was interrupted.
+  if (finalsMissing || (!at("ready_for_sound_design") && (status === "ready_for_storyboard_extraction" || status === "ready_for_images"))) {
+    return { key: "extract", label: "Finish making your pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",
+      description: "Your pictures didn't all finish — this picks up where it left off and only makes the missing ones.", cost: "≈ $0.03 per picture" };
   }
 
   // 8. Clips

@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from auth import get_tenant_id
 from models import (
@@ -540,6 +540,22 @@ async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None
         raise HTTPException(status_code=404, detail="No voice audio for this scene")
 
     url = row["voice_over_url"]
+
+    # Drive public links degrade into HTML interstitials (the bytes say
+    # 200 audio/mpeg but contain an HTML page — players sit at 0:00/0:00).
+    # Same fix as the image proxy: authorized Drive API download.
+    file_id = _drive_file_id(url)
+    if file_id:
+        from routes.media import _download_via_drive_api
+        try:
+            data = await asyncio.to_thread(_download_via_drive_api, file_id)
+        except Exception as e:
+            logger.warning("[audio] drive fetch failed for %s: %s", file_id, str(e)[:200])
+            raise HTTPException(status_code=502, detail="Couldn't fetch the audio right now.")
+        return Response(content=data, media_type="audio/mpeg", headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+        })
 
     async def stream():
         async with httpx.AsyncClient(follow_redirects=True) as client:
