@@ -1992,6 +1992,7 @@ directions, no labels, no headings inside them."""
                             rows=rows, cols=cols,
                         )
                         for p in panels:
+                            flags = p.get("flags") or []
                             existing = await fetch_one(
                                 """SELECT id FROM assets
                                    WHERE video_id = $1 AND scene = $2 AND image_index = $3
@@ -2002,21 +2003,36 @@ directions, no labels, no headings inside them."""
                                 asset_id = existing["id"]
                                 await execute(
                                     """UPDATE assets SET image_url = $1, status = 'done',
-                                              generation_method = 'storyboard_extract', updated_at = now()
-                                       WHERE id = $2""",
-                                    p["panel_url"], asset_id,
+                                              generation_method = 'storyboard_extract',
+                                              extraction_flags = $2, updated_at = now()
+                                       WHERE id = $3""",
+                                    p["panel_url"], flags or None, asset_id,
                                 )
-                            else:
+                            elif slot_total == 0:
                                 asset_id = str(uuid.uuid4())
                                 await execute(
                                     """INSERT INTO assets
                                        (id, tenant_id, video_id, video_title, scene, image_index,
-                                        image_url, status, generation_method, created_at, updated_at)
+                                        image_url, status, generation_method, extraction_flags,
+                                        created_at, updated_at)
                                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'done',
-                                               'storyboard_extract', now(), now())""",
+                                               'storyboard_extract', $8, now(), now())""",
                                     asset_id, self.tenant_id, video_id, video_title,
-                                    scene_num, p["image_index"], p["panel_url"],
+                                    scene_num, p["image_index"], p["panel_url"], flags or None,
                                 )
+                            else:
+                                # Orphan guard: more crops than story slots means
+                                # the grid geometry drifted (the bird video got 12
+                                # story-less rows this way — no sentence, no
+                                # prompt, un-renderable). Never invent rows the
+                                # script doesn't have.
+                                print(f"[extract] S{scene_num}.{p['image_index']} has no "
+                                      f"story slot (scene has {slot_total}) — skipping "
+                                      f"orphan crop", flush=True)
+                                scene_errors.append(
+                                    f"Scene {scene_num}: crop {p['image_index']} exceeds "
+                                    f"the scene's {slot_total} pictures (skipped)")
+                                continue
                             total_panels += 1
                             all_panel_records.append((
                                 asset_id, p["panel_url"], scene_num, beat_num,
@@ -2082,6 +2098,89 @@ directions, no labels, no headings inside them."""
 
             await self._log_activity(bot_name, video_id, "completed", msg)
             return {"status": to_supabase(new_status), "video_id": video_id, "panels_extracted": total_panels}
+
+        except Exception as e:
+            error_msg = str(e) or e.__class__.__name__
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_recrop_panel(self, video_id: str, asset_id: str) -> dict:
+        """One-tap 'Re-crop this picture' (Ryan's bad-crop rule, answer 4).
+
+        A split crop never comes alone — wrong geometry breaks every panel
+        on its grid — so this re-crops the tapped asset's whole BEAT with
+        the self-healing layout in extract_grid and refreshes every asset
+        the beat covers. Pure PIL, free, replaces Drive content in place
+        (same file ids; the md5-ETag proxy busts caches).
+        """
+        bot_name = "Re-crop"
+        try:
+            asset = await fetch_one(
+                "SELECT scene, image_index FROM assets "
+                "WHERE id = $1 AND video_id = $2 AND tenant_id = $3",
+                asset_id, video_id, self.tenant_id,
+            )
+            if not asset:
+                return {"status": "failed", "error": "Picture not found"}
+            scene_num, image_index = asset["scene"], asset["image_index"]
+
+            sc = await fetch_one(
+                "SELECT storyboard_1_url, storyboard_2_url, storyboard_3_url, "
+                "storyboard_4_url, storyboard_5_url FROM scripts "
+                "WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+                video_id, scene_num, self.tenant_id,
+            )
+            beat_urls = [(i, sc.get(f"storyboard_{i}_url")) for i in range(1, 6)
+                         if sc and sc.get(f"storyboard_{i}_url")]
+            if not beat_urls:
+                return {"status": "failed", "error": "This scene has no storyboard grids to re-crop from"}
+
+            slot_rows = await fetch_all(
+                "SELECT id, image_index FROM assets WHERE video_id = $1 AND scene = $2 "
+                "AND tenant_id = $3 AND sentence_text IS NOT NULL ORDER BY image_index",
+                video_id, scene_num, self.tenant_id,
+            )
+            slot_total = len(slot_rows)
+
+            # Same greedy 9-per-beat chunking the grids were built with —
+            # find the beat whose index range covers the tapped picture.
+            from extraction import extract_grid, grid_layout_for
+            offset = 0
+            target = None
+            for bi, (beat_num, grid_url) in enumerate(beat_urls):
+                take = min(9, max(0, slot_total - offset))
+                if offset < image_index <= offset + take or (take == 0 and bi == len(beat_urls) - 1):
+                    target = (beat_num, grid_url, offset, take)
+                    break
+                offset += take
+            if not target:
+                return {"status": "failed", "error": "Couldn't match this picture to a storyboard grid"}
+
+            beat_num, grid_url, panel_offset, expected = target
+            rows, cols = grid_layout_for(expected) if expected > 0 else (0, 0)
+            await self._log_activity(bot_name, video_id, "started",
+                                     f"Re-cropping S{scene_num} beat {beat_num}")
+            panels = await extract_grid(grid_url, video_id, scene_num, beat_num,
+                                        panel_offset, rows=rows, cols=cols)
+            updated = 0
+            for p in panels:
+                flags = p.get("flags") or []
+                res = await execute(
+                    """UPDATE assets SET image_url = $1, status = 'done',
+                              generation_method = 'storyboard_extract',
+                              extraction_flags = $2, updated_at = now()
+                       WHERE video_id = $3 AND scene = $4 AND image_index = $5
+                       AND tenant_id = $6""",
+                    p["panel_url"], flags or None, video_id, scene_num,
+                    p["image_index"], self.tenant_id,
+                )
+                updated += 1
+            still_bad = sum(1 for p in panels if p.get("flags"))
+            msg = (f"Re-cropped {updated} picture(s) on S{scene_num} beat {beat_num}"
+                   + (f" — {still_bad} still flagged" if still_bad else ""))
+            await self._log_activity(bot_name, video_id, "completed", msg)
+            return {"status": "completed", "video_id": video_id, "message": msg,
+                    "panels": updated, "still_flagged": still_bad}
 
         except Exception as e:
             error_msg = str(e) or e.__class__.__name__

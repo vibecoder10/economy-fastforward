@@ -161,6 +161,99 @@ def image_to_bytes(img: Image.Image) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Post-crop validation (Ryan's "bad crop" rules — deterministic, no vision)
+# ---------------------------------------------------------------------------
+
+def panel_flags(img: Image.Image) -> list[str]:
+    """Validate a cropped panel. Returns flags: 'label_leak', 'gutter_split'.
+
+    label_leak — a [KFn | SHOT | Ns] chip survived the crop: a dark band in
+    the top rows containing bright pixels (white-on-black text defeats the
+    brightness trim when the chip doesn't span the full row — S2.2/S2.4).
+
+    gutter_split — the crop straddles two grid panels: a near-uniform
+    vertical band (the gutter, light page-white or dark separator) runs
+    through the panel INTERIOR for most of its height (S2.4/S2.5).
+    """
+    flags = []
+    gray = img.convert("L")
+    w, h = gray.size
+    if w < 40 or h < 40:
+        return ["too_small"]
+    px = gray.load()
+
+    # --- label leak: scan the top 22% of rows for a dark run WITH text ---
+    # Dark content alone (a tree, a lamp shade) is not a chip: the chip is a
+    # near-black bar interrupted by bright glyph pixels. Count a row only
+    # when its dark run is broken by bright pixels, and require enough glyph
+    # evidence across the chip — that separates [KF4 | MCU | 10s] from any
+    # dark scene object (calibrated on the bird video's real panels).
+    # Chips anchor top-left on every observed grid, so measure the leading
+    # 60% of each row: a chip row is mostly near-black there AND its dark
+    # mass is cut by bright glyph strokes. Dense text shortens dark runs,
+    # so fraction-of-strip beats longest-run as the darkness measure.
+    scan_h = max(8, int(h * 0.22))
+    strip_w = max(20, int(w * 0.60))
+    streak = best_streak = 0
+    glyph_pixels = best_glyphs = streak_glyphs = 0
+    for y in range(scan_h):
+        dark = 0
+        row_glyphs = 0
+        run = 0
+        for x in range(strip_w):
+            v = px[x, y]
+            if v < 70:
+                dark += 1
+                run += 1
+            else:
+                if run > 6 and v > 170:
+                    row_glyphs += 1
+                run = 0
+        if dark >= strip_w * 0.30 and row_glyphs >= 1:
+            streak += 1
+            streak_glyphs += row_glyphs
+            if streak > best_streak or (streak == best_streak and streak_glyphs > best_glyphs):
+                best_streak, best_glyphs = streak, streak_glyphs
+        else:
+            streak = streak_glyphs = 0
+    # A printed chip is a CONTIGUOUS bar several rows tall with many glyph
+    # strokes; foliage/speckle rows qualify only sporadically, never as a
+    # solid streak.
+    if best_streak >= 4 and best_glyphs >= 8:
+        flags.append("label_leak")
+
+    # --- gutter split: uniform vertical band through the interior ---
+    # Sample columns between 12% and 88% of the width; a gutter column is
+    # near-uniformly light (>195) or dark (<35) for >=82% of the height.
+    # Require >=3 adjacent gutter columns to avoid in-scene verticals
+    # (door frames, tree trunks are textured — a printed gutter is flat).
+    def _col_uniform(x: int) -> bool:
+        light = dark = 0
+        step = max(1, h // 200)
+        n = 0
+        for y in range(0, h, step):
+            v = px[x, y]
+            n += 1
+            if v > 195:
+                light += 1
+            elif v < 35:
+                dark += 1
+        return n > 0 and (light / n >= 0.82 or dark / n >= 0.82)
+
+    adjacent = 0
+    for x in range(int(w * 0.12), int(w * 0.88)):
+        if _col_uniform(x):
+            adjacent += 1
+            if adjacent >= 3:
+                flags.append("gutter_split")
+                break
+        else:
+            adjacent = 0
+
+    return flags
+
+
+# ---------------------------------------------------------------------------
 # Main extraction: PIL crop → upload → optional AI upscale
 # ---------------------------------------------------------------------------
 
@@ -203,8 +296,29 @@ async def extract_grid(
 
     panels = crop_panels(img, rows=rows, cols=cols)
 
+    # Validate the crops. A gutter_split means the layout was WRONG for this
+    # grid (slot counts drift when a scene is re-split after grids were
+    # drawn — S2.4/S2.5 were halves of neighbouring panels). Pixel-detected
+    # geometry gets a second opinion; keep whichever layout produces fewer
+    # bad crops.
+    flags_per_panel = [panel_flags(p) for p in panels]
+    if any("gutter_split" in f for f in flags_per_panel):
+        alt_rows, alt_cols = detect_grid_layout(img)
+        if (alt_rows, alt_cols) != (rows, cols):
+            alt_panels = crop_panels(img, rows=alt_rows, cols=alt_cols)
+            alt_flags = [panel_flags(p) for p in alt_panels]
+            if sum(map(len, alt_flags)) < sum(map(len, flags_per_panel)):
+                logger.info(
+                    "Scene %d beat %d: %dx%d layout produced split crops; "
+                    "pixel-detected %dx%d is cleaner — using it",
+                    scene, beat, rows, cols, alt_rows, alt_cols,
+                )
+                rows, cols = alt_rows, alt_cols
+                panels, flags_per_panel = alt_panels, alt_flags
+
     # Step 2: Filter out black padding panels
     real_panels = [(i, p) for i, p in enumerate(panels) if not _is_padding_panel(p)]
+    flags_by_orig = {i: flags_per_panel[i] for i, _ in real_panels}
     if len(real_panels) < len(panels):
         logger.info(
             "Scene %d beat %d: filtered %d padding panels, keeping %d real panels",
@@ -225,7 +339,8 @@ async def extract_grid(
         path = f"{video_id}/images/S{scene}-B{beat}-P{seq}.png"
         panel_bytes = image_to_bytes(panel)
         panel_url = await upload_bytes(panel_bytes, path)
-        results.append({"image_index": image_index, "panel_url": panel_url})
+        results.append({"image_index": image_index, "panel_url": panel_url,
+                        "flags": flags_by_orig.get(orig_idx, [])})
 
     # Step 4: AI upscale if image client available
     if image_client:
@@ -256,7 +371,8 @@ async def extract_grid(
                 # Persist upscaled version, overwriting the cropped one
                 path = f"{video_id}/images/S{scene}-B{beat}-P{index}.png"
                 upscaled_url = await upload_from_url(result["url"], path)
-                return {"image_index": panel_result["image_index"], "panel_url": upscaled_url}
+                return {"image_index": panel_result["image_index"], "panel_url": upscaled_url,
+                        "flags": panel_result.get("flags", [])}
             except Exception as e:
                 logger.error("Upscale error for panel %d: %s", index, e)
                 return panel_result  # Keep original crop on failure

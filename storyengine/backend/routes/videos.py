@@ -437,7 +437,7 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
         """SELECT id, video_id, scene, image_index, image_url, image_prompt,
                   status, shot_type, hero_shot, sentence_text, video_clip_url,
                   video_prompt, sound_prompt, sound_effect_url, sound_volume,
-                  duration_seconds,
+                  duration_seconds, extraction_flags,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
              AND (generation_method IS NULL OR generation_method <> 'variant_candidate')
@@ -1207,6 +1207,20 @@ async def delete_clip(video_id: str, asset_id: str, tenant_id=Depends(get_tenant
         except Exception as e:
             logger.warning("clip Drive trash failed for %s: %s", asset_id, str(e)[:120])
     return {"status": "deleted", "asset_id": asset_id}
+
+
+@router.post("/{video_id}/assets/{asset_id}/recrop")
+async def recrop_asset(video_id: str, asset_id: str, tenant_id=Depends(get_tenant_id)):
+    """One-tap 'Re-crop this picture' for a red bad-crop badge: re-crops the
+    asset's whole storyboard beat with self-healing grid geometry (a split
+    crop never comes alone). Free — pure PIL, replaces Drive content in
+    place. Synchronous: a beat re-crop takes a couple of seconds."""
+    from pipeline_executor import PipelineExecutor
+    executor = PipelineExecutor(tenant_id)
+    result = await executor.run_recrop_panel(video_id, asset_id)
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=422, detail=result.get("error") or "Re-crop failed")
+    return result
 
 
 @router.get("/defaults/video-motion-prompt")
