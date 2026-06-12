@@ -164,6 +164,69 @@ def image_to_bytes(img: Image.Image) -> bytes:
 # Post-crop validation (Ryan's "bad crop" rules — deterministic, no vision)
 # ---------------------------------------------------------------------------
 
+def _chip_extent(gray: Image.Image) -> Optional[tuple[int, int]]:
+    """Locate a [KFn | SHOT | Ns] chip in the top rows.
+
+    Returns (first_row, last_row) of the chip streak, or None. A chip row
+    is mostly near-black across the leading 60% of the width AND its dark
+    mass is cut by bright glyph strokes — dense text shortens dark runs,
+    so fraction-of-strip beats longest-run as the darkness measure. Scene
+    content qualifies only sporadically; a printed chip is a contiguous
+    streak (calibrated on the bird video's real panels).
+    """
+    w, h = gray.size
+    px = gray.load()
+    scan_h = max(8, int(h * 0.22))
+    strip_w = max(20, int(w * 0.60))
+    streak_start = None
+    streak = best = 0
+    streak_glyphs = best_glyphs = 0
+    best_span = None
+    for y in range(scan_h):
+        dark = 0
+        row_glyphs = 0
+        run = 0
+        for x in range(strip_w):
+            v = px[x, y]
+            if v < 70:
+                dark += 1
+                run += 1
+            else:
+                if run > 6 and v > 170:
+                    row_glyphs += 1
+                run = 0
+        if dark >= strip_w * 0.30 and row_glyphs >= 1:
+            if streak == 0:
+                streak_start = y
+            streak += 1
+            streak_glyphs += row_glyphs
+            if streak > best or (streak == best and streak_glyphs > best_glyphs):
+                best, best_glyphs = streak, streak_glyphs
+                best_span = (streak_start, y)
+        else:
+            streak = streak_glyphs = 0
+    if best >= 4 and best_glyphs >= 8:
+        return best_span
+    return None
+
+
+def trim_label_chip(img: Image.Image) -> Optional[Image.Image]:
+    """Crop a leaked label chip off the top of a panel.
+
+    The chip is burned into the panel's pixels, so the rows it occupies are
+    sacrificed (a few % of height). Returns the trimmed panel, or None when
+    no chip is found or trimming doesn't clear it.
+    """
+    span = _chip_extent(img.convert("L"))
+    if not span:
+        return None
+    cut = min(span[1] + 3, img.height // 3)
+    trimmed = img.crop((0, cut, img.width, img.height))
+    if "label_leak" in panel_flags(trimmed):
+        return None
+    return trimmed
+
+
 def panel_flags(img: Image.Image) -> list[str]:
     """Validate a cropped panel. Returns flags: 'label_leak', 'gutter_split'.
 
@@ -182,44 +245,11 @@ def panel_flags(img: Image.Image) -> list[str]:
         return ["too_small"]
     px = gray.load()
 
-    # --- label leak: scan the top 22% of rows for a dark run WITH text ---
-    # Dark content alone (a tree, a lamp shade) is not a chip: the chip is a
-    # near-black bar interrupted by bright glyph pixels. Count a row only
-    # when its dark run is broken by bright pixels, and require enough glyph
-    # evidence across the chip — that separates [KF4 | MCU | 10s] from any
-    # dark scene object (calibrated on the bird video's real panels).
-    # Chips anchor top-left on every observed grid, so measure the leading
-    # 60% of each row: a chip row is mostly near-black there AND its dark
-    # mass is cut by bright glyph strokes. Dense text shortens dark runs,
-    # so fraction-of-strip beats longest-run as the darkness measure.
-    scan_h = max(8, int(h * 0.22))
-    strip_w = max(20, int(w * 0.60))
-    streak = best_streak = 0
-    glyph_pixels = best_glyphs = streak_glyphs = 0
-    for y in range(scan_h):
-        dark = 0
-        row_glyphs = 0
-        run = 0
-        for x in range(strip_w):
-            v = px[x, y]
-            if v < 70:
-                dark += 1
-                run += 1
-            else:
-                if run > 6 and v > 170:
-                    row_glyphs += 1
-                run = 0
-        if dark >= strip_w * 0.30 and row_glyphs >= 1:
-            streak += 1
-            streak_glyphs += row_glyphs
-            if streak > best_streak or (streak == best_streak and streak_glyphs > best_glyphs):
-                best_streak, best_glyphs = streak, streak_glyphs
-        else:
-            streak = streak_glyphs = 0
-    # A printed chip is a CONTIGUOUS bar several rows tall with many glyph
-    # strokes; foliage/speckle rows qualify only sporadically, never as a
-    # solid streak.
-    if best_streak >= 4 and best_glyphs >= 8:
+    # --- label leak: a [KFn | SHOT | Ns] chip in the top rows ---
+    # Dark content alone (a tree, a lamp shade) is not a chip: the chip is
+    # a contiguous near-black bar interrupted by bright glyph strokes.
+    # Detection lives in _chip_extent (shared with trim_label_chip).
+    if _chip_extent(gray) is not None:
         flags.append("label_leak")
 
     # --- gutter split: uniform vertical band through the interior ---
@@ -331,6 +361,17 @@ async def extract_grid(
                 )
                 rows, cols = alt_rows, alt_cols
                 panels, flags_per_panel = alt_panels, alt_flags
+
+    # Leaked chips are burned into the panel pixels — trim them off when the
+    # trim actually clears the flag (a few % of height for a clean picture).
+    for i, p in enumerate(panels):
+        if "label_leak" in flags_per_panel[i]:
+            trimmed = trim_label_chip(p)
+            if trimmed is not None:
+                panels[i] = trimmed
+                flags_per_panel[i] = panel_flags(trimmed)
+                logger.info("Scene %d beat %d panel %d: trimmed leaked label chip",
+                            scene, beat, i)
 
     # Step 2: Filter out black padding panels
     real_panels = [(i, p) for i, p in enumerate(panels) if not _is_padding_panel(p)]

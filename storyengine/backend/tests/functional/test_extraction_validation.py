@@ -97,8 +97,9 @@ def test_self_healing_layout():
     print("✓ extract_grid self-heals a wrong layout via gutter detection")
 
 
-def test_flags_persist_through_results():
-    """A grid whose panels carry chips reports label_leak per panel."""
+def test_chip_heals_at_extraction():
+    """A leaked chip is trimmed off at extraction time: the stored panel is
+    shorter, the flag clears, and the clean neighbour is untouched."""
     chip_grid = Image.open(io.BytesIO(_grid(1, 2)))
     w = chip_grid.width // 2
     d = ImageDraw.Draw(chip_grid)
@@ -109,9 +110,19 @@ def test_flags_persist_through_results():
     _uploads["fake://chipgrid"] = buf.getvalue()
     panels = asyncio.run(extract_grid("fake://chipgrid", "vid", 1, 1, 0, rows=1, cols=2))
     assert len(panels) == 2
-    assert "label_leak" in (panels[0].get("flags") or []), panels[0]
+    assert not panels[0].get("flags"), panels[0]
     assert not panels[1].get("flags"), panels[1]
-    print("✓ extract_grid returns per-panel flags")
+    healed = Image.open(io.BytesIO(_uploads[panels[0]["panel_url"]]))
+    clean = Image.open(io.BytesIO(_uploads[panels[1]["panel_url"]]))
+    assert healed.height < clean.height, (healed.height, clean.height)
+    print("✓ extract_grid trims leaked chips and clears the flag")
+
+
+def test_untrimmable_chip_stays_flagged():
+    """trim_label_chip returns None on chip-free panels — no silent crops."""
+    from extraction import trim_label_chip
+    assert trim_label_chip(_scene_panel()) is None
+    print("✓ no-chip panels are never trimmed")
 
 
 def test_layout_helper():
@@ -122,6 +133,7 @@ def test_layout_helper():
 if __name__ == "__main__":
     test_panel_flags()
     test_self_healing_layout()
-    test_flags_persist_through_results()
+    test_chip_heals_at_extraction()
+    test_untrimmable_chip_stays_flagged()
     test_layout_helper()
-    print("\nALL 4 TESTS PASSED")
+    print("\nALL 5 TESTS PASSED")
