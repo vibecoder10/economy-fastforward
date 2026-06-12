@@ -1,13 +1,13 @@
 # Task Tracking
 
-## ★ THREAD HANDOFF — read this first (2026-06-12 END OF DAY, clips-day thread)
+## ★ THREAD HANDOFF — read this first (2026-06-13 EARLY, verification + extraction thread)
 
 **North star (in agent memory too):** any person pastes a YouTube link → the
 machine replicates that video (new script/idea) FULLY UNATTENDED. Ryan has a
 queue of people wanting their channels automated; every design choice must
 work without a human in the loop. Intelligence layers detect format — never
-manual flags. NEW corollary from Ryan today: every pipeline element must be
-OPTIONAL ("sometimes they just want research, ideas and script").
+manual flags. Corollary: every pipeline element must be OPTIONAL
+("sometimes they just want research, ideas and script").
 
 **Working video:** the "Injured Baby Bird" ESL kids animation,
 `f32ed182-be1f-4a24-a8de-bb8db4ac88df` (Ryan's tenant `ee93e6d1-…`).
@@ -15,21 +15,34 @@ Kie-only stack. Prod = systemd from /home/clawd/projects/economy-fastforward
 (git push main → pull there; restart = kill -9 MainPID, uvicorn hangs
 draining SSE). Dev repo = /home/clawd/economy-fastforward. Auth for API
 test scripts: mint JWT {iss:"storyengine", sub:<account uuid>, tenant_id}
-with SESSION_SECRET from PROD storyengine/.env (dev repo has NO .env).
+with SESSION_SECRET from PROD storyengine/.env (dev repo has NO .env;
+account 381bdcc3-…, a ready token sits in /tmp/se_token on the VPS).
+⚠ Clip taps within ~10s of a restart fail (cold-proxy race, see lessons
+pt 12 — backoff shipped, but don't script POSTs right after a deploy).
 
-**THE NEXT BUILD (Ryan's 4 answers, locked tonight):**
+**THE NEXT BUILD (what's left of Ryan's 4 answers):**
 1. ONE SCENES WORKSPACE — merge storyboard boards + final pictures + clips
    into a single per-scene view; redo at any level in place; the separate
-   storyboard/clips tabs collapse into it. (Invoke design/react skills.)
+   storyboard/clips tabs collapse into it. (Invoke design/react skills,
+   plan from decisions.md "Video Clips stage UX contract".) NOT STARTED.
 2. AUTO RE-ANIMATE — redoing a picture auto-regenerates its clip (~$0.10,
-   cost note). Wire via the existing clip endpoint with force=true.
-3. CUTAWAY RULE — SHIPPED tonight (no-people prefix when image_prompt +
-   sentence name no cast member and no dialogue line matches). VERIFY on
-   S1.4's next redo — the invented-toddler card.
-4. EXTRACTION VALIDATION — hard rules + red "bad crop" badge + one-tap
-   "Re-crop this picture": internal-gutter split detection (S2.4/S2.5 split
-   across two pictures) and label-bar leak detection ([KF2|ECU|7s]
-   white-on-black text survives the brightness trim). extraction.py.
+   cost note). Existing clip endpoint with force=true. NOT STARTED (was
+   exercised manually: scene-2 re-crop → 3 stale clips redone by hand).
+3. CUTAWAY RULE — VERIFIED AND SUPERSEDED. S1.4 was never a cutaway: its
+   sentence carries the tail of Tom's line, so it's a SPEAKING card and
+   the prompt itself summoned the boy. Real fix = OFF_SCREEN_SPEAKER_RULE
+   on every speaking prompt (verified live: legs stay at frame edge).
+   motion_guard (clip_dialogue.py) still guards narration cards:
+   cutaway → NO PEOPLE; everything else → nobody-NEW.
+4. EXTRACTION VALIDATION — BACKEND SHIPPED + VERIFIED LIVE. panel_flags
+   (label_leak/gutter_split, 15/15 on real panels), separator-rect
+   cropping (the generator drew scene 2 as 3-top/2-WIDER-bottom — uniform
+   crops CANNOT cut it), chip auto-trim, orphan guard, migration 050
+   assets.extraction_flags, POST /videos/{id}/assets/{aid}/recrop
+   (re-cuts the whole beat). Scene 2 re-cropped 5/5 clean live; the 12
+   orphan rows deleted + Drive copies trashed.
+   STILL MISSING: the red "bad crop" badge + one-tap Re-crop button in
+   the UI — land it inside the Scenes workspace build.
 
 **What is LIVE after today (clips day):**
 - Clips tab rebuilt per the UX contract (decisions.md "Video Clips stage UX
@@ -59,19 +72,38 @@ with SESSION_SECRET from PROD storyengine/.env (dev repo has NO .env).
   ~272 input tokens). Parallel session rerouted vision via
   shared.clients.vision_client + canary (see pt 11 handoff below).
 
-**Open bugs / verify next session:**
-- S1.4: confirm the cutaway rule kills the invented boy (Redo it).
-- S2.2 panel is photoreal + label bar burned in — needs picture redo (its
-  clip just inherits the broken panel).
-- S2.4/S2.5 split-crop panels — the extraction-validation build fixes.
-- Motion prompts: confirm 86/86 video_prompt coverage (run was resumed).
+**VERIFIED / RESOLVED this thread (2026-06-13 early):**
+- S1.4 ✓ off-screen rule holds (bird close-up stays a cutaway, audio track
+  carries the line — Ryan should LISTEN to confirm the words).
+- S2.2/S2.3/S2.4/S2.5 ✓ re-cropped clean (chips trimmed, split healed);
+  their 3 existing clips were redone on the new pictures (~$0.30).
+- Motion prompts: real coverage is 74/74 — the "86" included 12 orphan
+  extraction rows (no sentence/prompt), now deleted. Stat is honest now.
+- Two extra bad crops found + healed that nobody had reported: S4.4,
+  S6.12 (the validator caught them; S2.3's chip too).
+- SECURITY NOTE: a stale .env backup briefly hit the PUBLIC repo (force-
+  rewritten in minutes; creds were for a DELETED Supabase project — dead).
+  .env.bak* now gitignored. Stale local artifacts quarantined in
+  ~/economy-fastforward-stale-artifacts (they had CONFLICTING migration
+  numbers — never git add -A in that old Mac checkout).
+
+**Open / next session:**
+- THE SCENES WORKSPACE BUILD (1 + 2 above + bad-crop badge UI). Recon is
+  done: pipeline page TABS array (storyboard-visuals + clips collapse),
+  StoryboardVisualsTab (1365 lines) + VideoClipsTab (567) merge,
+  next-action.ts tab ids update. GET /videos/{id}/assets now returns
+  extraction_flags for the badge.
+- S2.2 style (semi-photoreal bird) — label bar is FIXED; redrawing the
+  board would replace 4 good panels. Ryan's taste call.
 - Scene 5 'Receptionist' speaks 2 lines in narrator voice (uncast walk-on).
 - tag-dialogue auto-hook still modeled-path only.
 
-**Read before coding:** tasks/lessons.md pts 7–10 (NULL-column .get trap,
-status-lag gates, Kie TTS flakes, vision drift, watcher-not-poller×2,
-audio-driven beats align-the-audio), tasks/decisions.md (clips UX contract,
-dialogue final form, voice-over optional). Session history below.
+**Read before coding:** tasks/lessons.md pt 12 (off-screen speaker rule,
+cold-proxy race, extraction rects, per-panel flag comparisons) and pts
+7–10 (NULL-column .get trap, status-lag gates, Kie TTS flakes, vision
+drift, watcher-not-poller×2), tasks/decisions.md (clips UX contract,
+extraction-trusts-pixels, off-screen speaker, dialogue final form,
+voice-over optional). Session history below.
 
 ## Handoff (2026-06-12 pt 11 — vision rerouted + canary live)
 
