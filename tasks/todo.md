@@ -1,5 +1,62 @@
 # Task Tracking
 
+## ★ THREAD HANDOFF — read this first (2026-06-12, end of the long UI/dialogue thread)
+
+**North star (in agent memory too):** any person pastes a YouTube link → the
+machine replicates that video (new script/idea) FULLY UNATTENDED. Ryan has a
+queue of people wanting their channels automated; every design choice must
+work without a human in the loop. Intelligence layers detect format — never
+manual flags.
+
+**Working video:** the "Injured Baby Bird" ESL kids animation,
+`f32ed182-be1f-4a24-a8de-bb8db4ac88df` (Ryan's tenant `ee93e6d1-…`).
+Modeled from a reference link, Kie-only stack (Claude gateway, images, TTS,
+video). Prod = systemd services from /home/clawd/projects/economy-fastforward
+(auto via git push to main + pull; backend restart = kill -9 MainPID, it
+hangs draining SSE). Dev repo = /home/clawd/economy-fastforward.
+
+**State of the product right now (all live on storyengine.dev):**
+- ONE-button guided flow: GuidedNextStep banner is the only primary CTA
+  (always-watching task watcher, lock built in, failure cards). Storyboard
+  tab = workspace: per-scene Redo pictures / Start scene over (auto-chains
+  plan→pictures), per-board hover-X delete, drag-drop replace, Advanced ⋯
+  menus. next-action.ts is the single decision table — add states THERE.
+- Storyboard → final pictures: extraction crops with the generation-time
+  layout (grid_layout_for), per-scene resume, runs AUTOMATICALLY at Lock
+  Story (silent plumbing). 86/86 panels extracted for the bird video.
+- Animatic: per-scene "Watch this scene" player (panels + narration,
+  word-proportional timing, $0). All 8 scenes verified playing.
+- Dialogue intelligence (NEW): scripts auto-tagged into narrator/dialogue
+  timelines (videos.dialogue_mode, scripts.dialogue_segments jsonb,
+  video_characters.voice_name). Bird video: 65 dialogue lines, voices cast.
+  Trigger: POST /api/videos/{id}/script/tag-dialogue (auto-hook after
+  modeled script stage only — non-modeled path NOT hooked yet).
+- Lip test PASSED: `lisa-dialogue-test.mp4` in the video's Drive folder =
+  Grok image-to-video speaking clip + ElevenLabs voice mux. The approved
+  recipe: ElevenLabs character voices + Grok lip movement, narrator pauses
+  during dialogue (decisions.md 2026-06-12).
+
+**NEXT BUILDS (approved plan, in order):**
+a. Per-segment voice synthesis (Kie ElevenLabs, voice ID param; narrator
+   voice for narration segs, video_characters.voice_name for dialogue) →
+   {video}/voice/S{n}-seg{i}.mp3, audio_url+duration into the jsonb.
+b. Animatic plays the segment timeline (radio-play rehearsal, $0) — Ryan
+   approves the rhythm here before clip spend.
+c. Grok clip pipeline: grok-imagine/image-to-video (duration is a STRING
+   "6"–"30", 480p/720p, ~$0.05–0.12/clip, resultJson is a JSON string,
+   URLs expire 24h, always has own audio → mute & overlay ElevenLabs).
+   Clean [KFn|MS|10s] label bars off panels FIRST (Grok reproduces them).
+d. Per-scene "Animate this scene" button (clips beside boards, scene gate)
+   → bulk animate with cost confirm (~$2-4/video on Grok vs $6-12 Veo).
+e. Render: Remotion segment timeline (narration pauses ↔ dialogue clips).
+f. Hook tag-dialogue into the non-modeled script path; audition Tom's
+   voice (current 'Mark' is adult; Finn vBKc2FfBKJfcZNyEt1n6 is the boy).
+
+**Read before coding:** tasks/lessons.md (top 4 sections are this thread's
+hard-won traps: Drive HTML interstitials, env-loading order, watcher races,
+Kie quirks), tasks/decisions.md (dialogue decisions), docs/ + CLAUDE.md
+wiring protocol. Session history below.
+
 ## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
 
 Ryan greenlit the dialogue plan with decisions (recorded in decisions.md):
