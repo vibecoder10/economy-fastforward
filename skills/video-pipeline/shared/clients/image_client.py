@@ -752,9 +752,16 @@ class ImageClient:
         image_url: str,
         prompt: str,
         duration: int = 6, # Grok supports 6 or 10. Default 6.
+        extra_image_urls: Optional[list] = None,
     ) -> Optional[str]:
-        """Generate a video from an image using Grok Imagine via Kie.ai."""
-        
+        """Generate a video from an image using Grok Imagine via Kie.ai.
+
+        extra_image_urls: Grok accepts up to 7 reference images, addressed in
+        the prompt as @image1, @image2, ... — we pass the labeled cast sheet
+        as @image2 to lock characters/style (same one-sheet trick that fixed
+        storyboard drift).
+        """
+
         # Duration check (must be 6 or 10)
         # We will cast to string as per docs ("6" or "10")
         if duration not in [6, 10]:
@@ -762,8 +769,9 @@ class ImageClient:
             duration_str = "6"
         else:
             duration_str = str(duration)
-            
-        print(f"      🎬 Generating video with Grok Imagine (Duration: {duration_str}s)...")
+
+        image_urls = [image_url] + [u for u in (extra_image_urls or []) if u][:6]
+        print(f"      🎬 Generating video with Grok Imagine (Duration: {duration_str}s, refs: {len(image_urls)})...")
         print(f"      Debugging Image URL: {image_url}") # Log URL
         print(f"      Prompt: {prompt[:50]}...")
 
@@ -771,13 +779,13 @@ class ImageClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        
+
         # Grok Imagine Schema
-        # Input: image_urls (array), prompt, duration (string), mode (default normal)
+        # Input: image_urls (array, max 7), prompt, duration (string), mode (default normal)
         payload = {
             "model": Models.ANIMATION_GROK,
             "input": {
-                "image_urls": [image_url],
+                "image_urls": image_urls,
                 "prompt": prompt,
                 "duration": duration_str,
                 "mode": "normal", # Spicy not supported for external images

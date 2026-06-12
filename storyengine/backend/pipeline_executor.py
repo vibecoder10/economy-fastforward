@@ -1217,10 +1217,26 @@ directions, no labels, no headings inside them."""
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       strip_audio, download_voice, mux_voice,
+                                       duck_audio, download_voice, mux_voice,
                                        DIALOGUE_VOICE_LEAD_SECONDS)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
+
+            # Grok takes up to 7 reference images (@image1, @image2... in the
+            # prompt): @image1 = the panel, @image2 = the labeled cast sheet.
+            # Same one-sheet conditioning that fixed storyboard character
+            # drift; plus the video's style directive goes into every prompt
+            # (clips were drifting style on weaker panels).
+            sheet = (video.get("character_reference_url") or "").strip()
+            style_note = (video.get("image_style_override") or "").strip()[:180]
+
+            def _decorate(core_prompt: str) -> str:
+                p = f"Animate @image1: {core_prompt}"
+                if sheet:
+                    p += " Every character must look exactly as they do in @image2 (the labeled cast sheet)."
+                if style_note:
+                    p += f" Art style: {style_note}"
+                return p
 
             # 💬 cards speak: map this video's tagged dialogue lines to cards.
             # A tap never dead-ends — scenes whose lines aren't voiced yet get
@@ -1267,14 +1283,16 @@ directions, no labels, no headings inside them."""
                         # lead. Loose sync by design (Ryan's call): scene
                         # continuity beats mouth precision in this format —
                         # see decisions.md 2026-06-12.
-                        prompt = speaking_prompt(lines)
+                        prompt = _decorate(speaking_prompt(lines))
                         voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
                         # The line (plus its lead) has to fit inside the clip.
                         need = voice_secs + DIALOGUE_VOICE_LEAD_SECONDS
                         clip_dur = (max(durations)
                                     if need > min(durations) - 0.5 and len(durations) > 1
                                     else durations[0])
-                        clip_url = await client.generate_video(img, prompt, duration=clip_dur)
+                        clip_url = await client.generate_video(
+                            img, prompt, duration=clip_dur,
+                            extra_image_urls=[_proxy_url(sheet)] if sheet else None)
                         clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
@@ -1291,7 +1309,9 @@ directions, no labels, no headings inside them."""
                             clip_url = await client.generate_video_veo(prompt, image_url=img, model=veo_model)
                             clip_dur = profile.durations[0]
                         else:
-                            clip_url = await client.generate_video(img, prompt, duration=clip_dur)
+                            clip_url = await client.generate_video(
+                                img, _decorate(prompt), duration=clip_dur,
+                                extra_image_urls=[_proxy_url(sheet)] if sheet else None)
                         clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
 
                     if not clip_url:
@@ -1299,20 +1319,22 @@ directions, no labels, no headings inside them."""
                         await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
                         return
                     clip_bytes = await client.download_image(clip_url)
-                    # Grok bakes in invented audio: speaking cards get the
-                    # REAL line overlaid (small lead, clamped to fit);
-                    # narration cards go silent for the renderer to narrate.
+                    # Audio: speaking cards get the REAL line over Grok's
+                    # ambience kept as a quiet bed (dead silence around the
+                    # line was Ryan's 'no background sounds'); narration
+                    # cards keep quiet ambience for the renderer to mix over.
                     try:
                         if lines:
                             vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
                             if vbytes:
                                 lead = max(0.0, min(DIALOGUE_VOICE_LEAD_SECONDS,
                                                     float(clip_dur) - voice_secs - 0.1))
-                                clip_bytes = await mux_voice(clip_bytes, vbytes, delay_seconds=lead)
+                                clip_bytes = await mux_voice(clip_bytes, vbytes,
+                                                             delay_seconds=lead, bed_gain=0.2)
                             else:
-                                clip_bytes = await strip_audio(clip_bytes)
+                                clip_bytes = await duck_audio(clip_bytes)
                         elif getattr(profile, "strip_audio", False):
-                            clip_bytes = await strip_audio(clip_bytes)
+                            clip_bytes = await duck_audio(clip_bytes)
                     except Exception as e:
                         print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
                     drive_url = await upload_bytes(

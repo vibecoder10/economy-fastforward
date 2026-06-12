@@ -113,12 +113,14 @@ def _run_ffmpeg(args: list) -> None:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode(errors='replace')[:300]}")
 
 
-async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: float = 0.0) -> bytes:
-    """Replace the clip's Grok-invented audio with the character line(s).
+async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: float = 0.0,
+                    bed_gain: float = 0.0) -> bytes:
+    """Lay the character line(s) over the clip.
 
-    delay_seconds gives the voice its lead-in. No -shortest: the clip keeps
-    its full length and the line simply ends — the renderer owns precise
-    timing later.
+    delay_seconds gives the voice its lead-in. bed_gain > 0 keeps the clip's
+    ORIGINAL audio underneath at that volume — Grok's ambience (birdsong,
+    garden air) stays as the bed instead of dead silence around the line.
+    No -shortest: the clip keeps its full length; the renderer owns timing.
     """
     def _sync() -> bytes:
         with tempfile.TemporaryDirectory() as td:
@@ -140,8 +142,13 @@ async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: fl
                 src = "[c]"
                 chain = "".join(f"[{i + 1}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[c];"
             ms = int(round(max(0.0, delay_seconds) * 1000))
-            tail = f"{src}adelay={ms}:all=1[a]" if ms > 0 else f"{src}anull[a]"
-            _run_ffmpeg(["-i", clip, *inputs, "-filter_complex", chain + tail,
+            line = f"{src}adelay={ms}:all=1[ln];" if ms > 0 else f"{src}anull[ln];"
+            if bed_gain > 0:
+                mix = (f"[0:a]volume={bed_gain}[bed];"
+                       "[bed][ln]amix=inputs=2:duration=first:normalize=0[a]")
+            else:
+                mix = "[ln]anull[a]"
+            _run_ffmpeg(["-i", clip, *inputs, "-filter_complex", chain + line + mix,
                          "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", out])
             with open(out, "rb") as f:
                 return f.read()
@@ -149,15 +156,21 @@ async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: fl
     return await asyncio.to_thread(_sync)
 
 
-async def strip_audio(clip_bytes: bytes) -> bytes:
-    """Silence a narration clip — Grok always bakes in invented audio."""
+async def duck_audio(clip_bytes: bytes, gain: float = 0.3) -> bytes:
+    """Turn the clip's invented audio into a quiet ambience bed.
+
+    Full strip left narration clips DEAD silent ('no background sounds' —
+    Ryan); Grok's birdsong/garden air at low volume reads alive, and the
+    renderer mixes real narration and music over it later.
+    """
     def _sync() -> bytes:
         with tempfile.TemporaryDirectory() as td:
             clip = os.path.join(td, "clip.mp4")
             out = os.path.join(td, "out.mp4")
             with open(clip, "wb") as f:
                 f.write(clip_bytes)
-            _run_ffmpeg(["-i", clip, "-c:v", "copy", "-an", out])
+            _run_ffmpeg(["-i", clip, "-filter_complex", f"[0:a]volume={gain}[a]",
+                         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", out])
             with open(out, "rb") as f:
                 return f.read()
 

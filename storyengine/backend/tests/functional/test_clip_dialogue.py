@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.modules.setdefault("database", types.SimpleNamespace(fetch_all=None, fetch_one=None, execute=None))
 
 import asyncio  # noqa: E402
-from clip_dialogue import norm, match_lines, speaking_prompt, strip_audio, mux_voice  # noqa: E402
+from clip_dialogue import norm, match_lines, speaking_prompt, duck_audio, mux_voice  # noqa: E402
 
 LINES = [
     {"speaker": "Tom", "text": "Mom! Dad! Come here! Come quickly!", "audio_url": "u", "duration": 1.8},
@@ -66,22 +66,22 @@ def _make_tone(td):
     return open(tone, "rb").read()
 
 
-def test_strip_and_mux():
+def test_duck_and_mux():
     with tempfile.TemporaryDirectory() as td:
         clip = _make_clip(td)
         assert _streams(clip) == ["audio", "video"]
-        silent = asyncio.run(strip_audio(clip))
-        assert _streams(silent) == ["video"], _streams(silent)
+        ducked = asyncio.run(duck_audio(clip, gain=0.3))
+        assert _streams(ducked) == ["audio", "video"], _streams(ducked)
         tone = _make_tone(td)
-        muxed = asyncio.run(mux_voice(clip, [tone], delay_seconds=0.5))
+        muxed = asyncio.run(mux_voice(clip, [tone], delay_seconds=0.5, bed_gain=0.2))
         assert _streams(muxed) == ["audio", "video"], _streams(muxed)
         muxed2 = asyncio.run(mux_voice(clip, [tone, tone]))  # concat path
         assert _streams(muxed2) == ["audio", "video"]
-    print("✓ ffmpeg strip + mux (single delayed + concat)")
+    print("✓ ffmpeg duck + mux (delayed, with bed + concat)")
 
 
 if __name__ == "__main__":
     test_matching()
     test_prompt()
-    test_strip_and_mux()
+    test_duck_and_mux()
     print("\nALL 3 TESTS PASSED")
