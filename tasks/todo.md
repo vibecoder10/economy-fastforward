@@ -1,5 +1,41 @@
 # Task Tracking
 
+## Handoff (2026-06-12 pt 3 — ONE-button consolidation of the pipeline page)
+
+Ryan (with screenshot): the storyboard stage had FOUR competing "what now" surfaces
+(header Run Next Step/Skip Stage, the guided banner, an 8-button action bar, a
+4-step tracker with its own giant CTA) — "consolidate to one button, Apple-esque,
+grandma-proof, regeneration lives on the scene cards." Shipped + verified on prod
+(Playwright: every old surface gone, exactly one Next-up banner, 0 console errors):
+1. GuidedNextStep banner = THE button. New `useTaskWatcher` (use-task-poller.ts)
+   watches the video's task slot CONTINUOUSLY → progress + Stop appear in the
+   banner no matter which control started the work. Lock Story is now executed BY
+   the banner (gold button, kind "lock", zero-board guard in next-action.ts).
+   Watcher fires onComplete/onFailed only on live-observed transitions
+   (wasRunningRef) + epoch guard so in-flight polls can't misfire after markStarted.
+2. Header: Run-next/Skip/Reset/Export → one ⋯ menu. Stepper passive.
+3. Storyboard tab: stats row, action bar, tracker, toggle, inline progress banner
+   all deleted. One status strip ("8 scenes · 12 of 12 boards" + Unlock when
+   locked + ⋯ Advanced: model, upscale, delete finals, re-extract missing,
+   start over, skip stage). Scene cards: "Plan this scene" / "Draw the pictures" /
+   "Redo pictures" (slot-clears then regen, plan kept) / "Start scene over" which
+   AUTO-CHAINS plan→pictures via chainRef consumed in watcher onComplete — the old
+   clear-wipes-prompts dead end is gone. Stop dispatches `se:stop-requested` so
+   pending chain stages stand down (cancelled reads as completed to pollers).
+4. Adversarial review workflow ran (21 agents; verify phase partially hit session
+   limits — self-verified the flagged races): fixed stale failure card, zero-board
+   lock, menu outside-click close, watcher poll race, chain-409 retry, duplicate
+   failure toasts, jargon (Final pictures / picture plans), dead computed values.
+Playwright note: headless verification of prod needs /api/auth/me stubbed via
+route interception (instant fulfill) — the mount-time /me fetch gets ERR_ABORTED
+under headless; everything after auth proxies fine (see /tmp/verify_final.py pattern).
+Known minor (documented, not fixed): banner may flicker idle for ≤3s between chain
+stages (two watcher instances); switching tabs mid-chain drops the queued stage
+(banner self-heals: next action becomes "Finish your storyboard").
+
+Bird video remains: review boards → Lock the story (now the one gold button) →
+Create the final pictures.
+
 ## Handoff (2026-06-12 pt 2 — per-board X delete, drop-to-replace, stale cache fix)
 
 Ryan: "Drive images aren't what's on screen; no clean way to delete ONE storyboard
