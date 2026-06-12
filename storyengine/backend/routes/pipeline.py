@@ -893,6 +893,69 @@ async def run_dialogue_voice(
     return PipelineResponse(video_id=video_id, status="running", message=f"Dialogue voice synthesis started{scene_label}")
 
 
+@router.post("/clip/{video_id}", response_model=PipelineResponse)
+async def run_clip(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    asset_id: Optional[str] = None,
+    scene: Optional[int] = None,
+    force: bool = False,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Animate final pictures into motion clips.
+
+    The trust ladder's single entry point: asset_id = tap one card,
+    scene = Animate this scene, neither = Animate everything.
+    force=true regenerates a card that already has a clip (Redo).
+    """
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if not is_at_or_past_stage(video["status"], "ready_for_sound_design"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Final pictures must exist before clips (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    label = "Animating a clip" if asset_id else f"Animating scene {scene}" if scene is not None else "Animating all clips"
+    _set_task_status(video_id, "running", f"{label}...", tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+
+            async def _progress(msg: str):
+                _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
+
+            result = await executor.run_clip_generation(
+                video_id, asset_id=asset_id, scene=scene, force=force,
+                progress_callback=_progress,
+            )
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                result.get("error"),
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message=f"{label} started")
+
+
 @router.post("/upscale-panels/{video_id}", response_model=PipelineResponse)
 async def run_upscale_panels(
     video_id: str,

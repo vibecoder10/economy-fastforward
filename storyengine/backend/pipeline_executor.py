@@ -1136,6 +1136,171 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_clip_generation(
+        self,
+        video_id: str,
+        asset_id: str = None,
+        scene: int = None,
+        force: bool = False,
+        progress_callback=None,
+    ) -> dict:
+        """Generate motion clips from final pictures — one card, one scene, or all.
+
+        All three rungs of the trust ladder land here (tap a card / Animate
+        this scene / Animate everything). Honors videos.video_model via
+        MODEL_REGISTRY (Grok + Veo wired). Clip result URLs expire ~24h, so
+        every clip downloads immediately and persists to Drive {video}/clips/.
+        Additive: only a full run that finishes every clip advances status.
+        """
+        await self._ensure_initialized()
+        bot_name = "Clip Bot"
+        import re as _re
+
+        async def _report(msg: str):
+            if progress_callback:
+                try:
+                    await progress_callback(msg)
+                except Exception:
+                    pass
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL
+            model_id = (video.get("video_model") or "").strip() or DEFAULT_VIDEO_MODEL
+            profile = MODEL_REGISTRY.get(model_id)
+            # Only models with a live generation path are selectable — the
+            # old dropdown silently ignored the choice and always ran Grok.
+            wired = {"grok-imagine", "veo-3.1-fast", "veo-3.1-quality"}
+            if not profile or model_id not in wired:
+                return {"status": "failed", "error": user_facing(
+                    f"'{model_id}' isn't available yet — pick Grok Imagine or Veo 3.1 under Advanced.")}
+
+            where = "video_id = $1 AND tenant_id = $2"
+            params = [video_id, self.tenant_id]
+            if asset_id:
+                where += " AND id = $3"
+                params.append(asset_id)
+            elif scene is not None:
+                where += " AND scene = $3"
+                params.append(scene)
+            rows = await fetch_all(
+                f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
+                f"video_clip_url, duration FROM assets WHERE {where} ORDER BY scene, image_index",
+                *params,
+            )
+            todo = [
+                r for r in rows
+                if (r.get("image_url") or r.get("drive_image_url"))
+                and (force or not r.get("video_clip_url"))
+            ]
+            if not todo:
+                msg = "Nothing to animate — every picture here already has a clip."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "completed", "video_id": video_id, "message": msg,
+                        "clips_generated": 0, "clips_failed": 0, "cost": 0.0}
+
+            label = (f"clip S{todo[0]['scene']}.{todo[0]['image_index']}" if asset_id
+                     else f"scene {scene}" if scene is not None else f"{len(todo)} clips")
+            await self._log_activity(bot_name, video_id, "started", f"Animating {label} ({model_id})")
+            await self._install_cancel_support(video_id)
+            should_cancel = self._pipeline.should_cancel
+
+            base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+
+            def _proxy_url(url: str) -> str:
+                m = _re.search(r"[?&]id=([\w-]+)", url) or _re.search(r"/d/([\w-]+)", url)
+                return f"{base}/api/media/drive/{m.group(1)}" if m else url
+
+            from storage import upload_bytes
+            client = self._pipeline.image_client
+            durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
+            done = failed = 0
+            cost = 0.0
+            total = len(todo)
+            sem = asyncio.Semaphore(3)
+            cancelled = False
+
+            async def _one(r):
+                nonlocal done, failed, cost, cancelled
+                async with sem:
+                    if cancelled:
+                        return
+                    try:
+                        if await should_cancel():
+                            cancelled = True
+                            return
+                    except Exception:
+                        pass
+                    sc, idx = r["scene"], r["image_index"]
+                    # Motion prompt from the video-scripts stage; a tapped card
+                    # without one still animates (gentle default) instead of
+                    # dead-ending.
+                    prompt = (r.get("video_prompt") or "").strip() or (
+                        "Subtle cinematic motion: gentle camera push-in, soft natural "
+                        "movement in the scene. Keep the characters, art style and "
+                        "composition exactly as shown.")
+                    seg_dur = float(r.get("duration") or 0)
+                    clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
+                    img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
+
+                    if model_id.startswith("veo-3.1"):
+                        veo_model = client.VEO_MODEL_QUALITY if model_id.endswith("quality") else client.VEO_MODEL_FAST
+                        clip_url = await client.generate_video_veo(prompt, image_url=img, model=veo_model)
+                        clip_dur = profile.durations[0]
+                    else:
+                        clip_url = await client.generate_video(img, prompt, duration=clip_dur)
+
+                    if not clip_url:
+                        failed += 1
+                        await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
+                        return
+                    clip_bytes = await client.download_image(clip_url)
+                    drive_url = await upload_bytes(
+                        clip_bytes, f"{video_id}/clips/S{sc:02d}-{idx:02d}.mp4", "video/mp4")
+                    await execute(
+                        "UPDATE assets SET video_clip_url = $1, video_duration = $2, "
+                        "updated_at = now() WHERE id = $3",
+                        drive_url, clip_dur, r["id"],
+                    )
+                    done += 1
+                    cost += profile.cost_per_clip.get(clip_dur, 0.10)
+                    await _report(f"Animated S{sc}.{idx} ({done}/{total} done)")
+
+            await asyncio.gather(*[_one(r) for r in todo])
+
+            if cancelled:
+                msg = f"Stopped — kept {done} finished clip(s). Animate again to resume."
+                await self._log_activity(bot_name, video_id, "completed", msg, cost=cost)
+                return {"status": "cancelled", "video_id": video_id, "error": msg,
+                        "clips_generated": done, "clips_failed": failed, "cost": cost}
+
+            # Full untargeted run with everything clipped → stage complete.
+            if asset_id is None and scene is None and failed == 0:
+                remaining = await fetch_one(
+                    "SELECT COUNT(*) AS n FROM assets WHERE video_id = $1 AND tenant_id = $2 "
+                    "AND (image_url IS NOT NULL OR drive_image_url IS NOT NULL) AND video_clip_url IS NULL",
+                    video_id, self.tenant_id,
+                )
+                if not (remaining or {}).get("n") and not is_at_or_past_stage(video.get("status"), "ready_for_thumbnail"):
+                    await self._update_video_status(video_id, "ready_for_thumbnail")
+                    await self._log_transition(video_id, video.get("status"), "ready_for_thumbnail", "api")
+
+            msg = (f"Animated {done} clip(s) (${cost:.2f})"
+                   + (f" — {failed} failed, tap them to retry" if failed else ""))
+            await self._log_activity(bot_name, video_id, "completed" if not failed else "completed", msg, cost=cost)
+            return {"status": "completed" if done or not failed else "failed",
+                    "video_id": video_id, "message": msg,
+                    "clips_generated": done, "clips_failed": failed, "cost": cost,
+                    "error": msg if failed and not done else None}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
     async def run_split(self, video_id: str) -> dict:
         """Split scene text into timed sentence segments.
 

@@ -94,11 +94,32 @@ STEP (a) PER-SEGMENT VOICE SYNTHESIS SHIPPED:
   run (158 segs, ~$1-2 TTS) launched in background — check segment counts via
   scripts.dialogue_segments before building (b).
 
+CLIPS TAB REBUILT same session (the UX contract is now LIVE code):
+- POST /api/pipeline/clip/{video_id}?asset_id=&scene=&force= — ONE endpoint
+  for all three rungs (tap a card / Animate this scene / Animate everything);
+  executor.run_clip_generation honors videos.video_model via MODEL_REGISTRY
+  (grok + veo-3.1 fast/quality wired; others rejected with friendly copy),
+  proxies panel images via PUBLIC_MEDIA_BASE/api/media/drive/{id} for Kie,
+  downloads clips IMMEDIATELY (24h URL expiry) → Drive {video}/clips/
+  S{nn}-{ii}.mp4 → assets.video_clip_url, semaphore(3), cancel support,
+  full-run-complete advances to ready_for_thumbnail.
+- GET /api/videos/{id}/dialogue-map (💬 badges), DELETE /api/videos/{id}/
+  clips/{asset_id} (hover-X: clears column + trashes Drive copy).
+- VideoClipsTab rebuilt: status strip + ⋯ Advanced (model picker with real
+  prices, coming-soon disabled, re-run prompts, motion instructions toggle);
+  scene groups with "Animate this scene · $X"; tap card = animate (~$0.10,
+  no confirm), tap done card = play inline; hover Redo/X; failed = red Try
+  again; 💬 speaker badges via dialogue-map substring match; motion prompts
+  AUTO-RUN silently on arrival (promptlessCount guard); confirms only >$0.50.
+- next-action.ts: clips trust ladder (Animate scene 1 → Animate the rest →
+  thumbnail) + clipCost()/CLIP_COST_PER_MODEL as the single price source;
+  GuidedNextStep passes clipsDone/clipsTotal. Old Generate Prompts/Generate
+  All Clips/Advance Stage/visible dropdown/always-on prompt editor all gone.
+
 NEXT: (b) animatic plays the segment timeline (radio-play rehearsal, $0,
-Ryan approves rhythm here), then the clips build per the UX contract
-(c+d): silent prompt auto-run, single-clip endpoint + card tap, 💬 cards,
-per-scene buttons, banner trust ladder, real cost math, wire video_model.
-Invoke web-design-system skill before the clips tab UI work.
+Ryan approves rhythm here); (c) dialogue SPEAKING clips (Grok lips + mux
+the segment's ElevenLabs line over muted Grok audio — lisa-dialogue-test
+recipe) chained from the same clip endpoint for 💬 cards; (e) render.
 
 ## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
 

@@ -64,6 +64,8 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
     totalScenes: scenes.length,
     extractedCount: assets.filter((a) => a.image_url).length,
     totalSegments: assets.length,
+    clipsDone: assets.filter((a) => a.video_clip_url).length,
+    clipsTotal: assets.filter((a) => a.image_url).length,
   });
 
   const refreshAll = () => {

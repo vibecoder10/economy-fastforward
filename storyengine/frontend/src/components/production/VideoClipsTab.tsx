@@ -1,50 +1,66 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Check, Loader2, Play, AlertTriangle, Sparkles, Film, ChevronRight } from "lucide-react";
-import { motion } from "framer-motion";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { Check, Loader2, Play, Pause, Sparkles, Film, RotateCcw, X, MoreHorizontal, MessageCircle, AlertTriangle } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { StatusPill } from "@/components/ui/StatusPill";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
-import { ProgressRing } from "@/components/ui/ProgressRing";
-import { FilterSelect } from "@/components/ui/FilterSelect";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
-import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles, advanceVideo, getDefaultVideoMotionPrompt, updateVideo } from "@/lib/api";
+import { getVideoAssets, getDialogueMap, runPipelineStage, clearStaleTask, updateVideoStyles, getDefaultVideoMotionPrompt, updateVideo, deleteClip } from "@/lib/api";
+import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
+import { toDisplayImageUrl } from "@/lib/utils";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, Asset } from "@/lib/api";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 
-function getClipStatus(asset: Asset): "pending" | "generating" | "done" {
-  if (asset.video_clip_url) return "done";
-  if (asset.status === "generating" || asset.status === "processing") return "generating";
-  return "pending";
-}
+/** Models with a live generation path. Everything else in the registry is
+ * visible but disabled — the old dropdown silently ignored the choice. */
+const WIRED_MODELS: { id: string; label: string }[] = [
+  { id: "grok-imagine", label: "Grok Imagine — $0.10/clip" },
+  { id: "veo-3.1-fast", label: "Veo 3.1 Fast — $0.30/clip" },
+  { id: "veo-3.1-quality", label: "Veo 3.1 Quality — $1.25/clip" },
+];
+const COMING_SOON_MODELS = ["Kling 3.0 Pro", "Runway Gen-4 Turbo", "Hailuo 2.3"];
 
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  done: { label: "Generated", color: "green" },
-  generating: { label: "Generating", color: "purple" },
-  pending: { label: "Pending", color: "orange" },
-};
+/** Loose containment match: dialogue segment words (kept verbatim by the
+ * tagger) appear inside the card's sentence text. */
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
 
 interface VideoClipsTabProps {
   video: VideoDetail & { id: string };
   onAdvanced?: () => void;
 }
 
-export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
+export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [model, setModel] = useState(video.video_model || "grok-imagine");
-  const [savingModel, setSavingModel] = useState(false);
-  const [confirmGenerate, setConfirmGenerate] = useState(false);
-  const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
-  const [isGeneratingClips, setIsGeneratingClips] = useState(false);
+  const model = video.video_model || "grok-imagine";
+  const perClip = clipCost(model, 1);
+
   const [taskRunning, setTaskRunning] = useState(false);
-  const [taskStage, setTaskStage] = useState<"prompts" | "clips">("prompts");
-  const [advancing, setAdvancing] = useState(false);
+  const [taskKind, setTaskKind] = useState<"prompts" | "clips">("clips");
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+  const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
+  const [confirmKey, setConfirmKey] = useState<string | null>(null); // "scene-3" | "all"
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showMotionPrompt, setShowMotionPrompt] = useState(false);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const promptsAutoRan = useRef(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const { data: assets = [] } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+    refetchInterval: taskRunning ? 4000 : false,
+  });
+  const { data: dialogueMap } = useQuery({
+    queryKey: ["dialogue-map", video.id],
+    queryFn: () => getDialogueMap(video.id),
+    staleTime: 60_000,
+  });
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -52,354 +68,478 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
     interval: 3000,
     onComplete: () => {
       setTaskRunning(false);
-      if (taskStage === "prompts") setIsGeneratingPrompts(false);
-      else { setIsGeneratingClips(false); setConfirmGenerate(false); }
+      setGeneratingIds(new Set());
+      setConfirmKey(null);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     },
     onFailed: (error) => {
       setTaskRunning(false);
-      if (taskStage === "prompts") setIsGeneratingPrompts(false);
-      else { setIsGeneratingClips(false); setConfirmGenerate(false); }
-      toast.error(`${taskStage === "prompts" ? "Prompt generation" : "Clip generation"} failed: ${error}`);
+      // Cards that were in flight when the task died show Try Again in place.
+      setFailedIds((prev) => new Set([...prev, ...generatingIds]));
+      setGeneratingIds(new Set());
+      setConfirmKey(null);
+      toast.error(error || "Clip generation hit a problem — tap the card to try again.");
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     },
   });
 
-  const { data: assets = [] } = useQuery({
-    queryKey: ["video-assets", video.id],
-    queryFn: () => getVideoAssets(video.id),
-  });
+  // Cards = every segment with a final picture (the contract: ALL get clips).
+  const cards = useMemo(
+    () => assets.filter((a) => a.image_url).slice().sort((a, b) =>
+      (a.scene ?? 0) - (b.scene ?? 0) || (a.image_index ?? 0) - (b.image_index ?? 0)),
+    [assets],
+  );
+  const doneCount = cards.filter((a) => a.video_clip_url).length;
+  const pendingCount = cards.length - doneCount;
+  const promptlessCount = cards.filter((a) => !a.video_prompt && !a.video_clip_url).length;
 
-  const modelLabels: Record<string, string> = {
-    "grok-imagine": "Grok Imagine",
-    "veo-3.1-fast": "Veo 3.1 Fast",
-    "veo-3.1-quality": "Veo 3.1 Quality",
-    "kling-3.0-pro": "Kling 3.0 Pro",
-    "runway-gen4-turbo": "Runway Gen-4 Turbo",
-    "hailuo-2.3-standard": "Hailuo 2.3 Standard",
+  // Scene → speakers map for the 💬 badge (matched per-card below).
+  const dialogueByScene = useMemo(() => {
+    const map = new Map<number, { speaker: string; text: string }[]>();
+    for (const sc of dialogueMap?.scenes ?? []) {
+      map.set(sc.scene, sc.segments
+        .filter((s) => s.type === "dialogue" && s.speaker && s.text)
+        .map((s) => ({ speaker: s.speaker as string, text: norm(s.text) })));
+    }
+    return map;
+  }, [dialogueMap]);
+
+  const speakerFor = useCallback((asset: Asset): string | null => {
+    const lines = dialogueByScene.get(asset.scene ?? -1);
+    if (!lines?.length || !asset.sentence_text) return null;
+    const text = norm(asset.sentence_text);
+    return lines.find((l) => text.includes(l.text) || l.text.includes(text))?.speaker ?? null;
+  }, [dialogueByScene]);
+
+  const sceneGroups = useMemo(() => {
+    const groups = new Map<number, Asset[]>();
+    for (const a of cards) {
+      const s = a.scene ?? 0;
+      if (!groups.has(s)) groups.set(s, []);
+      groups.get(s)!.push(a);
+    }
+    return [...groups.entries()].sort((a, b) => a[0] - b[0]);
+  }, [cards]);
+
+  // Motion prompts are plumbing, not a decision: write them silently the
+  // moment the tab sees cards without one. Failures surface via the banner's
+  // task watcher; the strip shows quiet progress meanwhile.
+  useEffect(() => {
+    if (promptsAutoRan.current || taskRunning || cards.length === 0 || promptlessCount === 0) return;
+    promptsAutoRan.current = true;
+    (async () => {
+      try {
+        await runPipelineStage(video.id, "video-scripts");
+        setTaskKind("prompts");
+        setTaskRunning(true);
+      } catch {
+        promptsAutoRan.current = false; // 409 etc. — retry on next mount
+      }
+    })();
+  }, [cards.length, promptlessCount, taskRunning, video.id]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
+
+  const startClipTask = useCallback(async (params: Record<string, string | number>, ids: string[]) => {
+    if (taskRunning) {
+      toast.info("One thing at a time — a clip is still generating.");
+      return;
+    }
+    setFailedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    setGeneratingIds(new Set(ids));
+    setTaskKind("clips");
+    try {
+      await runPipelineStage(video.id, "clip", params);
+      setTaskRunning(true);
+    } catch (err) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "clip", params);
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          toast.error((retryErr as Error).message);
+        }
+      } else {
+        toast.error(message || "Couldn't start the clip.");
+      }
+      setGeneratingIds(new Set());
+    }
+  }, [taskRunning, video.id, toast]);
+
+  const animateOne = (asset: Asset, force = false) =>
+    startClipTask(force ? { asset_id: asset.id, force: "true" } : { asset_id: asset.id }, [asset.id]);
+
+  const animateScene = (scene: number, pendingIds: string[]) =>
+    startClipTask({ scene }, pendingIds);
+
+  const animateAll = () =>
+    startClipTask({}, cards.filter((a) => !a.video_clip_url).map((a) => a.id));
+
+  const removeClip = useCallback(async (asset: Asset) => {
+    try {
+      await deleteClip(video.id, asset.id);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }, [video.id, queryClient, toast]);
+
+  const handleModelChange = useCallback(async (next: string) => {
+    try {
+      await updateVideoStyles(video.id, { video_model: next });
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }, [video.id, queryClient, toast]);
+
+  /** Confirm-then-run for anything over $0.50; cheaper actions just go. */
+  const confirmable = (key: string, dollars: number, run: () => void) => {
+    if (dollars <= 0.5 || confirmKey === key) {
+      setConfirmKey(null);
+      run();
+    } else {
+      setConfirmKey(key);
+    }
   };
 
-  const selectedModelLabel = modelLabels[model] || model;
-
-  // Hero shots first; fallback to all assets with video content, prompts, or images
-  const heroShots = assets.filter((a) => a.hero_shot);
-  const clips = heroShots.length > 0
-    ? heroShots
-    : assets.filter((a) => a.video_clip_url || a.image_prompt || a.image_url);
-
-  const doneCount = clips.filter((a) => getClipStatus(a) === "done").length;
-  const generatingCount = clips.filter((a) => getClipStatus(a) === "generating").length;
-  const pendingCount = clips.filter((a) => getClipStatus(a) === "pending").length;
-  const totalCount = clips.length;
-  const progressPct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
-  const estimatedCost = totalCount * 0.3;
-
-  const handleModelChange = useCallback(async (nextModel: string) => {
-    setModel(nextModel);
-    setSavingModel(true);
-    try {
-      await updateVideoStyles(video.id, { video_model: nextModel });
-      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-    } catch (err) {
-      toast.error(`Failed to update video model: ${(err as Error).message}`);
-      setModel(video.video_model || "grok-imagine");
-    } finally {
-      setSavingModel(false);
-    }
-  }, [queryClient, video.id, video.video_model]);
-
-  const handleGeneratePrompts = useCallback(async () => {
-    setIsGeneratingPrompts(true);
-    try {
-      await runPipelineStage(video.id, "video-scripts");
-      setTaskStage("prompts");
-      setTaskRunning(true);
-    } catch (err: unknown) {
-      const message = (err as Error).message || "";
-      if (message.includes("409")) {
-        try {
-          await clearStaleTask(video.id);
-          await runPipelineStage(video.id, "video-scripts");
-          setTaskStage("prompts");
-          setTaskRunning(true);
-          return;
-        } catch (retryErr) {
-          toast.error(`Prompt generation failed: ${(retryErr as Error).message}`);
-        }
-      } else {
-        toast.error(`Prompt generation failed: ${message}`);
-      }
-      setIsGeneratingPrompts(false);
-    }
-  }, [video.id]);
-
-  const handleGenerateClips = useCallback(async () => {
-    setIsGeneratingClips(true);
-    try {
-      await runPipelineStage(video.id, "video-generation");
-      setTaskStage("clips");
-      setTaskRunning(true);
-    } catch (err: unknown) {
-      const message = (err as Error).message || "";
-      if (message.includes("409")) {
-        try {
-          await clearStaleTask(video.id);
-          await runPipelineStage(video.id, "video-generation");
-          setTaskStage("clips");
-          setTaskRunning(true);
-          return;
-        } catch (retryErr) {
-          toast.error(`Clip generation failed: ${(retryErr as Error).message}`);
-        }
-      } else {
-        toast.error(`Clip generation failed: ${message}`);
-      }
-      setIsGeneratingClips(false);
-      setConfirmGenerate(false);
-    }
-  }, [video.id]);
-
-  const handleAdvanceStage = useCallback(async () => {
-    setAdvancing(true);
-    try {
-      await advanceVideo(video.id);
-      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-      onAdvanced?.();
-    } catch (err) {
-      toast.error(`Advance failed: ${(err as Error).message}`);
-    } finally {
-      setAdvancing(false);
-    }
-  }, [video.id, queryClient, onAdvanced]);
-
-  if (totalCount === 0) {
+  if (cards.length === 0) {
     return (
       <GlassCard className="p-12 text-center">
         <Film size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
         <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
-          No Video Clips Yet
+          Nothing to animate yet
         </p>
-        <p className="text-sm mb-4" style={{ color: "var(--text-tertiary)" }}>
-          Generate video prompts first, then generate clips from hero shots.
+        <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+          Clips bring your final pictures to life — finish the storyboard first and they&apos;ll appear here.
         </p>
-        <ActionButton
-          variant="outline"
-          icon={(isGeneratingPrompts || (taskRunning && taskStage === "prompts")) ? Loader2 : Sparkles}
-          onClick={handleGeneratePrompts}
-          disabled={isGeneratingPrompts || taskRunning}
-        >
-          {(taskRunning && taskStage === "prompts") ? (taskMessage || "Generating...") : isGeneratingPrompts ? "Starting..." : "Generate Video Prompts"}
-        </ActionButton>
       </GlassCard>
     );
   }
 
+  const remainingCost = clipCost(model, pendingCount);
+  const modelLabel = WIRED_MODELS.find((m) => m.id === model)?.label.split(" — ")[0]
+    ?? model;
+
   return (
-    <div className="space-y-4">
-      {/* Top action bar */}
-      <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-        {/* Status row */}
-        <div className="flex items-center gap-4 text-[10px] font-mono mb-3" style={{ color: "var(--text-tertiary)" }}>
-          <span>Clips <strong style={{ color: doneCount === totalCount && totalCount > 0 ? "var(--green)" : "var(--text-secondary)" }}>{doneCount}/{totalCount}</strong></span>
-          <span>Prompts <strong style={{ color: "var(--text-secondary)" }}>{clips.filter(a => a.image_prompt).length}/{totalCount}</strong></span>
-          <span>Pending <strong style={{ color: pendingCount > 0 ? "var(--orange)" : "var(--green)" }}>{pendingCount}</strong></span>
-          <span>Cost <strong style={{ color: "var(--gold)" }}>${estimatedCost.toFixed(2)}</strong></span>
-          <span>
-            <select
-              value={model}
-              onChange={(e) => handleModelChange(e.target.value)}
-              disabled={savingModel}
-              className="bg-transparent text-[10px] font-mono border rounded px-1 py-0.5 cursor-pointer"
-              style={{ color: "var(--text-secondary)", borderColor: "rgba(255,255,255,0.1)" }}
-            >
-              <option value="grok-imagine">Grok Imagine</option>
-              <option value="veo-3.1-fast">Veo 3.1 Fast</option>
-              <option value="veo-3.1-quality">Veo 3.1 Quality</option>
-              <option value="kling-3.0-pro">Kling 3.0 Pro</option>
-              <option value="runway-gen4-turbo">Runway Gen-4 Turbo</option>
-              <option value="hailuo-2.3-standard">Hailuo 2.3 Standard</option>
-            </select>
-          </span>
-        </div>
-        {/* Action buttons row */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleGeneratePrompts}
-            disabled={isGeneratingPrompts || taskRunning}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-            style={{ background: "var(--purple)", color: "var(--bg-void)" }}
-          >
-            {(isGeneratingPrompts || (taskRunning && taskStage === "prompts")) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Sparkles size={12} className="inline mr-1" />}
-            Generate Prompts
-          </button>
-          <button
-            onClick={confirmGenerate ? handleGenerateClips : () => setConfirmGenerate(true)}
-            disabled={isGeneratingClips || taskRunning}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-          >
-            {(isGeneratingClips || (taskRunning && taskStage === "clips")) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Film size={12} className="inline mr-1" />}
-            {confirmGenerate ? `Confirm — $${estimatedCost.toFixed(2)}` : "Generate All Clips"}
-          </button>
-          <StopGenerationButton videoId={video.id} running={taskRunning} />
-          {confirmGenerate && (
-            <button
-              onClick={() => setConfirmGenerate(false)}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all hover:brightness-110"
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              Cancel
-            </button>
+    <div className="space-y-5">
+      {/* ── Status strip — the only chrome ── */}
+      <div className="flex items-center gap-3 rounded-xl px-4 py-3"
+        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+        <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          <strong style={{ color: doneCount === cards.length ? "var(--green)" : "var(--text-primary)" }}>
+            {doneCount} of {cards.length}
+          </strong>{" "}
+          pictures animated
+          {pendingCount > 0 && (
+            <span style={{ color: "var(--text-tertiary)" }}> · ≈ ${remainingCost.toFixed(2)} to finish · {modelLabel}</span>
           )}
-          <div className="flex-1" />
-          <button onClick={handleAdvanceStage} disabled={advancing}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
-            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
-            {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
-            Advance Stage <ChevronRight size={12} />
+        </span>
+        {taskRunning && (
+          <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: "var(--purple)" }}>
+            <Loader2 size={12} className="animate-spin" />
+            {taskKind === "prompts" ? (taskMessage || "Writing motion directions…") : (taskMessage || "Animating…")}
+          </span>
+        )}
+        <div className="flex-1" />
+        {doneCount > 0 && pendingCount > 0 && (
+          <button
+            onClick={() => confirmable("all", remainingCost, animateAll)}
+            disabled={taskRunning}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 transition-all hover:brightness-110"
+            style={{ background: confirmKey === "all" ? "var(--gold)" : "var(--turquoise)", color: "var(--bg-void)" }}
+          >
+            {confirmKey === "all" ? `Confirm — $${remainingCost.toFixed(2)}` : "Animate the rest"}
           </button>
+        )}
+        {confirmKey === "all" && (
+          <button onClick={() => setConfirmKey(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+            Cancel
+          </button>
+        )}
+        <StopGenerationButton videoId={video.id} running={taskRunning} />
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Advanced options"
+            className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-8 z-30 w-64 rounded-xl p-2 space-y-1"
+              style={{ background: "var(--bg-elevated)", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }}>
+              <p className="px-2 pt-1 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                Clip model
+              </p>
+              {WIRED_MODELS.map((m) => (
+                <button key={m.id}
+                  onClick={() => { handleModelChange(m.id); setMenuOpen(false); }}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 flex items-center gap-2"
+                  style={{ color: model === m.id ? "var(--turquoise)" : "var(--text-secondary)" }}>
+                  {model === m.id ? <Check size={12} /> : <span className="w-3" />}
+                  {m.label}
+                </button>
+              ))}
+              {COMING_SOON_MODELS.map((label) => (
+                <div key={label} className="px-2 py-1.5 text-xs flex items-center gap-2 opacity-40 cursor-not-allowed"
+                  style={{ color: "var(--text-tertiary)" }}>
+                  <span className="w-3" />{label} — coming soon
+                </div>
+              ))}
+              <div className="border-t my-1" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  setTaskKind("prompts");
+                  runPipelineStage(video.id, "video-scripts").then(() => setTaskRunning(true))
+                    .catch((e) => toast.error((e as Error).message));
+                }}
+                disabled={taskRunning}
+                className="w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 disabled:opacity-40 flex items-center gap-2"
+                style={{ color: "var(--text-secondary)" }}>
+                <Sparkles size={12} /> Re-write motion directions
+              </button>
+              <button
+                onClick={() => { setShowMotionPrompt((v) => !v); setMenuOpen(false); }}
+                className="w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 flex items-center gap-2"
+                style={{ color: "var(--text-secondary)" }}>
+                <Film size={12} /> {showMotionPrompt ? "Hide" : "Edit"} motion instructions
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Video Motion System Prompt */}
-      <SystemPromptEditor
-        label="Video Motion System Prompt"
-        currentValue={video.video_motion_system_prompt}
-        onSave={async (text) => {
-          await updateVideo(video.id, { video_motion_system_prompt: text || null });
-          queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-        }}
-        onReset={async () => {
-          const res = await getDefaultVideoMotionPrompt();
-          await updateVideo(video.id, { video_motion_system_prompt: null });
-          queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-          return res.prompt;
-        }}
-      />
+      {showMotionPrompt && (
+        <SystemPromptEditor
+          label="Video Motion System Prompt"
+          currentValue={video.video_motion_system_prompt}
+          onSave={async (text) => {
+            await updateVideo(video.id, { video_motion_system_prompt: text || null });
+            queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+          }}
+          onReset={async () => {
+            const res = await getDefaultVideoMotionPrompt();
+            await updateVideo(video.id, { video_motion_system_prompt: null });
+            queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+            return res.prompt;
+          }}
+        />
+      )}
 
-    <div className="grid grid-cols-1 gap-6">
-      {/* Clip grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {clips.map((asset, idx) => {
-          const status = getClipStatus(asset);
-          const cfg = STATUS_CONFIG[status];
-          // Use scene + image_index for display label
-          const sceneNum = asset.scene ?? 0;
-          const imageIdx = asset.image_index ?? (idx + 1);
-
-          return (
-            <GlassCard key={asset.id} className="p-0 overflow-hidden">
-              {/* Video/image placeholder */}
-              <div
-                className="aspect-video relative flex items-center justify-center"
-                style={{ background: "var(--bg-elevated)" }}
-              >
-                {asset.image_url && status !== "done" && (
-                  <img
-                    src={asset.image_url}
-                    alt={`Scene ${sceneNum}`}
-                    className="absolute inset-0 w-full h-full object-cover opacity-60"
-                  />
-                )}
-
-                {status === "done" && asset.video_clip_url && (
-                  <video
-                    src={asset.video_clip_url}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    muted
-                    loop
-                    playsInline
-                    onMouseEnter={(e) => (e.target as HTMLVideoElement).play()}
-                    onMouseLeave={(e) => {
-                      const v = e.target as HTMLVideoElement;
-                      v.pause();
-                      v.currentTime = 0;
-                    }}
-                  />
-                )}
-
-                {!asset.image_url && status !== "done" && (
-                  <svg className="absolute inset-0 w-full h-full opacity-10">
-                    <defs>
-                      <pattern
-                        id={`vc-grid-${asset.id}`}
-                        width="30"
-                        height="30"
-                        patternUnits="userSpaceOnUse"
-                      >
-                        <path d="M 30 0 L 0 0 0 30" fill="none" stroke="var(--purple)" strokeWidth="0.5" />
-                      </pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill={`url(#vc-grid-${asset.id})`} />
-                  </svg>
-                )}
-
-                {status === "done" && (
-                  <div
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center z-10"
-                    style={{ background: "rgba(0, 230, 138, 0.2)", color: "var(--green)" }}
-                  >
-                    <Check size={14} />
-                  </div>
-                )}
-
-                {status === "generating" && (
-                  <motion.div
-                    className="absolute inset-0 z-10 flex items-center justify-center"
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  >
-                    <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center"
-                      style={{ background: "rgba(139, 92, 246, 0.25)" }}
-                    >
-                      <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
-                    </div>
-                  </motion.div>
-                )}
-
-                {status === "pending" && !asset.image_url && (
-                  <Film size={28} style={{ color: "var(--text-tertiary)", opacity: 0.3 }} />
-                )}
-
-                {status === "done" && (
+      {/* ── Scene groups ── */}
+      {sceneGroups.map(([scene, sceneAssets]) => {
+        const scenePending = sceneAssets.filter((a) => !a.video_clip_url);
+        const sceneCost = clipCost(model, scenePending.length);
+        const sceneKey = `scene-${scene}`;
+        return (
+          <section key={scene}>
+            <div className="flex items-center gap-3 mb-3">
+              <h3 className="text-sm font-display" style={{ color: "var(--text-primary)" }}>
+                Scene {scene}
+              </h3>
+              <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                {sceneAssets.length - scenePending.length} of {sceneAssets.length} animated
+              </span>
+              <div className="flex-1" />
+              {scenePending.length > 0 && (
+                <>
+                  {confirmKey === sceneKey && (
+                    <button onClick={() => setConfirmKey(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                      Cancel
+                    </button>
+                  )}
                   <button
-                    className="absolute inset-0 flex items-center justify-center z-10 opacity-0 hover:opacity-100 transition-opacity"
-                    style={{ background: "rgba(0,0,0,0.5)" }}
+                    onClick={() => confirmable(sceneKey, sceneCost, () => animateScene(scene, scenePending.map((a) => a.id)))}
+                    disabled={taskRunning}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-40 transition-all hover:bg-white/5"
+                    style={confirmKey === sceneKey
+                      ? { background: "var(--gold)", color: "var(--bg-void)" }
+                      : { border: "1px solid rgba(255,255,255,0.15)", color: "var(--text-secondary)" }}
                   >
-                    <Play size={32} style={{ color: "white" }} />
+                    {confirmKey === sceneKey
+                      ? `Confirm — $${sceneCost.toFixed(2)}`
+                      : `Animate this scene · $${sceneCost.toFixed(2)}`}
                   </button>
-                )}
-              </div>
+                </>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {sceneAssets.map((asset) => (
+                <ClipCard
+                  key={asset.id}
+                  asset={asset}
+                  speaker={speakerFor(asset)}
+                  perClip={perClip}
+                  isGenerating={generatingIds.has(asset.id) && taskRunning}
+                  isFailed={failedIds.has(asset.id)}
+                  isPlaying={playingId === asset.id}
+                  onTap={() => {
+                    if (asset.video_clip_url) setPlayingId((p) => (p === asset.id ? null : asset.id));
+                    else animateOne(asset);
+                  }}
+                  onRedo={() => animateOne(asset, true)}
+                  onDelete={() => removeClip(asset)}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
 
-              {/* Info */}
-              <div className="p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <SegmentBadge
-                    label={`S-${String(sceneNum).padStart(2, "0")}.${imageIdx}`}
-                    color={status === "generating" ? "var(--purple)" : undefined}
-                  />
-                  <StatusPill
-                    label={cfg.label}
-                    color={cfg.color}
-                    pulse={status === "generating"}
-                  />
-                </div>
-                <p
-                  className="text-[11px] leading-relaxed line-clamp-2"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  {asset.sentence_text || asset.image_prompt || "No prompt"}
-                </p>
-              </div>
-            </GlassCard>
-          );
-        })}
+function ClipCard({ asset, speaker, perClip, isGenerating, isFailed, isPlaying, onTap, onRedo, onDelete }: {
+  asset: Asset;
+  speaker: string | null;
+  perClip: number;
+  isGenerating: boolean;
+  isFailed: boolean;
+  isPlaying: boolean;
+  onTap: () => void;
+  onRedo: () => void;
+  onDelete: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const done = Boolean(asset.video_clip_url);
+  const label = `S-${String(asset.scene ?? 0).padStart(2, "0")}.${asset.image_index ?? 0}`;
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (isPlaying) v.play().catch(() => undefined);
+    else { v.pause(); v.currentTime = 0; }
+  }, [isPlaying]);
+
+  return (
+    <GlassCard
+      className="p-0 overflow-hidden group cursor-pointer"
+      style={isFailed ? { border: "1px solid rgba(255,90,90,0.5)" } : undefined}
+      onClick={onTap}
+    >
+      <div className="aspect-video relative flex items-center justify-center" style={{ background: "var(--bg-elevated)" }}>
+        {done ? (
+          <video
+            ref={videoRef}
+            src={toDisplayImageUrl(asset.video_clip_url) ?? undefined}
+            poster={toDisplayImageUrl(asset.image_url) ?? undefined}
+            preload="none"
+            playsInline
+            loop
+            className="absolute inset-0 w-full h-full object-cover"
+            onEnded={() => undefined}
+          />
+        ) : (
+          asset.image_url && (
+            <img
+              src={toDisplayImageUrl(asset.image_url)}
+              alt={label}
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ opacity: isGenerating ? 0.4 : 0.85 }}
+            />
+          )
+        )}
+
+        {/* Dialogue badge — this picture will SPEAK */}
+        {speaker && (
+          <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium"
+            style={{ background: "rgba(0,0,0,0.55)", color: "var(--turquoise)", backdropFilter: "blur(4px)" }}>
+            <MessageCircle size={10} /> {speaker}
+          </span>
+        )}
+
+        {/* State overlays */}
+        {isGenerating && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2">
+            <Loader2 size={22} className="animate-spin" style={{ color: "var(--purple)" }} />
+            <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>Bringing it to life…</span>
+          </div>
+        )}
+        {isFailed && !isGenerating && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2" style={{ background: "rgba(40,0,0,0.45)" }}>
+            <AlertTriangle size={18} style={{ color: "rgb(255,120,120)" }} />
+            <span className="px-2 py-1 rounded-md text-[11px] font-semibold" style={{ background: "rgba(255,90,90,0.9)", color: "white" }}>
+              Try again
+            </span>
+          </div>
+        )}
+        {!done && !isGenerating && !isFailed && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ background: "rgba(0,0,0,0.45)" }}>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+              <Play size={12} /> Animate · ${perClip.toFixed(2)}
+            </span>
+          </div>
+        )}
+        {done && !isPlaying && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ background: "rgba(0,0,0,0.35)" }}>
+            <Play size={28} style={{ color: "white" }} />
+          </div>
+        )}
+        {done && isPlaying && (
+          <div className="absolute bottom-2 left-2 z-10">
+            <Pause size={16} style={{ color: "white", opacity: 0.8 }} />
+          </div>
+        )}
+
+        {/* Done check + hover actions (same pattern as storyboard cards) */}
+        {done && !isGenerating && (
+          <>
+            <div className="absolute top-2 right-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={(e) => { e.stopPropagation(); onRedo(); }}
+                title={`Redo this clip · $${perClip.toFixed(2)}`}
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:brightness-125"
+                style={{ background: "rgba(0,0,0,0.6)", color: "var(--text-secondary)" }}
+              >
+                <RotateCcw size={13} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                title="Remove this clip (keeps the picture)"
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:brightness-125"
+                style={{ background: "rgba(0,0,0,0.6)", color: "rgb(255,120,120)" }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full flex items-center justify-center group-hover:opacity-0 transition-opacity"
+              style={{ background: "rgba(0, 230, 138, 0.2)", color: "var(--green)" }}>
+              <Check size={14} />
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Sidebar removed — all controls in top bar */}
-    </div>
-    </div>
+      <div className="p-3">
+        <div className="flex items-center gap-2 mb-1.5">
+          <SegmentBadge label={label} />
+        </div>
+        <p className="text-[11px] leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
+          {asset.sentence_text || asset.video_prompt || "—"}
+        </p>
+      </div>
+    </GlassCard>
   );
 }

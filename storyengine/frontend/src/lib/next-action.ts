@@ -45,6 +45,22 @@ export interface NextActionInputs {
   extractedCount?: number;
   /** Total asset rows (picture slots) */
   totalSegments?: number;
+  /** Asset rows that already have a motion clip */
+  clipsDone?: number;
+  /** Asset rows that can be animated (have a final picture) */
+  clipsTotal?: number;
+}
+
+/** Real per-clip price by model — the single source for every cost label.
+ * (The old tab hardcoded $0.30×86=$25.80 — Veo pricing shown for Grok runs.) */
+export const CLIP_COST_PER_MODEL: Record<string, number> = {
+  "grok-imagine": 0.10,
+  "veo-3.1-fast": 0.30,
+  "veo-3.1-quality": 1.25,
+};
+
+export function clipCost(model: string | null | undefined, count: number): number {
+  return (CLIP_COST_PER_MODEL[model || "grok-imagine"] ?? 0.10) * count;
 }
 
 export function getNextAction(i: NextActionInputs): NextAction {
@@ -145,14 +161,32 @@ export function getNextAction(i: NextActionInputs): NextAction {
       description: "Your pictures didn't all finish — this picks up where it left off and only makes the missing ones.", cost: "≈ $0.03 per picture" };
   }
 
-  // 8. Clips
-  if (!at("ready_for_video_generation") && (status === "ready_for_sound_design" || status === "ready_for_video_scripts")) {
-    return { key: "clip-prompts", label: "Plan your video clips", step: 8, tab: "clips", kind: "run", stage: "video-scripts",
-      description: "We write motion directions for every picture." };
-  }
-  if (status === "ready_for_video_generation") {
-    return { key: "clips", label: "Create your video clips", step: 8, tab: "clips", kind: "review",
-      description: "This is the big spend — you'll see the exact price and confirm before anything runs.", cost: "$6–12" };
+  // 8. Clips — the trust ladder. Motion prompts are silent plumbing (the
+  // clips tab auto-runs them on arrival); the banner walks the three rungs:
+  // taste-test scene 1 → animate the rest → done.
+  const inClipsRegion = ["ready_for_sound_design", "ready_for_video_scripts", "ready_for_video_generation"].includes(status);
+  if (inClipsRegion) {
+    const clipsTotal = i.clipsTotal ?? 0;
+    const clipsDone = i.clipsDone ?? 0;
+    const perClip = clipCost(v.video_model, 1);
+    if (clipsTotal > 0 && clipsDone === 0) {
+      return { key: "clips-taste", label: "Animate scene 1", step: 8, tab: "clips", kind: "review",
+        description: "Tap any picture on the Clips tab to bring it to life — start with scene 1 and make sure the motion feels right before animating everything.",
+        cost: `≈ $${perClip.toFixed(2)} per clip` };
+    }
+    if (clipsTotal > 0 && clipsDone < clipsTotal) {
+      const left = clipsTotal - clipsDone;
+      return { key: "clips-rest", label: "Animate the rest", step: 8, tab: "clips", kind: "review",
+        description: `${left} picture${left === 1 ? "" : "s"} still need${left === 1 ? "s" : ""} motion. Happy with how it moves? Finish the set — you'll see the exact price and confirm first.`,
+        cost: `≈ $${clipCost(v.video_model, left).toFixed(2)}` };
+    }
+    if (clipsTotal > 0) {
+      return { key: "thumbnail", label: "Create your thumbnail", step: 9, tab: "thumbnail", kind: "run", stage: "thumbnail",
+        description: "Every picture is animated. Next: the cover image people click on.", cost: "≈ $0.08" };
+    }
+    // No animatable pictures at all — recovery path back to finals.
+    return { key: "extract", label: "Finish making your pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",
+      description: "Clips animate your final pictures, but none exist yet — this creates them.", cost: "≈ $0.03 per picture" };
   }
 
   // 9. Sound + thumbnail

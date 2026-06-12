@@ -1174,11 +1174,31 @@ export interface Asset {
   hero_shot: boolean;
   sentence_text: string | null;
   video_clip_url: string | null;
+  video_prompt: string | null;
   sound_prompt: string | null;
   sound_effect_url: string | null;
   sound_volume: number | null;
   created_at: string | null;
 }
+
+export interface DialogueMapSegment {
+  type: "narration" | "dialogue";
+  speaker?: string | null;
+  text: string;
+  duration?: number | null;
+  voiced: boolean;
+}
+
+export interface DialogueMap {
+  dialogue_mode: string | null;
+  scenes: { scene: number; segments: DialogueMapSegment[] }[];
+}
+
+export const getDialogueMap = (videoId: string) =>
+  fetchApi<DialogueMap>(`/api/videos/${videoId}/dialogue-map`);
+
+export const deleteClip = (videoId: string, assetId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/clips/${assetId}`, { method: "DELETE" });
 
 export interface ImageVariant {
   id: string;

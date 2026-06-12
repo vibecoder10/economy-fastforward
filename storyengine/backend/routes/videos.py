@@ -409,7 +409,7 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
     rows = await fetch_all(
         """SELECT id, video_id, scene, image_index, image_url, image_prompt,
                   status, shot_type, hero_shot, sentence_text, video_clip_url,
-                  sound_prompt, sound_effect_url, sound_volume,
+                  video_prompt, sound_prompt, sound_effect_url, sound_volume,
                   duration_seconds,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
@@ -1110,6 +1110,76 @@ async def tag_dialogue(video_id: str, tenant_id=Depends(get_tenant_id)):
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{video_id}/dialogue-map")
+async def get_dialogue_map(video_id: str, tenant_id=Depends(get_tenant_id)):
+    """Per-scene dialogue timeline for UI badges (💬 who speaks where).
+
+    Returns scenes with their dialogue_segments (text/speaker/duration only —
+    audio URLs stay server-side; the animatic fetches audio via the proxy).
+    """
+    import json as _json
+    video = await fetch_one(
+        "SELECT dialogue_mode FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if (video.get("dialogue_mode") or "") != "character_dialogue":
+        return {"dialogue_mode": video.get("dialogue_mode"), "scenes": []}
+    rows = await fetch_all(
+        "SELECT scene, dialogue_segments FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
+        video_id, tenant_id,
+    )
+    scenes = []
+    for r in rows:
+        raw = r.get("dialogue_segments")
+        if isinstance(raw, str):
+            try:
+                raw = _json.loads(raw)
+            except ValueError:
+                raw = None
+        if not raw:
+            continue
+        scenes.append({
+            "scene": r["scene"],
+            "segments": [
+                {"type": s.get("type"), "speaker": s.get("speaker"),
+                 "text": s.get("text"), "duration": s.get("duration"),
+                 "voiced": bool(s.get("audio_url"))}
+                for s in raw
+            ],
+        })
+    return {"dialogue_mode": "character_dialogue", "scenes": scenes}
+
+
+@router.delete("/{video_id}/clips/{asset_id}")
+async def delete_clip(video_id: str, asset_id: str, tenant_id=Depends(get_tenant_id)):
+    """Remove ONE clip (the card's hover-X): clears video_clip_url so the card
+    returns to its still picture, and trashes the Drive copy so the folder
+    matches the screen. The picture and motion prompt are untouched."""
+    row = await fetch_one(
+        "SELECT video_clip_url FROM assets WHERE id = $1 AND video_id = $2 AND tenant_id = $3",
+        asset_id, video_id, tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    url = row.get("video_clip_url") or ""
+    # SECURITY: tenant ownership verified above; id+tenant repeated in WHERE
+    await execute(
+        "UPDATE assets SET video_clip_url = NULL, video_duration = NULL, updated_at = now() "
+        "WHERE id = $1 AND tenant_id = $2",
+        asset_id, tenant_id,
+    )
+    m = re.search(r"[?&]id=([\w-]+)", url) or re.search(r"/d/([\w-]+)", url)
+    if m:
+        try:
+            from routes.media import _drive_service
+            _drive_service().files().update(fileId=m.group(1), body={"trashed": True}).execute()
+        except Exception as e:
+            logger.warning("clip Drive trash failed for %s: %s", asset_id, str(e)[:120])
+    return {"status": "deleted", "asset_id": asset_id}
 
 
 @router.get("/defaults/video-motion-prompt")
