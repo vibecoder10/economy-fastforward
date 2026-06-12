@@ -11,7 +11,7 @@ import tempfile
 import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.modules.setdefault("database", types.SimpleNamespace(fetch_all=None))
+sys.modules.setdefault("database", types.SimpleNamespace(fetch_all=None, fetch_one=None, execute=None))
 
 import asyncio  # noqa: E402
 from clip_dialogue import norm, match_lines, speaking_prompt, strip_audio  # noqa: E402
