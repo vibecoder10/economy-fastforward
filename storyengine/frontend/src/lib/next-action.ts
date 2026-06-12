@@ -9,7 +9,8 @@ import type { VideoDetail } from "@/lib/api";
  *  - "run":    clicking triggers a pipeline stage directly
  *  - "design": clicking triggers character design
  *  - "review": a human decision — clicking navigates to the tab where the
- *              decision lives (approve / lock / confirm-cost flows)
+ *              decision lives (approve / confirm-cost flows)
+ *  - "lock":   clicking locks the story (confirm built into the banner)
  *  - "celebrate": nothing left to do
  */
 export interface NextAction {
@@ -22,7 +23,7 @@ export interface NextAction {
   cost?: string;
   /** Tab id on the video page this action belongs to */
   tab: string;
-  kind: "run" | "design" | "review" | "celebrate";
+  kind: "run" | "design" | "review" | "lock" | "celebrate";
   /** Pipeline stage for runPipelineStage() when kind === "run" */
   stage?: string;
   /** 1-based step number for "Step X of 10" */
@@ -117,8 +118,18 @@ export function getNextAction(i: NextActionInputs): NextAction {
 
   // 7. Lock + finals
   if (!v.story_locked_at && !at("ready_for_sound_design")) {
-    return { key: "lock", label: "Review boards, then lock", step: 7, tab: "storyboard-visuals", kind: "review",
-      description: "Look at every board. Redo any you don't love. When it's right, hit Lock Story." };
+    // You can't lock a story you haven't seen: if boards were skipped past or
+    // deleted, route back to creating them — never offer a zero-board lock.
+    if (i.scenesWithGrids === 0) {
+      return { key: "grids", label: "Create your storyboard", step: 6, tab: "storyboard-visuals", kind: "run", stage: "storyboard-images",
+        description: "Cheap preview boards — redo any board until the story feels right.", cost: "≈ $0.08 per board" };
+    }
+    if (i.totalScenes > 0 && i.scenesWithGrids < i.totalScenes) {
+      return { key: "finish-grids", label: "Finish your storyboard", step: 6, tab: "storyboard-visuals", kind: "run", stage: "storyboard-images",
+        description: `${i.totalScenes - i.scenesWithGrids} scene(s) still need boards — this only creates the missing ones.`, cost: "≈ $0.08 per board" };
+    }
+    return { key: "lock", label: "Lock the story", step: 7, tab: "storyboard-visuals", kind: "lock",
+      description: "Look at every board below — redo any you don't love. Locking means you're happy and ready for the final pictures." };
   }
   if (!at("ready_for_sound_design") && (status === "ready_for_storyboard_extraction" || status === "ready_for_images")) {
     return { key: "extract", label: "Create the final pictures", step: 7, tab: "storyboard-visuals", kind: "run", stage: "storyboard-extract",

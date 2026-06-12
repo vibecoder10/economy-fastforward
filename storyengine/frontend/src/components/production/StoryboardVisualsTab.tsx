@@ -1,31 +1,24 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import {
-  Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
-  Lock, Unlock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors, X, ChevronRight,
+  Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2,
+  Lock, Unlock, ArrowLeft, Layers, X, MoreHorizontal,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
-import { StatusPill } from "@/components/ui/StatusPill";
-import { MiniWaveform } from "@/components/ui/MiniWaveform";
-import { ProgressRing } from "@/components/ui/ProgressRing";
-import { FilterSelect } from "@/components/ui/FilterSelect";
-import { ActionButton } from "@/components/ui/ActionButton";
 import { PromptExpander } from "@/components/video-detail/prompt-expander";
 import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
   clearStoryboardSlot, clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
-  getAudioToken, advanceVideo, lockStory, unlockStory,
+  getAudioToken, advanceVideo, unlockStory,
 } from "@/lib/api";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useTaskWatcher } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
-import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
-import { StopGenerationButton } from "@/components/production/StopGenerationButton";
+import type { VideoDetail } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
 
 /** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
@@ -127,34 +120,17 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
     return scriptScenes.some((scene) => !!scene.voice_over_url);
   }, [scriptScenes]);
 
-  // --- Storyboard mode toggle ---
-  const [storyboardMode, setStoryboardMode] = useState(false);
-  const [togglingStoryboard, setTogglingStoryboard] = useState(false);
-
+  // Storyboarding is MANDATORY (Creator Control Run, phase 3): boards are the
+  // only path to image spend. Persist mode=On so the backend scripts rows agree.
+  const storyboardMode = true;
   useEffect(() => {
-    // Storyboarding is MANDATORY (Creator Control Run, phase 3): boards are
-    // the only path to image spend. Force mode on and persist it so the
-    // backend scripts rows agree.
     if (scriptScenes && scriptScenes.length > 0) {
-      setStoryboardMode(true);
       const anyOff = scriptScenes.some((s) => s.storyboard_on_off !== "On");
       if (anyOff) {
         updateStoryboardMode(video.id, true).catch(() => { /* best-effort */ });
       }
     }
   }, [scriptScenes, video.id]);
-
-  const handleToggleStoryboard = useCallback(async () => {
-    setTogglingStoryboard(true);
-    try {
-      const newMode = !storyboardMode;
-      await updateStoryboardMode(video.id, newMode);
-      setStoryboardMode(newMode);
-      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
-    } finally {
-      setTogglingStoryboard(false);
-    }
-  }, [storyboardMode, video.id, queryClient]);
 
   // --- Compute scene groups ---
   const computedScenes = useMemo<SceneGroup[]>(() => {
@@ -215,11 +191,8 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
   const [scenes, setScenes] = useState<SceneGroup[]>([]);
   const [regeneratingSegment, setRegeneratingSegment] = useState<string | null>(null);
   const [variantsSegment, setVariantsSegment] = useState<string | null>(null);
-  const [generatingAll, setGeneratingAll] = useState(false);
-  const [generatingPrompts, setGeneratingPrompts] = useState(false);
   const [model, setModel] = useState(video.image_model_override || "nano-banana-2");
   const [savingModel, setSavingModel] = useState(false);
-  const [taskRunning, setTaskRunning] = useState(false);
   const [generatingScene, setGeneratingScene] = useState<number | null>(null);
   const [clearingScene, setClearingScene] = useState<number | null>(null);
   const [clearingAllStoryboards, setClearingAllStoryboards] = useState(false);
@@ -227,35 +200,72 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
   const [uploadingGrid, setUploadingGrid] = useState<string | null>(null); // "scene-beat"
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [clearingSlot, setClearingSlot] = useState<string | null>(null); // "scene-beat"
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // Replacing a board reuses the same Drive file (same URL) — bump a cache
   // key per slot so the <img> actually refetches the new pixels.
   const [gridBust, setGridBust] = useState<Record<string, number>>({});
 
-  const { message: taskMessage } = useTaskPoller({
+  // Per-scene auto-chain: "rewrite & redraw" needs two stages back-to-back
+  // (storyboards → storyboard-images). The watcher fires the next stage when
+  // the previous one completes, so one click does the whole scene.
+  const chainRef = useRef<{ scene: number; stages: string[] } | null>(null);
+
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+  }, [queryClient, video.id]);
+
+  const { running: taskRunning, message: taskMessage, markStarted } = useTaskWatcher({
     videoId: video.id,
-    enabled: taskRunning,
-    interval: 3000,
     onProgress: () => {
       // Refresh assets on every poll tick so extracted panels appear live
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     },
-    onComplete: () => {
-      setTaskRunning(false);
-      setGeneratingAll(false);
-      setGeneratingPrompts(false);
+    onComplete: async () => {
+      const chain = chainRef.current;
+      if (chain && chain.stages.length > 0) {
+        const nextStage = chain.stages.shift()!;
+        try {
+          queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+          try {
+            await runPipelineStage(video.id, nextStage, { scene: chain.scene });
+          } catch (err) {
+            if (!((err as Error).message || "").includes("409")) throw err;
+            await clearStaleTask(video.id);
+            await runPipelineStage(video.id, nextStage, { scene: chain.scene });
+          }
+          markStarted();
+          return;
+        } catch (err) {
+          chainRef.current = null;
+          toast.error(`Scene ${chain.scene} couldn't continue: ${(err as Error).message}`);
+        }
+      }
+      chainRef.current = null;
       setGeneratingScene(null);
-      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      refreshAll();
     },
-    onFailed: (error) => {
-      setTaskRunning(false);
-      setGeneratingAll(false);
-      setGeneratingPrompts(false);
+    onFailed: () => {
+      // The page banner shows the persistent failure card — no duplicate toast.
+      chainRef.current = null;
       setGeneratingScene(null);
-      toast.error(`Generation failed: ${error}`);
+      refreshAll();
     },
   });
+
+  // Stop must also stand down any queued chain stage: a cancelled task reads
+  // as "completed" to pollers, which would otherwise fire the next stage.
+  useEffect(() => {
+    const onStop = (e: Event) => {
+      if ((e as CustomEvent).detail?.videoId === video.id) {
+        chainRef.current = null;
+        setGeneratingScene(null);
+      }
+    };
+    window.addEventListener("se:stop-requested", onStop);
+    return () => window.removeEventListener("se:stop-requested", onStop);
+  }, [video.id]);
 
   useEffect(() => {
     if (computedScenes.length === 0) {
@@ -286,16 +296,6 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
   }, [video.image_model_override]);
 
   const totalSegments = scenes.reduce((sum, s) => sum + s.segments.length, 0);
-  const doneSegments = scenes.reduce(
-    (sum, s) => sum + s.segments.filter((seg) => seg.status === "done").length,
-    0,
-  );
-  const promptReadySegments = scenes.reduce(
-    (sum, s) => sum + s.segments.filter((seg) => seg.imagePrompt.trim().length > 0).length,
-    0,
-  );
-  const storyboardPromptScenes = scenes.filter((s) => s.hasStoryboardPrompt).length;
-  const storyboardReadyScenes = scenes.filter((s) => !!s.storyboardStatus).length;
   const storyboardGridsDone = scenes.length > 0 && scenes.every((s) => s.storyboardGridCount >= (s.storyboardBeatCount || 1));
   const storyboardScenesWithData = scenes.filter((s) => s.hasStoryboardData).length;
   const extractedSegments = scenes.reduce(
@@ -307,12 +307,6 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
     0,
   );
   const needsUpscale = extractedSegments > 0 && (extractedSegments - upscaledSegments) > 2;
-  const pendingSegments = totalSegments - doneSegments;
-  const missingPromptSegments = totalSegments - promptReadySegments;
-  const hasStoryBible = !!(video.story_bible && video.story_bible.trim().length > 0);
-  const storyboardPrereqsMet = totalSegments > 0 && missingPromptSegments === 0;
-  const estimatedCostDone = doneSegments * 0.025;
-  const estimatedCostTotal = totalSegments * 0.025;
 
   const updatePrompt = (segId: string, newPrompt: string) => {
     setScenes((prev) =>
@@ -359,9 +353,28 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
     }
   }, [video.id, queryClient]);
 
-  const handleClearSceneStoryboard = useCallback(async (sceneNumber: number) => {
+  const runStageWith409Retry = useCallback(async (stage: string, params?: Record<string, string | number>) => {
+    try {
+      await runPipelineStage(video.id, stage, params);
+      markStarted();
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        await clearStaleTask(video.id);
+        await runPipelineStage(video.id, stage, params);
+        markStarted();
+        return;
+      }
+      throw err;
+    }
+  }, [video.id, markStarted]);
+
+  // "Start scene over": wipe the scene's plan + pictures, then automatically
+  // rebuild both (plan → pictures) in one click. Before this existed, clearing
+  // left the scene with no prompts and a confusing dead end.
+  const handleRedoSceneFromScratch = useCallback(async (sceneNumber: number) => {
     const confirmed = window.confirm(
-      `Start Scene ${sceneNumber} over? This deletes the scene's storyboard images AND its prompts (full redo).\n\nTo remove just one picture, hover it and click the X instead.`
+      `Start Scene ${sceneNumber} over? We'll throw away its plan and pictures, write a fresh plan, and draw new pictures (≈ $0.08 each).\n\nTo redo just the pictures, use "Redo pictures". To remove one picture, hover it and click the X.`
     );
     if (!confirmed) return;
 
@@ -379,22 +392,62 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                 storyboardGridCount: 0,
                 hasStoryboardPrompt: false,
                 hasStoryboardData: false,
+                storyboardBeats: [],
               }
             : scene,
         ),
       );
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["video-script", video.id] }),
-        queryClient.invalidateQueries({ queryKey: ["video", video.id] }),
-      ]);
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+      // Plan first, pictures chained after it completes.
+      chainRef.current = { scene: sceneNumber, stages: ["storyboard-images"] };
+      setGeneratingScene(sceneNumber);
+      await runStageWith409Retry("storyboards", { scene: sceneNumber });
+    } catch (err) {
+      chainRef.current = null;
+      setGeneratingScene(null);
+      toast.error(`Couldn't restart Scene ${sceneNumber}: ${(err as Error).message}`);
     } finally {
       setClearingScene(null);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, toast, runStageWith409Retry]);
+
+  // "Redo pictures": keep the scene's plan, replace its pictures.
+  const handleRedoScenePictures = useCallback(async (sceneNumber: number) => {
+    const scene = scenes.find((s) => s.sceneNumber === sceneNumber);
+    const boardCount = scene?.storyboardBeats.filter((b) => b.gridUrl).length || 0;
+    const confirmed = window.confirm(
+      `Redo Scene ${sceneNumber}'s pictures? The current ${boardCount === 1 ? "picture" : `${boardCount} pictures`} will be replaced (≈ $0.08 each). The scene's plan stays the same.`
+    );
+    if (!confirmed) return;
+
+    setGeneratingScene(sceneNumber);
+    try {
+      for (const beat of scene?.storyboardBeats || []) {
+        if (beat.gridUrl) {
+          await clearStoryboardSlot(video.id, sceneNumber, beat.beatNumber);
+        }
+      }
+      setScenes((prev) =>
+        prev.map((s) =>
+          s.sceneNumber === sceneNumber
+            ? {
+                ...s,
+                storyboardGridCount: 0,
+                storyboardBeats: s.storyboardBeats.map((b) => ({ ...b, gridUrl: null })),
+              }
+            : s,
+        ),
+      );
+      await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
+    } catch (err) {
+      setGeneratingScene(null);
+      toast.error(`Couldn't redo Scene ${sceneNumber}'s pictures: ${(err as Error).message}`);
+    }
+  }, [video.id, scenes, toast, runStageWith409Retry]);
 
   const handleClearAllStoryboards = useCallback(async () => {
     const confirmed = window.confirm(
-      "Clear all storyboard prompts and storyboard grids for this video? This will keep your sentence image prompts intact.",
+      "Start the storyboard over? Every board and every scene plan gets thrown away. Your script and voice stay. You\u2019ll rebuild from the big button at the top.",
     );
     if (!confirmed) return;
 
@@ -422,7 +475,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
   }, [video.id, queryClient]);
 
   const handleClearAllExtracted = useCallback(async () => {
-    const confirmed = window.confirm("Clear all extracted panel images? The segment rows and prompts will be preserved.");
+    const confirmed = window.confirm("Delete all the final pictures? Your storyboards stay \u2014 you can create the final pictures again afterwards.");
     if (!confirmed) return;
 
     setClearingExtracted(true);
@@ -520,78 +573,9 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
     }
   }, [video.id, queryClient]);
 
-  const runStageWith409Retry = useCallback(async (stage: string, params?: Record<string, string | number>) => {
-    try {
-      await runPipelineStage(video.id, stage, params);
-      setTaskRunning(true);
-    } catch (err: unknown) {
-      const message = (err as Error).message || "";
-      if (message.includes("409")) {
-        try {
-          await clearStaleTask(video.id);
-          await runPipelineStage(video.id, stage, params);
-          setTaskRunning(true);
-          return;
-        } catch (retryErr) {
-          throw retryErr;
-        }
-      }
-      throw err;
-    }
-  }, [video.id]);
-
-  const handleGenerateAllPrompts = useCallback(async () => {
-    setGeneratingPrompts(true);
-    const stage = storyboardMode
-      ? (!hasStoryBible ? "story-bible" : (storyboardPrereqsMet ? "storyboards" : "prompts"))
-      : "prompts";
-    const label =
-      stage === "story-bible"
-        ? "Story Bible generation"
-        : stage === "storyboards"
-          ? "Storyboard prompt generation"
-          : "Image prompt generation";
-    try {
-      await runStageWith409Retry(stage);
-    } catch (err: unknown) {
-      toast.error(`${label} failed: ${(err as Error).message}`);
-      setGeneratingPrompts(false);
-    }
-  }, [runStageWith409Retry, storyboardMode, storyboardPrereqsMet, hasStoryBible]);
-
-  const handleGenerateAllImages = useCallback(async () => {
-    setGeneratingAll(true);
-    const stage = storyboardMode ? "storyboard-images" : "images";
-    const label = storyboardMode ? "Storyboard grid generation" : "Image generation";
-    try {
-      await runStageWith409Retry(stage);
-    } catch (err: unknown) {
-      toast.error(`${label} failed: ${(err as Error).message}`);
-      setGeneratingAll(false);
-    }
-  }, [runStageWith409Retry, storyboardMode]);
-
-  const [extracting, setExtracting] = useState(false);
-  const [extractError, setExtractError] = useState<string | null>(null);
-
   // --- Story lock (mandatory storyboard gate) ---
   const storyLocked = !!video.story_locked_at;
   const [locking, setLocking] = useState(false);
-  const handleLockStory = useCallback(async () => {
-    if (!window.confirm(
-      "Lock the story? This confirms you've reviewed the boards — extraction and image generation unlock. You can unlock to keep editing."
-    )) return;
-    setLocking(true);
-    try {
-      await lockStory(video.id);
-      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      toast.success("Story locked — extract panels to create the final images.");
-    } catch (err) {
-      toast.error((err as Error).message || "Couldn't lock the story.");
-    } finally {
-      setLocking(false);
-    }
-  }, [video.id, queryClient, toast]);
   const handleUnlockStory = useCallback(async () => {
     setLocking(true);
     try {
@@ -604,36 +588,26 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
       setLocking(false);
     }
   }, [video.id, queryClient, toast]);
-  const handleExtractPanels = useCallback(async () => {
-    setExtracting(true);
-    setExtractError(null);
+
+  const handleReExtract = useCallback(async () => {
     try {
-      // Clear any stale task first
-      try { await clearStaleTask(video.id); } catch { /* ok if no stale task */ }
+      try { await clearStaleTask(video.id); } catch { /* ok */ }
       await runPipelineStage(video.id, "storyboard-extract");
-      setTaskRunning(true);
+      markStarted();
     } catch (err: unknown) {
-      const msg = (err as Error).message || "Unknown error";
-      console.error("Extract panels failed:", msg);
-      setExtractError(msg);
-      setExtracting(false);
+      toast.error(`Couldn't start: ${(err as Error).message || "Unknown error"}`);
     }
-  }, [video.id]);
+  }, [video.id, markStarted, toast]);
 
   const handleUpscalePanels = useCallback(async () => {
-    setExtracting(true);
-    setExtractError(null);
     try {
       try { await clearStaleTask(video.id); } catch { /* ok */ }
       await runPipelineStage(video.id, "upscale-panels");
-      setTaskRunning(true);
+      markStarted();
     } catch (err: unknown) {
-      const msg = (err as Error).message || "Unknown error";
-      console.error("Upscale panels failed:", msg);
-      setExtractError(msg);
-      setExtracting(false);
+      toast.error(`Upscale failed: ${(err as Error).message || "Unknown error"}`);
     }
-  }, [video.id]);
+  }, [video.id, markStarted, toast]);
 
   const [advancing, setAdvancing] = useState(false);
   const handleAdvanceStage = useCallback(async () => {
@@ -742,381 +716,152 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
     );
   }
 
-  // --- Empty state ---
+  // --- Empty state: no scenes yet — the big banner button above drives everything ---
   if (scenes.length === 0) {
     return (
-      <div className="space-y-4">
-        {/* Storyboard toggle even in empty state */}
-        <StoryboardToggle
-          enabled={storyboardMode}
-          toggling={togglingStoryboard}
-          onToggle={handleToggleStoryboard}
-        />
-        <GlassCard className="p-12 text-center">
-          <ImageIcon size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
-          <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>No Visual Segments Yet</p>
-          <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
-            Generate image prompts first, then generate images. Current stage: <span style={{ color: "var(--purple)" }}>{(video.status || "").replace(/_/g, " ")}</span>
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <button
-              onClick={handleGenerateAllPrompts}
-              disabled={generatingPrompts || taskRunning}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-              style={{ background: "var(--purple)", color: "var(--bg-void)" }}
-            >
-              {(generatingPrompts || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <Pencil size={18} />}
-              {taskRunning
-                ? (taskMessage || "Generating Prompts...")
-                : generatingPrompts
-                  ? "Starting..."
-                  : storyboardMode
-                    ? (!hasStoryBible ? "Plan the story first" : (storyboardPrereqsMet ? "Describe the scenes" : "Plan your shots first"))
-                    : "Generate All Image Prompts"}
-            </button>
-            <button
-              onClick={handleGenerateAllImages}
-              disabled={generatingAll || taskRunning || (storyboardMode ? (!storyboardPrereqsMet || storyboardPromptScenes === 0) : false)}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-              style={{ background: "var(--orange)", color: "var(--bg-void)" }}
-            >
-              {(generatingAll || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
-              {taskRunning ? (taskMessage || (storyboardMode ? "Generating Storyboard Grids..." : "Generating Images...")) : generatingAll ? "Starting..." : (storyboardMode ? "Create storyboard" : "Create all images")}
-            </button>
-            <StopGenerationButton videoId={video.id} running={taskRunning} />
-          </div>
-        </GlassCard>
-      </div>
+      <GlassCard className="p-12 text-center">
+        <ImageIcon size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+          Your storyboard will appear here
+        </p>
+        <p className="text-sm max-w-md mx-auto" style={{ color: "var(--text-tertiary)" }}>
+          {taskRunning
+            ? (taskMessage || "Working on it…")
+            : "Use the big button at the top of the page — it always knows the next step."}
+        </p>
+      </GlassCard>
     );
   }
 
   // --- Full visuals workflow ---
   return (
     <div className="space-y-4">
-      {/* Storyboard mode toggle */}
-      <StoryboardToggle
-        enabled={storyboardMode}
-        toggling={togglingStoryboard}
-        onToggle={handleToggleStoryboard}
-      />
-
-      {/* Top action bar — all controls visible without scrolling */}
-      {scenes.length > 0 && (
-        <div
-          className="rounded-xl px-4 py-3"
-          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
-        >
-          {/* Status row */}
-          <div className="flex items-center gap-4 text-[10px] font-mono mb-3" style={{ color: "var(--text-tertiary)" }}>
-            <span>Prompts <strong style={{ color: promptReadySegments >= totalSegments ? "var(--green)" : "var(--text-secondary)" }}>{promptReadySegments}/{totalSegments}</strong></span>
-            {storyboardMode && <>
-              <span>Grids <strong style={{ color: storyboardGridsDone ? "var(--green)" : "var(--text-secondary)" }}>{storyboardReadyScenes}/{scenes.length}</strong></span>
-              <span>Extracted <strong style={{ color: extractedSegments >= totalSegments && totalSegments > 0 ? "var(--green)" : "var(--text-secondary)" }}>{extractedSegments}/{totalSegments}</strong></span>
-              {upscaledSegments > 0 && (
-                <span>Upscaled <strong style={{ color: "var(--text-secondary)" }}>{upscaledSegments}/{extractedSegments}</strong></span>
-              )}
-            </>}
-            <span>Cost <strong style={{ color: "var(--gold)" }}>${estimatedCostDone.toFixed(2)}</strong></span>
-            <span>Bible <strong style={{ color: hasStoryBible ? "var(--green)" : "var(--orange)" }}>{hasStoryBible ? "Ready" : "Missing"}</strong></span>
-            <span>Style <strong style={{ color: "var(--text-secondary)" }}>{video.visual_style || "default"}</strong></span>
-            <span>
-              <select
-                value={model}
-                onChange={(e) => handleModelChange(e.target.value)}
-                disabled={savingModel}
-                className="bg-transparent text-[10px] font-mono border rounded px-1 py-0.5 cursor-pointer"
-                style={{ color: "var(--text-secondary)", borderColor: "rgba(255,255,255,0.1)" }}
-              >
-                <option value="nano-banana-2">Nano Banana 2</option>
-                <option value="z-image">Z Image</option>
-              </select>
+      {/* One quiet status line + everything power-user behind one menu.
+          The page banner above is the ONLY primary button — this tab is the
+          workspace: look at boards, fix scenes, drag in replacements. */}
+      <div
+        className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
+        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+      >
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          <strong style={{ color: "var(--text-primary)" }}>{scenes.length} scenes</strong>
+          {" · "}
+          <strong style={{ color: storyboardGridsDone ? "var(--green)" : "var(--text-primary)" }}>
+            {scenes.reduce((n, s) => n + s.storyboardGridCount, 0)} of {scenes.reduce((n, s) => n + (s.storyboardBeatCount || 1), 0)} boards
+          </strong>
+          {extractedSegments > 0 && (
+            <>
+              {" · "}
+              <strong style={{ color: "var(--green)" }}>{extractedSegments}/{totalSegments} final pictures</strong>
+            </>
+          )}
+          {storyLocked && (
+            <span className="ml-2 text-xs font-semibold" style={{ color: "var(--green)" }}>
+              <Lock size={11} className="inline mr-0.5 -mt-0.5" /> Story locked
             </span>
-          </div>
-          {/* Action buttons row */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={handleGenerateAllPrompts}
-              disabled={generatingPrompts || generatingAll || taskRunning}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-              style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
-              {(generatingPrompts || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Pencil size={12} className="inline mr-1" />}
-              {storyboardMode
-                ? (!hasStoryBible ? "Plan story" : (storyboardPrereqsMet ? "Describe scenes" : "Plan shots"))
-                : "Image Prompts"}
-            </button>
-            <button onClick={handleGenerateAllImages}
-              disabled={generatingAll || generatingPrompts || taskRunning || (storyboardMode ? (!hasStoryBible || !storyboardPrereqsMet || storyboardPromptScenes === 0) : pendingSegments === 0)}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-              style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
-              {(generatingAll || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <ImageIcon size={12} className="inline mr-1" />}
-              {storyboardMode ? "Create storyboard" : `Create images (${pendingSegments})`}
-            </button>
-            {storyboardMode && (
-              <>
-                {!storyLocked ? (
-                  <button onClick={handleLockStory}
-                    disabled={locking || taskRunning || storyboardReadyScenes === 0}
-                    title={storyboardReadyScenes === 0 ? "Generate storyboard grids first" : "Confirm the boards are right — unlocks final image creation"}
-                    className="px-3 py-1.5 rounded-lg text-[10px] font-bold disabled:opacity-40 transition-all hover:brightness-110"
-                    style={{ background: "var(--gold)", color: "var(--bg-void)" }}>
-                    {locking ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Lock size={12} className="inline mr-1" />}
-                    Lock Story
-                  </button>
-                ) : (
-                  <button onClick={handleUnlockStory}
-                    disabled={locking || taskRunning}
-                    title="Unlock to keep editing boards"
-                    className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all"
-                    style={{ color: "var(--green)", border: "1px solid var(--green)", background: "rgba(0,230,138,0.08)" }}>
-                    {locking ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Unlock size={12} className="inline mr-1" />}
-                    Locked ✓
-                  </button>
-                )}
-                <button onClick={handleExtractPanels}
-                  disabled={!storyLocked || extracting || taskRunning || (extractedSegments >= totalSegments && totalSegments > 0)}
-                  title={!storyLocked ? "Lock the story first" : "Extract approved panels into final images"}
-                  className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-                  style={{ background: "var(--green)", color: "var(--bg-void)" }}>
-                  {(extracting || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Scissors size={12} className="inline mr-1" />}
-                  Create final pictures
-                </button>
-                {extractedSegments > 0 && (
-                  <button onClick={handleUpscalePanels}
-                    disabled={extracting || taskRunning || !needsUpscale}
-                    className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-                    style={{ background: "var(--amber, #D4A844)", color: "var(--bg-void)" }}>
-                    Upscale ({upscaledSegments}/{extractedSegments})
-                  </button>
-                )}
-              </>
-            )}
-            <button onClick={handleClearAllStoryboards}
-              disabled={taskRunning || clearingAllStoryboards || storyboardScenesWithData === 0}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-              style={{ background: "rgba(255,107,71,0.15)", color: "#FF8A65", border: "1px solid rgba(255,107,71,0.25)" }}>
-              {clearingAllStoryboards ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Trash2 size={12} className="inline mr-1" />}
-              Reset
-            </button>
-            <StopGenerationButton videoId={video.id} running={taskRunning} />
-            <div className="flex-1" />
-            <button
-              onClick={handleAdvanceStage}
-              disabled={advancing}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
-              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          )}
+        </p>
+        {taskRunning && (
+          <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--turquoise)" }}>
+            <Loader2 size={12} className="animate-spin" />
+            {(taskMessage || "Working…").replace(/[*_]/g, "").slice(0, 80)}
+          </span>
+        )}
+        <div className="flex-1" />
+        {storyLocked && (
+          <button
+            onClick={handleUnlockStory}
+            disabled={locking || taskRunning}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-all disabled:opacity-40"
+            style={{ color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.12)" }}
+            title="Unlock to keep editing boards"
+          >
+            {locking ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Unlock size={12} className="inline mr-1" />}
+            Unlock
+          </button>
+        )}
+        <div className="relative">
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="p-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)]"
+            style={{ color: "var(--text-tertiary)" }}
+            title="Advanced options"
+          >
+            <MoreHorizontal size={18} />
+          </button>
+          {showAdvanced && (
+            <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowAdvanced(false)} />
+            <div
+              className="absolute right-0 top-full mt-2 z-50 w-72 rounded-xl p-2 space-y-0.5"
+              style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
             >
-              {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
-              Advance Stage <ChevronRight size={12} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Storyboard pipeline steps */}
-      {storyboardMode && (
-        <div
-          className="rounded-xl p-4"
-          style={{ background: "rgba(168, 85, 247, 0.04)", border: "1px solid rgba(168, 85, 247, 0.12)" }}
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--purple)" }}>
-              Storyboard Pipeline
-            </span>
-          </div>
-          <div className="flex items-center gap-0">
-            {(() => {
-              // Derive step completion from downstream state — if grids exist, prompts must be done
-              const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
-              const sbGridsComplete = storyboardGridsDone;
-              const extractionDone = totalSegments > 0 && extractedSegments >= totalSegments;
-              const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
-              return [
-                { label: "Image Prompts", done: promptsDone, count: `${promptReadySegments}/${totalSegments}` },
-                { label: "Storyboard Prompts", done: sbPromptsDone, count: `${storyboardPromptScenes}/${scenes.length}` },
-                { label: "Storyboard Grids", done: sbGridsComplete, count: `${storyboardReadyScenes}/${scenes.length}` },
-                { label: "Extract Panels", done: extractionDone, count: `${extractedSegments}/${totalSegments}` },
-            ];
-            })().map((step, i, arr) => {
-              const isNext = !step.done && (i === 0 || arr[i - 1].done);
-              return (
-                <div key={step.label} className="flex items-center gap-0 flex-1">
-                  <div className="flex flex-col items-center flex-1">
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold mb-1"
-                      style={{
-                        background: step.done ? "var(--green)" : isNext ? "var(--purple)" : "rgba(255,255,255,0.06)",
-                        color: step.done || isNext ? "var(--bg-void)" : "var(--text-tertiary)",
-                        border: isNext ? "2px solid var(--purple)" : "none",
-                      }}
-                    >
-                      {step.done ? "✓" : i + 1}
-                    </div>
-                    <span className="text-[9px] font-medium" style={{ color: step.done ? "var(--green)" : isNext ? "var(--purple)" : "var(--text-tertiary)" }}>
-                      {step.label}
-                    </span>
-                    <span className="text-[8px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                      {step.count}
-                    </span>
-                  </div>
-                  {i < arr.length - 1 && (
-                    <div className="w-8 h-px mx-1" style={{ background: step.done ? "var(--green)" : "rgba(255,255,255,0.1)" }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {/* Next action CTA */}
-          {(() => {
-            // Derive from storyboard state — if grids exist, earlier steps are done
-            const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
-            const sbGridsAllDone = storyboardGridsDone;
-            const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
-            const extractionDone = totalSegments > 0 && extractedSegments >= totalSegments;
-
-            if (!promptsDone) return (
+              <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>Advanced</p>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Picture model</span>
+                <select
+                  value={model}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  disabled={savingModel}
+                  className="bg-transparent text-xs border rounded px-1.5 py-1 cursor-pointer"
+                  style={{ color: "var(--text-secondary)", borderColor: "rgba(255,255,255,0.15)" }}
+                >
+                  <option value="nano-banana-2">Nano Banana 2</option>
+                  <option value="z-image">Z Image</option>
+                </select>
+              </div>
+              {extractedSegments > 0 && needsUpscale && (
+                <button
+                  onClick={() => { setShowAdvanced(false); handleUpscalePanels(); }}
+                  disabled={taskRunning}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Upscale final pictures <span style={{ color: "var(--text-tertiary)" }}>({upscaledSegments}/{extractedSegments} done)</span>
+                </button>
+              )}
+              {extractedSegments > 0 && (
+                <button
+                  onClick={() => { setShowAdvanced(false); handleClearAllExtracted(); }}
+                  disabled={taskRunning || clearingExtracted}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
+                  style={{ color: "var(--orange)" }}
+                >
+                  Delete all final pictures <span style={{ color: "var(--text-tertiary)" }}>— boards stay</span>
+                </button>
+              )}
               <button
-                onClick={handleGenerateAllPrompts}
-                disabled={generatingPrompts || taskRunning}
-                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+                onClick={() => { setShowAdvanced(false); handleClearAllStoryboards(); }}
+                disabled={taskRunning || clearingAllStoryboards || storyboardScenesWithData === 0 || storyLocked}
+                title={storyLocked ? "Unlock the story first" : undefined}
+                className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
+                style={{ color: "var(--orange)" }}
               >
-                {(generatingPrompts || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
-                Step 1: Generate Image Prompts
+                Start storyboard over <span style={{ color: "var(--text-tertiary)" }}>— deletes every board + plan</span>
               </button>
-            );
-            if (!sbPromptsDone) return (
+              {storyLocked && totalSegments > 0 && extractedSegments < totalSegments && (
+                <button
+                  onClick={() => { setShowAdvanced(false); handleReExtract(); }}
+                  disabled={taskRunning}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Create missing final pictures <span style={{ color: "var(--text-tertiary)" }}>({totalSegments - extractedSegments} to make)</span>
+                </button>
+              )}
               <button
-                onClick={handleGenerateAllPrompts}
-                disabled={generatingPrompts || taskRunning}
-                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+                onClick={() => { setShowAdvanced(false); handleAdvanceStage(); }}
+                disabled={advancing}
+                className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
+                style={{ color: "var(--text-secondary)" }}
               >
-                {(generatingPrompts || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
-                Step 2: Generate Storyboard Prompts
+                Skip ahead to the next stage
               </button>
-            );
-            if (!sbGridsAllDone) return (
-              <button
-                onClick={handleGenerateAllImages}
-                disabled={generatingAll || taskRunning}
-                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
-              >
-                {(generatingAll || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
-                Step 3: Generate Storyboard Grids
-              </button>
-            );
-            if (extractionDone && needsUpscale) return (
-              <div className="mt-3 space-y-2">
-                <button
-                  onClick={handleUpscalePanels}
-                  disabled={extracting || taskRunning}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-                  style={{ background: "var(--amber, #D4A844)", color: "var(--bg-void)" }}
-                >
-                  {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
-                  Upscale &amp; Remove KF Labels ({upscaledSegments}/{extractedSegments})
-                </button>
-                <button
-                  onClick={handleAdvanceStage}
-                  disabled={advancing}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
-                  style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  {advancing ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}
-                  Skip Upscale — Advance Stage
-                </button>
-                {extractError && (
-                  <p className="text-[10px] text-center" style={{ color: "var(--orange)" }}>{extractError}</p>
-                )}
-              </div>
-            );
-            if (extractionDone) return (
-              <div className="mt-3 text-center space-y-2">
-                <p className="text-[10px]" style={{ color: "var(--green)" }}>
-                  ✓ Panels extracted{upscaledSegments > 0 ? ` &amp; ${upscaledSegments} upscaled` : ""}
-                  {upscaledSegments < extractedSegments && upscaledSegments > 0 ? ` (${extractedSegments - upscaledSegments} skipped)` : ""}
-                </p>
-                <button
-                  onClick={handleAdvanceStage}
-                  disabled={advancing}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-                  style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-                >
-                  {advancing ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}
-                  Advance Stage
-                </button>
-              </div>
-            );
-            return (
-              <div className="mt-3 space-y-2">
-                <button
-                  onClick={handleExtractPanels}
-                  disabled={extracting || taskRunning}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-                  style={{ background: "var(--green)", color: "var(--bg-void)" }}
-                >
-                  {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
-                  Step 4: Extract &amp; Upscale Panels ({extractedSegments}/{totalSegments})
-                </button>
-                {extractError && (
-                  <p className="text-[10px] text-center" style={{ color: "var(--orange)" }}>
-                    {extractError}
-                  </p>
-                )}
-              </div>
-            );
-          })()}
+            </div>
+            </>
+          )}
         </div>
-      )}
-
-      {/* Live progress banner */}
-      {taskRunning && (
-        <div
-          className="rounded-xl px-4 py-3 space-y-2"
-          style={{
-            background: "rgba(212, 168, 68, 0.08)",
-            border: "1px solid rgba(212, 168, 68, 0.25)",
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <Loader2 size={16} className="animate-spin flex-shrink-0" style={{ color: "var(--amber)" }} />
-            <span className="text-sm font-medium" style={{ color: "var(--amber)" }}>
-              {(() => {
-                if (!taskMessage) return generatingPrompts ? "Generating storyboard prompts..." : "Generating storyboard grids...";
-                const sceneMatch = taskMessage.match(/Scene\s+(\d+)\s+\((\d+)\/(\d+)\)/);
-                const beatMatch = taskMessage.match(/Beat\s+(\d+)\/(\d+)/);
-                if (sceneMatch) {
-                  return (
-                    <>
-                      Generating Scene {sceneMatch[1]} ({sceneMatch[2]}/{sceneMatch[3]})
-                      {beatMatch && (
-                        <span style={{ color: "var(--text-secondary)", fontWeight: 400 }}>
-                          {" "}— Beat {beatMatch[1]}/{beatMatch[2]}
-                        </span>
-                      )}
-                    </>
-                  );
-                }
-                return taskMessage.replace(/[*_]/g, "").replace(/\n/g, " · ");
-              })()}
-            </span>
-          </div>
-          {/* Progress bar */}
-          {taskMessage && (() => {
-            const sceneMatch = taskMessage.match(/Scene\s+\d+\s+\((\d+)\/(\d+)\)/);
-            if (!sceneMatch) return null;
-            const pct = Math.round((parseInt(sceneMatch[1]) / parseInt(sceneMatch[2])) * 100);
-            return (
-              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(212, 168, 68, 0.15)" }}>
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{ background: "var(--amber)", width: `${Math.max(pct, 5)}%` }}
-                />
-              </div>
-            );
-          })()}
-        </div>
-      )}
+      </div>
 
       {/* Filmstrip — horizontal scroll of all extracted images */}
       {storyboardMode && (() => {
@@ -1126,7 +871,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
           <div className="rounded-xl p-3" style={{ background: "rgba(80, 227, 194, 0.04)", border: "1px solid rgba(80, 227, 194, 0.12)" }}>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--green)" }}>
-                Extracted Panels
+                Final pictures
               </span>
               <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                 {allExtracted.length} images
@@ -1138,7 +883,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                   color: "rgba(239, 68, 68, 0.8)",
                   border: "1px solid rgba(239, 68, 68, 0.2)",
                 }}
-                disabled={clearingExtracted}
+                disabled={clearingExtracted || taskRunning}
                 onClick={handleClearAllExtracted}
               >
                 {clearingExtracted ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
@@ -1191,50 +936,58 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                       <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                         {scene.duration}
                       </span>
-                      {/* Per-scene action buttons */}
-                      <div className="ml-auto flex items-center gap-1.5">
-                        {storyboardMode && scene.storyboardStatus && (
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{
-                            background: scene.storyboardStatus === "prompts_ready" || scene.storyboardStatus === "grids_generated"
-                              ? "rgba(0, 230, 138, 0.1)"
-                              : "rgba(168, 85, 247, 0.1)",
-                            color: scene.storyboardStatus === "prompts_ready" || scene.storyboardStatus === "grids_generated"
-                              ? "var(--green)"
-                              : "var(--purple)",
-                          }}>
-                            {scene.storyboardStatus.replace(/_/g, " ")}
+                      {/* Per-scene controls — readable buttons, one obvious verb each */}
+                      <div className="ml-auto flex items-center gap-2">
+                        {generatingScene === scene.sceneNumber ? (
+                          <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--purple)" }}>
+                            <Loader2 size={13} className="animate-spin" /> Redoing this scene…
                           </span>
-                        )}
-                        {storyboardMode && !scene.hasStoryboardPrompt && (
-                          <button
-                            onClick={() => handleGenerateScenePrompts(scene.sceneNumber)}
-                            disabled={taskRunning || generatingPrompts}
-                            className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
-                            style={{ background: "var(--purple)", color: "var(--bg-void)" }}
-                          >
-                            <Pencil size={9} /> Gen Prompts
-                          </button>
-                        )}
-                        {storyboardMode && scene.hasStoryboardPrompt && scene.storyboardGridCount === 0 && (
-                          <button
-                            onClick={() => handleGenerateSceneGrids(scene.sceneNumber)}
-                            disabled={taskRunning || generatingAll}
-                            className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
-                            style={{ background: "var(--orange)", color: "var(--bg-void)" }}
-                          >
-                            <ImageIcon size={9} /> Gen Grids
-                          </button>
-                        )}
-                        {(scene.hasStoryboardData) && (
-                          <button
-                            onClick={() => handleClearSceneStoryboard(scene.sceneNumber)}
-                            disabled={taskRunning || clearingAllStoryboards || clearingScene === scene.sceneNumber || !scene.hasStoryboardData}
-                            className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
-                            style={{ color: "#FF8A65", background: "rgba(255, 138, 101, 0.08)", border: "1px solid rgba(255, 138, 101, 0.25)" }}
-                          >
-                            {clearingScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                            Clear
-                          </button>
+                        ) : (
+                          <>
+                            {!scene.hasStoryboardPrompt && (
+                              <button
+                                onClick={() => handleGenerateScenePrompts(scene.sceneNumber)}
+                                disabled={taskRunning}
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+                              >
+                                <Pencil size={13} /> Plan this scene
+                              </button>
+                            )}
+                            {scene.hasStoryboardPrompt && scene.storyboardGridCount === 0 && (
+                              <button
+                                onClick={() => handleGenerateSceneGrids(scene.sceneNumber)}
+                                disabled={taskRunning}
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+                              >
+                                <ImageIcon size={13} /> Draw the pictures
+                              </button>
+                            )}
+                            {scene.hasStoryboardPrompt && scene.storyboardGridCount > 0 && (
+                              <button
+                                onClick={() => handleRedoScenePictures(scene.sceneNumber)}
+                                disabled={taskRunning || storyLocked}
+                                title={storyLocked ? "Unlock the story first (top right)" : "Replace this scene's pictures — the plan stays"}
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                                style={{ background: "rgba(168, 85, 247, 0.15)", color: "var(--purple)", border: "1px solid rgba(168, 85, 247, 0.4)" }}
+                              >
+                                <RefreshCw size={13} /> Redo pictures
+                              </button>
+                            )}
+                            {scene.hasStoryboardData && (
+                              <button
+                                onClick={() => handleRedoSceneFromScratch(scene.sceneNumber)}
+                                disabled={taskRunning || storyLocked || clearingScene === scene.sceneNumber}
+                                title={storyLocked ? "Unlock the story first (top right)" : "New plan AND new pictures for this scene"}
+                                className="text-xs font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-40 hover:bg-[rgba(255,255,255,0.05)]"
+                                style={{ color: "var(--text-tertiary)" }}
+                              >
+                                {clearingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin inline mr-1" /> : null}
+                                Start scene over
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -1266,7 +1019,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                                 onClick={() => {
                                   if (beat.gridUrl) {
                                     window.open(beat.gridUrl, "_blank");
-                                  } else if (!taskRunning && !generatingAll) {
+                                  } else if (!taskRunning) {
                                     handleGenerateSceneGrids(scene.sceneNumber);
                                   }
                                 }}
@@ -1328,7 +1081,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                                           Drop to Upload
                                         </span>
                                       </>
-                                    ) : (generatingAll || generatingScene === scene.sceneNumber) ? (
+                                    ) : (generatingScene === scene.sceneNumber) ? (
                                       <>
                                         <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
                                         <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
@@ -1394,7 +1147,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                     {scene.storyboardBeats.length > 0 && (
                       <details className="mb-3">
                         <summary className="text-[10px] cursor-pointer" style={{ color: "var(--text-tertiary)" }}>
-                          {scene.storyboardBeats.length} beat prompt{scene.storyboardBeats.length !== 1 ? "s" : ""}
+                          {scene.storyboardBeats.length} picture plan{scene.storyboardBeats.length !== 1 ? "s" : ""}
                         </summary>
                         <div className="space-y-2 mt-2">
                           {scene.storyboardBeats.map((beat) => (
@@ -1413,7 +1166,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
                     <details>
                       <summary className="text-[11px] cursor-pointer py-1" style={{ color: "var(--text-secondary)" }}>
                         <span style={{ color: "var(--text-tertiary)" }}>
-                          {scene.segments.length} image segment{scene.segments.length !== 1 ? "s" : ""}
+                          {scene.segments.length} final picture slot{scene.segments.length !== 1 ? "s" : ""}
                         </span>
                         {" · "}
                         <span style={{ color: "var(--green)" }}>
@@ -1599,41 +1352,5 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
         {/* Sidebar removed — all controls moved to top bar */}
       </div>
     </div>
-  );
-}
-
-// --- Storyboard toggle sub-component ---
-
-function StoryboardToggle(_props: {
-  enabled: boolean;
-  toggling: boolean;
-  onToggle: () => void;
-}) {
-  // Storyboarding is mandatory — this is an informational badge now, kept as
-  // a component so both call sites stay untouched.
-  return (
-    <GlassCard className="p-4">
-      <div className="flex items-center gap-3">
-        <span
-          className="text-xs font-semibold uppercase tracking-wider"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          Storyboard First
-        </span>
-        <span
-          className="text-[10px] font-mono px-2 py-0.5 rounded-full"
-          style={{
-            color: "var(--green)",
-            background: "rgba(0, 230, 138, 0.1)",
-            border: "1px solid rgba(0, 230, 138, 0.2)",
-          }}
-        >
-          REQUIRED
-        </span>
-      </div>
-      <p className="text-[10px] mt-1" style={{ color: "var(--text-tertiary)" }}>
-        Grids ($0.075 each) come first. Redo any board, then Lock Story to create the final images.
-      </p>
-    </GlassCard>
   );
 }

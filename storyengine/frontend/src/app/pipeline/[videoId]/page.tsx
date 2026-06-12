@@ -5,8 +5,8 @@ import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
-  BarChart3, Search, Video, Upload, Loader2, RotateCcw, Brain, Volume2, Download, ExternalLink, X,
-  Users,
+  BarChart3, Search, Video, Upload, Loader2, Brain, Volume2, Download, ExternalLink, X,
+  Users, MoreHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -152,7 +152,7 @@ export default function VideoDetailPage() {
   const [taskRunning, setTaskRunning] = useState(false);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
 
-  const { status: taskStatus, message: taskMessage, reset: resetTask } = useTaskPoller({
+  useTaskPoller({
     videoId,
     enabled: taskRunning,
     interval: 3000,
@@ -324,12 +324,6 @@ export default function VideoDetailPage() {
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
             <StatusPill label={pill.label} color={pill.color} pulse size="md" />
-            {(taskRunning || runningNext) && (
-              <span className="flex items-center gap-1.5 text-[11px] font-mono" style={{ color: "var(--turquoise)" }}>
-                <Loader2 size={10} className="animate-spin" />
-                {taskMessage || "Pipeline running"}
-              </span>
-            )}
             {video.framework_angle && (
               <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
                 {video.framework_angle}
@@ -352,41 +346,60 @@ export default function VideoDetailPage() {
             </p>
           </div>
 
-          {/* Export button */}
-          <button
-            onClick={handleExport}
-            disabled={exportLoading}
-            className="p-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
-            style={{ color: "var(--text-tertiary)" }}
-            title="Export assets"
-          >
-            {exportLoading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-          </button>
-
-          {/* Reset button */}
+          {/* Advanced menu — everything power-user lives here, the big banner
+              button below is the ONLY primary action on the page. */}
           <div className="relative">
             <button
               onClick={() => setShowResetConfirm(!showResetConfirm)}
               className="p-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
               style={{ color: "var(--text-tertiary)" }}
-              title="Reset pipeline"
+              title="Advanced options"
             >
-              <RotateCcw size={16} />
+              <MoreHorizontal size={18} />
             </button>
 
             {showResetConfirm && (
+              <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowResetConfirm(false)} />
               <div
-                className="absolute right-0 top-full mt-2 z-50 w-56 rounded-xl p-4 space-y-2"
+                className="absolute right-0 top-full mt-2 z-50 w-64 rounded-xl p-2 space-y-0.5"
                 style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
               >
-                <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Reset to:</p>
+                <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>Advanced</p>
+                <button
+                  onClick={() => { setShowResetConfirm(false); handleExport(); }}
+                  disabled={exportLoading}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)] flex items-center gap-2"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {exportLoading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  Export assets
+                </button>
+                <button
+                  onClick={() => { setShowResetConfirm(false); handleRunNext(); }}
+                  disabled={runningNext || taskRunning}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)] disabled:opacity-40"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Force-run next stage
+                </button>
+                <button
+                  onClick={() => { setShowResetConfirm(false); handleSkipStage(); }}
+                  disabled={skipping}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)] disabled:opacity-40"
+                  style={{ color: "var(--orange)" }}
+                >
+                  Skip this stage <span style={{ color: "var(--text-tertiary)" }}>— no checks</span>
+                </button>
+                <div className="mx-3 my-1 h-px" style={{ background: "var(--border-subtle)" }} />
+                <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-1 pb-1" style={{ color: "var(--text-tertiary)" }}>Start over from…</p>
                 <button
                   onClick={() => handleReset("ready_for_scripting")}
                   disabled={resetting}
                   className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
                   style={{ color: "var(--orange)" }}
                 >
-                  {resetting ? "Resetting..." : "Script Stage"} <span style={{ color: "var(--text-tertiary)" }}>— delete scripts + images</span>
+                  {resetting ? "Resetting..." : "Script"} <span style={{ color: "var(--text-tertiary)" }}>— delete scripts + images</span>
                 </button>
                 <button
                   onClick={() => handleReset("ready_for_voice")}
@@ -394,7 +407,7 @@ export default function VideoDetailPage() {
                   className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
                   style={{ color: "var(--green)" }}
                 >
-                  Voice Stage <span style={{ color: "var(--text-tertiary)" }}>— keep scripts, redo voice</span>
+                  Voice <span style={{ color: "var(--text-tertiary)" }}>— keep scripts, redo voice</span>
                 </button>
                 <button
                   onClick={() => handleReset("ready_for_images")}
@@ -402,47 +415,18 @@ export default function VideoDetailPage() {
                   className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
                   style={{ color: "var(--purple)" }}
                 >
-                  Images Stage <span style={{ color: "var(--text-tertiary)" }}>— keep scripts, redo images</span>
-                </button>
-                <button
-                  onClick={() => setShowResetConfirm(false)}
-                  className="w-full text-xs px-3 py-1.5 rounded-lg mt-1"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
-                  Cancel
+                  Images <span style={{ color: "var(--text-tertiary)" }}>— keep scripts, redo images</span>
                 </button>
               </div>
+              </>
             )}
           </div>
         </div>
       </motion.div>
 
-      {/* Progress stepper + pipeline controls */}
+      {/* Progress stepper — passive, the banner below is the one place to act */}
       <motion.div variants={item}>
-        <div className="flex items-center justify-between gap-6">
-          <PipelineStepper status={status} liveStatus={liveStatus} />
-          <div className="flex items-center gap-3 shrink-0">
-            <StatusPill label={pill.label} color={pill.color} pulse size="md" />
-            <button
-              onClick={handleRunNext}
-              disabled={runningNext || taskRunning}
-              className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-            >
-              {(runningNext || taskRunning) ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
-              {taskRunning ? (taskMessage || "Running...") : runningNext ? "Starting..." : "Run Next Step"}
-            </button>
-            <button
-              onClick={handleSkipStage}
-              disabled={skipping}
-              className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
-            >
-              {skipping ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
-              {skipping ? "Skipping..." : "Skip Stage"}
-            </button>
-          </div>
-        </div>
+        <PipelineStepper status={status} liveStatus={liveStatus} />
       </motion.div>
 
       {/* Learnings applied indicator — only on Script tab */}

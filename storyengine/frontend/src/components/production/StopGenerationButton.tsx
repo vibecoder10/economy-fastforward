@@ -36,6 +36,9 @@ export function StopGenerationButton({ videoId, running }: StopGenerationButtonP
     setStopping(true);
     try {
       await cancelPipelineTask(videoId);
+      // A cancelled task reads as "completed" to pollers — anything queued to
+      // auto-run after it (per-scene chains) must be told to stand down too.
+      window.dispatchEvent(new CustomEvent("se:stop-requested", { detail: { videoId } }));
       toast.info("Stopping — the current item will finish, then generation halts.");
     } catch {
       setStopping(false);

@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Lock, RefreshCw, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 import { useToast } from "@/components/ui/toast";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useTaskWatcher } from "@/hooks/use-task-poller";
 import {
   designCharacters,
   getVideoCharacters,
   getVideoScript,
+  lockStory,
   runPipelineStage,
   clearStaleTask,
   type VideoDetail,
@@ -24,16 +25,17 @@ interface GuidedNextStepProps {
 }
 
 /**
- * THE guided banner. One big button that always knows what's next, a live
- * progress line while work runs (with Stop), and a PERSISTENT error card when
- * something fails (no more 6-second toasts hiding a dead pipeline).
+ * THE one next-step surface for the whole page. One big button that always
+ * knows what's next; a live progress line with Stop whenever ANYTHING is
+ * running (no matter which control started it — it watches the video's task
+ * slot continuously); a PERSISTENT error card when something fails.
  * Grandma flow: click the big button → wait → click the next big button.
  */
 export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [locking, setLocking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const { data: charData } = useQuery({
@@ -63,25 +65,43 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
     queryClient.invalidateQueries({ queryKey: ["video-characters", video.id] });
   };
 
-  const { message: taskMessage } = useTaskPoller({
+  const { running, message: taskMessage, markStarted } = useTaskWatcher({
     videoId: video.id,
-    enabled: running,
-    interval: 3000,
     onComplete: (msg) => {
-      setRunning(false);
+      setFailure(null); // a finished run supersedes any earlier failure card
       refreshAll();
-      if (msg) toast.success(msg);
+      if (msg && /needs approval|approve/i.test(msg)) toast.info(msg);
+      else if (msg) toast.success(msg);
     },
     onFailed: (error) => {
-      setRunning(false);
       refreshAll();
       setFailure(humanizeError(error, "That step didn't finish."));
     },
   });
 
+  const handleLock = async () => {
+    if (!window.confirm(
+      "Lock the story? This says: I've looked at every board and I'm happy.\n\nThe final pictures are created from these boards. You can unlock later if you change your mind."
+    )) return;
+    setLocking(true);
+    try {
+      await lockStory(video.id);
+      refreshAll();
+      toast.success("Story locked — next up: create the final pictures.");
+    } catch (err) {
+      setFailure(humanizeError(err, "We couldn't lock the story."));
+    } finally {
+      setLocking(false);
+    }
+  };
+
   const start = async () => {
     setFailure(null);
     onNavigate(action.tab);
+    if (action.kind === "lock") {
+      await handleLock();
+      return;
+    }
     if (action.kind === "review" || action.kind === "celebrate") {
       return; // the decision lives in the tab we just opened
     }
@@ -93,12 +113,13 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
       } else if (action.stage) {
         await runPipelineStage(video.id, action.stage);
       }
-      setRunning(true);
+      markStarted();
     } catch (err) {
       const msg = (err as Error).message || "";
       if (msg.includes("409")) {
         // Something is already running — just watch it.
-        setRunning(true);
+        toast.info("Already working on something — watching it.");
+        markStarted();
       } else {
         setFailure(humanizeError(err, "We couldn't start that step."));
       }
@@ -108,7 +129,7 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
   };
 
   // ---------- FAILED: persistent until retried or dismissed ----------
-  if (failure) {
+  if (failure && !running) {
     return (
       <GlassCard className="!p-4 mb-4" style={{ border: "1px solid var(--red)" }}>
         <div className="flex items-start gap-3">
@@ -137,21 +158,23 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
     );
   }
 
-  // ---------- RUNNING: live progress + Stop ----------
-  if (running || starting) {
+  // ---------- RUNNING: live progress + Stop (any task, any starter) ----------
+  if (running || starting || locking) {
     return (
       <GlassCard className="!p-4 mb-4" style={{ border: "1px solid var(--turquoise)" }}>
         <div className="flex items-center gap-3">
           <Loader2 size={20} className="animate-spin shrink-0" style={{ color: "var(--turquoise)" }} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
-              {taskMessage || `Working on it — ${action.label.toLowerCase()}…`}
+              {locking
+                ? "Locking the story…"
+                : (taskMessage || `Working on it — ${action.label.toLowerCase()}…`)}
             </p>
             <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
               You can leave this page — your video keeps working in the background.
             </p>
           </div>
-          <StopGenerationButton videoId={video.id} running={running} />
+          {!locking && <StopGenerationButton videoId={video.id} running={running} />}
         </div>
       </GlassCard>
     );
@@ -181,7 +204,7 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
 
   // ---------- IDLE: the one big next button ----------
   return (
-    <GlassCard className="!p-4 mb-4" style={{ border: "1px solid var(--turquoise)" }}>
+    <GlassCard className="!p-5 mb-4" style={{ border: "1px solid var(--turquoise)" }}>
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex-1 min-w-[220px]">
           <p className="text-[11px] font-mono uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
@@ -193,14 +216,21 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
         </div>
         <button
           onClick={start}
-          className="px-6 py-3.5 rounded-xl text-base font-bold flex items-center gap-2 shrink-0 transition-all hover:brightness-110 active:scale-[0.98]"
-          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          className="px-7 py-4 rounded-2xl text-base font-bold flex items-center gap-2.5 shrink-0 transition-all hover:brightness-110 active:scale-[0.98]"
+          style={{
+            background: action.kind === "lock" ? "var(--gold)" : "var(--turquoise)",
+            color: "var(--bg-void)",
+            boxShadow: action.kind === "lock"
+              ? "0 4px 24px rgba(255, 186, 8, 0.18)"
+              : "0 4px 24px rgba(0, 245, 212, 0.15)",
+          }}
         >
+          {action.kind === "lock" && <Lock size={18} />}
           {action.label}
           {action.cost && (
             <span className="text-xs font-mono font-normal opacity-80">{action.cost}</span>
           )}
-          <ArrowRight size={18} />
+          {action.kind !== "lock" && <ArrowRight size={18} />}
         </button>
       </div>
     </GlassCard>

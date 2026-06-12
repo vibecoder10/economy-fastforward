@@ -93,3 +93,78 @@ export function useTaskPoller({
 
   return { ...state, reset, isPolling: !!intervalRef.current };
 }
+
+interface UseTaskWatcherOptions {
+  videoId: string;
+  interval?: number;
+  /** Fired on the running→completed transition (only for work observed live). */
+  onComplete?: (message?: string | null) => void;
+  /** Fired on the running→failed transition. */
+  onFailed?: (error: string) => void;
+  /** Fired on every poll while work is running. */
+  onProgress?: (message: string | null) => void;
+}
+
+/**
+ * Always-on task watcher. Unlike useTaskPoller (armed by the surface that
+ * STARTED the work), this watches the video's single task slot continuously —
+ * so one banner can show progress and offer Stop no matter which button,
+ * browser tab, or per-scene control kicked the work off. The task endpoint
+ * keeps returning the LAST task's terminal status, so completion/failure only
+ * fires on a transition observed in this session — never from stale history.
+ */
+export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed, onProgress }: UseTaskWatcherOptions) {
+  const [running, setRunning] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const wasRunningRef = useRef(false);
+  // Bumped by markStarted so a poll response that was ALREADY in flight when
+  // new work started can't be misread as "the new work finished" (which would
+  // fire onComplete — and any queued chain stage — before the work even ran).
+  const epochRef = useRef(0);
+  const onCompleteRef = useRef(onComplete);
+  const onFailedRef = useRef(onFailed);
+  const onProgressRef = useRef(onProgress);
+  onCompleteRef.current = onComplete;
+  onFailedRef.current = onFailed;
+  onProgressRef.current = onProgress;
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const epoch = epochRef.current;
+        const task = await getPipelineTaskStatus(videoId);
+        if (cancelled || epoch !== epochRef.current) return;
+        const active = task.status === "running" || task.status === "pending";
+        if (active) {
+          wasRunningRef.current = true;
+          setRunning(true);
+          setMessage(task.message ?? null);
+          onProgressRef.current?.(task.message ?? null);
+        } else {
+          if (wasRunningRef.current) {
+            wasRunningRef.current = false;
+            if (task.status === "failed") onFailedRef.current?.(task.error || "Unknown error");
+            else onCompleteRef.current?.(task.message);
+          }
+          setRunning(false);
+          setMessage(null);
+        }
+      } catch {
+        // Network blip — keep watching
+      }
+    };
+    poll();
+    const id = setInterval(poll, interval);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [videoId, interval]);
+
+  /** Optimistic arm: call right after starting work so the UI flips instantly. */
+  const markStarted = useCallback(() => {
+    epochRef.current += 1; // invalidate any poll already in flight
+    wasRunningRef.current = true;
+    setRunning(true);
+  }, []);
+
+  return { running, message, markStarted };
+}
