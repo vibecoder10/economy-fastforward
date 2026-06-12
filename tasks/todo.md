@@ -1,62 +1,77 @@
 # Task Tracking
 
-## ★ THREAD HANDOFF — read this first (2026-06-12, end of the long UI/dialogue thread)
+## ★ THREAD HANDOFF — read this first (2026-06-12 END OF DAY, clips-day thread)
 
 **North star (in agent memory too):** any person pastes a YouTube link → the
 machine replicates that video (new script/idea) FULLY UNATTENDED. Ryan has a
 queue of people wanting their channels automated; every design choice must
 work without a human in the loop. Intelligence layers detect format — never
-manual flags.
+manual flags. NEW corollary from Ryan today: every pipeline element must be
+OPTIONAL ("sometimes they just want research, ideas and script").
 
 **Working video:** the "Injured Baby Bird" ESL kids animation,
 `f32ed182-be1f-4a24-a8de-bb8db4ac88df` (Ryan's tenant `ee93e6d1-…`).
-Modeled from a reference link, Kie-only stack (Claude gateway, images, TTS,
-video). Prod = systemd services from /home/clawd/projects/economy-fastforward
-(auto via git push to main + pull; backend restart = kill -9 MainPID, it
-hangs draining SSE). Dev repo = /home/clawd/economy-fastforward.
+Kie-only stack. Prod = systemd from /home/clawd/projects/economy-fastforward
+(git push main → pull there; restart = kill -9 MainPID, uvicorn hangs
+draining SSE). Dev repo = /home/clawd/economy-fastforward. Auth for API
+test scripts: mint JWT {iss:"storyengine", sub:<account uuid>, tenant_id}
+with SESSION_SECRET from PROD storyengine/.env (dev repo has NO .env).
 
-**State of the product right now (all live on storyengine.dev):**
-- ONE-button guided flow: GuidedNextStep banner is the only primary CTA
-  (always-watching task watcher, lock built in, failure cards). Storyboard
-  tab = workspace: per-scene Redo pictures / Start scene over (auto-chains
-  plan→pictures), per-board hover-X delete, drag-drop replace, Advanced ⋯
-  menus. next-action.ts is the single decision table — add states THERE.
-- Storyboard → final pictures: extraction crops with the generation-time
-  layout (grid_layout_for), per-scene resume, runs AUTOMATICALLY at Lock
-  Story (silent plumbing). 86/86 panels extracted for the bird video.
-- Animatic: per-scene "Watch this scene" player (panels + narration,
-  word-proportional timing, $0). All 8 scenes verified playing.
-- Dialogue intelligence (NEW): scripts auto-tagged into narrator/dialogue
-  timelines (videos.dialogue_mode, scripts.dialogue_segments jsonb,
-  video_characters.voice_name). Bird video: 65 dialogue lines, voices cast.
-  Trigger: POST /api/videos/{id}/script/tag-dialogue (auto-hook after
-  modeled script stage only — non-modeled path NOT hooked yet).
-- Lip test PASSED: `lisa-dialogue-test.mp4` in the video's Drive folder =
-  Grok image-to-video speaking clip + ElevenLabs voice mux. The approved
-  recipe: ElevenLabs character voices + Grok lip movement, narrator pauses
-  during dialogue (decisions.md 2026-06-12).
+**THE NEXT BUILD (Ryan's 4 answers, locked tonight):**
+1. ONE SCENES WORKSPACE — merge storyboard boards + final pictures + clips
+   into a single per-scene view; redo at any level in place; the separate
+   storyboard/clips tabs collapse into it. (Invoke design/react skills.)
+2. AUTO RE-ANIMATE — redoing a picture auto-regenerates its clip (~$0.10,
+   cost note). Wire via the existing clip endpoint with force=true.
+3. CUTAWAY RULE — SHIPPED tonight (no-people prefix when image_prompt +
+   sentence name no cast member and no dialogue line matches). VERIFY on
+   S1.4's next redo — the invented-toddler card.
+4. EXTRACTION VALIDATION — hard rules + red "bad crop" badge + one-tap
+   "Re-crop this picture": internal-gutter split detection (S2.4/S2.5 split
+   across two pictures) and label-bar leak detection ([KF2|ECU|7s]
+   white-on-black text survives the brightness trim). extraction.py.
 
-**NEXT BUILDS (approved plan, in order — (a) DONE 2026-06-12 pt 7; clips UX
-contract locked in decisions.md "Video Clips stage UX contract"):**
-a. Per-segment voice synthesis (Kie ElevenLabs, voice ID param; narrator
-   voice for narration segs, video_characters.voice_name for dialogue) →
-   {video}/voice/S{n}-seg{i}.mp3, audio_url+duration into the jsonb.
-b. Animatic plays the segment timeline (radio-play rehearsal, $0) — Ryan
-   approves the rhythm here before clip spend.
-c. Grok clip pipeline: grok-imagine/image-to-video (duration is a STRING
-   "6"–"30", 480p/720p, ~$0.05–0.12/clip, resultJson is a JSON string,
-   URLs expire 24h, always has own audio → mute & overlay ElevenLabs).
-   Clean [KFn|MS|10s] label bars off panels FIRST (Grok reproduces them).
-d. Per-scene "Animate this scene" button (clips beside boards, scene gate)
-   → bulk animate with cost confirm (~$2-4/video on Grok vs $6-12 Veo).
-e. Render: Remotion segment timeline (narration pauses ↔ dialogue clips).
-f. Hook tag-dialogue into the non-modeled script path; audition Tom's
-   voice (current 'Mark' is adult; Finn vBKc2FfBKJfcZNyEt1n6 is the boy).
+**What is LIVE after today (clips day):**
+- Clips tab rebuilt per the UX contract (decisions.md "Video Clips stage UX
+  contract"): tap card = animate ($0.10 Grok, no confirm), per-scene
+  buttons, banner trust ladder, 💬 speaker badges, hover Redo/X, real cost
+  math, ⋯ Advanced (model picker — grok + veo wired, video_model honored),
+  silent motion-prompt auto-run, always-on useTaskWatcher (purple pill).
+- All 158 dialogue segments voiced (ElevenLabs via Kie, jsonb audio_url+
+  duration); cast: Tom=Finn, Lisa=Brittney, Mom=Tiffany, Dad=Brian,
+  Dr.May=Bella, Bird=Emma; narrator=Mark. Casting excludes narrator voice.
+- DIALOGUE AUDIO IS PER-VIDEO (migration 049 videos.dialogue_audio, toggle
+  in clips ⋯ menu). Bird video = 'grok_native': NO overlay, Grok speaks the
+  EXACT scripted words (native_speaking_prompt feeds only the sentences the
+  card covers; match_lines is sentence-level). Ryan LOVES S1.3 native.
+  'voice_over' mode (ElevenLabs overlay + ambience bed) is one toggle away.
+- Clip prompts: constraints LEAD (@image1 = ground truth, no invented/
+  resized characters, off-screen stays off-screen), cast sheet as @image2
+  with names, style directive appended, cutaway no-people rule.
+- Skip buttons live on the guided banner (white pill, "I don't need this —
+  skip it →", consequence confirm, advance?to= forward jump): research,
+  review, voice, clips rungs, sound, thumbnail.
+- The lip-sync saga is SETTLED — read decisions.md before touching it:
+  five approaches tested in one day; final = Grok full-scene + native
+  voices for this video. Kling-style video lip-RETARGETING is the upgrade
+  if Kie ever ships one.
+- Claude-via-Kie VISION IS DEAD (gateway drift; images become file refs,
+  ~272 input tokens). Parallel session rerouted vision via
+  shared.clients.vision_client + canary (see pt 11 handoff below).
 
-**Read before coding:** tasks/lessons.md (top 4 sections are this thread's
-hard-won traps: Drive HTML interstitials, env-loading order, watcher races,
-Kie quirks), tasks/decisions.md (dialogue decisions), docs/ + CLAUDE.md
-wiring protocol. Session history below.
+**Open bugs / verify next session:**
+- S1.4: confirm the cutaway rule kills the invented boy (Redo it).
+- S2.2 panel is photoreal + label bar burned in — needs picture redo (its
+  clip just inherits the broken panel).
+- S2.4/S2.5 split-crop panels — the extraction-validation build fixes.
+- Motion prompts: confirm 86/86 video_prompt coverage (run was resumed).
+- Scene 5 'Receptionist' speaks 2 lines in narrator voice (uncast walk-on).
+- tag-dialogue auto-hook still modeled-path only.
+
+**Read before coding:** tasks/lessons.md pts 7–10 (NULL-column .get trap,
+status-lag gates, Kie TTS flakes, vision drift, watcher-not-poller×2,
+audio-driven beats align-the-audio), tasks/decisions.md (clips UX contract,
+dialogue final form, voice-over optional). Session history below.
 
 ## Handoff (2026-06-12 pt 11 — vision rerouted + canary live)
 
