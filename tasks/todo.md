@@ -116,10 +116,24 @@ CLIPS TAB REBUILT same session (the UX contract is now LIVE code):
   GuidedNextStep passes clipsDone/clipsTotal. Old Generate Prompts/Generate
   All Clips/Advance Stage/visible dropdown/always-on prompt editor all gone.
 
+VERIFIED LIVE ON PROD (Playwright + API, Ryan's tenant):
+- Tap → $0.10 Grok clip → Drive {video}/clips/S01-01.mp4 → assets row →
+  plays via media proxy (frames eyeballed: on-model Pixar Tom, real motion).
+- Tab renders: "1 of 86 pictures animated · ≈ $8.50 · Grok Imagine", 8 scene
+  buttons, 34 💬 badges, real card pictures, zero old surfaces, banner shows
+  "Animate the rest". Console clean on warm backend (cold-start 502s are
+  transient, see lessons).
+- THREE live bugs found+fixed en route: assets column is duration_seconds;
+  clip gate + banner keyed on lagging status strings (bird video =
+  ready_for_images with 86/86 finals); GET /api/videos/{id} SELECTed
+  story_locked_at but never passed it to VideoDetail → banner re-offered
+  Lock forever (one-line constructor fix).
+
 NEXT: (b) animatic plays the segment timeline (radio-play rehearsal, $0,
 Ryan approves rhythm here); (c) dialogue SPEAKING clips (Grok lips + mux
 the segment's ElevenLabs line over muted Grok audio — lisa-dialogue-test
 recipe) chained from the same clip endpoint for 💬 cards; (e) render.
+Full-video segment voice run finishing in background (scene 8 of 8).
 
 ## Handoff (2026-06-12 pt 6 — dialogue intelligence SHIPPED, lip test PASSED)
 
