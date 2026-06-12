@@ -1,6 +1,6 @@
 # System State — Economy FastForward
 
-> Last updated: 2026-06-11
+> Last updated: 2026-06-12
 
 ---
 
@@ -50,6 +50,7 @@ Each production tool is a standalone folder in orchestration order. Shared infra
 | Folder | Purpose |
 |--------|---------|
 | `shared/clients/` | API wrappers (airtable, anthropic, image, elevenlabs, google, slack, etc.) |
+| `shared/clients/vision_client.py` | Provider-chained vision calls (Kie Gemini → Kie Claude → direct Anthropic, ingestion-verified). ALL vision goes through this — the Kie Claude gateway silently drops image blocks when it drifts (2026-06-12). Used by storyboard QA, model_video thumbnail pass, approve-cast rewrite. |
 | `shared/profiles/visual/` | Visual style profiles (cinematic_illustration, dossier, hud, mannequin) |
 | `shared/profiles/script/` | Script voice profiles (power_doctrine_v1, v2) |
 | `shared/json_utils.py` | JSON parsing utilities |
@@ -387,6 +388,9 @@ Performance analysis system that extracts patterns from video metrics and compet
 | `storyengine/agents/blueprints/` | Product vision + role-specific blueprints |
 | `storyengine/backend/storyengine-backend.service` | systemd unit for FastAPI (port 8001) |
 | `storyengine/frontend/storyengine-frontend.service` | systemd unit for Next.js (port 3001) |
+| `storyengine/backend/canaries/validator_drift.py` | Synthetic canary: upstream 4xx error-schema drift (system timer, every 6h) |
+| `storyengine/backend/canaries/vision_drift.py` | Synthetic canary: Kie vision paths (Gemini + Claude gateway) must SEE a known image — ingestion-token + content asserts (user timer, hourly, ~$0.002/run, ntfy alert on failure) |
+| `storyengine/backend/canaries/install_vision_canary.sh` | Installs the vision canary as user systemd units (no root; clawd has linger) |
 | `storyengine/agents/setup-crons.sh` | Cron schedule installer |
 | `storyengine/agents/daily-report.sh` | Daily report + PR + Telegram push |
 | `storyengine/agents/notify-telegram.sh` | Shared Telegram notification helper |

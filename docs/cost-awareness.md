@@ -10,6 +10,8 @@ Every API call costs money. Be aware of these costs when building features:
 | Voice synthesis (ElevenLabs) | ~$0.30/1000 chars | ~$1-2 per video |
 | Claude API (Sonnet) | ~$0.01-0.05/call | ~20-30 calls = $0.30-1.50 |
 | Whisper transcription | ~$0.006/min | ~$0.15 per video |
+| Vision QA (Kie Gemini 2.5 Flash via vision_client) | ~$0.0005/call | storyboard QA + cast rewrite + thumbnail pass = < $0.05 |
+| Vision-drift canary (3 calls/run, hourly) | ~$0.002/run | ~$1.50/month total, not per-video |
 | **Total per video** | | **~$11-19** |
 
 ## Rules

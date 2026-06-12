@@ -93,26 +93,20 @@ async def _resolve_claude_creds(tenant_id) -> Optional[dict]:
     return None
 
 
-async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens: int = 6000,
-                       image_url: Optional[str] = None) -> Optional[str]:
+async def _call_claude(prompt: str, creds: dict, tier: str = "smart", max_tokens: int = 6000) -> Optional[str]:
     """Call Claude via the resolved provider; return raw text (fences stripped).
 
-    image_url attaches a vision block (used to show Claude the reference
-    thumbnail so it can replicate the observed visual style — verified working
-    through the Kie gateway).
+    Text-only on purpose: Kie's Claude gateway silently drops image blocks
+    when it drifts (2026-06-12). Anything that needs to SEE pixels goes
+    through shared.clients.vision_client.vision_call (provider-chained,
+    ingestion-verified) and feeds the observation in as text.
 
     Retries transient upstream failures (5xx, timeouts, connection drops) —
     Kie.ai returned a raw 500 mid-run in production and a single blip
     shouldn't fail a 90-second modeling task.
     """
     model = CLAUDE_MODELS[creds["provider"]][tier]
-    if image_url:
-        content = [
-            {"type": "image", "source": {"type": "url", "url": image_url}},
-            {"type": "text", "text": prompt},
-        ]
-    else:
-        content = prompt
+    content = prompt
     if creds["provider"] == "kie":
         url = KIE_CLAUDE_API_URL
         headers = {
@@ -236,8 +230,9 @@ Stay inside the reference's world:
   make another finance documentary)
 - Same audience, tone, and language level
 - Same title formula (emoji usage, punctuation, structure, suffix pattern)
-- Same visual style — if a thumbnail image is attached, describe what you actually
-  SEE (art style, palette, character design) and replicate exactly that style
+- Same visual style — the THUMBNAIL OBSERVATION below is what the reference's
+  thumbnail actually looks like (described by a vision pass); replicate exactly
+  that art style, palette, and character design
 - NEW but adjacent subject matter: a sibling story/topic the same channel would
   publish next. Never copy the reference's exact story, characters, or script lines.
 
@@ -247,6 +242,9 @@ REFERENCE VIDEO:
 - Views: {ref_views}
 - Duration: {ref_duration}s
 - Description (excerpt): {ref_description}
+
+THUMBNAIL OBSERVATION (the reference thumbnail as seen by a vision pass):
+{thumbnail_observation}
 
 STYLE DNA ANALYSIS (extracted by a prior pass; may be partial):
 {dna_json}
@@ -283,7 +281,8 @@ Rules:
 - All prompts are about the NEW sibling video's content, in the REFERENCE's style."""
 
 
-def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str]) -> str:
+def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str],
+                       thumbnail_observation: Optional[str] = None) -> str:
     dna_payload = "Not available — rely on the metadata, transcript, and attached thumbnail."
     if dna:
         dna_payload = json.dumps(
@@ -297,9 +296,41 @@ def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str
         ref_views=info.get("views") or 0,
         ref_duration=info.get("duration_seconds") or 0,
         ref_description=(info.get("description") or "")[:500],
+        thumbnail_observation=thumbnail_observation
+        or "Not available — infer the visual style from the metadata and transcript.",
         dna_json=dna_payload,
         transcript_excerpt=excerpt,
     )
+
+
+_THUMBNAIL_OBSERVATION_PROMPT = (
+    "This is a YouTube thumbnail. Describe its visual style so an artist could "
+    "replicate it without seeing it: art style/medium (e.g. 3D CG animation, "
+    "live-action photo, flat illustration), color palette, character design "
+    "(age, species, proportions), composition, text treatment if any, and "
+    "overall mood. 60-120 words, no preamble."
+)
+
+
+async def _describe_thumbnail_style(creds: dict, thumbnail_url: Optional[str]) -> Optional[str]:
+    """Vision pass over the reference thumbnail — the only visual ground truth
+    we have (transcripts are bot-blocked, frames unavailable). Goes through
+    the provider-chained vision helper, NOT the Claude gateway directly: the
+    gateway silently drops image blocks when it drifts, and a blind pack
+    invents a wrong visual style for every downstream image."""
+    if not thumbnail_url:
+        return None
+    try:
+        from shared.clients.vision_client import vision_call
+        return await vision_call(
+            _THUMBNAIL_OBSERVATION_PROMPT, [thumbnail_url],
+            kie_key=creds["key"] if creds["provider"] == "kie" else None,
+            anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+            tier="fast", max_tokens=400,
+        )
+    except Exception as e:
+        logger.warning("[model_video] thumbnail vision pass failed (pack will be text-only): %s", str(e)[:200])
+        return None
 
 
 _REQUIRED_PACK_KEYS = (
@@ -310,14 +341,15 @@ _REQUIRED_PACK_KEYS = (
 
 async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
                                  transcript: Optional[str]) -> dict:
-    prompt = _build_pack_prompt(info, dna, transcript)
-    image_url = info.get("thumbnail_url")
+    # Vision and generation are split on purpose: the vision helper proves the
+    # image was ingested (style fidelity), and the pack generation stays a pure
+    # text call — immune to the gateway's image-block drift.
+    observation = await _describe_thumbnail_style(creds, info.get("thumbnail_url"))
+    prompt = _build_pack_prompt(info, dna, transcript, thumbnail_observation=observation)
     last_err: Optional[Exception] = None
-    # Two attempts with the thumbnail attached (vision = style fidelity), then a
-    # final attempt without it in case the provider rejects the image itself.
-    for attempt_image in (image_url, image_url, None):
+    for _attempt in range(3):
         try:
-            text = await _call_claude(prompt, creds, tier="smart", image_url=attempt_image)
+            text = await _call_claude(prompt, creds, tier="smart")
             if not text:
                 raise ValueError("Claude returned an empty modeled pack")
             pack = json.loads(text)

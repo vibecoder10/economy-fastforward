@@ -131,9 +131,21 @@ def _patch_db_and_claude(pack=VALID_PACK, profile_extra=None):
         return None
 
     calls = []
+    vision_calls = []
 
-    async def fake_call_claude(prompt, creds, tier="smart", max_tokens=6000, image_url=None):
-        calls.append({"provider": creds["provider"], "tier": tier, "image": bool(image_url)})
+    # Vision goes through the provider-chained helper, never the Claude
+    # gateway directly (it drops image blocks when it drifts) — stub it.
+    fake_vision = types.ModuleType("shared.clients.vision_client")
+    async def fake_vision_call(prompt, images, **kwargs):
+        vision_calls.append({"prompt": prompt, "images": images, **kwargs})
+        return "OBSERVED-STYLE: 3D Pixar-style CG animation, soft saturated palette"
+    fake_vision.vision_call = fake_vision_call
+    fake_vision.VisionUnavailable = type("VisionUnavailable", (RuntimeError,), {})
+    sys.modules["shared.clients.vision_client"] = fake_vision
+
+    async def fake_call_claude(prompt, creds, tier="smart", max_tokens=6000):
+        calls.append({"provider": creds["provider"], "tier": tier,
+                      "saw_observation": "OBSERVED-STYLE" in prompt})
         if tier == "fast":  # DNA distillation pass
             return json.dumps({
                 "summary": "Reference works via mystery hook + escalating stakes.",
@@ -144,7 +156,7 @@ def _patch_db_and_claude(pack=VALID_PACK, profile_extra=None):
     mv.execute = fake_execute
     mv.fetch_one = fake_fetch_one
     mv._call_claude = fake_call_claude
-    return executed, calls
+    return executed, calls, vision_calls
 
 
 def _run(coro):
@@ -180,7 +192,7 @@ def test_happy_path_persists_everything():
     STATUSES.clear()
     sys.modules["vault"].SECRETS = {"kie_ai_api_key": "kie-test-key"}
     sys.modules["routes.niche"]._extract_video_info = lambda vid: dict(REF_INFO)
-    executed, claude_calls = _patch_db_and_claude()
+    executed, claude_calls, vision_calls = _patch_db_and_claude()
 
     _run(mv._run_modeling("tenant-1", "video-1", "dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"))
 
@@ -210,9 +222,14 @@ def test_happy_path_persists_everything():
     # Re-modeling resets stale generated artifacts
     assert "script = NULL" in uq and "status = 'idea_logged'" in uq
     assert any(q.startswith("DELETE FROM scripts") for q, _ in executed), "stale scene rows not cleared"
-    # The pack call must attach the reference thumbnail (vision = style fidelity)
+    # The reference thumbnail must be SEEN through the vision helper, and the
+    # observation must reach the pack prompt (vision = style fidelity)
+    assert vision_calls and REF_INFO["thumbnail_url"] in vision_calls[0]["images"], \
+        "thumbnail never sent through the vision helper"
+    assert vision_calls[0].get("kie_key"), "vision helper not given the Kie key"
     smart_calls = [c for c in claude_calls if c["tier"] == "smart"]
-    assert smart_calls and smart_calls[0]["image"], "thumbnail not attached to pack generation"
+    assert smart_calls and smart_calls[0]["saw_observation"], \
+        "thumbnail observation missing from pack prompt"
     asset_inserts = [(q, a) for q, a in executed if "INSERT INTO assets" in q]
     assert len(asset_inserts) == 8, len(asset_inserts)
     assert all("'modeled'" in q for q, _ in asset_inserts)
@@ -230,12 +247,14 @@ def test_anthropic_fallback_when_no_kie_key():
     STATUSES.clear()
     sys.modules["vault"].SECRETS = {"anthropic_api_key": "sk-ant-test"}
     sys.modules["routes.niche"]._extract_video_info = lambda vid: dict(REF_INFO)
-    _, claude_calls = _patch_db_and_claude()
+    _, claude_calls, vision_calls = _patch_db_and_claude()
 
     _run(mv._run_modeling("tenant-1", "video-6", "dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"))
 
     assert STATUSES[-1]["status"] == "completed", STATUSES
     assert all(c["provider"] == "anthropic" for c in claude_calls), claude_calls
+    # Vision falls back to the direct Anthropic key when there is no Kie key
+    assert vision_calls and vision_calls[0].get("anthropic_key"), vision_calls
     sys.modules["vault"].SECRETS = {"kie_ai_api_key": "kie-test-key"}
     print("PASS test_anthropic_fallback_when_no_kie_key")
 
@@ -302,7 +321,7 @@ def test_bot_blocked_extraction_uses_oembed_fallback():
             "description": "",
         }
     mv._oembed_fallback = fake_oembed
-    executed, _ = _patch_db_and_claude()
+    executed, _, _ = _patch_db_and_claude()
 
     _run(mv._run_modeling("tenant-1", "video-5", "dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"))
 

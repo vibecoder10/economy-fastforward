@@ -555,7 +555,8 @@ async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
     # reference sheet and costumes drift. Rewrite each description from the
     # actual approved image (vision pass), best-effort per character.
     try:
-        from routes.model_video import _call_claude, _resolve_claude_creds
+        from routes.model_video import _resolve_claude_creds
+        from shared.clients.vision_client import vision_call
         creds = await _resolve_claude_creds(tenant_id)
         if creds:
             base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
@@ -563,11 +564,14 @@ async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
                 fid = _drive_file_id(ch.get("reference_url") or "")
                 img_url = f"{base}/api/media/drive/{fid}" if fid else ch.get("reference_url")
                 try:
-                    desc = await _call_claude(
+                    desc = await vision_call(
                         f"Describe EXACTLY how this character looks so an image generator can redraw the SAME character: "
                         f"hair (style + color), face/age, and every clothing item WITH ITS COLOR. "
                         f"40-60 words, no preamble. The character's name is {ch['name']}.",
-                        creds, tier="fast", max_tokens=300, image_url=img_url,
+                        [img_url],
+                        kie_key=creds["key"] if creds["provider"] == "kie" else None,
+                        anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+                        tier="fast", max_tokens=300,
                     )
                     if desc and len(desc) > 20:
                         ch["description"] = desc.strip()[:1000]

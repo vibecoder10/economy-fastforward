@@ -1,0 +1,11 @@
+[Unit]
+Description=Alert on storyengine-vision-canary failure — pushes journal tail to ntfy.sh
+
+# USER unit — see storyengine-vision-canary.service for why.
+[Service]
+Type=oneshot
+# Same ntfy.sh topic as the validator-drift canary so Ryan's existing phone
+# subscription catches both; the title says which canary fired.
+ExecStart=/bin/sh -c 'journalctl --user -u storyengine-vision-canary.service -n 25 --no-pager --output=cat | curl -sS -T - https://ntfy.sh/osiris-validator-drift -H "Title: StoryEngine vision canary failed — a vision provider went blind" -H "Priority: high" -H "Tags: warning,eyes"'
+StandardOutput=journal
+StandardError=journal

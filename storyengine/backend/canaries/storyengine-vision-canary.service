@@ -1,0 +1,20 @@
+[Unit]
+Description=StoryEngine vision-drift canary (one-shot)
+After=network-online.target
+Wants=network-online.target
+OnFailure=storyengine-vision-canary-alert.service
+
+# USER unit (unlike the validator canary's system unit): installed to
+# ~/.config/systemd/user via canaries/install_vision_canary.sh — no root
+# needed, and Linger=yes keeps user timers alive across reboots.
+[Service]
+Type=oneshot
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+# Vault (DATABASE_URL) lives in the backend env — the canary spends ~$0.002
+# of the house tenant's Kie credit per run on three tiny vision calls.
+EnvironmentFile=/home/clawd/projects/economy-fastforward/storyengine/.env
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/clawd/projects/economy-fastforward/storyengine/backend/venv/bin/python3 -m canaries.vision_drift
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=storyengine-vision-canary

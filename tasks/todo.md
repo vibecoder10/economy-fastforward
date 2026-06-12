@@ -58,6 +58,23 @@ hard-won traps: Drive HTML interstitials, env-loading order, watcher races,
 Kie quirks), tasks/decisions.md (dialogue decisions), docs/ + CLAUDE.md
 wiring protocol. Session history below.
 
+## Handoff (2026-06-12 pt 11 — vision rerouted + canary live)
+
+The morning's dead Kie Claude vision REVERTED on its own (12/12 repro calls
+fine by evening) — classic provider drift, so the fix is structural:
+- `shared/clients/vision_client.py`: ALL product vision goes through one
+  provider chain (Kie Gemini 2.5 Flash with per-call ingestion proof →
+  Kie Claude → direct Anthropic). 9 unit tests.
+- Rerouted: model_video thumbnail pass (now a separate vision pass whose
+  observation is injected into the pack prompt as TEXT — generation never
+  carries an image block), storyboard `_grid_style_matches_reference`,
+  characters approve-cast rewrite.
+- `canaries/vision_drift.py` hourly USER systemd timer (no root; linger on)
+  + ntfy alert (same topic as validator canary). Known image: red circle on
+  blue at Supabase `assets/<tenant>/canary/vision_canary.png` (~$1.5/mo).
+- NOT migrated (legacy YouTube pipeline, direct Anthropic SDK):
+  autopilot/analysis/thumbnail_analyzer.py, video_dispatch/verify_output.py.
+
 ## Handoff (2026-06-12 pt 7 — clips UX contract locked + per-segment voice SHIPPED)
 
 Ryan answered 8 design questions for the clips stage (full contract appended to
