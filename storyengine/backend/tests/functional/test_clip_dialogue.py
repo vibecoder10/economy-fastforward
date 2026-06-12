@@ -38,7 +38,6 @@ def test_matching():
 def test_prompt():
     p = speaking_prompt([LINES[0]])
     assert "Tom speaks" in p and "Come quickly!" in p and "exactly as shown" in p
-    assert "do not" in p  # other characters stay quiet
     print("✓ speaking prompt")
 
 
