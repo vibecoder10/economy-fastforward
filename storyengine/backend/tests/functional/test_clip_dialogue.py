@@ -1,7 +1,5 @@
-"""Tests for clip_dialogue — card↔line matching and the real ffmpeg mux.
-
-Pure functions tested directly; mux/strip tested against a generated test
-video + tone (ffmpeg required, as in prod). database is stubbed.
+"""Tests for clip_dialogue — card↔line matching, prompts, and the real
+ffmpeg audio strip. database is stubbed; ffmpeg is required (as in prod).
 
 Run: python3 tests/functional/test_clip_dialogue.py  (from backend dir)
 """
@@ -16,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.modules.setdefault("database", types.SimpleNamespace(fetch_all=None))
 
 import asyncio  # noqa: E402
-from clip_dialogue import norm, match_lines, speaking_prompt, mux_voice, strip_audio  # noqa: E402
+from clip_dialogue import norm, match_lines, speaking_prompt, strip_audio  # noqa: E402
 
 LINES = [
     {"speaker": "Tom", "text": "Mom! Dad! Come here! Come quickly!", "audio_url": "u", "duration": 1.8},
@@ -40,20 +38,16 @@ def test_matching():
 def test_prompt():
     p = speaking_prompt([LINES[0]])
     assert "Tom speaks" in p and "Come quickly!" in p and "exactly as shown" in p
-    p2 = speaking_prompt(LINES)
-    assert "Then Lisa speaks" in p2
+    assert "do not" in p  # other characters stay quiet
     print("✓ speaking prompt")
 
 
-def _make_media(td):
+def _make_clip(td):
     clip = os.path.join(td, "in.mp4")
-    tone = os.path.join(td, "tone.mp3")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=2",
                     "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
                     "-c:v", "libx264", "-c:a", "aac", "-shortest", clip], check=True, capture_output=True)
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=880:duration=1",
-                    tone], check=True, capture_output=True)
-    return open(clip, "rb").read(), open(tone, "rb").read()
+    return open(clip, "rb").read()
 
 
 def _streams(data):
@@ -66,47 +60,17 @@ def _streams(data):
     return sorted(s for s in out.strip().splitlines() if s)
 
 
-def _audio_duration(data):
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
-        f.write(data)
-        path = f.name
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
-                          "-show_entries", "stream=duration", "-of", "csv=p=0", path],
-                         capture_output=True, text=True).stdout
-    os.unlink(path)
-    return float(out.strip())
-
-
-def test_mux_and_strip():
+def test_strip():
     with tempfile.TemporaryDirectory() as td:
-        clip, tone = _make_media(td)
-        muxed = asyncio.run(mux_voice(clip, [tone]))
-        assert _streams(muxed) == ["audio", "video"], _streams(muxed)
-        muxed2 = asyncio.run(mux_voice(clip, [tone, tone]))  # concat path
-        assert _streams(muxed2) == ["audio", "video"]
+        clip = _make_clip(td)
+        assert _streams(clip) == ["audio", "video"]
         silent = asyncio.run(strip_audio(clip))
         assert _streams(silent) == ["video"], _streams(silent)
-        # Delay path: 1s tone delayed 0.7s → audio stream ≈ 1.7s
-        delayed = asyncio.run(mux_voice(clip, [tone], delay_seconds=0.7))
-        d = _audio_duration(delayed)
-        assert 1.5 <= d <= 1.95, d
-    print("✓ ffmpeg mux (single + concat + delayed) and strip")
-
-
-def test_onset_frames():
-    from clip_dialogue import _extract_onset_frames
-    with tempfile.TemporaryDirectory() as td:
-        clip, _ = _make_media(td)
-        frames = _extract_onset_frames(clip)
-        assert 3 <= len(frames) <= 10, len(frames)
-        assert frames[0][0] == 0.0 and frames[1][0] == 0.5
-        assert frames[0][1][:2] == b"\xff\xd8"  # JPEG magic
-    print("✓ onset frame extraction (timestamps + jpeg)")
+    print("✓ ffmpeg audio strip")
 
 
 if __name__ == "__main__":
     test_matching()
     test_prompt()
-    test_mux_and_strip()
-    test_onset_frames()
-    print("\nALL 4 TESTS PASSED")
+    test_strip()
+    print("\nALL 3 TESTS PASSED")

@@ -1217,8 +1217,7 @@ directions, no labels, no headings inside them."""
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       download_voice, mux_voice, strip_audio,
-                                       detect_speech_onset, DEFAULT_SPEECH_LEAD_SECONDS)
+                                       strip_audio)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
 
@@ -1257,18 +1256,24 @@ directions, no labels, no headings inside them."""
                     except Exception:
                         pass
                     sc, idx = r["scene"], r["image_index"]
-                    # Speaking card? Its tagged lines drive the prompt (lip
-                    # movement) and the clip must be long enough for the voice.
+                    img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
                     lines = [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
                              if l.get("audio_url")]
+
                     if lines:
-                        prompt = speaking_prompt(lines)
-                        voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
-                        # Headroom for the speech-onset delay (Grok may walk
-                        # the speaker into frame first): lines over ~3s get
-                        # the long clip so delay + line still fit.
-                        clip_dur = (max(durations) if voice_secs > min(durations) - 3 and len(durations) > 1
-                                    else durations[0])
+                        # Speaking card → audio-DRIVEN generation (InfiniteTalk):
+                        # the mouth is generated from the line's waveform, so
+                        # sync is inherent. (Grok+mux guessed the timing and
+                        # missed both ways — see lessons 2026-06-12 pt 8/9.)
+                        line = lines[0]
+                        if len(lines) > 1:
+                            print(f"[clips] S{sc}.{idx}: {len(lines)} lines on one card — "
+                                  "lip-syncing the first (renderer assembles the rest)", flush=True)
+                        voice_secs = float(line.get("duration") or 2.0)
+                        clip_url = await client.generate_talking_video(
+                            img, _proxy_url(line["audio_url"]), speaking_prompt([line]))
+                        clip_dur = round(voice_secs, 1)
+                        clip_cost = round(max(1.0, voice_secs) * 0.015, 3)  # $0.015/s @480p
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
                         # card without one still animates (gentle default)
@@ -1279,45 +1284,27 @@ directions, no labels, no headings inside them."""
                             "composition exactly as shown.")
                         seg_dur = float(r.get("duration_seconds") or 0)
                         clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
-                    img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
-
-                    if model_id.startswith("veo-3.1"):
-                        veo_model = client.VEO_MODEL_QUALITY if model_id.endswith("quality") else client.VEO_MODEL_FAST
-                        clip_url = await client.generate_video_veo(prompt, image_url=img, model=veo_model)
-                        clip_dur = profile.durations[0]
-                    else:
-                        clip_url = await client.generate_video(img, prompt, duration=clip_dur)
+                        if model_id.startswith("veo-3.1"):
+                            veo_model = client.VEO_MODEL_QUALITY if model_id.endswith("quality") else client.VEO_MODEL_FAST
+                            clip_url = await client.generate_video_veo(prompt, image_url=img, model=veo_model)
+                            clip_dur = profile.durations[0]
+                        else:
+                            clip_url = await client.generate_video(img, prompt, duration=clip_dur)
+                        clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
 
                     if not clip_url:
                         failed += 1
                         await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
                         return
                     clip_bytes = await client.download_image(clip_url)
-                    # Grok always bakes in invented audio (profile.strip_audio):
-                    # speaking cards get their REAL character line muxed in; the
-                    # rest go silent for the renderer to narrate over.
-                    try:
-                        if lines:
-                            vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
-                            if vbytes:
-                                # Align the voice to the moment the mouth
-                                # actually starts moving (vision pass; falls
-                                # back to a small fixed lead). Clamped so the
-                                # line always fits inside the clip.
-                                onset = await detect_speech_onset(
-                                    clip_bytes, lines[0].get("speaker") or "the character",
-                                    self.tenant_id, clip_seconds=float(clip_dur))
-                                delay = onset if onset is not None else DEFAULT_SPEECH_LEAD_SECONDS
-                                delay = max(0.0, min(delay, float(clip_dur) - voice_secs - 0.2))
-                                print(f"[clips] S{sc}.{idx} speech onset "
-                                      f"{'detected' if onset is not None else 'fallback'}: {delay:.1f}s", flush=True)
-                                clip_bytes = await mux_voice(clip_bytes, vbytes, delay_seconds=delay)
-                            else:
-                                clip_bytes = await strip_audio(clip_bytes)
-                        elif getattr(profile, "strip_audio", False):
+                    # Narration clips go silent (Grok bakes in invented audio);
+                    # the renderer lays real narration over them. Speaking
+                    # clips already carry their line from InfiniteTalk.
+                    if not lines and getattr(profile, "strip_audio", False):
+                        try:
                             clip_bytes = await strip_audio(clip_bytes)
-                    except Exception as e:
-                        print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
+                        except Exception as e:
+                            print(f"[clips] S{sc}.{idx} audio strip failed, keeping raw clip: {str(e)[:150]}", flush=True)
                     drive_url = await upload_bytes(
                         clip_bytes, f"{video_id}/clips/S{sc:02d}-{idx:02d}.mp4", "video/mp4")
                     await execute(
@@ -1326,7 +1313,7 @@ directions, no labels, no headings inside them."""
                         drive_url, clip_dur, r["id"],
                     )
                     done += 1
-                    cost += profile.cost_per_clip.get(clip_dur, 0.10)
+                    cost += clip_cost
                     await _report(f"Animated S{sc}.{idx} ({done}/{total} done)")
 
             await asyncio.gather(*[_one(r) for r in todo])

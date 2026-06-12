@@ -701,6 +701,52 @@ class ImageClient:
             print(f"      ❌ Reference image error: {e}")
             return None
 
+    async def generate_talking_video(
+        self,
+        image_url: str,
+        audio_url: str,
+        prompt: str,
+        resolution: str = "480p",
+    ) -> Optional[str]:
+        """Audio-driven speaking clip via InfiniteTalk (Kie).
+
+        The mouth is GENERATED FROM the audio waveform, so lip-sync is
+        inherent — no post-hoc alignment. Output length = audio length
+        ($0.015/sec at 480p). Slow: ~7 min per clip observed live, so the
+        poll budget covers 15 (lesson: budgets match real task duration).
+        Audio max 15s; image/audio must be Kie-fetchable (media proxy URLs).
+        """
+        print(f"      🗣️ Generating talking clip (InfiniteTalk, {resolution})...")
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": "infinitalk/from-audio",
+            "input": {
+                "image_url": image_url,
+                "audio_url": audio_url,
+                "prompt": prompt,
+                "resolution": resolution,
+            },
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.CREATE_TASK_URL, headers=headers, json=payload, timeout=30.0,
+                )
+                task_data = response.json()
+                task_id = (task_data.get("data") or {}).get("taskId")
+                if not task_id:
+                    print(f"      ❌ InfiniteTalk createTask failed: {str(task_data.get('msg'))[:150]}")
+                    return None
+            await asyncio.sleep(30)
+            result_urls = await self.poll_for_completion(task_id, max_attempts=90, poll_interval=10.0)
+            return result_urls[0] if result_urls else None
+        except Exception as e:
+            print(f"      ❌ InfiniteTalk error: {str(e)[:150]}")
+            return None
+
     async def generate_video(
         self,
         image_url: str,
