@@ -1,6 +1,6 @@
 # Task Tracking
 
-## ★ THREAD HANDOFF — read this first (2026-06-13 EARLY, verification + extraction thread)
+## ★ THREAD HANDOFF — read this first (2026-06-13, Scenes-workspace thread: all 4 answers shipped)
 
 **North star (in agent memory too):** any person pastes a YouTube link → the
 machine replicates that video (new script/idea) FULLY UNATTENDED. Ryan has a
@@ -20,36 +20,45 @@ account 381bdcc3-…, a ready token sits in /tmp/se_token on the VPS).
 ⚠ Clip taps within ~10s of a restart fail (cold-proxy race, see lessons
 pt 12 — backoff shipped, but don't script POSTs right after a deploy).
 
-**THE NEXT BUILD (what's left of Ryan's 4 answers):**
-1. ONE SCENES WORKSPACE — merge storyboard boards + final pictures + clips
-   into a single per-scene view; redo at any level in place; the separate
-   storyboard/clips tabs collapse into it. (Invoke design/react skills,
-   plan from decisions.md "Video Clips stage UX contract".) NOT STARTED.
-2. AUTO RE-ANIMATE — redoing a picture auto-regenerates its clip (~$0.10,
-   cost note). Existing clip endpoint with force=true. NOT STARTED (was
-   exercised manually: scene-2 re-crop → 3 stale clips redone by hand).
-3. CUTAWAY RULE — VERIFIED AND SUPERSEDED. S1.4 was never a cutaway: its
-   sentence carries the tail of Tom's line, so it's a SPEAKING card and
-   the prompt itself summoned the boy. Real fix = OFF_SCREEN_SPEAKER_RULE
-   on every speaking prompt (verified live: legs stay at frame edge).
-   motion_guard (clip_dialogue.py) still guards narration cards:
-   cutaway → NO PEOPLE; everything else → nobody-NEW.
-4. EXTRACTION VALIDATION — BACKEND SHIPPED + VERIFIED LIVE. panel_flags
-   (label_leak/gutter_split, 15/15 on real panels), separator-rect
-   cropping (the generator drew scene 2 as 3-top/2-WIDER-bottom — uniform
-   crops CANNOT cut it), chip auto-trim, orphan guard, migration 050
-   assets.extraction_flags, POST /videos/{id}/assets/{aid}/recrop
-   (re-cuts the whole beat). Scene 2 re-cropped 5/5 clean live; the 12
-   orphan rows deleted + Drive copies trashed.
-   STILL MISSING: the red "bad crop" badge + one-tap Re-crop button in
-   the UI — land it inside the Scenes workspace build.
+**RYAN'S 4 ANSWERS — ALL SHIPPED + VERIFIED LIVE this thread:**
+1. ONE SCENES WORKSPACE ✓ — `ScenesWorkspaceTab.tsx` replaces the separate
+   Storyboard + Video Clips tabs (both DELETED). One card per scene: boards
+   row (drag-drop replace, per-slot X) → animatic → narration → a
+   SegmentCard grid where each story segment shows its clip (tap=play,
+   hover Redo/X) OR its picture (tap=Animate ~$0.10, hover X), with the 💬
+   speaker badge and the red bad-crop badge. Per-scene verbs (Plan / Draw /
+   Redo boards / Start over / Animate this scene·$X), one status strip, one
+   merged ⋯ Advanced. Tabs renumbered 10→9 ("4 · Scenes"); legacy tab ids
+   map across; next-action targets "scenes"; default tab lands on Scenes
+   through ready_for_video_generation. Verified live on prod (Playwright,
+   Ryan's tenant): 8 scenes, 12/13 boards, 74/74 pictures, 7 Animate-scene
+   buttons, 3 bad-crop badges, zero console errors; Scene 1 board + 4
+   picture cards render (screenshots in /tmp/scenes_workspace*.png).
+2. AUTO RE-ANIMATE ✓ — run_recrop_panel AND run_storyboard_extract track
+   pictures replaced under an existing clip and re-run clip generation for
+   exactly those (force=true, ~$0.10 each, never animating unpaid cards).
+   Verified live: scene-2 re-crop → "re-animated 3/3 stale clip(s) (~$0.30)".
+3. OFF-SCREEN SPEAKER RULE ✓ (supersedes "cutaway rule") — S1.4 was never a
+   cutaway: its sentence carries the tail of Tom's line, so it's a SPEAKING
+   card and the prompt itself summoned the boy. OFF_SCREEN_SPEAKER_RULE now
+   rides every speaking prompt (verified live: legs stay at frame edge).
+   motion_guard still guards NARRATION cards (cutaway → NO PEOPLE; else →
+   nobody-NEW).
+4. EXTRACTION VALIDATION ✓ — panel_flags (label_leak/gutter_split, 15/15 on
+   real panels), separator-rect cropping (the generator drew scene 2 as
+   3-top/2-WIDER-bottom — uniform crops CANNOT cut it), chip auto-trim,
+   orphan guard, migration 050 assets.extraction_flags, POST
+   /videos/{id}/assets/{aid}/recrop (re-cuts the whole beat, background
+   task), red badge + one-tap fix wired into the Scenes workspace. Scene 2
+   re-cropped 5/5 clean live; 12 orphan rows deleted + Drive copies trashed.
 
-**What is LIVE after today (clips day):**
-- Clips tab rebuilt per the UX contract (decisions.md "Video Clips stage UX
-  contract"): tap card = animate ($0.10 Grok, no confirm), per-scene
-  buttons, banner trust ladder, 💬 speaker badges, hover Redo/X, real cost
-  math, ⋯ Advanced (model picker — grok + veo wired, video_model honored),
-  silent motion-prompt auto-run, always-on useTaskWatcher (purple pill).
+**What is LIVE (this thread + clips day):**
+- THE SCENES WORKSPACE is now the visuals surface (see answer 1 above). The
+  old VideoClipsTab/StoryboardVisualsTab are gone — don't resurrect them.
+- Clip generation per the UX contract: tap card = animate ($0.10 Grok, no
+  confirm), per-scene buttons, banner trust ladder, 💬 speaker badges,
+  hover Redo/X, real cost math, ⋯ Advanced (model picker — grok + veo
+  wired), silent motion-prompt auto-run, always-on useTaskWatcher (pill).
 - All 158 dialogue segments voiced (ElevenLabs via Kie, jsonb audio_url+
   duration); cast: Tom=Finn, Lisa=Brittney, Mom=Tiffany, Dad=Brian,
   Dr.May=Bella, Bird=Emma; narrator=Mark. Casting excludes narrator voice.
@@ -88,13 +97,16 @@ pt 12 — backoff shipped, but don't script POSTs right after a deploy).
   numbers — never git add -A in that old Mac checkout).
 
 **Open / next session:**
-- THE SCENES WORKSPACE BUILD (1 + 2 above + bad-crop badge UI). Recon is
-  done: pipeline page TABS array (storyboard-visuals + clips collapse),
-  StoryboardVisualsTab (1365 lines) + VideoClipsTab (567) merge,
-  next-action.ts tab ids update. GET /videos/{id}/assets now returns
-  extraction_flags for the badge.
+- RYAN TO REVIEW the Scenes workspace end-to-end (it's a big surface change —
+  every video opens here now). Watch a re-crop on S4.4 or S6.12 (still
+  flagged) and confirm the bad-crop badge → one-tap fix feels right.
 - S2.2 style (semi-photoreal bird) — label bar is FIXED; redrawing the
   board would replace 4 good panels. Ryan's taste call.
+- Scene 5 'Receptionist' speaks 2 lines in narrator voice (uncast walk-on).
+- tag-dialogue auto-hook still modeled-path only.
+- Next pipeline elements (from clips day): (b) animatic segment timeline;
+  (e) render respecting dialogue_audio (grok_native clips carry their own
+  audio); full keep/skip matrix so every element is obviously optional.
 - Scene 5 'Receptionist' speaks 2 lines in narrator voice (uncast walk-on).
 - tag-dialogue auto-hook still modeled-path only.
 
