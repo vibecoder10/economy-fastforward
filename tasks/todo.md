@@ -1,5 +1,76 @@
 # Task Tracking
 
+## ▶ NEXT GOAL (Ryan, explicit): finish the bird video to THUMBNAIL + RENDER on the VPS
+
+Read this section, then the full handoff below. Recon for this was done by a
+4-agent workflow (thumbnail/render/state/banner) with adversarial blocker
+verification — the findings below are verified, not guesses.
+
+**Where the bird video is right now (prod DB, confirmed):** status
+`ready_for_video_generation`, dialogue_audio `grok_native`, 74/74 pictures,
+**8/74 clips**, no thumbnail, no final video, `render_config.json` MISSING.
+
+**The honest situation:**
+- THUMBNAIL works today (no code needed). It makes 3 options from text (no
+  vision). The fancy Gemini "best-of-3" 4th image is skipped because Ryan's
+  tenant has no Gemini key — that's fine, you still get a thumbnail.
+- RENDER has **two real problems** that must be handled before a good render:
+  1. **HARD BLOCKER — the timing file is missing and nothing makes it.**
+     `render/run.py:141` raises `RuntimeError` ("Audio sync must run before
+     rendering") if `skills/video-pipeline/timing/<video_id>/render_config.json`
+     doesn't exist. It doesn't for this video, and the production LightPipeline
+     NEVER calls `run_audio_sync` (only the old image-prompts stage did). So a
+     plain render request CRASHES instantly. FIX: wire `run_audio_sync` so it
+     runs for Supabase videos (add a standalone trigger, or run
+     `render/run_audio_sync.py` for this video_id on the VPS), OR add it to the
+     render preflight. Whisper must be installed where it runs. This is the #1
+     job before render will do anything.
+  2. **AUDIO WILL BE WRONG for grok_native — code fix in Remotion.**
+     `remotion-video/src/Scene.tsx:260` hardcodes `muted` on every clip and
+     `Main.tsx` always plays the ElevenLabs narrator track. For this video the
+     Grok dialogue is baked INTO the clips — render mutes it and plays only the
+     narrator, the opposite of grok_native. `grep dialogue_audio remotion-video`
+     = 0 hits. FIX: thread `dialogue_audio` (+ a per-scene "speaking" flag) from
+     the videos row → `render/upload/run_package.py` props.json + render_config →
+     `Scene.tsx`; drop `muted` and suppress/duck the narrator on grok_native
+     speaking scenes. Keep current behavior for voice_over. Preview with
+     `cd remotion-video && npm run studio` before a full VPS render.
+
+**Phantom blockers — DO NOT chase these (verified false):**
+- Plan/billing gate: tenant is at 0/120 render-minutes, passes clean.
+- No Redis on the VPS: render runs in-process via BackgroundTasks fine — just
+  don't deploy/restart during the ~10–20 min render (it has no resume).
+- Kie-Claude vision drift: does NOT touch the thumbnail stage (text-only gen).
+
+**Fast path to a render (exact calls; `T=$(cat /tmp/se_token)` on the VPS,
+base `http://localhost:8001`, header `Authorization: Bearer $T`):**
+1. Clips: either finish (`POST /api/pipeline/clip/<id>` = all 66 remaining,
+   ~$6.60 at $0.10/clip; or per scene `?scene=3`) OR skip
+   (`PATCH /api/videos/<id>/advance?to=ready_for_thumbnail`). grok_native +
+   stills get gentle zoom, so skipping is viable — but note skipped scenes have
+   NO spoken dialogue (only the clips carry Grok's voice), so for a real watch
+   you probably want clips finished. Ryan's call.
+2. Thumbnail: `POST /api/pipeline/thumbnail/<id>` (or skip
+   `?to=ready_to_render`). Advances to ready_to_render.
+3. **Fix render blocker #1** (render_config) — render crashes without it.
+4. Render: `POST /api/pipeline/render/<id>` → ~10–20 min `npx remotion render`
+   in `remotion-video/`, uploads the mp4 to Drive, sets `videos.final_video_url`,
+   status → rendered. Poll `GET /api/pipeline/status/<id>`.
+5. Watch the mp4's audio — if grok_native sounds wrong, that's blocker #2.
+6. (Optional) `POST /api/pipeline/upload/<id>` → private YouTube draft.
+
+**Two still-flagged bad crops (cosmetic, won't block render):** S4.4, S6.12
+(`extraction_flags=['label_leak']`) — tap "Bad crop — fix it" in the Scenes
+tab to re-crop, or leave them.
+
+**Full thumbnail/render entry points** (for when you build the fixes):
+thumbnail route `routes/pipeline.py:1247` → `PipelineExecutor.run_thumbnail`
+(`pipeline_executor.py:2710`) → `thumbnail/engine.py`. Render route
+`routes/pipeline.py:1297` → `run_render` (`:2757`) → `render/run.py:run()` →
+`npx remotion render Main` (composition in `remotion-video/src/Main.tsx`).
+
+---
+
 ## ★ THREAD HANDOFF — read this first (2026-06-13, Scenes-workspace thread: all 4 answers shipped)
 
 **North star (in agent memory too):** any person pastes a YouTube link → the
