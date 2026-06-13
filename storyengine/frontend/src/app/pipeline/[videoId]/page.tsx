@@ -110,9 +110,11 @@ function getDefaultTab(status: string): string {
   const idx = PIPELINE_ORDER.indexOf(status);
   if (idx <= 2) return "research";
   if (idx <= 6) return "script-voice";
-  if (idx <= 14) return "scenes";
-  if (idx <= 15) return "thumbnail";
-  if (idx <= 18) return "render";
+  // Scenes owns everything from shot-planning through clip generation
+  // (ready_for_video_generation = idx 15); thumbnail starts after.
+  if (idx <= 15) return "scenes";
+  if (idx <= 16) return "thumbnail";
+  if (idx <= 19) return "render";
   return "performance";
 }
 
