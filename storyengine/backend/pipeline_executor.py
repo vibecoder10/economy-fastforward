@@ -2847,6 +2847,63 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def _run_stitch_render(
+        self, video_id: str, video: dict, current_status: str
+    ) -> dict:
+        """Fast render for grok_native videos — FFmpeg-stitch the existing
+        clips (each already carries Grok's baked-in audio) into the final video.
+
+        Bypasses the Remotion path's two blockers (missing render_config.json;
+        Scene.tsx muting clips while playing the narrator) and is cheap enough
+        to run many at once: clips stream-copy with ~zero CPU and each render
+        works in its own temp dir. See render_stitch.py.
+        """
+        bot_name = "Render Bot"
+        await self._log_activity(
+            bot_name, video_id, "started", "Stitching clips into final video"
+        )
+
+        async def _progress(msg: str) -> None:
+            await self._log_activity(bot_name, video_id, "running", msg)
+
+        from render_stitch import stitch_video
+
+        result = await stitch_video(
+            video_id,
+            self.tenant_id,
+            title=video.get("video_title") or "",
+            on_progress=_progress,
+        )
+
+        final_url = result["final_video_url"]
+        await execute(
+            "UPDATE videos SET final_video_url = $1 WHERE id = $2",
+            final_url, video_id,
+        )
+        await self._update_video_status(video_id, to_supabase("rendered"))
+        await self._log_transition(video_id, current_status, to_supabase("rendered"), "api")
+
+        try:
+            from routes.billing import increment_usage
+            duration_min = max(1, round(result.get("duration_seconds", 0) / 60))
+            await increment_usage(self.tenant_id, "render_minutes", duration_min)
+        except Exception:
+            pass
+
+        await self._log_activity(
+            bot_name, video_id, "completed",
+            f"Stitched {result['clip_count']} clips "
+            f"({result['duration_seconds']:.0f}s, {result['method']}) into final video",
+        )
+        return {
+            "status": to_supabase("rendered"),
+            "video_id": video_id,
+            "final_video_url": final_url,
+            "clip_count": result["clip_count"],
+            "duration_seconds": result["duration_seconds"],
+            "method": result["method"],
+        }
+
     async def run_render(self, video_id: str) -> dict:
         """Render final video."""
         await self._ensure_initialized()
@@ -2858,6 +2915,16 @@ directions, no labels, no headings inside them."""
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+
+            # grok_native videos carry Grok's dialogue baked into each clip, so
+            # the final video is just the clips stitched in order — no Remotion,
+            # no render_config.json/Whisper, no muted-clip+narrator bug. This
+            # path is fast and parallel-safe (stream-copy, per-render temp dir),
+            # which is what lets many creators render at once. voice_over videos
+            # still use the Remotion timeline (narrator track) below.
+            if (video.get("dialogue_audio") or "voice_over") == "grok_native":
+                return await self._run_stitch_render(video_id, video, current_status)
+
             await self._log_activity(bot_name, video_id, "started", "Rendering video")
 
             self._load_idea_from_video(video_id)
