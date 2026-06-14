@@ -55,6 +55,32 @@ cloned video; see the handoff below. The verify also fixed 3 bugs live
 
 ---
 
+## ★ HANDOFF — 2026-06-14j (scene style from frames, thumbnail style from thumbnail — DONE + DEPLOYED + verified)
+
+Ryan's correction to 14i: the VIDEO's scene style must be read from a real **video
+frame**, not the thumbnail (a YouTube thumbnail is a punched-up click asset — split-
+screen collages, bold text — a bad proxy for the scenes). Thumbnail style stays
+read from the thumbnail. Commit `f06bd437`, deployed.
+
+`model_video.py:_generate_modeled_pack` now runs TWO vision passes:
+- **SCENE** ← `_describe_scene_style` over 3 real mid-video frames (`i.ytimg.com/vi/
+  <id>/hq1..3.jpg` — same CDN as thumbnails, so it bypasses the yt-dlp bot-check) →
+  `image_dna` / `visual_style_brief` / every scene image_prompt.
+- **THUMBNAIL** ← `_describe_thumbnail_style` → `thumbnail_dna` / `thumbnail_prompt` only.
+The pack prompt labels both and routes each to the right fields; scene-style failure
+is a loud blocker (falls back to thumbnail at worst), never silent.
+
+VERIFIED: cloned ref `cfIHXpqOLxw` into a throwaway → scene style = "Pixar 3D, golden-
+hour, supermarket interiors", thumbnail style = "split-screen, bold outlined text" —
+correctly different. Bonus: yt-dlp was bot-blocked on the server yet scene style still
+classified (CDN frames bypass it). Throwaway deleted. See [[storyengine-style-classifier-bulletproof]].
+
+⚠ Minor pre-existing cosmetic: the oembed-fallback blocker still says "modeled from
+the title, channel, and thumbnail only" even though scene FRAMES are now used too —
+harmless, low priority.
+
+---
+
 ## ★ HANDOFF — 2026-06-14i (structured prompts + bulletproof style classifier — DONE + DEPLOYED)
 
 **(1) Structured image prompts — DONE (commit `226a5f0f`, deployed + image-verified).**
