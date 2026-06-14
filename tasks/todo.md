@@ -1,5 +1,39 @@
 # Task Tracking
 
+## ★ HANDOFF — 2026-06-14d (content-quality tightening; Fix #1 of 3 DONE)
+
+Ryan watched the rendered bird video (B−) and flagged 3 issues to tighten before
+launch. Diagnosis is grounded (read the script, the storyboard prompts, AND the
+images). Working ONE AT A TIME, review each before spend.
+
+**Fix #1 — character-description refusal bug — DONE (commit `d7a67c1c`, live).**
+Every `video_characters.description` was an AI refusal ("I'm unable to access or
+view files…"). The character-design **vision pass** (`routes/characters.py` ~557,
+`vision_call`) hit Kie's Claude gateway silently dropping the image; `_try_kie_claude`
+has no ingestion guard, so the refusal was saved as the description → no facial text
+anchor. Cascade: storyboard-prompt gen then **invented** outfits ("Tom: red t-shirt"
+when the real reference is a **light-blue** fox tee) → fought the reference → drift.
+Fix: centralized refusal detector in `skills/video-pipeline/shared/clients/vision_client.py`
+(`_looks_like_refusal`) — refusal replies now treated as provider failures. Regenerated
+all 6 bird descriptions from the real portraits (accurate now). ⚠ Does NOT retroactively
+fix the bird's already-generated panels — visible gain needs panel+prompt REGENERATION.
+
+**Fix #2 — environment reference images (task #12, NOT started).** Environments are
+text labels only (`SUNNY_GARDEN`, `VET_EXAMINATION_ROOM`) — no locked image, re-invented
+each panel. Ryan's idea: generate one ref image per environment, condition panel gen on it.
+
+**Fix #3 — recap/continuity beats (task #13, NOT started).** Script is correct; the
+scene-8 vocabulary recap (panels 10–21) re-illustrates words literally — "bandage" =
+Tom re-wrapping the bird AFTER it flew free. Recap/outro beats must not re-stage resolved
+plot (word cards / kids-to-camera / labeled callbacks); add bird-state awareness.
+
+**Also found:** aspect correction — panels are 16:9 (1376×768); clips are portrait because
+**Grok reshapes** them (ignores input aspect) → the aspect lever is the CLIP stage, not
+the image stage. And a style contradiction: grids say "3D Pixar CG", per-panel image_prompt
+says "2D animated illustration".
+
+---
+
 ## ★ HANDOFF — 2026-06-14c (aspect ratio chosen at creation; bird is clean vertical)
 
 Commit `8ed98340`, deployed (backend restarted + frontend rebuilt + prod DB migrated).
