@@ -314,12 +314,18 @@ async def run(pipeline) -> dict:
 
             camera_composition = concept.get("composition", "medium")
 
+            # Structured per-panel location (== bible block location id). Lets a
+            # storyboard grid resolve its location later and pull the matching
+            # environment reference. Empty for the no-bible path → safe null.
+            block_location_id = concept.get("block_location_id") or None
+
             existing_record = existing_images_by_scene_and_index.get((scene_num, concept["concept_index"]))
             if existing_record:
                 pipeline.airtable.update_image_prompt_fields(
                     existing_record["id"],
                     image_prompt=prompt,
                     shot_type=camera_composition,
+                    location_id=block_location_id,
                 )
             else:
                 pipeline.airtable.create_concept_record(
@@ -329,6 +335,7 @@ async def run(pipeline) -> dict:
                     image_prompt=prompt,
                     composition=camera_composition,
                     video_title=pipeline.video_title,
+                    location_id=block_location_id,
                 )
 
             style_counts[display_format] = style_counts.get(display_format, 0) + 1

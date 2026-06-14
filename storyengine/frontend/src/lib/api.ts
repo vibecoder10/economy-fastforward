@@ -1024,6 +1024,67 @@ export const uploadCharacterImage = async (
   return res.json();
 };
 
+// --- Video environments (per-video location/environment locking) ---
+
+export interface VideoEnvironment {
+  id: string;
+  name: string;
+  description?: string | null;
+  reference_url?: string | null;
+  status: "draft" | "approved";
+  source: "generated" | "uploaded" | "project";
+  sort: number;
+}
+
+export const getEnvironments = (videoId: string) =>
+  fetchApi<{ environments: VideoEnvironment[]; approved_at: string | null }>(
+    `/api/videos/${videoId}/environments`
+  );
+
+export const designEnvironments = (videoId: string) =>
+  fetchApi<{ status: string; message: string }>(`/api/videos/${videoId}/environments/design`, {
+    method: "POST",
+  });
+
+export const regenerateEnvironment = (videoId: string, envId: string) =>
+  fetchApi<{ status: string; message: string }>(
+    `/api/videos/${videoId}/environments/${envId}/regenerate`,
+    { method: "POST" }
+  );
+
+export const updateEnvironment = (videoId: string, envId: string, data: { name?: string; description?: string }) =>
+  fetchApi<VideoEnvironment>(`/api/videos/${videoId}/environments/${envId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteEnvironment = (videoId: string, envId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/environments/${envId}`, {
+    method: "DELETE",
+  });
+
+export const approveEnvironments = (videoId: string) =>
+  fetchApi<{ status: string; count: number }>(`/api/videos/${videoId}/environments/approve`, {
+    method: "POST",
+  });
+
+export const uploadEnvironmentImage = async (
+  videoId: string,
+  envId: string,
+  file: File,
+): Promise<{ status: string; reference_url: string }> => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_URL}/api/videos/${videoId}/environments/${envId}/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
 export const uploadStoryboardGrid = async (
   videoId: string,
   scene: number,

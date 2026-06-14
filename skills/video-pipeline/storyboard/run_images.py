@@ -97,6 +97,7 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
         should_cancel=getattr(pipeline, "should_cancel", None),
         character_reference_urls=getattr(pipeline, "character_reference_urls", None),
         aspect_ratio=getattr(pipeline, "aspect_ratio", "16:9"),
+        environment_reference_urls=getattr(pipeline, "environment_reference_urls", None),
     )
 
     if result.get("error"):

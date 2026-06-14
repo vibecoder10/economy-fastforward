@@ -1857,6 +1857,17 @@ async def generate_contact_sheet(
             "illustration or change the art style between panels.\n\n"
         )
 
+    # When a SECOND reference is attached, it's the location for this grid
+    # (the storyboard bot appends one env ref after the cast sheet). Tell the
+    # model the last image is the setting, not another character.
+    if isinstance(character_reference_url, list) and len(character_reference_url) > 1:
+        full_prompt += (
+            "ENVIRONMENT REFERENCE: the LAST attached image is the official LOCATION for "
+            "every panel in this grid. Render all panels in THIS setting — same architecture, "
+            "props, landscape, and lighting/time of day. Do not invent a different location. "
+            "It contains no characters; populate it with the cast from the cast sheet.\n\n"
+        )
+
     full_prompt += contact_sheet_prompt
 
     if character_reference_url:
@@ -2285,6 +2296,7 @@ async def run_storyboard_images(
     should_cancel=None,
     character_reference_urls=None,
     aspect_ratio: str = "16:9",
+    environment_reference_urls=None,
 ) -> dict:
     """Phase 1B: Generate storyboard images from prompts.
 
@@ -2434,6 +2446,7 @@ async def run_storyboard_images(
 
             # Get panel count for this beat from beats list
             real_panels = 9
+            env_ref = None
             matching_beat = next(
                 (b for b in beats if b["scenes"] and b["scenes"][0] == scene_num),
                 None
@@ -2441,13 +2454,25 @@ async def run_storyboard_images(
             if matching_beat:
                 beat_images = _get_images_for_beat(image_records, matching_beat)
                 real_panels = min(len(beat_images), 9)
+                # Environment locking: this grid lives in ONE location — the
+                # dominant location_id among its panels. Pull the matching
+                # approved reference (opt-in; None unless environments designed).
+                env_ref = _resolve_env_ref_for_images(beat_images, environment_reference_urls)
+
+            # Condition on the cast sheet PLUS the one location ref (2 images
+            # max — more dilutes the character lock). env_ref is appended last;
+            # generate_contact_sheet tells the model the last image is the setting.
+            beat_refs = list(character_ref_url) if isinstance(character_ref_url, list) else (
+                [character_ref_url] if character_ref_url else [])
+            if env_ref:
+                beat_refs = beat_refs + [env_ref]
 
             try:
                 grid_url = await generate_contact_sheet(
                     contact_sheet_prompt=prompt,
                     real_panel_count=real_panels,
                     image_client=image_client,
-                    character_reference_url=character_ref_url,
+                    character_reference_url=(beat_refs or character_ref_url),
                     aspect_ratio=aspect_ratio,
                 )
                 total_cost += 0.075
@@ -2889,6 +2914,20 @@ def _load_character_reference(fields: dict) -> str | None:
             return url
 
     return None
+
+
+def _resolve_env_ref_for_images(images: list[dict], env_refs) -> Optional[str]:
+    """Pick the ONE environment reference for a grid: the dominant location_id
+    among its panels. env_refs is {location_id: url} or None. Returns None for
+    opt-out (no env_refs), panels with no location_id, or an unmapped location."""
+    if not env_refs or not images:
+        return None
+    from collections import Counter
+    loc_ids = [im.get("location_id") for im in images if im.get("location_id")]
+    if not loc_ids:
+        return None
+    dominant = Counter(loc_ids).most_common(1)[0][0]
+    return env_refs.get(dominant)
 
 
 def _get_images_for_beat(

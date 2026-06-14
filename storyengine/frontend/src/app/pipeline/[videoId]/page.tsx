@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
   BarChart3, Search, Video, Upload, Loader2, Brain, Volume2, Download, ExternalLink, X,
-  Users, MoreHorizontal,
+  Users, MoreHorizontal, MapPin,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,6 +18,7 @@ import { PipelineStepper } from "@/components/production/PipelineStepper";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { ResearchTab } from "@/components/production/ResearchTab";
 import { CharactersTab } from "@/components/production/CharactersTab";
+import { EnvironmentsTab } from "@/components/production/EnvironmentsTab";
 import { GuidedNextStep } from "@/components/production/GuidedNextStep";
 import { ScriptVoiceTab } from "@/components/production/ScriptVoiceTab";
 import { ScenesWorkspaceTab } from "@/components/production/ScenesWorkspaceTab";
@@ -76,12 +77,13 @@ const TABS = [
   { id: "research", label: "1 · Research", icon: Search },
   { id: "script-voice", label: "2 · Script & Voice", icon: FileText },
   { id: "characters", label: "3 · Characters", icon: Users },
-  { id: "scenes", label: "4 · Scenes", icon: Video },
-  { id: "sound", label: "5 · Sound", icon: Volume2 },
-  { id: "thumbnail", label: "6 · Thumbnail", icon: Film },
-  { id: "render", label: "7 · Finish", icon: Film },
-  { id: "upload", label: "8 · Upload", icon: Upload },
-  { id: "performance", label: "9 · Results", icon: BarChart3 },
+  { id: "environments", label: "4 · Environments", icon: MapPin },
+  { id: "scenes", label: "5 · Scenes", icon: Video },
+  { id: "sound", label: "6 · Sound", icon: Volume2 },
+  { id: "thumbnail", label: "7 · Thumbnail", icon: Film },
+  { id: "render", label: "8 · Finish", icon: Film },
+  { id: "upload", label: "9 · Upload", icon: Upload },
+  { id: "performance", label: "10 · Results", icon: BarChart3 },
 ];
 
 /** The old Storyboard and Video Clips tabs collapsed into Scenes (Ryan's
@@ -544,7 +546,8 @@ export default function VideoDetailPage() {
       <motion.div variants={item}>
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} />}
         {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("scenes")} />}
-        {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} />}
+        {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("environments")} />}
+        {currentTab === "environments" && <EnvironmentsTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} />}
         {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onAdvanced={() => setActiveTab("sound")} />}
         {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} />}
         {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} />}

@@ -558,6 +558,32 @@ class PipelineExecutor:
             self._pipeline.character_reference_urls = [r["reference_url"] for r in rows][:6]
         return None
 
+    async def _load_environment_refs(self, video_id: str, video: dict):
+        """Load approved location references onto the pipeline as a
+        {location_id: reference_url} map. Mirrors the character gate: returns an
+        error string when environments exist but aren't approved; None otherwise.
+        Videos that never designed environments skip it entirely (opt-in)."""
+        try:
+            rows = await fetch_all(
+                "SELECT name, reference_url FROM video_environments "
+                "WHERE video_id = $1 AND tenant_id = $2 AND reference_url IS NOT NULL "
+                "ORDER BY sort, created_at",
+                video_id, self.tenant_id,
+            )
+        except Exception:
+            rows = []
+        if not rows:
+            self._pipeline.environment_reference_urls = None
+            return None
+        if not video.get("environments_approved_at"):
+            self._pipeline.environment_reference_urls = None
+            return user_facing("Your environments are designed but not approved yet — open the "
+                               "Environments tab, review them, and hit Approve before generating grids.")
+        self._pipeline.environment_reference_urls = {
+            r["name"]: r["reference_url"] for r in rows if r.get("name") and r.get("reference_url")
+        }
+        return None
+
     async def _persist_url(self, source_url: str, storage_path: str) -> str:
         """Re-upload a temporary URL to Google Drive for permanent access.
 
@@ -1860,6 +1886,14 @@ directions, no labels, no headings inside them."""
             if gate and scene is None:
                 await self._log_activity(bot_name, video_id, "failed", gate)
                 return {"status": "failed", "error": gate}
+
+            # Optional environment locking: if the creator designed + approved
+            # location references, the bot conditions each grid on its location
+            # (one extra ref alongside the cast sheet). Opt-in — no rows = no-op.
+            env_gate = await self._load_environment_refs(video_id, video)
+            if env_gate and scene is None:
+                await self._log_activity(bot_name, video_id, "failed", env_gate)
+                return {"status": "failed", "error": env_gate}
 
             await self._install_cancel_support(video_id)
             result = await self._pipeline.run_storyboard_images(

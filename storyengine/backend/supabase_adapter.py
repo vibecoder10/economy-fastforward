@@ -319,6 +319,9 @@ def _row_to_image(row: dict) -> dict:
                 result[airtable_name] = val.capitalize()
             else:
                 result[airtable_name] = val
+    # Structured per-panel location (not in the Airtable map) — the storyboard
+    # bot reads it to pick the matching environment reference for each grid.
+    result["location_id"] = row.get("location_id")
     return result
 
 
@@ -665,6 +668,7 @@ class SupabaseAdapter:
         composition: str,
         video_title: str,
         aspect_ratio: str = "16:9",
+        location_id: Optional[str] = None,
     ) -> dict:
         """Create an image/asset record."""
         video = _fetch_one(
@@ -681,14 +685,14 @@ class SupabaseAdapter:
         _execute(
             """INSERT INTO assets (id, tenant_id, video_id, scene, image_index,
                sentence_index, sentence_text, image_prompt, shot_type,
-               video_title, aspect_ratio, status)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+               video_title, aspect_ratio, status, location_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 asset_id, video["tenant_id"] if video else self.tenant_id,
                 video["id"] if video else None,
                 scene_number, concept_index, concept_index,
                 sentence_text, image_prompt, composition,
-                video_title, aspect_ratio, "pending",
+                video_title, aspect_ratio, "pending", location_id,
             ),
         )
         return {"id": asset_id, "Scene": scene_number, "Image Index": concept_index}
@@ -754,12 +758,19 @@ class SupabaseAdapter:
             )
         return {"id": record_id}
 
-    def update_image_prompt_fields(self, record_id: str, image_prompt: str, shot_type: str) -> dict:
-        """Update prompt and shot type."""
-        _execute(
-            "UPDATE assets SET image_prompt = %s, shot_type = %s WHERE id = %s",
-            (image_prompt, shot_type, record_id),
-        )
+    def update_image_prompt_fields(self, record_id: str, image_prompt: str, shot_type: str,
+                                   location_id: Optional[str] = None) -> dict:
+        """Update prompt and shot type (and the structured location when known)."""
+        if location_id is not None:
+            _execute(
+                "UPDATE assets SET image_prompt = %s, shot_type = %s, location_id = %s WHERE id = %s",
+                (image_prompt, shot_type, location_id, record_id),
+            )
+        else:
+            _execute(
+                "UPDATE assets SET image_prompt = %s, shot_type = %s WHERE id = %s",
+                (image_prompt, shot_type, record_id),
+            )
         return {"id": record_id}
 
     def update_image_sound_prompt(self, record_id: str, sound_prompt: str) -> dict:
