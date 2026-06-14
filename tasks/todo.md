@@ -3,18 +3,11 @@
 ## ★ NEW SESSION BUILD PLAN — next-up work (queued, not started)
 
 Forward work for a fresh session. Each = what + where. Priority order.
-(DONE: research toggle → 14g; env style-lock + voice toggle → 14h. Item 1 BUMPED
-per Ryan 2026-06-14 — clip fragility jammed his "Living in a House" video.)
+(DONE this session: research toggle → 14g; env style-lock + voice toggle → 14h;
+structured image prompts → 14i; scene-vs-thumbnail style split → 14j; clip-pipeline
+resilience (was #1) → 14k.)
 
-1. **Clip-pipeline fragility fix** (BUMPED to top — long-owed, and it just bit a
-   live video: a storyboard-image batch died mid-run and left a stuck "running"
-   flag jamming the video for ~1.5h). all-clips batch has no resume, one SSL blip
-   kills a scene, 10-min slow-polls, and a dead batch leaves a stale in-memory
-   task lock (no DB record → survives until the next backend restart). See
-   [[storyengine-clip-pipeline-fragilities]]. Add: resume/idempotency, per-clip
-   retry, and clear-the-lock-on-failure (or move the lock to the DB with a TTL).
-
-2. **Deterministic panel-aspect backstop** (aspect feature enforcement — owed; task #10).
+1. **Deterministic panel-aspect backstop** (aspect feature enforcement — owed; task #10).
    The image model can return the wrong aspect even when asked; force each cropped
    panel to the chosen aspect in storyboard extraction/upscale. Needs a paid test
    to tune (pad vs crop). ⚠ CORRECTION from the verify run: clips are portrait
@@ -22,26 +15,30 @@ per Ryan 2026-06-14 — clip fragility jammed his "Living in a House" video.)
    real aspect lever is the **Grok clip stage**, not the image stage. See
    [[storyengine-aspect-ratio]].
 
-3. **Character/environment portrait retry robustness** (found in the verify run).
+2. **Character/environment portrait retry robustness** (found in the verify run).
    `design_characters` / `design_environments` silently drop a portrait that fails
    (Maria failed → `approve` then blocks on "no image yet"). Add a per-item
    auto-retry (or retry the empty cards) so one transient failure doesn't block approve.
 
-4. **voice_over / Remotion aspect support** (deferred from the aspect feature).
+3. **voice_over / Remotion aspect support** (deferred from the aspect feature).
    aspect_ratio flows through grok_native (stitch) but NOT Remotion —
    `remotion-video/src/Root.tsx` + `renderConfig` hardcode 1920x1080, so portrait
    voice_over videos render letterboxed.
 
-5. **Extend stage toggles to the rest of the pipeline** (Ryan: "all parts should be
+4. **Extend stage toggles to the rest of the pipeline** (Ryan: "all parts should be
    toggleable"). Voice is done (14h) via `_skip_disabled_next` + a `skip_*` column.
    Repeat for the other optional stages (sound design, sound effects, thumbnail):
    add `skip_<stage>` columns + creation toggles, extend `_skip_disabled_next`, and
    harden each gate. Ryan chose CREATION-TIME toggles (not live per-stage switches).
 
-6. **Env style-lock follow-up** (if 14h's prompt-only fix still drifts). The strong
-   lever is a VISUAL anchor: pass the character cast sheet to `_generate_environment`
-   as `image_input` (the Kie field for refs) with "match the art style/medium only,
-   keep the location empty" — needs a paid test (risk: it pulls a character in).
+5. **Env style polish — small remainders.** Structured prompts (14i) fixed the gross
+   drift (verified: 2D→3D and photoreal→3D both lock). Open: (a) `fence_line_rubbish`
+   and other "bad-side"/grungy scenes still come back more 2D-outlined than 3D — re-roll
+   confirmed it's systematic; add a "stay soft 3D CG even when grungy/bad-side" nudge to
+   the env prompt. (b) The stronger lever if any drift remains is a VISUAL anchor: pass
+   the character cast sheet to `_generate_environment` as `image_input` (the Kie field
+   for refs) with "match the art style/medium only, keep the location empty" — needs a
+   paid test (risk: it pulls a character in).
    Also: the per-panel builder hardcodes `_CHARACTER_PREFIX/_ENVIRONMENT_PREFIX =
    "Cinematic 2D animated illustration of"` (image_prompts/engine/prompt_builder.py
    :284,289) ignoring image_style_override — a latent 2D-vs-3D contradiction for any
@@ -52,6 +49,26 @@ per Ryan 2026-06-14 — clip fragility jammed his "Living in a House" video.)
 environment locking, recap continuity) are DONE + verified end-to-end on a real
 cloned video; see the handoff below. The verify also fixed 3 bugs live
 (env-directive misfire, env-image proxy allowlist, harmful clone-research).
+
+---
+
+## ★ HANDOFF — 2026-06-14k (clip-pipeline resilience — queue #1 — DONE + DEPLOYED)
+
+The "Animate the rest" fragilities (no resume on restart, one error kills the batch,
+stuck clips hog slots). Commit `99112390`, deployed (backend restart + frontend rebuild).
+Key insight: the backend is ALREADY additive + durable (each clip writes
+`assets.video_clip_url` immediately; a re-run only does the missing ones) — so resume =
+re-trigger, no checkpoint table needed.
+- **Frontend auto-resume** (`ScenesWorkspaceTab.tsx`): "Animate the rest" loops the
+  additive backend until nothing's left — surviving restarts/transients with no re-click,
+  no double-charge. Guards: 25-round cap, halt after 2 no-progress rounds, Stop cancels.
+- **Per-clip isolation** (`pipeline_executor._safe_one`): a raised error (SSL/Drive/DB/
+  timeout) is counted, never aborts the batch.
+- **Per-clip deadline** (`_gen`=`asyncio.wait_for 420s`): stuck Grok job frees its slot
+  in ~7 min, retried next round.
+Verified FREE: py_compile + tsc clean, deployed healthy. ⚠ Full restart-mid-run / forced-
+failure proof needs a real paid clip run — safe to do on the next "Animate the rest"
+(additive + guarded). See [[storyengine-clip-pipeline-fragilities]].
 
 ---
 
