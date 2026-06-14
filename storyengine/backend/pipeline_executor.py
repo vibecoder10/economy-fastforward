@@ -2723,13 +2723,16 @@ directions, no labels, no headings inside them."""
         text = (video.get("thumbnail_text") or "").strip()
         title = (video.get("video_title") or "").strip()
         parts = [
-            "YouTube thumbnail, 16:9, glossy 3D Pixar/Disney animated style — bright, saturated, high contrast.",
-            "Copy the EXACT composition, camera framing, lighting and art style of the FIRST reference image,",
-            "but use the SECOND reference image as the official character cast: match those characters' faces,",
-            "ages, hairstyles and clothing precisely.",
+            "YouTube thumbnail, 16:9. The FIRST reference image is the OFFICIAL CHARACTER CAST SHEET — reproduce "
+            "these EXACT characters: the same faces, hair, skin tone, ages and clothing. Never invent or "
+            "substitute anyone.",
         ]
         if names:
-            parts.append(f"Feature these characters: {names}.")
+            parts.append(f"The cast is: {names}.")
+        parts.append(
+            "The SECOND reference image is ONLY a layout/composition guide — copy its framing, poses and energy, "
+            "but REPLACE every person in it with the matching character from the cast sheet. Do NOT keep any face, "
+            "hairstyle or outfit from the second image.")
         if style:
             parts.append("Art-direction recipe: " + style)
         if text:
@@ -2737,8 +2740,8 @@ directions, no labels, no headings inside them."""
         elif title:
             parts.append(f'Headline relates to: "{title}".')
         parts.append(
-            "Do NOT copy any text, logos or background signage from the FIRST reference — take only its "
-            "layout, framing and style. Clean and uncluttered, vibrant, eye-catching, professional.")
+            "Glossy 3D Pixar/Disney style, bright, saturated, high-contrast. Do NOT copy any text, logos or "
+            "background signage from the reference. Clean and uncluttered, vibrant, eye-catching, professional.")
         return " ".join(parts)
 
     async def run_thumbnail(self, video_id: str) -> dict:
@@ -2778,8 +2781,13 @@ directions, no labels, no headings inside them."""
                 if not prompt:
                     prompt = await self._build_thumbnail_clone_prompt(video_id, video)
                 client = self._pipeline.image_client
+                # Cast sheet FIRST (authoritative for identities), reference
+                # thumbnail SECOND (layout only). Order + the prompt's explicit
+                # "replace every person" instruction stop the reference's own
+                # cast from overwriting ours — without this, the reference
+                # thumbnail's family leaks through and our characters vanish.
                 res = await client.generate_with_reference(
-                    prompt, [ref_thumb, cast_sheet], aspect_ratio="16:9")
+                    prompt, [cast_sheet, ref_thumb], aspect_ratio="16:9")
                 url = (res or {}).get("url")
                 if not url:
                     await self._log_activity(bot_name, video_id, "failed",
