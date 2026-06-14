@@ -2848,15 +2848,17 @@ directions, no labels, no headings inside them."""
             return {"status": "failed", "error": error_msg}
 
     async def _run_stitch_render(
-        self, video_id: str, video: dict, current_status: str
+        self, video_id: str, video: dict, current_status: str,
+        orientation: str = "auto",
     ) -> dict:
         """Fast render for grok_native videos — FFmpeg-stitch the existing
         clips (each already carries Grok's baked-in audio) into the final video.
 
         Bypasses the Remotion path's two blockers (missing render_config.json;
-        Scene.tsx muting clips while playing the narrator) and is cheap enough
-        to run many at once: clips stream-copy with ~zero CPU and each render
-        works in its own temp dir. See render_stitch.py.
+        Scene.tsx muting clips while playing the narrator). Clips that differ in
+        size/orientation are normalized onto one canvas (scale+pad), joined in a
+        single encode, and each render works in its own temp dir. orientation:
+        'auto'|'portrait'|'landscape'. See render_stitch.py.
         """
         bot_name = "Render Bot"
         await self._log_activity(
@@ -2872,6 +2874,7 @@ directions, no labels, no headings inside them."""
             video_id,
             self.tenant_id,
             title=video.get("video_title") or "",
+            orientation=orientation,
             on_progress=_progress,
         )
 
@@ -2893,7 +2896,8 @@ directions, no labels, no headings inside them."""
         await self._log_activity(
             bot_name, video_id, "completed",
             f"Stitched {result['clip_count']} clips "
-            f"({result['duration_seconds']:.0f}s, {result['method']}) into final video",
+            f"({result['duration_seconds']:.0f}s, {result.get('resolution', '?')} "
+            f"{result.get('orientation', '')}) into final video",
         )
         return {
             "status": to_supabase("rendered"),
@@ -2901,10 +2905,12 @@ directions, no labels, no headings inside them."""
             "final_video_url": final_url,
             "clip_count": result["clip_count"],
             "duration_seconds": result["duration_seconds"],
+            "resolution": result.get("resolution"),
+            "orientation": result.get("orientation"),
             "method": result["method"],
         }
 
-    async def run_render(self, video_id: str) -> dict:
+    async def run_render(self, video_id: str, orientation: str = "auto") -> dict:
         """Render final video."""
         await self._ensure_initialized()
         bot_name = "Render Bot"
@@ -2918,12 +2924,13 @@ directions, no labels, no headings inside them."""
 
             # grok_native videos carry Grok's dialogue baked into each clip, so
             # the final video is just the clips stitched in order — no Remotion,
-            # no render_config.json/Whisper, no muted-clip+narrator bug. This
-            # path is fast and parallel-safe (stream-copy, per-render temp dir),
-            # which is what lets many creators render at once. voice_over videos
-            # still use the Remotion timeline (narrator track) below.
+            # no render_config.json/Whisper, no muted-clip+narrator bug. Clips
+            # that differ in orientation are normalized onto one canvas. Each
+            # render is isolated (own temp dir), so many can run at once.
+            # voice_over videos still use the Remotion timeline (narrator) below.
             if (video.get("dialogue_audio") or "voice_over") == "grok_native":
-                return await self._run_stitch_render(video_id, video, current_status)
+                return await self._run_stitch_render(
+                    video_id, video, current_status, orientation)
 
             await self._log_activity(bot_name, video_id, "started", "Rendering video")
 

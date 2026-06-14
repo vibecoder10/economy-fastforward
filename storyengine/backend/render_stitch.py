@@ -6,22 +6,23 @@ the clips in scene/segment order. This bypasses Remotion entirely — no
 ``render_config.json``, no Whisper audio-sync, no muted-clip / narrator bug
 (``Scene.tsx`` issues).
 
-The concat **re-encodes** to a single clean H.264 stream (see ``_concat`` for
-why stream-copy is unsafe — strict players freeze on copy-concatenated clips
-whose per-clip parameter sets differ). Re-encode of a ~9-min 736x400 video is
-~50s (veryfast); concurrency is bounded by ``_FFMPEG_SEM`` so a burst of
-simultaneous renders queues instead of thrashing the small VPS CPU.
+Clips can differ in size/orientation (e.g. a landscape intro + many portrait
+body clips), so the concat **normalizes** every clip onto one uniform canvas
+(scale-to-fit + pad, never stretch) and joins them in a single H.264 encode via
+the ffmpeg ``concat`` filter — see ``_concat``. One encode gives a consistent
+parameter set (strict players like QuickTime don't freeze) and rebuilt
+timestamps (audio and video can't drift). ~75s for a ~9-min video, ~2GB RAM.
 
 Designed to survive ~20 simultaneous renders on a small VPS:
   * each render works in its own ``tempfile`` dir (no shared ``public/`` like the
     Remotion path — that dir was a real collision hazard under concurrency);
-  * a process-wide semaphore caps concurrent ffmpeg invocations so the
-    re-encode fallback can never saturate the CPU;
+  * a process-wide semaphore (``_FFMPEG_SEM``) caps concurrent ffmpeg encodes so
+    a burst queues instead of exhausting CPU **or RAM** (each encode is ~2GB);
   * downloads are I/O-bound and capped per-render;
   * ffmpeg runs via asyncio subprocess so it never blocks the event loop.
 
 Public entry:
-    await stitch_video(video_id, tenant_id, on_progress=None) -> dict
+    await stitch_video(video_id, tenant_id, orientation="auto", on_progress=None) -> dict
 """
 
 import asyncio
@@ -38,7 +39,7 @@ from storage import upload_bytes
 # nearly free, but the re-encode fallback is CPU-heavy and the box is small
 # (4 cores) — this is the safety valve so 20 simultaneous renders queue instead
 # of melting the CPU. Tunable via env without a code change.
-_FFMPEG_SEM = asyncio.Semaphore(int(os.getenv("STITCH_FFMPEG_CONCURRENCY", "3")))
+_FFMPEG_SEM = asyncio.Semaphore(int(os.getenv("STITCH_FFMPEG_CONCURRENCY", "2")))
 # Per-render parallel Drive downloads (I/O-bound; the Drive client retries).
 _DOWNLOAD_CONCURRENCY = int(os.getenv("STITCH_DOWNLOAD_CONCURRENCY", "6"))
 
@@ -186,26 +187,68 @@ async def _download_clips(
     return [p for p in paths if p is not None]
 
 
-def _write_concat_list(paths: list[Path], list_path: Path) -> None:
-    """ffmpeg concat-demuxer manifest (single-quote-escaped absolute paths)."""
-    lines = []
-    for p in paths:
-        safe = str(p).replace("'", "'\\''")
-        lines.append(f"file '{safe}'")
-    list_path.write_text("\n".join(lines) + "\n")
+def _even(n: float) -> int:
+    """Nearest even int — H.264 needs even dimensions."""
+    i = int(round(n))
+    return i - (i % 2)
 
 
-async def _concat(paths: list[Path], list_path: Path, out_path: Path) -> str:
-    """Concat clips into out_path by RE-ENCODING to one clean H.264 stream.
+async def _probe_wh(path: str) -> tuple[int, int]:
+    """(width, height) of the first real video stream (skips attached_pic)."""
+    proc = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+    )
+    out, _ = await proc.communicate()
+    try:
+        w, h = (out or b"").decode().strip().split("x")[:2]
+        return int(w), int(h)
+    except (ValueError, AttributeError):
+        return 0, 0
 
-    Stream-copy (`-c copy`) is deliberately NOT used. Each source clip carries
-    its own SPS/PPS parameter set (plus an mjpeg "attached picture" track and an
-    unset mov timescale). A copy-concat writes only the *first* clip's avcC into
-    the MP4 header, so strict players (QuickTime) decode clip 1 then freeze on
-    frame 1 while the audio keeps playing — even though ffmpeg/VLC, which read
-    in-band parameter sets, play it fine. One encoder pass produces a single
-    consistent parameter set and clean constant-rate timestamps → universally
-    playable. We `-map` only the real video+audio, dropping the attached pic.
+
+async def _choose_target(paths: list[Path], orientation: str) -> tuple[int, int, str]:
+    """Pick one uniform output canvas for clips that may differ in size.
+
+    Clips can be a MIX of orientations (e.g. one landscape intro + many portrait
+    body clips). Locking the canvas to the first clip stretches all the others —
+    so we scale+pad every clip onto a single canvas instead. The canvas matches
+    the MAJORITY clip's aspect (so most clips fill it with no bars); the odd ones
+    out get letter/pillar-boxed, never distorted. `orientation` forces a shape:
+    'auto' follows the majority, 'portrait'/'landscape' override it. Env
+    STITCH_TARGET_W/H wins over everything.
+    """
+    whs = [wh for wh in [await _probe_wh(str(p)) for p in paths] if wh[0] and wh[1]]
+    if not whs:
+        return 1920, 1080, "landscape"
+    from collections import Counter
+    mw, mh = Counter(whs).most_common(1)[0][0]
+    maj_portrait = mh > mw
+    o = orientation if orientation in ("portrait", "landscape") else (
+        "portrait" if maj_portrait else "landscape")
+
+    if o == "portrait":
+        tw, th = (_even(mw * 1080 / mh), 1080) if maj_portrait else (1080, 1920)
+    else:
+        tw, th = (1920, _even(mh * 1920 / mw)) if not maj_portrait else (1920, 1080)
+
+    tw = int(os.getenv("STITCH_TARGET_W") or tw)
+    th = int(os.getenv("STITCH_TARGET_H") or th)
+    return _even(tw), _even(th), o
+
+
+async def _concat(paths: list[Path], out_path: Path, tw: int, th: int) -> str:
+    """Normalize every clip onto a tw×th canvas and join them in ONE encode.
+
+    Uses the ffmpeg `concat` *filter* (not the demuxer): each input is scaled to
+    fit (aspect preserved), padded to the exact canvas (so mixed-orientation
+    clips are letter/pillar-boxed, never stretched), forced to a constant frame
+    rate + uniform SAR, and its audio resampled to a common rate — then all
+    segments are concatenated. One encode = one consistent H.264 parameter set
+    (so strict players like QuickTime don't freeze) and rebuilt timestamps (so
+    audio and video can't drift). The malformed source timestamps + per-clip
+    SPS/PPS + mjpeg attached-pic tracks are all discarded in the process.
 
     Returns "reencode". Raises on failure.
     """
@@ -213,15 +256,33 @@ async def _concat(paths: list[Path], list_path: Path, out_path: Path) -> str:
     crf = os.getenv("STITCH_X264_CRF", "20")
     fps = os.getenv("STITCH_FPS", "24")
 
+    inputs: list[str] = []
+    pre: list[str] = []
+    labels: list[str] = []
+    for i, p in enumerate(paths):
+        inputs += ["-i", str(p)]
+        pre.append(
+            f"[{i}:v]scale={tw}:{th}:force_original_aspect_ratio=decrease,"
+            f"pad={tw}:{th}:-1:-1:color=black,setsar=1,fps={fps},format=yuv420p[v{i}];"
+            f"[{i}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
+        )
+        labels.append(f"[v{i}][a{i}]")
+    filtergraph = (";".join(pre) + ";" + "".join(labels)
+                   + f"concat=n={len(paths)}:v=1:a=1[v][a]")
+    # The graph is huge for many clips — pass it as a script file, not argv.
+    script = out_path.parent / "filtergraph.txt"
+    script.write_text(filtergraph)
+
+    cmd = ["ffmpeg", "-y", *inputs,
+           "-filter_complex_script", str(script),
+           "-map", "[v]", "-map", "[a]",
+           "-c:v", "libx264", "-preset", preset, "-crf", crf,
+           "-pix_fmt", "yuv420p", "-video_track_timescale", "24000",
+           "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+           "-movflags", "+faststart", str(out_path)]
+
     async with _FFMPEG_SEM:
-        rc, err = await _run_subprocess([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
-            "-map", "0:v:0", "-map", "0:a:0",
-            "-c:v", "libx264", "-preset", preset, "-crf", crf,
-            "-pix_fmt", "yuv420p", "-r", fps, "-video_track_timescale", "24000",
-            "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
-            "-movflags", "+faststart", str(out_path),
-        ])
+        rc, err = await _run_subprocess(cmd)
 
     if rc == 0 and out_path.exists() and await _probe_duration(str(out_path)) > 0:
         return "reencode"
@@ -239,12 +300,15 @@ async def stitch_video(
     tenant_id: str,
     *,
     title: str = "",
+    orientation: str = "auto",
     on_progress: ProgressCb = None,
 ) -> dict:
-    """Stitch a video's existing clips into one mp4 and upload it.
+    """Stitch a video's existing clips into one uploaded mp4.
 
-    Returns {final_video_url, duration_seconds, clip_count, method}.
-    Raises ValueError if there are no clips, RuntimeError on ffmpeg failure.
+    orientation: 'auto' (follow the majority of clips), 'portrait', or
+    'landscape'. Returns {final_video_url, duration_seconds, clip_count, method,
+    resolution, orientation}. Raises ValueError if there are no clips,
+    RuntimeError on ffmpeg failure.
     """
     clips = await _gather_clips(video_id)
     if not clips:
@@ -260,12 +324,11 @@ async def stitch_video(
                 f"to avoid a video with gaps"
             )
 
-        list_path = workdir / "concat.txt"
         out_path = workdir / "stitched.mp4"
-        _write_concat_list(paths, list_path)
-
-        await _emit(on_progress, "Joining clips with ffmpeg…")
-        method = await _concat(paths, list_path, out_path)
+        tw, th, orient = await _choose_target(paths, orientation)
+        await _emit(on_progress,
+                    f"Normalizing {len(paths)} clips to {tw}x{th} ({orient}) & joining…")
+        method = await _concat(paths, out_path, tw, th)
         duration = await _probe_duration(str(out_path))
 
         data = out_path.read_bytes()
@@ -280,6 +343,8 @@ async def stitch_video(
             "duration_seconds": round(duration, 1),
             "clip_count": len(clips),
             "method": method,
+            "resolution": f"{tw}x{th}",
+            "orientation": orient,
             "size_bytes": len(data),
         }
     finally:

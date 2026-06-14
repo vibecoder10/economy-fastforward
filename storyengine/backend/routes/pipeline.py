@@ -1299,9 +1299,13 @@ async def run_render(
     video_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    orientation: str = "auto",
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Render final video."""
+    """Render final video. `orientation` (grok_native stitch only):
+    auto|portrait|landscape — 'auto' follows the majority of the clips."""
+    if orientation not in ("auto", "portrait", "landscape"):
+        orientation = "auto"
     from routes.billing import check_plan_limits
     await check_plan_limits(tenant_id, "render")
 
@@ -1326,7 +1330,7 @@ async def run_render(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_render(video_id)
+            result = await executor.run_render(video_id, orientation)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
