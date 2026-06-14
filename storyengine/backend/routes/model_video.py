@@ -234,9 +234,10 @@ Stay inside the reference's world:
   make another finance documentary)
 - Same audience, tone, and language level
 - Same title formula (emoji usage, punctuation, structure, suffix pattern)
-- Same visual style — the THUMBNAIL OBSERVATION below is what the reference's
-  thumbnail actually looks like (described by a vision pass); replicate exactly
-  that art style, palette, and character design
+- Same visual style — the SCENE OBSERVATION below is the reference's ACTUAL in-video
+  look (described from real frames); replicate exactly that art style, palette, and
+  character design across all video images. The thumbnail is a separate, punched-up
+  click asset — use the THUMBNAIL OBSERVATION ONLY for the thumbnail, never for scenes
 - NEW but adjacent subject matter: a sibling story/topic the same channel would
   publish next. Never copy the reference's exact story, characters, or script lines.
 
@@ -247,7 +248,10 @@ REFERENCE VIDEO:
 - Duration: {ref_duration}s
 - Description (excerpt): {ref_description}
 
-THUMBNAIL OBSERVATION (the reference thumbnail as seen by a vision pass):
+SCENE OBSERVATION (real frames from the MIDDLE of the reference video — its TRUE in-video visual style; use for visual_style_brief, image_dna, and every scene image_prompt):
+{scene_observation}
+
+THUMBNAIL OBSERVATION (the reference THUMBNAIL only — a punched-up click asset, NOT the scene style; use ONLY for thumbnail_prompt and thumbnail_dna):
 {thumbnail_observation}
 
 STYLE DNA ANALYSIS (extracted by a prior pass; may be partial):
@@ -264,11 +268,11 @@ Return ONLY valid JSON with exactly this shape:
   "research_brief": "markdown bullet list: what content/material to gather for THIS kind of video (for story/educational formats: story beats, vocabulary, facts; for documentary formats: stats and sources) (100-200 words)",
   "script_guidance": "markdown: replicate the reference's script approach — hook style, structure, pacing, segment pattern (150-250 words)",
   "script_dna": "direct instructions to the scriptwriter to replicate the reference's script STYLE: narration vs dialogue, language level, sentence length, tone, recurring segment patterns (e.g. comprehension questions, recaps) (60-120 words)",
-  "visual_style_brief": "markdown: the reference's visual style as observed (art style, palette, character design, composition), to be replicated across all visuals (100-200 words)",
-  "thumbnail_prompt": "one self-contained image-generation prompt for the sibling video's thumbnail in the reference's exact thumbnail style (40-70 words)",
-  "image_dna": "style directives for EVERY still image: art style, palette, character design, lighting, recurring motifs — matching the reference's observed visual style (60-100 words)",
+  "visual_style_brief": "markdown: the reference's IN-VIDEO visual style from the SCENE OBSERVATION (art style, palette, character design, composition), to be replicated across all video images (100-200 words)",
+  "thumbnail_prompt": "one self-contained image-generation prompt for the sibling video's thumbnail in the reference's exact THUMBNAIL style per the THUMBNAIL OBSERVATION (40-70 words)",
+  "image_dna": "style directives for EVERY still image, matching the SCENE OBSERVATION (the real in-video look, NOT the thumbnail): art style/medium, palette, character design, lighting, recurring motifs (60-100 words)",
   "motion_dna": "directives for EVERY video clip prompt: camera movement, pacing, subject motion matching the reference's format (40-80 words)",
-  "thumbnail_dna": "style directives for thumbnail generation matching the reference's thumbnail approach: composition, characters/faces, color blocking, text treatment (40-80 words)",
+  "thumbnail_dna": "style directives for thumbnail generation matching the THUMBNAIL OBSERVATION: composition, characters/faces, color blocking, text treatment (40-80 words)",
   "negative_prompts": ["3-6 short style constraints to avoid (styles that would break consistency with the reference, plus 'no watermarks')"],
   "scene_concepts": [
     {{
@@ -286,7 +290,8 @@ Rules:
 
 
 def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str],
-                       thumbnail_observation: Optional[str] = None) -> str:
+                       thumbnail_observation: Optional[str] = None,
+                       scene_observation: Optional[str] = None) -> str:
     dna_payload = "Not available — rely on the metadata, transcript, and attached thumbnail."
     if dna:
         dna_payload = json.dumps(
@@ -300,8 +305,10 @@ def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str
         ref_views=info.get("views") or 0,
         ref_duration=info.get("duration_seconds") or 0,
         ref_description=(info.get("description") or "")[:500],
+        scene_observation=scene_observation
+        or "Not available — infer the in-video style from the thumbnail, metadata, and transcript.",
         thumbnail_observation=thumbnail_observation
-        or "Not available — infer the visual style from the metadata and transcript.",
+        or "Not available — infer the thumbnail style from the metadata and transcript.",
         dna_json=dna_payload,
         transcript_excerpt=excerpt,
     )
@@ -350,6 +357,53 @@ async def _describe_thumbnail_style(creds: dict, thumbnail_url: Optional[str]) -
     return None
 
 
+_SCENE_OBSERVATION_PROMPT = (
+    "These are real frames sampled from the MIDDLE of a video — its actual on-screen "
+    "content. Describe the video's true SCENE visual style so an artist could replicate "
+    "it. IGNORE any subtitle/caption text burned into the frames. START with one line — "
+    "`MEDIUM: <the exact rendering medium>` — naming the single best fit precisely: "
+    "photorealistic live-action, 3D CG / Pixar-style animation, 2D / flat illustration, "
+    "anime, stop-motion, mixed-media, etc. Do NOT default to an animated or illustrated "
+    "medium: if the frames are real footage, say photorealistic live-action. Then describe "
+    "color palette, character/subject design (age, species, proportions), lighting, "
+    "composition, and recurring motifs. 60-120 words, no preamble."
+)
+
+
+def _scene_frame_urls(youtube_id: str) -> list:
+    """Real in-video frames YouTube auto-extracts at ~25/50/75% of the runtime.
+    Served from the same CDN as thumbnails, so they sidestep the yt-dlp bot-check —
+    THIS, not the thumbnail, is the reference's true scene look."""
+    return [f"https://i.ytimg.com/vi/{youtube_id}/hq{n}.jpg" for n in (1, 2, 3)]
+
+
+async def _describe_scene_style(creds: dict, frame_urls: list) -> Optional[str]:
+    """Vision pass over real mid-video frames — the SCENE-style ground truth for
+    every generated still (image_dna). The thumbnail is a punched-up click asset and
+    a bad proxy for the in-video look, so scene style must come from actual frames.
+    Retried so a transient blip doesn't drop us to a text/thumbnail guess."""
+    if not frame_urls:
+        return None
+    from shared.clients.vision_client import vision_call
+    last_err: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            obs = await vision_call(
+                _SCENE_OBSERVATION_PROMPT, frame_urls,
+                kie_key=creds["key"] if creds["provider"] == "kie" else None,
+                anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+                tier="fast", max_tokens=400,
+            )
+            if obs and obs.strip():
+                return obs.strip()
+            last_err = ValueError("empty observation")
+        except Exception as e:
+            last_err = e
+        await asyncio.sleep(2 * (attempt + 1))
+    logger.warning("[model_video] scene-frame vision pass failed after 3 tries: %s", str(last_err)[:200])
+    return None
+
+
 _REQUIRED_PACK_KEYS = (
     "selected_title", "title_options", "angle_thesis", "research_brief",
     "script_guidance", "visual_style_brief", "thumbnail_prompt", "scene_concepts",
@@ -357,29 +411,40 @@ _REQUIRED_PACK_KEYS = (
 
 
 async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
-                                 transcript: Optional[str], blockers: Optional[list] = None) -> dict:
-    # Vision and generation are split on purpose: the vision helper proves the
-    # image was ingested (style fidelity), and the pack generation stays a pure
-    # text call — immune to the gateway's image-block drift.
-    observation = await _describe_thumbnail_style(creds, info.get("thumbnail_url"))
-    # The thumbnail vision pass is the ONLY visual ground truth — it must run so the
-    # pipeline locks to the reference's TRUE medium (photoreal, anime, 2D, 3D…), not
-    # a text guess that skews animated. If it couldn't classify the style, NEVER fail
-    # silently: surface a blocker so the creator can re-model or set the style.
-    if blockers is not None and not observation:
-        if info.get("thumbnail_url"):
+                                 transcript: Optional[str], blockers: Optional[list] = None,
+                                 youtube_id: Optional[str] = None) -> dict:
+    # Vision and generation are split on purpose: the vision helper proves the image
+    # was ingested (style fidelity), and pack generation stays a pure text call —
+    # immune to the gateway's image-block drift.
+    #
+    # TWO separate ground truths, on purpose:
+    #   • SCENE style     ← real mid-video frames → drives image_dna / every still.
+    #   • THUMBNAIL style ← the thumbnail         → drives thumbnail_dna ONLY.
+    # A YouTube thumbnail is a punched-up click asset (split-screens, big text,
+    # exaggerated faces) — a bad proxy for the actual scenes — so the in-video look
+    # MUST come from frames, not the thumbnail.
+    thumb_obs = await _describe_thumbnail_style(creds, info.get("thumbnail_url"))
+    scene_obs = await _describe_scene_style(creds, _scene_frame_urls(youtube_id)) if youtube_id else None
+    # Scene style is the basis for "reproduce ANY style faithfully" — if it couldn't be
+    # read from real frames, NEVER fail silently: flag it (falling back to the thumbnail
+    # at best) so the creator can re-model or set the style.
+    if blockers is not None and not scene_obs:
+        if thumb_obs:
             blockers.append(
-                "Couldn't read the reference's visual style from its thumbnail — the style "
-                "was inferred from text and may not match (especially for realistic / "
-                "live-action sources). Re-run modeling, or set the image style manually "
-                "before generating."
+                "Couldn't read the reference's in-video scene style from real frames — fell "
+                "back to its thumbnail, which is a punched-up click asset and may not match "
+                "the actual scenes. Re-run modeling, or set the image style manually."
             )
         else:
             blockers.append(
-                "No reference thumbnail was available, so the visual style was inferred "
-                "from text only — verify the style before generating."
+                "Couldn't read the reference's visual style from frames or thumbnail — the "
+                "style was inferred from text only. Set the image style before generating."
             )
-    prompt = _build_pack_prompt(info, dna, transcript, thumbnail_observation=observation)
+    prompt = _build_pack_prompt(
+        info, dna, transcript,
+        scene_observation=scene_obs or thumb_obs,
+        thumbnail_observation=thumb_obs,
+    )
     last_err: Optional[Exception] = None
     for _attempt in range(3):
         try:
@@ -709,7 +774,7 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
         #    channel profile is deliberately NOT injected: the feature replicates
         #    the dropped-in video, it doesn't adapt it to the creator's niche)
         _set("running", "Creating your modeled idea…")
-        pack = await _generate_modeled_pack(creds, info, dna, transcript, blockers)
+        pack = await _generate_modeled_pack(creds, info, dna, transcript, blockers, youtube_id)
 
         # 4. Persist everything before any generation credits are spent
         _set("running", "Writing your prompt pack…")
