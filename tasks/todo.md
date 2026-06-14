@@ -55,6 +55,37 @@ cloned video; see the handoff below. The verify also fixed 3 bugs live
 
 ---
 
+## ★ HANDOFF — 2026-06-14i (structured prompts + bulletproof style classifier — DONE + DEPLOYED)
+
+**(1) Structured image prompts — DONE (commit `226a5f0f`, deployed + image-verified).**
+Replaced the prose char/env prompts (where the style clause got buried → drift) with
+a structured JSON spec whose FIRST slots are `art_style` + `render_medium`, IDENTICAL
+in both `routes/characters.py:_generate_portrait` and `routes/environments.py:
+_generate_environment` → cast and locations lock to one medium. The GPT Image 2 skill's
+#1 lesson, on nano-banana-2. VERIFIED by regenerating `13c334b5`'s drifted envs and
+eyeballing the PNGs: maple_street (flat-2D→3D Pixar), toms_living_room (photoreal→3D
+Pixar), garden_lawn (2D→3D Pixar) all clean. ⚠ `fence_line_rubbish` (a "bad-side" scene)
+came back improved but more 2D-illustrated/outlined than the others — the style_dna's
+"bold outlines" + bad-side grunge pulls the medium flatter. Open: re-roll it, or add a
+"stay 3D CG even when grungy/bad-side" nudge. front_doorstep_morning was already fine;
+classroom_title_card is a TEXT card → leave for Part 2 (GPT Image 2 routing).
+
+**(2) Clone style-classifier bulletproofed — DONE (commit `ce4443bb`, deployed).** Ryan's
+requirement: a shared-link clone must always classify the source's TRUE style (incl.
+realistic/live-action), never silently default to animated — that's what lets us
+reproduce ANY style. `model_video.py`: the thumbnail vision pass (`_describe_thumbnail_style`)
+now retries 3×; a failed classification appends a creator-facing **blocker** (was silent
+text-guess fallback); the observation prompt forces an explicit `MEDIUM:` label and forbids
+defaulting to animated; the pack example is de-biased. See [[storyengine-style-classifier-bulletproof]].
+
+**Still open from this thread:** Part 2 = route TEXT frames (title/word cards, signs) to
+GPT Image 2 via Kie (`gpt-image-2-image-to-image`, already wired for thumbnails) for legible
+lettering — Ryan approved direction; needs text-frame detection (cleanest: tag title-card
+beats in the story bible). And the structured-prompt pattern could extend to the per-panel
+builder's hardcoded `_CHARACTER_PREFIX/_ENVIRONMENT_PREFIX` (queue item 6).
+
+---
+
 ## ★ HANDOFF — 2026-06-14h (env style-lock + voice toggle — DONE + DEPLOYED + verified)
 
 Two asks from Ryan while reviewing the "Living in a House" video (`13c334b5`).
