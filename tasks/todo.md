@@ -3,20 +3,9 @@
 ## ★ NEW SESSION BUILD PLAN — next-up work (queued, not started)
 
 Forward work for a fresh session. Each = what + where. Priority order.
+(Item 1 — research toggle — is DONE; see the 2026-06-14g handoff below.)
 
-1. **Research toggle for TYPED-TOPIC videos** (Ryan's ask, 2026-06-14).
-   Clones already skip research (commit `ee671d64`: modeled videos land at
-   `ready_for_scripting`, not `idea_logged` — modeling already makes the
-   research_payload, and running the agent both wastes tokens AND clobbers it).
-   STILL TODO: for videos started from a TYPED TOPIC (the regular create flow,
-   not a YouTube clone), make research OPTIONAL — a "Needs research?" choice at
-   creation. Mirror the aspect picker: `skip_research` (or `needs_research`) on
-   `CreateVideoRequest` + `create_video` INSERT (`routes/videos.py`) +
-   `CreateVideoStep.tsx`. When skipped, advance `idea_logged → ready_for_scripting`
-   without `run_research`. Default ON for typed topics (research is the legit
-   first step there); let the creator turn it off for fiction/story formats.
-
-2. **Deterministic panel-aspect backstop** (aspect feature enforcement — owed; task #10).
+1. **Deterministic panel-aspect backstop** (aspect feature enforcement — owed; task #10).
    The image model can return the wrong aspect even when asked; force each cropped
    panel to the chosen aspect in storyboard extraction/upscale. Needs a paid test
    to tune (pad vs crop). ⚠ CORRECTION from the verify run: clips are portrait
@@ -24,23 +13,52 @@ Forward work for a fresh session. Each = what + where. Priority order.
    real aspect lever is the **Grok clip stage**, not the image stage. See
    [[storyengine-aspect-ratio]].
 
-3. **Character/environment portrait retry robustness** (found in the verify run).
+2. **Character/environment portrait retry robustness** (found in the verify run).
    `design_characters` / `design_environments` silently drop a portrait that fails
    (Maria failed → `approve` then blocks on "no image yet"). Add a per-item
    auto-retry (or retry the empty cards) so one transient failure doesn't block approve.
 
-4. **voice_over / Remotion aspect support** (deferred from the aspect feature).
+3. **voice_over / Remotion aspect support** (deferred from the aspect feature).
    aspect_ratio flows through grok_native (stitch) but NOT Remotion —
    `remotion-video/src/Root.tsx` + `renderConfig` hardcode 1920x1080, so portrait
    voice_over videos render letterboxed.
 
-5. **Clip-pipeline fragility fix** (long-owed). all-clips batch has no resume, one
+4. **Clip-pipeline fragility fix** (long-owed). all-clips batch has no resume, one
    SSL blip kills a scene, 10-min slow-polls. See [[storyengine-clip-pipeline-fragilities]].
 
 **Context for all of the above:** the 3 content-quality fixes (char descriptions,
 environment locking, recap continuity) are DONE + verified end-to-end on a real
 cloned video; see the handoff below. The verify also fixed 3 bugs live
 (env-directive misfire, env-image proxy allowlist, harmful clone-research).
+
+---
+
+## ★ HANDOFF — 2026-06-14g (research toggle for typed topics — DONE, not yet deployed)
+
+Build-plan item #1 (Ryan's ask). For typed-topic videos, research is now OPTIONAL
+at creation — a "Research this topic first?" choice. Default = research ON (status
+`idea_logged`, unchanged). Skip → video lands straight at `ready_for_scripting`,
+same as clones; the standard script bot writes from title + writer_guidance +
+framework_angle (verified: `skills/video-pipeline/script/run.py:100-121` already
+builds a full brief when `research_payload` is empty — "not set — legacy idea").
+
+Touched (byte-identical default behavior — `skip_research` defaults False everywhere):
+- `backend/models.py` — `CreateVideoRequest.skip_research: bool = False`.
+- `backend/routes/videos.py:create_video` — `initial_status = ready_for_scripting if
+  skip_research else idea_logged`; INSERT renumbered to bind status as a param.
+- `frontend/src/lib/api.ts` — `createVideo({ …, skip_research? })`.
+- `frontend/src/components/onboarding/CreateVideoStep.tsx` — "Research this topic
+  first?" two-button picker (mirrors the aspect picker), `needsResearch` state,
+  sends `skip_research: !needsResearch`.
+- `frontend/src/app/pipeline/page.tsx` — SAME toggle in the dashboard "New Video"
+  modal's Advanced options (the repeat-creator flow — onboarding runs once). NOTE:
+  this modal still lacks the aspect picker (aspect only shipped in onboarding) — a
+  small consistency gap if anyone wants to close it.
+
+Verified FREE: `py_compile` (backend) + `tsc --noEmit` clean (frontend, 0 errors).
+NOT deployed yet (backend restart + frontend rebuild owed) and NOT live-tested
+against prod. Deploy per [[storyengine-vps-access]] when prod is idle (restart
+loses any in-flight clip/render run).
 
 ---
 

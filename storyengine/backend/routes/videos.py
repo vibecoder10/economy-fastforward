@@ -176,12 +176,16 @@ async def create_video(
     project = await _get_or_create_project(tenant_id)
     project_id = str(project["id"])
 
+    # Skip research → land at 'ready_for_scripting' (next step is Script, not
+    # Research), same as cloned videos. Otherwise the normal 'idea_logged' start.
+    initial_status = "ready_for_scripting" if body.skip_research else "idea_logged"
+
     row = await fetch_one(
         """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, accent_color, aspect_ratio)
-           VALUES ($1, $2, $3, 'idea_logged', $4, $5, $6, $7, $8, COALESCE($9, '#00D4AA'), $10)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, '#00D4AA'), $11)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
-        tenant_id, project_id, body.title.strip(), body.source_url, body.framework_angle,
+        tenant_id, project_id, body.title.strip(), initial_status, body.source_url, body.framework_angle,
         body.video_length_minutes, body.writer_guidance, body.visual_style, body.accent_color,
         body.aspect_ratio,
     )

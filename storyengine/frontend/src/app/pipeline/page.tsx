@@ -220,6 +220,7 @@ export default function VideosPage() {
   const [newGuidance, setNewGuidance] = useState("");
   const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
+  const [newSkipResearch, setNewSkipResearch] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Tab order (drag-to-reorder with persistence)
@@ -302,6 +303,7 @@ export default function VideosPage() {
       setNewGuidance("");
       setNewVisualStyle("");
       setNewAccentColor("");
+      setNewSkipResearch(false);
       toast.success("Video created — starting pipeline");
       router.push(`/pipeline/${newVideo.id}`);
     },
@@ -358,6 +360,7 @@ export default function VideosPage() {
       writer_guidance: newGuidance.trim() || undefined,
       visual_style: newVisualStyle || undefined,
       accent_color: newAccentColor || undefined,
+      skip_research: newSkipResearch,
     });
   };
 
@@ -914,6 +917,35 @@ export default function VideosPage() {
           {/* Advanced Options (collapsed by default) */}
           {showAdvanced && (
             <div className="space-y-4 pt-1" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+              {/* Research mode — skip for fiction/story formats */}
+              <div>
+                <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+                  <Search size={12} style={{ color: "var(--text-tertiary)" }} />
+                  Research this topic first?
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { skip: false, label: "Research first", desc: "Fact-find the topic" },
+                    { skip: true, label: "Skip it", desc: "Fiction · story" },
+                  ].map((opt) => (
+                    <button
+                      key={String(opt.skip)}
+                      type="button"
+                      onClick={() => setNewSkipResearch(opt.skip)}
+                      className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
+                      style={{
+                        background: newSkipResearch === opt.skip ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
+                        border: `1px solid ${newSkipResearch === opt.skip ? "var(--turquoise)" : "var(--border)"}`,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <div className="font-medium">{opt.label}</div>
+                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
                   Source URL <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>

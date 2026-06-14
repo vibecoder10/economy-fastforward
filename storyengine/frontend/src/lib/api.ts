@@ -221,6 +221,7 @@ export const createVideo = (data: {
   visual_style?: string;
   accent_color?: string;
   aspect_ratio?: "16:9" | "9:16";
+  skip_research?: boolean;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",

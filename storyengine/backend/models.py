@@ -167,6 +167,12 @@ class CreateVideoRequest(BaseModel):
     accent_color: Optional[str] = None
     # Output shape, chosen up front; flows through image/clip gen + render.
     aspect_ratio: Literal["16:9", "9:16"] = "16:9"
+    # Research is the default first step for typed topics. Creators of
+    # fiction/story formats can skip it — the video lands straight at
+    # 'ready_for_scripting' and the script bot writes from the title +
+    # writer_guidance + framework_angle alone (script/run.py handles a
+    # missing research_payload). Mirrors how clones skip research.
+    skip_research: bool = False
 
 
 # --- Scripts ---
