@@ -119,12 +119,26 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
     pattern as the character portrait generation). Rendered at the video's
     aspect ratio so it matches the panel frame. Returns the image URL."""
     style = (style_dna or "").strip()
-    prompt = (
-        f"Environment reference, wide establishing shot: {description.strip()}. "
-        f"{('Visual style: ' + style + '. ') if style else ''}"
-        "Empty location with NO people and NO characters present, clear consistent "
-        "lighting and time of day, the location fills the frame. No text, no watermarks."
-    )
+    if style:
+        # Lead with the art style and lock the medium. An empty establishing shot
+        # is style-ambiguous, so a trailing "Visual style: …" clause drifts to
+        # photorealism or flat 2D — the two things the style usually forbids. Put
+        # the medium FIRST and tie it to the character art so envs match the cast.
+        prompt = (
+            f"ART STYLE — match this exactly, same rendering medium as the character art: {style}. "
+            f"Wide establishing shot rendered in that exact art style and medium: {description.strip()}. "
+            "Empty location with NO people and NO characters present, clear consistent "
+            "lighting and time of day, the location fills the frame. "
+            "Keep the same rendering medium as the art style above — do not switch to "
+            "photorealism or flat 2D illustration unless that art style explicitly calls for it. "
+            "No text, no watermarks."
+        )
+    else:
+        prompt = (
+            f"Environment reference, wide establishing shot: {description.strip()}. "
+            "Empty location with NO people and NO characters present, clear consistent "
+            "lighting and time of day, the location fills the frame. No text, no watermarks."
+        )
     async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
         create_resp = await client.post(
             KIE_CREATE_TASK_URL,
