@@ -701,6 +701,59 @@ class ImageClient:
             print(f"      ❌ Reference image error: {e}")
             return None
 
+    async def generate_thumbnail_gpt2(
+        self,
+        prompt: str,
+        reference_image_url,
+        aspect_ratio: str = "16:9",
+    ) -> Optional[dict]:
+        """Generate a thumbnail with OpenAI GPT Image 2 via kie.ai
+        (gpt-image-2-image-to-image). Same shape as generate_with_reference but
+        routed to GPT Image 2, which holds character identity from the cast
+        sheet markedly better (live A/B on the bird video: nailed Dr. May where
+        nano-banana drifted). References go in `input_urls` (max 16)."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        refs = reference_image_url if isinstance(reference_image_url, list) else [reference_image_url]
+        refs = [_kie_fetchable_url(r) for r in refs if r][:16]
+        payload = {
+            "model": "gpt-image-2-image-to-image",
+            "input": {
+                "prompt": prompt,
+                "input_urls": refs,
+                "aspect_ratio": aspect_ratio,
+                "resolution": "2K",
+            },
+        }
+        print("      🎨 Generating thumbnail (gpt-image-2)...")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.CREATE_TASK_URL, headers=headers, json=payload, timeout=60.0,
+                )
+                if response.status_code != 200:
+                    print(f"      ❌ API error: {response.status_code} - {response.text}")
+                    return None
+                task_data = response.json()
+                if task_data.get("code") != 200:
+                    print(f"      ❌ API error: {task_data.get('msg')}")
+                    return None
+                task_id = task_data.get("data", {}).get("taskId")
+                if not task_id:
+                    print("      ❌ No task ID returned")
+                    return None
+                await asyncio.sleep(5)
+                result_urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
+                if result_urls:
+                    return {"url": result_urls[0]}
+                print("      ❌ Generation failed (poll timeout)")
+                return None
+        except Exception as e:
+            print(f"      ❌ GPT Image 2 error: {e}")
+            return None
+
     async def generate_talking_video(
         self,
         image_url: str,

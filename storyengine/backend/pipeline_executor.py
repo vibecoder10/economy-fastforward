@@ -2786,8 +2786,13 @@ directions, no labels, no headings inside them."""
                 # "replace every person" instruction stop the reference's own
                 # cast from overwriting ours — without this, the reference
                 # thumbnail's family leaks through and our characters vanish.
-                res = await client.generate_with_reference(
+                # GPT Image 2 holds character identity best (live A/B); fall
+                # back to nano-banana-pro if it errors so Regenerate never dead-ends.
+                res = await client.generate_thumbnail_gpt2(
                     prompt, [cast_sheet, ref_thumb], aspect_ratio="16:9")
+                if not (res or {}).get("url"):
+                    res = await client.generate_with_reference(
+                        prompt, [cast_sheet, ref_thumb], aspect_ratio="16:9")
                 url = (res or {}).get("url")
                 if not url:
                     await self._log_activity(bot_name, video_id, "failed",
