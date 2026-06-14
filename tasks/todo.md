@@ -40,16 +40,14 @@ resilience (was #1) → 14k.)
    video that uses the per-panel path (clip videos use the storyboard-grid path, so
    it didn't bite here, but worth reconciling).
 
-5. **Bidirectional script ↔ Google Drive sync** (Ryan 2026-06-14, "would be nice").
-   Let the creator EDIT the script in their Google Drive (a Doc) with any AI tool and
-   have edits MIRROR BACK into StoryEngine. More than a one-way export — needs:
-   (a) export script → a Google Doc in the video's Drive folder on generate/update;
-   (b) re-import Drive edits → Postgres (`videos.script` / `scripts.scene_text`) via a
-   "Sync from Drive" button or a Drive change-watch; (c) conflict handling (Drive is the
-   editable copy between syncs; Postgres stays the operational source of truth so the
-   pipeline can keep querying it). Vision: work entirely from Drive, AI-agnostic, owns
-   their data. The heavy media already lives on the user's Drive — this extends that
-   ownership to the script text. [[storyengine-render-stitch]] storage split context.
+5. **Bidirectional script ↔ Google Drive sync** (Ryan 2026-06-14). **SCOPED — full spec
+   at [`tasks/script-drive-sync-spec.md`](script-drive-sync-spec.md)** (source-of-truth
+   model, EXISTS-vs-BUILD with file:lines, Phase 1 Push / Phase 2 Pull, the scene-marker
+   contract, downstream-staleness, landmines, sizing). TL;DR: edit the script as an
+   editable Google Doc in the video's Drive folder and mirror edits back to Postgres.
+   The Drive foundation already exists (`GoogleClient.create_document`, per-video folder,
+   per-tenant OAuth, even a half-built doc-read) — it's mostly wiring + a reliable
+   scene-mapping contract. **Phase 1 (Push) is small and shippable on its own.**
 
 6. **Auto-detect text cards → "Fix all text cards"** (fast-follow to 14l; Ryan: "manual
    now, auto later"). The manual per-card "Fix text" (GPT Image 2) is DONE + verified.
