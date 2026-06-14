@@ -45,6 +45,17 @@ resilience (was #1) → 14k.)
    video that uses the per-panel path (clip videos use the storyboard-grid path, so
    it didn't bite here, but worth reconciling).
 
+6. **Bidirectional script ↔ Google Drive sync** (Ryan 2026-06-14, "would be nice").
+   Let the creator EDIT the script in their Google Drive (a Doc) with any AI tool and
+   have edits MIRROR BACK into StoryEngine. More than a one-way export — needs:
+   (a) export script → a Google Doc in the video's Drive folder on generate/update;
+   (b) re-import Drive edits → Postgres (`videos.script` / `scripts.scene_text`) via a
+   "Sync from Drive" button or a Drive change-watch; (c) conflict handling (Drive is the
+   editable copy between syncs; Postgres stays the operational source of truth so the
+   pipeline can keep querying it). Vision: work entirely from Drive, AI-agnostic, owns
+   their data. The heavy media already lives on the user's Drive — this extends that
+   ownership to the script text. [[storyengine-render-stitch]] storage split context.
+
 **Context for the older items below:** the 3 content-quality fixes (char descriptions,
 environment locking, recap continuity) are DONE + verified end-to-end on a real
 cloned video; see the handoff below. The verify also fixed 3 bugs live
