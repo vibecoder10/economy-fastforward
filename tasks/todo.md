@@ -1,5 +1,35 @@
 # Task Tracking
 
+## ★ HANDOFF — 2026-06-14b (render FROZEN-FRAME bug fixed + final video plays in-app)
+
+Two follow-ups after the stitch shipped (commit `985c507a`, deployed: backend
+restarted + frontend rebuilt):
+
+1. **Frozen-frame bug FIXED.** Ryan's first stitched download froze on frame 1
+   in QuickTime while audio played. Cause: `-c copy` concat keeps only the FIRST
+   clip's H.264 parameter set (avcC) in the MP4 header; each Grok clip has its own
+   SPS/PPS (+ an mjpeg attached-pic track + unset mov timescale), so strict players
+   freeze (ffmpeg/VLC were lenient and hid it). `render_stitch.py` `_concat` now
+   **re-encodes** to one clean H.264 stream (`-map 0:v:0 -map 0:a:0`, libx264
+   veryfast, CFR 24, clean timescale). ~50s for the 9-min bird video. Re-rendered:
+   final is now 48.6MB, single h264+aac, frames verified advancing. **No stream-copy
+   fast path anymore** — it's a footgun for these clips. Preset/crf/fps via
+   `STITCH_X264_PRESET`/`STITCH_X264_CRF`/`STITCH_FPS` env.
+2. **Final video now plays IN-APP.** It was broken: the player fed the raw Drive
+   `uc?export=download` URL into `<video>` (won't stream). Fixes: allowlist
+   `final_video_url` in the media proxy (`routes/media.py` `_ALLOWLIST_SQL`); add
+   HTTP **Range/206** to `serve_drive_file` (`_download_range`) so `<video>` streams
+   + seeks; new `toDisplayVideoUrl` (`frontend/src/lib/utils.ts`) + `RenderTab.tsx`
+   route the player through `/api/media/drive/<id>`. Verified: proxy returns 206 with
+   correct Content-Range; full fetch is a valid mp4. Ryan should hard-refresh the
+   Render tab to see it.
+
+20-concurrent note: with re-encode the 4-core VPS is the ceiling (~17 min for the
+last of 20 simultaneous 9-min renders, vs 60–90 min EACH on old Remotion). The
+ffmpeg semaphore (`STITCH_FFMPEG_CONCURRENCY`, default 3) queues the burst.
+
+---
+
 ## ★ HANDOFF — 2026-06-14 (RENDER SOLVED for grok_native — FFmpeg stitch is LIVE)
 
 Read this first. Supersedes the render sections below (their *file-lines* are
