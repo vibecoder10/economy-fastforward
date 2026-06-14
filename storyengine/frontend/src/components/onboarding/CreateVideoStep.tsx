@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Loader2, ArrowRight, ArrowLeft, Clock } from "lucide-react";
+import { Sparkles, Loader2, ArrowRight, ArrowLeft, Clock, Crop } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -109,6 +109,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState("");
   const [videoLength, setVideoLength] = useState(10);
+  const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("16:9");
   const [angle, setAngle] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -146,6 +147,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
       const video = await createVideo({
         title: selectedTitle.trim(),
         video_length_minutes: videoLength,
+        aspect_ratio: aspectRatio,
         framework_angle: angle.trim() || undefined,
       });
       await completeOnboarding();
@@ -161,6 +163,11 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
     { value: 5, label: "5 min", desc: "Quick explainer" },
     { value: 10, label: "10 min", desc: "Standard deep-dive" },
     { value: 15, label: "15 min", desc: "Full documentary" },
+  ];
+
+  const aspectOptions: { value: "16:9" | "9:16"; label: string; desc: string }[] = [
+    { value: "16:9", label: "16:9", desc: "Landscape · YouTube" },
+    { value: "9:16", label: "9:16", desc: "Vertical · Shorts" },
   ];
 
   return (
@@ -412,6 +419,41 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
                         style={{
                           color: videoLength === opt.value ? "var(--bg-void)" : "var(--text-tertiary)",
                           opacity: videoLength === opt.value ? 0.7 : 1,
+                        }}
+                      >
+                        {opt.desc}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label
+                  className="flex items-center gap-1.5 text-sm font-body font-medium mb-3"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Crop size={14} style={{ color: "var(--text-tertiary)" }} />
+                  What shape should the video be?
+                </label>
+                <div className="flex gap-2">
+                  {aspectOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setAspectRatio(opt.value)}
+                      className="flex-1 px-3 py-3 rounded-lg text-center transition-all"
+                      style={{
+                        background: aspectRatio === opt.value ? "var(--turquoise)" : "var(--bg-elevated)",
+                        color: aspectRatio === opt.value ? "var(--bg-void)" : "var(--text-secondary)",
+                        border: `1px solid ${aspectRatio === opt.value ? "var(--turquoise)" : "var(--border)"}`,
+                      }}
+                    >
+                      <div className="text-sm font-semibold font-body">{opt.label}</div>
+                      <div
+                        className="text-[10px] mt-0.5"
+                        style={{
+                          color: aspectRatio === opt.value ? "var(--bg-void)" : "var(--text-tertiary)",
+                          opacity: aspectRatio === opt.value ? 0.7 : 1,
                         }}
                       >
                         {opt.desc}

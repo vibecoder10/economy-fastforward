@@ -1,7 +1,7 @@
 """Pydantic models for API request/response."""
 
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime
 from decimal import Decimal
 
@@ -165,6 +165,8 @@ class CreateVideoRequest(BaseModel):
     writer_guidance: Optional[str] = None
     visual_style: Optional[str] = None
     accent_color: Optional[str] = None
+    # Output shape, chosen up front; flows through image/clip gen + render.
+    aspect_ratio: Literal["16:9", "9:16"] = "16:9"
 
 
 # --- Scripts ---

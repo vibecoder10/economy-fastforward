@@ -1850,6 +1850,12 @@ directions, no labels, no headings inside them."""
 
             self._load_idea_from_video(video_id)
 
+            # Per-video output shape, chosen at creation. The grid generation
+            # request honors it; the model has historically ignored aspect on
+            # some paths, so the deterministic backstop (panel normalization)
+            # is still owed — see the aspect_ratio handoff. Defaults to 16:9.
+            self._pipeline.aspect_ratio = video.get("aspect_ratio") or "16:9"
+
             gate = await self._load_character_refs(video_id, video)
             if gate and scene is None:
                 await self._log_activity(bot_name, video_id, "failed", gate)
@@ -2722,8 +2728,9 @@ directions, no labels, no headings inside them."""
         style = (video.get("thumbnail_style_override") or "").strip()
         text = (video.get("thumbnail_text") or "").strip()
         title = (video.get("video_title") or "").strip()
+        ar = video.get("aspect_ratio") or "16:9"
         parts = [
-            "YouTube thumbnail, 16:9. The FIRST reference image is the OFFICIAL CHARACTER CAST SHEET — reproduce "
+            f"YouTube thumbnail, {ar}. The FIRST reference image is the OFFICIAL CHARACTER CAST SHEET — reproduce "
             "these EXACT characters: the same faces, hair, skin tone, ages and clothing. Never invent or "
             "substitute anyone.",
         ]
@@ -2788,11 +2795,12 @@ directions, no labels, no headings inside them."""
                 # thumbnail's family leaks through and our characters vanish.
                 # GPT Image 2 holds character identity best (live A/B); fall
                 # back to nano-banana-pro if it errors so Regenerate never dead-ends.
+                thumb_ar = video.get("aspect_ratio") or "16:9"
                 res = await client.generate_thumbnail_gpt2(
-                    prompt, [cast_sheet, ref_thumb], aspect_ratio="16:9")
+                    prompt, [cast_sheet, ref_thumb], aspect_ratio=thumb_ar)
                 if not (res or {}).get("url"):
                     res = await client.generate_with_reference(
-                        prompt, [cast_sheet, ref_thumb], aspect_ratio="16:9")
+                        prompt, [cast_sheet, ref_thumb], aspect_ratio=thumb_ar)
                 url = (res or {}).get("url")
                 if not url:
                     await self._log_activity(bot_name, video_id, "failed",

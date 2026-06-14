@@ -112,6 +112,8 @@ CREATE TABLE videos (
   -- Video config
   video_length_minutes NUMERIC,
   clip_duration_seconds NUMERIC,
+  -- Output shape, chosen at creation, flows through image/clip gen + render.
+  aspect_ratio TEXT NOT NULL DEFAULT '16:9' CHECK (aspect_ratio IN ('16:9', '9:16')),
 
   -- Drive / YouTube
   final_video_url TEXT,

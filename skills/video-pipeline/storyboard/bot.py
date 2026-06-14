@@ -1812,6 +1812,7 @@ async def generate_contact_sheet(
     real_panel_count: int = 9,
     image_client=None,
     character_reference_url=None,
+    aspect_ratio: str = "16:9",
 ) -> str:
     """Generate a 3x3 contact sheet via Nano Banana Pro.
 
@@ -1866,7 +1867,7 @@ async def generate_contact_sheet(
             result = await image_client.generate_with_reference(
                 prompt=full_prompt,
                 reference_image_url=character_reference_url,
-                aspect_ratio="16:9",
+                aspect_ratio=aspect_ratio,
             )
             grid_url = result.get("url") if isinstance(result, dict) else result
             if not grid_url:
@@ -1881,7 +1882,7 @@ async def generate_contact_sheet(
         # No reference image — use standard text-to-image
         result = await image_client.generate_and_wait(
             prompt=full_prompt,
-            aspect_ratio="16:9",
+            aspect_ratio=aspect_ratio,
             model=Models.IMAGE_THUMBNAIL,
         )
         # generate_and_wait returns list of URLs
@@ -2283,6 +2284,7 @@ async def run_storyboard_images(
     progress_callback=None,
     should_cancel=None,
     character_reference_urls=None,
+    aspect_ratio: str = "16:9",
 ) -> dict:
     """Phase 1B: Generate storyboard images from prompts.
 
@@ -2446,6 +2448,7 @@ async def run_storyboard_images(
                     real_panel_count=real_panels,
                     image_client=image_client,
                     character_reference_url=character_ref_url,
+                    aspect_ratio=aspect_ratio,
                 )
                 total_cost += 0.075
 
