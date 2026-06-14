@@ -281,7 +281,7 @@ Return ONLY valid JSON with exactly this shape:
 
 Rules:
 - scene_concepts must contain exactly 8 entries covering the sibling video's story arc in order.
-- Every image prompt must explicitly carry the reference's art style (e.g. "3D Pixar-style animation, soft saturated colors") — an image generator seeing one prompt in isolation must still produce the right style.
+- Every image prompt must explicitly carry the reference's OBSERVED art style and rendering medium — whatever it actually is (photorealistic live-action, 3D Pixar-style animation, 2D illustration, anime, etc.) — so an image generator seeing one prompt in isolation still produces the right style. Never substitute a generic animated/illustrated look for a realistic or live-action reference.
 - All prompts are about the NEW sibling video's content, in the REFERENCE's style."""
 
 
@@ -309,9 +309,13 @@ def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str
 
 _THUMBNAIL_OBSERVATION_PROMPT = (
     "This is a YouTube thumbnail. Describe its visual style so an artist could "
-    "replicate it without seeing it: art style/medium (e.g. 3D CG animation, "
-    "live-action photo, flat illustration), color palette, character design "
-    "(age, species, proportions), composition, text treatment if any, and "
+    "replicate it without seeing it. START with one line — `MEDIUM: <the exact "
+    "rendering medium>` — naming the single best fit precisely: photorealistic "
+    "live-action, 3D CG / Pixar-style animation, 2D / flat illustration, anime, "
+    "stop-motion, mixed-media, etc. Do NOT default to an animated or illustrated "
+    "medium: if the thumbnail is a real photo or live-action footage, say "
+    "photorealistic live-action. Then describe color palette, character/subject "
+    "design (age, species, proportions), composition, text treatment if any, and "
     "overall mood. 60-120 words, no preamble."
 )
 
@@ -324,17 +328,26 @@ async def _describe_thumbnail_style(creds: dict, thumbnail_url: Optional[str]) -
     invents a wrong visual style for every downstream image."""
     if not thumbnail_url:
         return None
-    try:
-        from shared.clients.vision_client import vision_call
-        return await vision_call(
-            _THUMBNAIL_OBSERVATION_PROMPT, [thumbnail_url],
-            kie_key=creds["key"] if creds["provider"] == "kie" else None,
-            anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
-            tier="fast", max_tokens=400,
-        )
-    except Exception as e:
-        logger.warning("[model_video] thumbnail vision pass failed (pack will be text-only): %s", str(e)[:200])
-        return None
+    from shared.clients.vision_client import vision_call
+    last_err: Optional[Exception] = None
+    # The style classification is the whole basis for "generate any style faithfully",
+    # so don't let one transient blip drop it to a text guess — retry before giving up.
+    for attempt in range(3):
+        try:
+            obs = await vision_call(
+                _THUMBNAIL_OBSERVATION_PROMPT, [thumbnail_url],
+                kie_key=creds["key"] if creds["provider"] == "kie" else None,
+                anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+                tier="fast", max_tokens=400,
+            )
+            if obs and obs.strip():
+                return obs.strip()
+            last_err = ValueError("empty observation")
+        except Exception as e:
+            last_err = e
+        await asyncio.sleep(2 * (attempt + 1))
+    logger.warning("[model_video] thumbnail vision pass failed after 3 tries (pack will be text-only): %s", str(last_err)[:200])
+    return None
 
 
 _REQUIRED_PACK_KEYS = (
@@ -344,11 +357,28 @@ _REQUIRED_PACK_KEYS = (
 
 
 async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
-                                 transcript: Optional[str]) -> dict:
+                                 transcript: Optional[str], blockers: Optional[list] = None) -> dict:
     # Vision and generation are split on purpose: the vision helper proves the
     # image was ingested (style fidelity), and the pack generation stays a pure
     # text call — immune to the gateway's image-block drift.
     observation = await _describe_thumbnail_style(creds, info.get("thumbnail_url"))
+    # The thumbnail vision pass is the ONLY visual ground truth — it must run so the
+    # pipeline locks to the reference's TRUE medium (photoreal, anime, 2D, 3D…), not
+    # a text guess that skews animated. If it couldn't classify the style, NEVER fail
+    # silently: surface a blocker so the creator can re-model or set the style.
+    if blockers is not None and not observation:
+        if info.get("thumbnail_url"):
+            blockers.append(
+                "Couldn't read the reference's visual style from its thumbnail — the style "
+                "was inferred from text and may not match (especially for realistic / "
+                "live-action sources). Re-run modeling, or set the image style manually "
+                "before generating."
+            )
+        else:
+            blockers.append(
+                "No reference thumbnail was available, so the visual style was inferred "
+                "from text only — verify the style before generating."
+            )
     prompt = _build_pack_prompt(info, dna, transcript, thumbnail_observation=observation)
     last_err: Optional[Exception] = None
     for _attempt in range(3):
@@ -679,7 +709,7 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
         #    channel profile is deliberately NOT injected: the feature replicates
         #    the dropped-in video, it doesn't adapt it to the creator's niche)
         _set("running", "Creating your modeled idea…")
-        pack = await _generate_modeled_pack(creds, info, dna, transcript)
+        pack = await _generate_modeled_pack(creds, info, dna, transcript, blockers)
 
         # 4. Persist everything before any generation credits are spent
         _set("running", "Writing your prompt pack…")
