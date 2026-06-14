@@ -1,5 +1,43 @@
 # Task Tracking
 
+## ★ HANDOFF — 2026-06-14 (RENDER SOLVED for grok_native — FFmpeg stitch is LIVE)
+
+Read this first. Supersedes the render sections below (their *file-lines* are
+still accurate, but RENDER is no longer blocked for grok_native).
+
+**What shipped (deployed to prod, commits `0085c448` + `75f847c6`):**
+- New **FFmpeg clip-stitch render path** for grok_native videos. Every grok_native
+  clip already carries Grok's baked-in audio, so the "render" is just the clips
+  concatenated in (scene, image_index) order — no Remotion, no
+  `render_config.json`/Whisper, no `Scene.tsx` muted-clip+narrator bug. Code:
+  `storyengine/backend/render_stitch.py` (`stitch_video()`); wired in
+  `pipeline_executor.py` `run_render` → branches `grok_native` → `_run_stitch_render`,
+  else legacy Remotion (unchanged). The route (`/api/pipeline/render/<id>`) and the
+  render fast-path are IDENTICAL — no new endpoint.
+- **Bird video `f32ed182-…` is now `rendered`.** `final_video_url` set (Drive),
+  102MB, h264 736x400 + AAC 48kHz, **539.1s**, audio verified present
+  (mean −30 dB). Real production path: ~27s start→finish, method=`copy` (stream-copy).
+- **Built for ~20 concurrent renders** (Ryan's explicit ask): per-render `tempfile`
+  dir (no shared `public/` collision like Remotion had), a per-worker GoogleClient
+  download pool (httplib2 is NOT thread-safe — one shared connection raced and
+  crashed; fixed in `75f847c6`), and a process-wide ffmpeg semaphore
+  (`STITCH_FFMPEG_CONCURRENCY`, default 3) so the re-encode fallback can't melt the
+  4-core box. Stress-tested **4 concurrent stitches → 4/4 OK, load 0.50→0.89** (CPU
+  is nowhere near the limit; stream-copy is ~free). At true 20× the ceilings become
+  Drive download bandwidth + RAM (each render holds ~100MB final bytes in memory for
+  upload) — both have headroom (13Gi free), but streaming the upload is the obvious
+  next optimization if needed.
+
+**Still owed / not done here:**
+- **voice_over videos still hit the Remotion blockers** (missing `render_config.json`
+  crash + `Scene.tsx`). Only grok_native is on the new path. Wire `run_audio_sync`
+  (or stitch+narrator-mux) if a voice_over video needs to render.
+- **Clip-pipeline fragility fix** (no resume / one-blip-kills-batch / 10-min
+  slow-poll) is STILL UNFIXED — see the fragilities section below. Separate from render.
+- Thumbnail character-fidelity issue (generic look-alikes) still open — see below.
+
+---
+
 ## ★ HANDOFF — 2026-06-14 (clips DONE, thumbnail built, RENDER is next)
 
 Read this first. The "▶ NEXT GOAL" and older handoffs below are still correct on
