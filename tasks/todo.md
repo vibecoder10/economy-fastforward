@@ -1,5 +1,24 @@
 # Task Tracking
 
+## ★ HANDOFF — 2026-06-14f (content-quality: ALL 3 FIXES DONE; paid verify next)
+
+**Fix #3 — forward-continuity + recap — DONE (commit `dcf46f9d`, deployed + restarted).**
+The image-plan/description prompts had "find the primary verb, show that action" with no
+story-state notion, so vocab-recap narration ("Word six: Bandage…") got literally re-staged
+(bird re-bandaged after release). Added two rules at BOTH prompt stages
+(`script/story_bible.py` scene_blocks plan + `script/brief_translator/scene_expander.py`
+description writer): FORWARD CONTINUITY (no re-staging a resolved state) + RECAP/OUTRO/CTA
+narration → word cards / character-to-viewer / resolved-callback, never re-enact the problem.
+Prompt-only; affects NEW videos.
+
+**All 3 content-quality fixes are DONE + deployed.** Ryan approved a PAID end-to-end verify
+(a NEW small test video, NOT the bird) to confirm: Fix #1 (real char descriptions), Fix #2
+(2-ref env conditioning holds the room without softening faces), Fix #3 (recap shows word
+cards, not re-staging). Recommended bounded test = run a new video THROUGH STORYBOARD GRIDS
+only (~$1–3), inspect the grids, before any clip spend (~$7+).
+
+---
+
 ## ★ HANDOFF — 2026-06-14e (content-quality: Fix #1 + Fix #2 DONE; Fix #3 next)
 
 **Fix #2 — ENVIRONMENT LOCKING — DONE (commit `f1d0490b`, deployed: migration 051
