@@ -204,6 +204,14 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
   // Per-scene auto-chain: "Start scene over" runs plan → pictures back to back.
   const chainRef = useRef<{ scene: number; stages: string[] } | null>(null);
 
+  // Clip auto-resume: "Animate the rest" keeps re-triggering the additive backend
+  // (each round only animates clips still missing a video_clip_url) until every clip
+  // is done — surviving server restarts and transient failures with no manual
+  // re-click and no double-charge. Guards below stop any runaway loop.
+  const clipResumeRef = useRef<{ active: boolean; rounds: number; lastPending: number; stale: number }>(
+    { active: false, rounds: 0, lastPending: Infinity, stale: 0 });
+  const prevRunningRef = useRef(false);
+
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
@@ -265,6 +273,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     const onStop = (e: Event) => {
       if ((e as CustomEvent).detail?.videoId === video.id) {
         chainRef.current = null;
+        clipResumeRef.current.active = false;  // Stop halts the auto-resume loop too
         setGeneratingScene(null);
         setGeneratingClipIds(new Set());
       }
@@ -573,14 +582,64 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     }
   }, [running, taskMessage, video.id, toast, markStarted]);
 
-  const animateOne = (asset: Asset, force = false) =>
+  const animateOne = (asset: Asset, force = false) => {
+    clipResumeRef.current.active = false;  // a manual single-card tap isn't a batch
     startClipTask(force ? { asset_id: asset.id, force: "true" } : { asset_id: asset.id }, [asset.id]);
+  };
 
-  const animateScene = (scene: number, pendingIds: string[]) =>
+  const animateScene = (scene: number, pendingIds: string[]) => {
+    clipResumeRef.current.active = false;  // a single-scene run isn't the full batch
     startClipTask({ scene }, pendingIds);
+  };
 
-  const animateAll = () =>
+  const animateAll = () => {
+    // Arm auto-resume: keep going until the backend says nothing's left to animate.
+    clipResumeRef.current = { active: true, rounds: 0, lastPending: Infinity, stale: 0 };
     startClipTask({}, clipCards.filter((a) => !a.video_clip_url).map((a) => a.id));
+  };
+
+  // After each clip batch ends (done, failed, or "server restarted"), if clips are
+  // still missing, re-trigger — until none remain, no progress happens twice in a
+  // row, or a safety cap is hit. The backend is additive, so this never double-charges.
+  const maybeResumeClips = useCallback(async () => {
+    const st = clipResumeRef.current;
+    if (!st.active) return;
+    let pending: string[] = [];
+    try {
+      const fresh = await getVideoAssets(video.id);
+      pending = fresh.filter((a) => a.image_url && !a.video_clip_url).map((a) => a.id);
+    } catch {
+      st.active = false;  // can't check — stop rather than loop blind
+      return;
+    }
+    if (pending.length === 0) {
+      st.active = false;
+      toast.success("All clips animated 🎬");
+      refreshAll();
+      return;
+    }
+    st.rounds += 1;
+    if (pending.length < st.lastPending) st.stale = 0;
+    else st.stale += 1;
+    st.lastPending = pending.length;
+    if (st.rounds > 25 || st.stale >= 2) {
+      st.active = false;
+      toast.error(`${pending.length} clip(s) still need animating — tap "Animate the rest" to keep going.`);
+      refreshAll();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+    if (clipResumeRef.current.active) startClipTask({}, pending);
+  }, [video.id, toast, refreshAll, startClipTask]);
+
+  // Fire the resumer on each running → idle transition.
+  useEffect(() => {
+    const wasRunning = prevRunningRef.current;
+    prevRunningRef.current = running;
+    if (wasRunning && !running && clipResumeRef.current.active) {
+      void maybeResumeClips();
+    }
+  }, [running, maybeResumeClips]);
 
   const removeClip = useCallback(async (asset: Asset) => {
     try {

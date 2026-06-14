@@ -1320,6 +1320,12 @@ directions, no labels, no headings inside them."""
             total = len(todo)
             sem = asyncio.Semaphore(3)
             cancelled = False
+            CLIP_DEADLINE = 420  # hard per-clip cap (sem already held): a stuck Grok
+            # job frees its slot in ~7 min instead of holding it for the full internal
+            # retry budget (~30 min). The clip is counted failed and retried next round.
+
+            async def _gen(coro):
+                return await asyncio.wait_for(coro, CLIP_DEADLINE)
 
             async def _one(r):
                 nonlocal done, failed, cost, cancelled
@@ -1351,9 +1357,9 @@ directions, no labels, no headings inside them."""
                         clip_dur = (max(durations)
                                     if need > min(durations) - 0.5 and len(durations) > 1
                                     else durations[0])
-                        clip_url = await client.generate_video(
+                        clip_url = await _gen(client.generate_video(
                             img, prompt, duration=clip_dur,
-                            extra_image_urls=[_proxy_url(sheet)] if sheet else None)
+                            extra_image_urls=[_proxy_url(sheet)] if sheet else None))
                         clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
@@ -1373,12 +1379,12 @@ directions, no labels, no headings inside them."""
                         clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
                         if model_id.startswith("veo-3.1"):
                             veo_model = client.VEO_MODEL_QUALITY if model_id.endswith("quality") else client.VEO_MODEL_FAST
-                            clip_url = await client.generate_video_veo(prompt, image_url=img, model=veo_model)
+                            clip_url = await _gen(client.generate_video_veo(prompt, image_url=img, model=veo_model))
                             clip_dur = profile.durations[0]
                         else:
-                            clip_url = await client.generate_video(
+                            clip_url = await _gen(client.generate_video(
                                 img, _decorate(prompt), duration=clip_dur,
-                                extra_image_urls=[_proxy_url(sheet)] if sheet else None)
+                                extra_image_urls=[_proxy_url(sheet)] if sheet else None))
                         clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
 
                     if not clip_url:
@@ -1423,7 +1429,26 @@ directions, no labels, no headings inside them."""
                     cost += clip_cost
                     await _report(f"Animated S{sc}.{idx} ({done}/{total} done)")
 
-            await asyncio.gather(*[_one(r) for r in todo])
+            async def _safe_one(r):
+                # One clip's failure — including a RAISED error (an SSL blip during
+                # download, a Drive/DB hiccup, or a per-clip timeout) — must never
+                # abort the batch. Count it, log it, move on; the additive re-run +
+                # frontend auto-resume retry it next round.
+                nonlocal failed
+                try:
+                    await _one(r)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    failed += 1
+                    print(f"[clips] S{r.get('scene')}.{r.get('image_index')} isolated error: "
+                          f"{type(e).__name__}: {str(e)[:150]}", flush=True)
+                    try:
+                        await _report(f"S{r.get('scene')}.{r.get('image_index')} hit an error ({done + failed}/{total})")
+                    except Exception:
+                        pass
+
+            await asyncio.gather(*[_safe_one(r) for r in todo])
 
             if cancelled:
                 msg = f"Stopped — kept {done} finished clip(s). Animate again to resume."
