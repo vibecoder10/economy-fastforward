@@ -54,6 +54,30 @@ class VisionUnavailable(RuntimeError):
     """Every provider in the chain failed to see the image."""
 
 
+# A reply that says "I can't see the image" is the gateway's silent-drop
+# failure surfacing as prose (HTTP 200, plausible text). Token-count guards
+# only cover Gemini; this catches the symptom directly for EVERY provider so a
+# refusal is never returned as a successful description. High-precision markers
+# — a real character/scene description never contains these phrases.
+_REFUSAL_MARKERS = (
+    "unable to access", "unable to view", "unable to see",
+    "can't access", "cannot access", "can't view", "cannot view",
+    "i can't see", "i cannot see", "i'm unable to", "i am unable to",
+    "i'm not able to", "i am not able to", "i don't have access",
+    "i do not have access", "no file-reading", "tools aren't registered",
+    "tools are not registered", "i appreciate you sharing the file",
+    "i appreciate you uploading", "would need to view", "would need to see",
+    "please provide the image", "please share the image", "no image was",
+    "didn't receive an image", "did not receive an image",
+)
+
+
+def _looks_like_refusal(text: str) -> bool:
+    """True if the reply reads like the model never saw the image."""
+    t = (text or "").lower()
+    return any(m in t for m in _REFUSAL_MARKERS)
+
+
 def _sniff_media_type(data: bytes, fallback: str = "image/png") -> str:
     for magic, mtype in _MAGIC_TYPES:
         if data.startswith(magic):
@@ -203,7 +227,13 @@ async def vision_call(
     async with httpx.AsyncClient(timeout=timeout) as client:
         for name, fn, key, model in attempts:
             try:
-                return await fn(client, key, model, prompt, loaded, max_tokens)
+                text = await fn(client, key, model, prompt, loaded, max_tokens)
+                if _looks_like_refusal(text):
+                    # The gateway dropped the image; the model is saying so in
+                    # prose. Treat as a failure and fall through to the next
+                    # provider rather than returning a non-answer as the result.
+                    raise RuntimeError(f"refused / image not seen: {text[:120]}")
+                return text
             except Exception as e:
                 errors.append(f"{name}/{model}: {str(e)[:200]}")
                 logger.warning("vision provider %s failed, trying next: %s", name, str(e)[:200])
