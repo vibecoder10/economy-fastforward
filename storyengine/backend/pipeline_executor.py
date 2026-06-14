@@ -2223,15 +2223,17 @@ directions, no labels, no headings inside them."""
             video = await self._get_video(video_id)
             aspect = (video or {}).get("aspect_ratio") or "16:9"
             style = ((video or {}).get("image_style_override") or "").strip()
-            intent = (asset.get("image_prompt") or asset.get("sentence_text") or "").strip()
+            intent = (asset.get("sentence_text") or asset.get("image_prompt") or "").strip()
+            # Keep the prompt LEAN — the reference image carries the art style/layout; the
+            # model's job is legible text. A long/noisy prompt risks confusing it (and can
+            # trip provider errors), so cap the style + wording we append.
             prompt = (
-                "This is a title/word card from an animated video. Redraw it keeping the "
-                "EXACT same art style, colours, and composition as the reference image, but "
-                "render ALL TEXT large, perfectly legible, correctly spelled, and cleanly "
-                "typeset. "
-                f"{('Art style: ' + style + '. ') if style else ''}"
-                f"Card content / intended wording: {intent[:600]}. "
-                "Keep it a clean card — do not add new characters or scenery. No watermarks."
+                "Redraw this title/word card keeping the EXACT same art style, colours, and "
+                "layout as the reference image, but render all on-card text large, perfectly "
+                "legible, correctly spelled, and cleanly typeset. Keep it a clean card — same "
+                "scene, no new characters or scenery, no watermarks."
+                f"{(' Art style: ' + style[:280] + '.') if style else ''}"
+                f"{(' Intended wording/content: ' + intent[:280] + '.') if intent else ''}"
             )
             sc, idx = asset["scene"], asset["image_index"]
             await self._log_activity(bot_name, video_id, "started", f"Fixing text on S{sc}.{idx} (GPT Image 2)…")
