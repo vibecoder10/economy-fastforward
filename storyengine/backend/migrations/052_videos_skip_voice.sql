@@ -1,0 +1,11 @@
+-- 052: per-video "skip AI voice-over" flag (creation-time pipeline toggle).
+--
+-- grok_native (clip) videos stitch clips that carry their own baked-in audio, so
+-- the separate narration stage is generated-but-unused for them (render_stitch
+-- ignores voice_over_url). This flag lets the creator skip that wasted stage at
+-- creation. When true: the voice gate in image-prompts/image-gen is satisfied
+-- without narration, and a finished script advances straight to
+-- ready_for_image_prompts instead of stalling at ready_for_voice.
+--
+-- Default false → existing behavior (voice required) is unchanged.
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS skip_voice BOOLEAN NOT NULL DEFAULT false;

@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
   RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
-  AlertTriangle,
+  AlertTriangle, Mic,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -221,6 +221,7 @@ export default function VideosPage() {
   const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
   const [newSkipResearch, setNewSkipResearch] = useState(false);
+  const [newSkipVoice, setNewSkipVoice] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Tab order (drag-to-reorder with persistence)
@@ -304,6 +305,7 @@ export default function VideosPage() {
       setNewVisualStyle("");
       setNewAccentColor("");
       setNewSkipResearch(false);
+      setNewSkipVoice(false);
       toast.success("Video created — starting pipeline");
       router.push(`/pipeline/${newVideo.id}`);
     },
@@ -361,6 +363,7 @@ export default function VideosPage() {
       visual_style: newVisualStyle || undefined,
       accent_color: newAccentColor || undefined,
       skip_research: newSkipResearch,
+      skip_voice: newSkipVoice,
     });
   };
 
@@ -936,6 +939,35 @@ export default function VideosPage() {
                       style={{
                         background: newSkipResearch === opt.skip ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
                         border: `1px solid ${newSkipResearch === opt.skip ? "var(--turquoise)" : "var(--border)"}`,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <div className="font-medium">{opt.label}</div>
+                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Voice-over — skip for clip videos that carry their own audio */}
+              <div>
+                <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+                  <Mic size={12} style={{ color: "var(--text-tertiary)" }} />
+                  Add AI voice-over?
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { skip: false, label: "AI voice-over", desc: "Narrate the script" },
+                    { skip: true, label: "No narration", desc: "Clips' own audio" },
+                  ].map((opt) => (
+                    <button
+                      key={String(opt.skip)}
+                      type="button"
+                      onClick={() => setNewSkipVoice(opt.skip)}
+                      className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
+                      style={{
+                        background: newSkipVoice === opt.skip ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
+                        border: `1px solid ${newSkipVoice === opt.skip ? "var(--turquoise)" : "var(--border)"}`,
                         color: "var(--text-primary)",
                       }}
                     >

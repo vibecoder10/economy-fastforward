@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Loader2, ArrowRight, ArrowLeft, Clock, Crop, Search } from "lucide-react";
+import { Sparkles, Loader2, ArrowRight, ArrowLeft, Clock, Crop, Search, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -111,6 +111,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   const [videoLength, setVideoLength] = useState(10);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("16:9");
   const [needsResearch, setNeedsResearch] = useState(true);
+  const [voiceOver, setVoiceOver] = useState(true);
   const [angle, setAngle] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -150,6 +151,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
         video_length_minutes: videoLength,
         aspect_ratio: aspectRatio,
         skip_research: !needsResearch,
+        skip_voice: !voiceOver,
         framework_angle: angle.trim() || undefined,
       });
       await completeOnboarding();
@@ -175,6 +177,11 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   const researchOptions: { value: boolean; label: string; desc: string }[] = [
     { value: true, label: "Research first", desc: "Fact-find the topic" },
     { value: false, label: "Skip it", desc: "Fiction · story" },
+  ];
+
+  const voiceOptions: { value: boolean; label: string; desc: string }[] = [
+    { value: true, label: "AI voice-over", desc: "Narrate the script" },
+    { value: false, label: "No narration", desc: "Clips' own audio" },
   ];
 
   return (
@@ -496,6 +503,41 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
                         style={{
                           color: needsResearch === opt.value ? "var(--bg-void)" : "var(--text-tertiary)",
                           opacity: needsResearch === opt.value ? 0.7 : 1,
+                        }}
+                      >
+                        {opt.desc}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label
+                  className="flex items-center gap-1.5 text-sm font-body font-medium mb-3"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Mic size={14} style={{ color: "var(--text-tertiary)" }} />
+                  Add AI voice-over?
+                </label>
+                <div className="flex gap-2">
+                  {voiceOptions.map((opt) => (
+                    <button
+                      key={String(opt.value)}
+                      onClick={() => setVoiceOver(opt.value)}
+                      className="flex-1 px-3 py-3 rounded-lg text-center transition-all"
+                      style={{
+                        background: voiceOver === opt.value ? "var(--turquoise)" : "var(--bg-elevated)",
+                        color: voiceOver === opt.value ? "var(--bg-void)" : "var(--text-secondary)",
+                        border: `1px solid ${voiceOver === opt.value ? "var(--turquoise)" : "var(--border)"}`,
+                      }}
+                    >
+                      <div className="text-sm font-semibold font-body">{opt.label}</div>
+                      <div
+                        className="text-[10px] mt-0.5"
+                        style={{
+                          color: voiceOver === opt.value ? "var(--bg-void)" : "var(--text-tertiary)",
+                          opacity: voiceOver === opt.value ? 0.7 : 1,
                         }}
                       >
                         {opt.desc}

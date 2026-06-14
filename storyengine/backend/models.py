@@ -173,6 +173,13 @@ class CreateVideoRequest(BaseModel):
     # writer_guidance + framework_angle alone (script/run.py handles a
     # missing research_payload). Mirrors how clones skip research.
     skip_research: bool = False
+    # AI voice-over is optional. grok_native (clip) videos carry their own
+    # baked-in audio, so the narration stage is generated-but-unused for them.
+    # When true, the voice stage is skipped: image-prompt/image gates are
+    # satisfied without narration and a finished script advances straight to
+    # ready_for_image_prompts. (Leave on for documentary/Ken-Burns videos —
+    # there the narration IS the audio track.)
+    skip_voice: bool = False
 
 
 # --- Scripts ---

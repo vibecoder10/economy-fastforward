@@ -410,6 +410,15 @@ class PipelineExecutor:
             video_id, self.tenant_id,
         )
 
+    @staticmethod
+    def _skip_disabled_next(video: dict, natural_next: str) -> str:
+        """Given a stage's natural next status, skip any creation-time-disabled
+        stages. Currently: skip_voice advances past 'ready_for_voice' straight to
+        'ready_for_image_prompts'. Written to extend to other optional stages."""
+        if natural_next == "ready_for_voice" and video.get("skip_voice"):
+            return "ready_for_image_prompts"
+        return natural_next
+
     def _load_idea_from_video(self, video_id: str):
         """Load idea into pipeline state from Supabase video UUID.
 
@@ -922,7 +931,7 @@ directions, no labels, no headings inside them."""
             _json.dumps({"passed": True, "checks": [
                 {"name": "style_replication", "passed": True,
                  "detail": "Documentary editorial checks skipped — script written in the reference video's style"}]}),
-            "ready_for_voice",
+            self._skip_disabled_next(video, "ready_for_voice"),
             video_id, self.tenant_id,
         )
         await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, self.tenant_id)
@@ -999,10 +1008,11 @@ directions, no labels, no headings inside them."""
                 raise Exception(result["error"])
 
             new_status = result.get("new_status", "ready_for_voice")
+            eff_status = self._skip_disabled_next(video, to_supabase(new_status))
 
             # Update Supabase
-            await self._update_video_status(video_id, to_supabase(new_status))
-            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._update_video_status(video_id, eff_status)
+            await self._log_transition(video_id, current_status, eff_status, "api")
             await self._log_activity(bot_name, video_id, "completed", "Script generated")
 
             return {
@@ -1684,8 +1694,9 @@ directions, no labels, no headings inside them."""
             if not video:
                 return {"status": "failed", "error": "Video not found"}
 
-            # Pipeline integrity check: voice must exist before image prompts (full runs only)
-            if scene is None:
+            # Pipeline integrity check: voice must exist before image prompts (full runs only).
+            # Skipped when the video opted out of AI voice-over (skip_voice).
+            if scene is None and not video.get("skip_voice"):
                 all_voiced, total, voiced = await self._check_voice_exists(video_id)
                 if not all_voiced:
                     msg = f"Voice generation must complete before image prompts. Missing voice for {total - voiced}/{total} scenes."
@@ -2370,7 +2381,8 @@ directions, no labels, no headings inside them."""
             current_status = video.get("status")
 
             # Full runs require voice completion; targeted re-runs bypass the stage gate.
-            if scene is None:
+            # Skipped when the video opted out of AI voice-over (skip_voice).
+            if scene is None and not video.get("skip_voice"):
                 all_voiced, total, voiced = await self._check_voice_exists(video_id)
                 if not all_voiced:
                     msg = f"Voice generation must complete before image generation. Missing voice for {total - voiced}/{total} scenes."
