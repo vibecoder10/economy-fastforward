@@ -1,5 +1,70 @@
 # Task Tracking
 
+## ★ HANDOFF — 2026-06-14 (clips DONE, thumbnail built, RENDER is next)
+
+Read this first. The "▶ NEXT GOAL" and older handoffs below are still correct on
+render *details/file-lines* but their status numbers are STALE.
+
+**Bird video `f32ed182-be1f-4a24-a8de-bb8db4ac88df`, tenant `ee93e6d1-…`. State now (prod DB):**
+- **All 74/74 clips animated** (was 8/74). Finished this session with a server-side
+  per-scene → per-asset runner because the "Animate the rest" button kept dying
+  mid-batch (see fragilities note below). grok_native, so Grok's dialogue is baked
+  into the clips.
+- **Thumbnail built + live.** status `ready_for_thumbnail`. The in-app **Regenerate**
+  button (`production/ThumbnailTab.tsx` → POST `/api/pipeline/thumbnail/<id>`) now runs a
+  **reference-clone**: cast sheet (`character_reference_url`) fed FIRST + the modeled
+  YouTube thumbnail (`reference_url` → `img.youtube.com/vi/<id>/maxresdefault.jpg`)
+  SECOND/layout-only, driven by the editable **`thumbnail_prompt`**. Model = **GPT Image 2**
+  (`gpt-image-2-image-to-image` via kie.ai, `image_client.generate_thumbnail_gpt2`),
+  nano-banana-pro fallback. Code: `pipeline_executor.py` `run_thumbnail` +
+  `_build_thumbnail_clone_prompt`; commits **80fc65db, 29c59d22, 8fcc7fd6** (all deployed).
+- **Thumbnail OPEN ISSUE (Ryan rejected current quality):** the generated people are
+  generic Pixar look-alikes, NOT the exact cast-sheet characters — faces/builds/outfits
+  differ, Dr. May loses her East-Asian design. Root cause: one 6-up cast sheet is weak
+  conditioning; the model invents faces. Options offered (Ryan deferred to do the render):
+  (1) per-character reference crops [strongest generative lock], (2) composite the real
+  character art [exact chars but stiff poses], (3) accept type-accurate. NOTE: the video's
+  own scene panels ALSO drift from the sheet — broader character-consistency gap, not just
+  the thumbnail.
+
+**NEXT STEP = RENDER. Two real code blockers remain (now MORE relevant — all clips are grok_native):**
+1. **HARD BLOCKER — `timing/<id>/render_config.json` missing → instant crash.**
+   `render/run.py:141` raises RuntimeError if `skills/video-pipeline/timing/<video_id>/render_config.json`
+   is absent, and the prod pipeline never calls `run_audio_sync`. FIX: run audio-sync for
+   this video (run `render/run_audio_sync.py` for the video_id on the VPS, or wire it into
+   the render preflight). Whisper must be installed where it runs.
+2. **grok_native audio will be wrong.** `remotion-video/src/Scene.tsx:260` hardcodes
+   `muted` on every clip and `Main.tsx` always plays the ElevenLabs narrator. This video is
+   grok_native (dialogue baked into the clips) → render would mute the clips and play only
+   the narrator. FIX: thread `dialogue_audio` + a per-scene "speaking" flag from the videos
+   row → `render/upload/run_package.py` props.json + render_config → `Scene.tsx`; drop
+   `muted` and duck/suppress the narrator on grok_native speaking scenes; keep voice_over
+   unchanged. Preview with `cd remotion-video && npm run studio` before a full render.
+
+**Render fast path (after the two fixes):** Approve & Advance (Thumbnail tab) to
+`ready_to_render`, then POST `/api/pipeline/render/<id>` → ~10–20 min `npx remotion render`
+in `remotion-video/`, uploads mp4 to Drive, sets `videos.final_video_url`, status→rendered.
+Poll `GET /api/pipeline/status/<id>`. **Do NOT deploy/restart during the render (no resume).**
+Then check the audio; optional `POST /api/pipeline/upload/<id>` → private YouTube draft.
+
+**Infra (NEW this session — operating prod from Ryan's Mac):**
+- `ssh storyengine-vps` (user `clawd`, key `~/.ssh/storyengine_vps`). Project
+  `/home/clawd/projects/economy-fastforward`.
+- **Deploy = git push main (Mac) → on VPS `git pull --ff-only` + restart.** No passwordless
+  sudo, so restart = `kill -9 $(pgrep -f "uvicorn main:app")` and systemd `Restart=always`
+  revives it (~10–15s). Verify: `curl localhost:8001/api/pipeline/task/<id>`.
+- Token `/tmp/se_token` (re-minted, 7-day). API `localhost:8001`. Prod DB = Supabase
+  `wrromlupsmyzrrcqlucn` (via Supabase MCP). API keys (KIE/OpenAI/…) live in the `secrets`
+  vault TABLE, hydrated to env at runtime — NOT in `.env`/`/proc`; a standalone script must
+  `vault.get_secret(...)` or inherit the running uvicorn process's env. No OpenAI key set —
+  GPT image runs through kie.ai's `KIE_AI_API_KEY`.
+- **Clip pipeline still FRAGILE + UNFIXED** (Ryan approved fixing it but we did the thumbnail
+  instead): all-clips batch has no resume (a restart/crash/SSL blip kills it), clips slow-poll
+  ~10 min, a just-completed task lingers 30s and 409s the next tap. Regenerate clips
+  scene-by-scene / per-asset, never one giant batch.
+
+---
+
 ## ▶ NEXT GOAL (Ryan, explicit): finish the bird video to THUMBNAIL + RENDER on the VPS
 
 Read this section, then the full handoff below. Recon for this was done by a
