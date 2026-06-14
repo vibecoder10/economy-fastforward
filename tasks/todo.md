@@ -1,5 +1,40 @@
 # Task Tracking
 
+## ★ HANDOFF — 2026-06-14c (aspect ratio chosen at creation; bird is clean vertical)
+
+Commit `8ed98340`, deployed (backend restarted + frontend rebuilt + prod DB migrated).
+
+**Bird video `f32ed182-…` is now a clean VERTICAL video** (728×1080, no distortion,
+in sync, plays in-app). Its clips are physically portrait (73/74 × 464×688), so
+vertical is correct — Ryan agreed to roll with it. `aspect_ratio` column set to `9:16`.
+
+**New: aspect ratio is a first-class creation choice.**
+- `videos.aspect_ratio` column (`'16:9'|'9:16'`, default 16:9, CHECK). Migration
+  `add_videos_aspect_ratio` applied to prod (existing rows backfilled to 16:9).
+- Picker on the create screen (`CreateVideoStep.tsx`, by the length picker:
+  "What shape should the video be?" 16:9 / 9:16). `CreateVideoRequest.aspect_ratio`
+  (Literal) + create INSERT (`routes/videos.py:180`). Verified live: 9:16 stores
+  9:16, default stores 16:9, invalid → 422.
+- Flows into the **storyboard grid request** (executor sets `pipeline.aspect_ratio`
+  → `run_images` → `run_storyboard_images` → `generate_contact_sheet`, was hardcoded
+  "16:9") and the **thumbnail** (`run_thumbnail` clone path + `_build_thumbnail_clone_prompt`).
+- **Render needs NO column wiring** — `render_stitch` auto-detects orientation by
+  probing the actual clips (robust for legacy/mismatched content). The column drives
+  generation; render follows the pixels.
+
+**STILL OWED — deterministic panel-aspect backstop (task #10, needs a paid test gen):**
+The image model (Kie/nano-banana) returned PORTRAIT for the bird even though the grid
+was requested at 16:9 — so requesting the aspect is necessary but NOT sufficient. The
+guarantee layer is forcing each cropped panel to the chosen aspect (scale+pad or
+center-crop) in the storyboard extraction/upscale path, so Grok clips (which inherit
+the image shape — Grok has no aspect param) come out right. NOT built: it needs one
+real 16:9 video run through generation to observe + tune (pad vs crop), and there's a
+`generate_scene_image`/`upscale_panel` signature mismatch to resolve. **9:16 likely
+works already** (model defaults portrait); **16:9 is the unproven case.** Don't claim
+16:9 generation works until that test is run. Voice_over/Remotion aspect also deferred.
+
+---
+
 ## ★ HANDOFF — 2026-06-14b (render FROZEN-FRAME bug fixed + final video plays in-app)
 
 Two follow-ups after the stitch shipped (commit `985c507a`, deployed: backend
