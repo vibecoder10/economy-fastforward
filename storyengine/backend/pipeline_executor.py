@@ -2707,6 +2707,40 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def _build_thumbnail_clone_prompt(self, video_id: str, video: dict) -> str:
+        """Default reference-clone prompt: copy the reference thumbnail's layout
+        and style, but cast our own characters and the video's subject. Seeded
+        into thumbnail_prompt so the creator can refine it in the app."""
+        names = ""
+        try:
+            rows = await fetch_all(
+                "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2 ORDER BY sort",
+                video_id, self.tenant_id)
+            names = ", ".join((r.get("name") or "").strip() for r in rows if r.get("name"))
+        except Exception:
+            pass
+        style = (video.get("thumbnail_style_override") or "").strip()
+        text = (video.get("thumbnail_text") or "").strip()
+        title = (video.get("video_title") or "").strip()
+        parts = [
+            "YouTube thumbnail, 16:9, glossy 3D Pixar/Disney animated style — bright, saturated, high contrast.",
+            "Copy the EXACT composition, camera framing, lighting and art style of the FIRST reference image,",
+            "but use the SECOND reference image as the official character cast: match those characters' faces,",
+            "ages, hairstyles and clothing precisely.",
+        ]
+        if names:
+            parts.append(f"Feature these characters: {names}.")
+        if style:
+            parts.append("Art-direction recipe: " + style)
+        if text:
+            parts.append(f'Overlay text exactly, in the reference style: "{text}".')
+        elif title:
+            parts.append(f'Headline relates to: "{title}".')
+        parts.append(
+            "Do NOT copy any text, logos or background signage from the FIRST reference — take only its "
+            "layout, framing and style. Clean and uncluttered, vibrant, eye-catching, professional.")
+        return " ".join(parts)
+
     async def run_thumbnail(self, video_id: str) -> dict:
         """Generate thumbnail for a video."""
         await self._ensure_initialized()
@@ -2718,6 +2752,52 @@ directions, no labels, no headings inside them."""
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+
+            # ── Reference-clone mode ──────────────────────────────────
+            # When the video was modeled on a reference video (reference_url)
+            # AND has a character cast sheet, build the thumbnail by cloning
+            # the reference thumbnail's composition with our own characters
+            # (nano-banana-pro, two image references). The editable
+            # thumbnail_prompt drives refinement: every Regenerate re-runs with
+            # whatever prompt is saved, so creators tune it in the app. Status
+            # stays at ready_for_thumbnail so Regenerate keeps working — the
+            # creator clicks Approve & Advance when happy.
+            import re as _re_thumb
+            _ref = (video.get("reference_url") or "")
+            _m = (_re_thumb.search(r"[?&]v=([\w-]{11})", _ref)
+                  or _re_thumb.search(r"youtu\.be/([\w-]{11})", _ref)
+                  or _re_thumb.search(r"/embed/([\w-]{11})", _ref)
+                  or _re_thumb.search(r"/shorts/([\w-]{11})", _ref))
+            ref_yt = _m.group(1) if _m else None
+            cast_sheet = (video.get("character_reference_url") or "").strip()
+            if ref_yt and cast_sheet:
+                await self._log_activity(bot_name, video_id, "started",
+                                         "Cloning thumbnail from reference")
+                ref_thumb = f"https://img.youtube.com/vi/{ref_yt}/maxresdefault.jpg"
+                prompt = (video.get("thumbnail_prompt") or "").strip()
+                if not prompt:
+                    prompt = await self._build_thumbnail_clone_prompt(video_id, video)
+                client = self._pipeline.image_client
+                res = await client.generate_with_reference(
+                    prompt, [ref_thumb, cast_sheet], aspect_ratio="16:9")
+                url = (res or {}).get("url")
+                if not url:
+                    await self._log_activity(bot_name, video_id, "failed",
+                                             "Reference clone returned no image")
+                    return {"status": "failed", "error": user_facing(
+                        "The thumbnail didn't generate this time — tap Regenerate to try again.")}
+                durable = await self._persist_url(url, f"{video_id}/thumbnails/thumb.png")
+                await execute(
+                    "UPDATE videos SET thumbnail_url = $1, thumbnail_prompt = $2, "
+                    "updated_at = now() WHERE id = $3 AND tenant_id = $4",
+                    durable, prompt, video_id, self.tenant_id,
+                )
+                await self._log_activity(bot_name, video_id, "completed",
+                                         "Thumbnail cloned from reference")
+                return {"status": "completed", "video_id": video_id,
+                        "thumbnail_url": durable}
+
+            # ── From-scratch mode (existing bot) ──────────────────────
             await self._log_activity(bot_name, video_id, "started", "Generating thumbnail")
 
             # Load system prompt overrides (tenant + per-video)
