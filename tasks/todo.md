@@ -55,10 +55,15 @@ Touched (byte-identical default behavior — `skip_research` defaults False ever
   this modal still lacks the aspect picker (aspect only shipped in onboarding) — a
   small consistency gap if anyone wants to close it.
 
-Verified FREE: `py_compile` (backend) + `tsc --noEmit` clean (frontend, 0 errors).
-NOT deployed yet (backend restart + frontend rebuild owed) and NOT live-tested
-against prod. Deploy per [[storyengine-vps-access]] when prod is idle (restart
-loses any in-flight clip/render run).
+DEPLOYED + LIVE-VERIFIED (2026-06-14, commit `2aa68514` on prod). Backend
+restarted + frontend rebuilt/restarted; public edge 200. Live end-to-end test
+against prod: `POST /api/videos {skip_research:true}` → `ready_for_scripting`;
+default → `idea_logged` (test rows soft-deleted). Pre-checks: `py_compile`
+(backend) + `tsc --noEmit` clean. Note: the deploy restart also cleared a stale
+in-memory "running" task flag that had video `13c334b5` ("Living in a House")
+jammed at `ready_for_storyboard_extraction` (storyboard-image batch died ~1.5h
+prior without clearing it — the no-resume fragility in [[storyengine-clip-pipeline-fragilities]]);
+it's unblocked now.
 
 ---
 
