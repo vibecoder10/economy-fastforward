@@ -56,10 +56,44 @@ resilience (was #1) → 14k.)
    their data. The heavy media already lives on the user's Drive — this extends that
    ownership to the script text. [[storyengine-render-stitch]] storage split context.
 
+7. **Auto-detect text cards → "Fix all text cards"** (fast-follow to 14l; Ryan: "manual
+   now, auto later"). The manual per-card "Fix text" (GPT Image 2) is DONE + verified.
+   Now make it automatic: tag title/word-card beats at the image-prompt stage (add a
+   `title_card` scene_type in `scene_expander.py`, or an `assets.is_text_card` flag) — the
+   LLM already follows a "use a word/title card" rule (story_bible.py:267) so it knows when
+   it's making one — then a "Fix all text cards" batch that runs GPT Image 2 on the flagged
+   panels (reuse `run_fix_text_card`). Keep the GPT Image 2 prompt LEAN (long prompts → Kie
+   500s; see 14l).
+
 **Context for the older items below:** the 3 content-quality fixes (char descriptions,
 environment locking, recap continuity) are DONE + verified end-to-end on a real
 cloned video; see the handoff below. The verify also fixed 3 bugs live
 (env-directive misfire, env-image proxy allowlist, harmful clone-research).
+
+---
+
+## ★ HANDOFF — 2026-06-14l (Part 2: "Fix text" via GPT Image 2 — DONE + DEPLOYED + verified)
+
+Legible title/word cards. Ryan chose MANUAL-first. A per-card **"Fix text"** hover button
+(Type icon) on each picture redraws just that card via GPT Image 2 (`gpt-image-2-image-to-
+image` through Kie, the same model the thumbnails use). Scenes stay on nano-banana.
+Commits `22a22383` + `7f14e7df`, deployed.
+- `pipeline_executor.run_fix_text_card(video_id, asset_id)`: loads the panel, redraws via
+  `generate_thumbnail_gpt2` (current panel = art-style/layout ref + a LEAN prompt for the
+  wording), persists to Drive, replaces `assets.image_url` in place, clears the stale clip.
+- `POST /api/videos/{video_id}/assets/{asset_id}/fix-text` (mirrors recrop) + frontend
+  button + `fixTextAsset` api.
+- VERIFIED on a bird panel (then restored exactly — bird untouched): GPT Image 2 rendered
+  perfectly legible, correctly-spelled text ("How can I help you today?" + a clean speech
+  bubble) in the 3D Pixar style. ⚠ LEARNING: a long/noisy prompt → Kie returns
+  `failCode 500 "Internal Error"` (0 credits charged); the LEAN prompt (cap style+wording
+  to ~280 chars each) succeeds. Keep fix-text/GPT-Image-2 prompts short.
+- Bonus finding: GPT Image 2 nails clean SPEECH BUBBLES on scene panels too — a possible
+  future lever for ESL caption/dialogue frames, not just title cards.
+
+NEXT (Ryan's fast-follow): **auto-detect text cards** — tag title/word-card beats at the
+image-prompt stage (a `title_card` scene_type or `assets.is_text_card`) and add a "Fix all
+text cards" batch, so it's not purely manual. (Queue item below.)
 
 ---
 
