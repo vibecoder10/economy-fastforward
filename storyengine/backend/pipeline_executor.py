@@ -2197,6 +2197,64 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_fix_text_card(self, video_id: str, asset_id: str) -> dict:
+        """One-tap 'Fix text': redraw a title/word card via GPT Image 2 (best-in-class
+        for legible lettering — nano-banana garbles text). Uses the current panel as the
+        art-style + layout reference and its image_prompt/narration for the intended
+        wording. Scenes stay on nano-banana; only the tapped card is redrawn, replaced in
+        place. Any clip made from the old card is cleared so it re-animates."""
+        bot_name = "Fix Text"
+        try:
+            await self._ensure_initialized()
+            asset = await fetch_one(
+                "SELECT scene, image_index, image_prompt, sentence_text, image_url, "
+                "drive_image_url FROM assets WHERE id = $1 AND video_id = $2 AND tenant_id = $3",
+                asset_id, video_id, self.tenant_id,
+            )
+            if not asset:
+                return {"status": "failed", "error": "Picture not found"}
+            ref_url = asset.get("drive_image_url") or asset.get("image_url")
+            if not ref_url:
+                return {"status": "failed", "error": "This card has no picture yet to fix"}
+            client = getattr(self._pipeline, "image_client", None)
+            if not client:
+                return {"status": "failed", "error": "Image generator unavailable right now"}
+
+            video = await self._get_video(video_id)
+            aspect = (video or {}).get("aspect_ratio") or "16:9"
+            style = ((video or {}).get("image_style_override") or "").strip()
+            intent = (asset.get("image_prompt") or asset.get("sentence_text") or "").strip()
+            prompt = (
+                "This is a title/word card from an animated video. Redraw it keeping the "
+                "EXACT same art style, colours, and composition as the reference image, but "
+                "render ALL TEXT large, perfectly legible, correctly spelled, and cleanly "
+                "typeset. "
+                f"{('Art style: ' + style + '. ') if style else ''}"
+                f"Card content / intended wording: {intent[:600]}. "
+                "Keep it a clean card — do not add new characters or scenery. No watermarks."
+            )
+            sc, idx = asset["scene"], asset["image_index"]
+            await self._log_activity(bot_name, video_id, "started", f"Fixing text on S{sc}.{idx} (GPT Image 2)…")
+            res = await client.generate_thumbnail_gpt2(prompt, [ref_url], aspect_ratio=aspect)
+            new_url = (res or {}).get("url")
+            if not new_url:
+                await self._log_activity(bot_name, video_id, "failed", "GPT Image 2 didn't return a card — try again.")
+                return {"status": "failed", "error": "The text fix didn't generate — tap Fix text to try again."}
+
+            durable = await self._persist_url(new_url, f"{video_id}/images/S{sc}-{idx}_text.png")
+            await execute(
+                "UPDATE assets SET image_url = $1, drive_image_url = $1, video_clip_url = NULL, "
+                "updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                durable, asset_id, self.tenant_id,
+            )
+            await self._log_activity(bot_name, video_id, "completed", f"Text fixed on S{sc}.{idx}")
+            return {"status": "completed", "video_id": video_id,
+                    "message": "Card text redrawn with GPT Image 2 — re-animate it to refresh its clip.",
+                    "image_url": durable}
+        except Exception as e:
+            await self._log_activity(bot_name, video_id, "failed", str(e))
+            return {"status": "failed", "error": str(e)}
+
     async def run_recrop_panel(self, video_id: str, asset_id: str) -> dict:
         """One-tap 'Re-crop this picture' (Ryan's bad-crop rule, answer 4).
 

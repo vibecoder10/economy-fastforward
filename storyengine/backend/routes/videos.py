@@ -1252,6 +1252,42 @@ async def recrop_asset(
             "message": "Re-crop started — stale clips re-animate automatically"}
 
 
+@router.post("/{video_id}/assets/{asset_id}/fix-text")
+async def fix_text_card(
+    video_id: str,
+    asset_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id=Depends(get_tenant_id),
+):
+    """One-tap 'Fix text' for a garbled title/word card: redraws it via GPT Image 2
+    (best for legible lettering) using the current panel as the style reference. Replaces
+    the card image in place and clears any stale clip. Background task — watch the pill."""
+    from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status
+    from pipeline_executor import PipelineExecutor
+
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+    _set_task_status(video_id, "running", "Fixing the card's text with GPT Image 2…",
+                     tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_fix_text_card(video_id, asset_id)
+            _set_task_status(video_id, result.get("status", "unknown"),
+                             result.get("message") or result.get("error"),
+                             tenant_id=tenant_id)
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return {"video_id": video_id, "status": "running",
+            "message": "Fixing card text with GPT Image 2…"}
+
+
 @router.get("/defaults/video-motion-prompt")
 async def get_default_video_motion_prompt():
     """Return the default video motion system prompt template."""

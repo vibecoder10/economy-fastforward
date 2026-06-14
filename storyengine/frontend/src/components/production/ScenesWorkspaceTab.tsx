@@ -18,7 +18,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check, Loader2, Pencil, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
-  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors,
+  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, Type,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -31,7 +31,7 @@ import {
   clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
-  deleteClip, recropAsset,
+  deleteClip, recropAsset, fixTextAsset,
 } from "@/lib/api";
 import { clipCost } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
@@ -668,6 +668,20 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     }
   }, [video.id, running, taskMessage, markStarted, toast]);
 
+  const fixTextOne = useCallback(async (asset: Asset) => {
+    if (running) {
+      toast.info(`Hang on — still working: ${taskMessage || "finishing the current step"}.`);
+      return;
+    }
+    try {
+      await fixTextAsset(video.id, asset.id);
+      markStarted();
+      toast.info("Redrawing this card's text with GPT Image 2 (~$0.05). Re-animate it after to refresh its clip.");
+    } catch (err) {
+      toast.error((err as Error).message || "Couldn't start the text fix.");
+    }
+  }, [video.id, running, taskMessage, markStarted, toast]);
+
   /** Confirm-then-run for anything over $0.50; cheaper actions just go. */
   const confirmable = (key: string, dollars: number, run: () => void) => {
     if (dollars <= 0.5 || confirmKey === key) {
@@ -1192,6 +1206,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
                     onDeleteClip={() => removeClip(asset)}
                     onDeletePicture={() => handleClearExtractedPanel(asset.id)}
                     onRecrop={() => recropOne(asset)}
+                    onFixText={() => fixTextOne(asset)}
                   />
                 ))}
               </div>
@@ -1206,7 +1221,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
 /** One story segment: shows the clip when it exists (tap = play), else the
  * final picture (tap = animate, ~$0.10). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop }: {
+function SegmentCard({ asset, speaker, perClip, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onFixText }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
@@ -1220,6 +1235,7 @@ function SegmentCard({ asset, speaker, perClip, isGenerating, isRecropping, isFa
   onDeleteClip: () => void;
   onDeletePicture: () => void;
   onRecrop: () => void;
+  onFixText: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasClip = Boolean(asset.video_clip_url);
@@ -1325,6 +1341,14 @@ function SegmentCard({ asset, speaker, perClip, isGenerating, isRecropping, isFa
         {!isGenerating && !isRecropping && (
           <>
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={(e) => { e.stopPropagation(); onFixText(); }}
+                disabled={disabled}
+                title="Garbled text on a title/word card? Redraw it with clean, legible text via GPT Image 2 (~$0.05)."
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:brightness-125 disabled:opacity-50"
+                style={{ background: "rgba(0,0,0,0.6)", color: "var(--text-secondary)" }}>
+                <Type size={13} />
+              </button>
               {hasClip ? (
                 <>
                   <button

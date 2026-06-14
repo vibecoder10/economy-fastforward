@@ -1275,6 +1275,10 @@ export const recropAsset = (videoId: string, assetId: string) =>
   fetchApi<{ status: string; message: string }>(
     `/api/videos/${videoId}/assets/${assetId}/recrop`, { method: "POST" });
 
+export const fixTextAsset = (videoId: string, assetId: string) =>
+  fetchApi<{ status: string; message: string }>(
+    `/api/videos/${videoId}/assets/${assetId}/fix-text`, { method: "POST" });
+
 export interface ImageVariant {
   id: string;
   video_id: string | null;
