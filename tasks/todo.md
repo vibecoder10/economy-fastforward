@@ -15,23 +15,18 @@ resilience (was #1) → 14k.)
    real aspect lever is the **Grok clip stage**, not the image stage. See
    [[storyengine-aspect-ratio]].
 
-2. **Character/environment portrait retry robustness** (found in the verify run).
-   `design_characters` / `design_environments` silently drop a portrait that fails
-   (Maria failed → `approve` then blocks on "no image yet"). Add a per-item
-   auto-retry (or retry the empty cards) so one transient failure doesn't block approve.
-
-3. **voice_over / Remotion aspect support** (deferred from the aspect feature).
+2. **voice_over / Remotion aspect support** (deferred from the aspect feature).
    aspect_ratio flows through grok_native (stitch) but NOT Remotion —
    `remotion-video/src/Root.tsx` + `renderConfig` hardcode 1920x1080, so portrait
    voice_over videos render letterboxed.
 
-4. **Extend stage toggles to the rest of the pipeline** (Ryan: "all parts should be
+3. **Extend stage toggles to the rest of the pipeline** (Ryan: "all parts should be
    toggleable"). Voice is done (14h) via `_skip_disabled_next` + a `skip_*` column.
    Repeat for the other optional stages (sound design, sound effects, thumbnail):
    add `skip_<stage>` columns + creation toggles, extend `_skip_disabled_next`, and
    harden each gate. Ryan chose CREATION-TIME toggles (not live per-stage switches).
 
-5. **Env style polish — small remainders.** Structured prompts (14i) fixed the gross
+4. **Env style polish — small remainders.** Structured prompts (14i) fixed the gross
    drift (verified: 2D→3D and photoreal→3D both lock). Open: (a) `fence_line_rubbish`
    and other "bad-side"/grungy scenes still come back more 2D-outlined than 3D — re-roll
    confirmed it's systematic; add a "stay soft 3D CG even when grungy/bad-side" nudge to
@@ -45,7 +40,7 @@ resilience (was #1) → 14k.)
    video that uses the per-panel path (clip videos use the storyboard-grid path, so
    it didn't bite here, but worth reconciling).
 
-6. **Bidirectional script ↔ Google Drive sync** (Ryan 2026-06-14, "would be nice").
+5. **Bidirectional script ↔ Google Drive sync** (Ryan 2026-06-14, "would be nice").
    Let the creator EDIT the script in their Google Drive (a Doc) with any AI tool and
    have edits MIRROR BACK into StoryEngine. More than a one-way export — needs:
    (a) export script → a Google Doc in the video's Drive folder on generate/update;
@@ -56,7 +51,7 @@ resilience (was #1) → 14k.)
    their data. The heavy media already lives on the user's Drive — this extends that
    ownership to the script text. [[storyengine-render-stitch]] storage split context.
 
-7. **Auto-detect text cards → "Fix all text cards"** (fast-follow to 14l; Ryan: "manual
+6. **Auto-detect text cards → "Fix all text cards"** (fast-follow to 14l; Ryan: "manual
    now, auto later"). The manual per-card "Fix text" (GPT Image 2) is DONE + verified.
    Now make it automatic: tag title/word-card beats at the image-prompt stage (add a
    `title_card` scene_type in `scene_expander.py`, or an `assets.is_text_card` flag) — the
@@ -69,6 +64,18 @@ resilience (was #1) → 14k.)
 environment locking, recap continuity) are DONE + verified end-to-end on a real
 cloned video; see the handoff below. The verify also fixed 3 bugs live
 (env-directive misfire, env-image proxy allowlist, harmful clone-research).
+
+---
+
+## ★ HANDOFF — 2026-06-14m (portrait/reference retry — one flake can't block approve — DONE + DEPLOYED)
+
+The verify-run bug: `design_characters` / `design_environments` generated each portrait/
+reference ONCE; on any failure (Kie hiccup, SSL, vision refusal) they dropped it silently,
+leaving an empty card that BLOCKED approve ("Maria has no image yet"). Fixed: each item now
+retries 3× with backoff before giving up (`routes/characters.py` ~286, `routes/environments.py`
+~253). Persistent failures still surface via the per-card Regenerate + the clear approve error.
+Happy path unchanged (succeeds first try). Commit `35729cec`, deployed. ⚠ Not paid-tested
+(would need to force a transient failure mid-design) — low-risk retry wrapper, py_compile clean.
 
 ---
 
