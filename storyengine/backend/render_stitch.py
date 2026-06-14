@@ -127,39 +127,59 @@ async def _gather_clips(video_id: str) -> list[dict]:
 async def _download_clips(
     clips: list[dict], workdir: Path, on_progress: ProgressCb
 ) -> list[Path]:
-    """Download every clip to workdir/clip_NNN.mp4, preserving order."""
-    gc = _google_client()
-    sem = asyncio.Semaphore(_DOWNLOAD_CONCURRENCY)
+    """Download every clip to workdir/clip_NNN.mp4, preserving order.
+
+    Concurrency uses a **worker pool where each worker owns its own
+    GoogleClient**. The Drive client is built on httplib2, which is NOT
+    thread-safe — sharing one connection across concurrent downloads corrupts
+    it ("'NoneType' object has no attribute 'read'"). Each worker downloads
+    sequentially on its own connection, so N workers = N safe parallel streams.
+    """
     paths: list[Optional[Path]] = [None] * len(clips)
+    queue: asyncio.Queue[tuple[int, dict]] = asyncio.Queue()
+    for i, row in enumerate(clips):
+        queue.put_nowait((i, row))
+
+    n_workers = max(1, min(_DOWNLOAD_CONCURRENCY, len(clips)))
     done = 0
     lock = asyncio.Lock()
+    first_error: Optional[Exception] = None
 
-    async def _one(i: int, row: dict) -> None:
-        nonlocal done
-        url = row.get("video_clip_url") or ""
-        file_id = _extract_drive_file_id(url)
-        local = workdir / f"clip_{i:03d}.mp4"
-        async with sem:
-            if file_id:
-                # Authorized Drive API download (retries internally).
-                await asyncio.to_thread(gc.download_file_to_local, file_id, str(local))
-            else:
-                # Non-Drive URL (e.g. Supabase public) — stream the bytes.
-                from storage import download_bytes
-                data = await download_bytes(url)
-                local.write_bytes(data)
-        if not local.exists() or local.stat().st_size == 0:
-            raise RuntimeError(
-                f"clip S{row.get('scene')}.{row.get('image_index')} downloaded empty "
-                f"({url[:80]})"
-            )
-        paths[i] = local
-        async with lock:
-            done += 1
-            if done % 10 == 0 or done == len(clips):
-                await _emit(on_progress, f"Downloaded {done}/{len(clips)} clips")
+    async def _worker() -> None:
+        nonlocal done, first_error
+        gc = _google_client()  # one connection per worker — never shared
+        while first_error is None:
+            try:
+                i, row = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            url = row.get("video_clip_url") or ""
+            local = workdir / f"clip_{i:03d}.mp4"
+            try:
+                file_id = _extract_drive_file_id(url)
+                if file_id:
+                    await asyncio.to_thread(gc.download_file_to_local, file_id, str(local))
+                else:
+                    # Non-Drive URL (e.g. Supabase public) — stream the bytes.
+                    from storage import download_bytes
+                    local.write_bytes(await download_bytes(url))
+                if not local.exists() or local.stat().st_size == 0:
+                    raise RuntimeError(
+                        f"clip S{row.get('scene')}.{row.get('image_index')} "
+                        f"downloaded empty ({url[:80]})"
+                    )
+                paths[i] = local
+                async with lock:
+                    done += 1
+                    if done % 10 == 0 or done == len(clips):
+                        await _emit(on_progress, f"Downloaded {done}/{len(clips)} clips")
+            except Exception as e:  # stop the pool cleanly on first failure
+                first_error = e
+                return
 
-    await asyncio.gather(*(_one(i, r) for i, r in enumerate(clips)))
+    await asyncio.gather(*(_worker() for _ in range(n_workers)))
+    if first_error is not None:
+        raise first_error
     return [p for p in paths if p is not None]
 
 
