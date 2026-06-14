@@ -144,12 +144,22 @@ async def _generate_portrait(api_key: str, description: str, style_dna: str) -> 
     """One character reference portrait via Kie (same job pattern as
     visual_styles character generation). Returns the image URL."""
     style = (style_dna or "").strip()
-    prompt = (
-        f"Character reference sheet portrait: {description.strip()}. "
-        f"{('Visual style: ' + style + '. ') if style else ''}"
-        "Full body, facing camera, neutral plain background, even lighting, "
-        "the character fills the frame. No text, no watermarks."
-    )
+    # Structured prompt — the SAME art_style + render_medium leading slots the
+    # environment generator uses, so the cast and the locations share one locked
+    # medium (no 2D-vs-3D drift between characters and their world).
+    spec = {
+        "art_style": style or "consistent illustrated style",
+        "render_medium": (
+            "render in the exact medium named in art_style and keep it identical for "
+            "every image — do NOT switch to photorealism or flat 2D illustration unless "
+            "art_style explicitly calls for it"
+        ),
+        "shot": "full-body character reference sheet, facing camera, the character fills the frame",
+        "subject": description.strip(),
+        "background": "neutral plain background, even lighting",
+        "exclude": "no text, no watermarks",
+    }
+    prompt = json.dumps(spec, ensure_ascii=False)
     async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
         create_resp = await client.post(
             KIE_CREATE_TASK_URL,
