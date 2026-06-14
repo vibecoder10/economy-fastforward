@@ -51,6 +51,8 @@ SELECT 1 WHERE EXISTS (
     SELECT 1 FROM videos
     WHERE thumbnail_url LIKE $1 OR character_reference_url LIKE $1
        OR final_video_url LIKE $1
+) OR EXISTS (
+    SELECT 1 FROM video_environments WHERE reference_url LIKE $1
 )
 """
 
