@@ -250,18 +250,27 @@ async def design_environments(
                     tenant_id, video_id, env["name"][:120], env.get("description") or "", i,
                 )
                 env_id = str(row["id"])
-                try:
-                    temp_url = await _generate_environment(
-                        api_key, env.get("description") or env["name"], style_dna, aspect_ratio,
-                    )
-                    url = await _persist_portrait_url(tenant_id, video_id, env_id, temp_url)
-                    await execute(
-                        "UPDATE video_environments SET reference_url = $1, updated_at = now() WHERE id = $2",
-                        url, env_id,
-                    )
-                    done += 1
-                except Exception as e:
-                    logger.warning("[environments] reference failed for %s: %s", env["name"], str(e)[:200])
+                # Retry each reference before giving up — a transient blip used to drop
+                # the image silently, leaving an empty card that then blocks approve.
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        temp_url = await _generate_environment(
+                            api_key, env.get("description") or env["name"], style_dna, aspect_ratio,
+                        )
+                        url = await _persist_portrait_url(tenant_id, video_id, env_id, temp_url)
+                        await execute(
+                            "UPDATE video_environments SET reference_url = $1, updated_at = now() WHERE id = $2",
+                            url, env_id,
+                        )
+                        done += 1
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        await asyncio.sleep(2 * (attempt + 1))
+                if last_err is not None:
+                    logger.warning("[environments] reference failed for %s after 3 tries: %s", env["name"], str(last_err)[:200])
 
             msg = f"Environments designed: {done}/{len(envs)} references ready — review, tweak, then approve."
             if done < len(envs):

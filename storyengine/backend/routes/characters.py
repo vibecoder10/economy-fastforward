@@ -283,16 +283,27 @@ async def design_characters(
                     tenant_id, video_id, ch["name"][:120], ch.get("description") or "", i,
                 )
                 char_id = str(row["id"])
-                try:
-                    temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna)
-                    url = await _persist_portrait_url(tenant_id, video_id, char_id, temp_url)
-                    await execute(
-                        "UPDATE video_characters SET reference_url = $1, updated_at = now() WHERE id = $2",
-                        url, char_id,
-                    )
-                    done += 1
-                except Exception as e:
-                    logger.warning("[characters] portrait failed for %s: %s", ch["name"], str(e)[:200])
+                # Retry each portrait before giving up — one transient blip (a Kie
+                # hiccup, an SSL error, a vision refusal) used to silently drop the
+                # portrait, leaving an empty card that then BLOCKS approve ("Maria has
+                # no image yet"). 3 tries means a flake no longer stalls the whole cast.
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna)
+                        url = await _persist_portrait_url(tenant_id, video_id, char_id, temp_url)
+                        await execute(
+                            "UPDATE video_characters SET reference_url = $1, updated_at = now() WHERE id = $2",
+                            url, char_id,
+                        )
+                        done += 1
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        await asyncio.sleep(2 * (attempt + 1))
+                if last_err is not None:
+                    logger.warning("[characters] portrait failed for %s after 3 tries: %s", ch["name"], str(last_err)[:200])
 
             msg = f"Cast designed: {done}/{len(cast)} portraits ready — review, tweak, then approve."
             if done < len(cast):
