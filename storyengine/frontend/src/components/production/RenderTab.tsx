@@ -11,6 +11,7 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask, advanceVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
+import { toDisplayVideoUrl } from "@/lib/utils";
 import type { VideoDetail, Asset } from "@/lib/api";
 
 interface RenderTabProps {
@@ -27,13 +28,6 @@ function formatDuration(minutes: number | null | undefined): string {
   const mins = Math.floor(minutes);
   const secs = Math.round((minutes - mins) * 60);
   return `${mins}:${String(secs).padStart(2, "0")}`;
-}
-
-/** Convert Google Drive share URLs to direct-playable format */
-function toDrivePlayableUrl(url: string): string {
-  const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-  if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`;
-  return url;
 }
 
 interface TimelineSegment {
@@ -168,7 +162,7 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
           >
             {video.final_video_url && !renderActive && !videoError ? (
               <video
-                src={toDrivePlayableUrl(video.final_video_url)}
+                src={toDisplayVideoUrl(video.final_video_url)}
                 poster={video.thumbnail_url || undefined}
                 controls
                 className="absolute inset-0 w-full h-full object-contain"

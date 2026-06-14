@@ -50,6 +50,7 @@ SELECT 1 WHERE EXISTS (
 ) OR EXISTS (
     SELECT 1 FROM videos
     WHERE thumbnail_url LIKE $1 OR character_reference_url LIKE $1
+       OR final_video_url LIKE $1
 )
 """
 
@@ -76,7 +77,7 @@ def _drive_service():
 
 def _fetch_drive_meta(file_id: str) -> dict:
     return _drive_service().files().get(
-        fileId=file_id, fields="mimeType,md5Checksum,modifiedTime"
+        fileId=file_id, fields="mimeType,md5Checksum,modifiedTime,size"
     ).execute()
 
 
@@ -91,6 +92,17 @@ def _download_via_drive_api(file_id: str) -> bytes:
     while not done:
         _, done = downloader.next_chunk()
     return buf.getvalue()
+
+
+def _download_range(file_id: str, start: int, end: int) -> bytes:
+    """Authorized Drive download of a byte range (inclusive). Lets the
+    <video> element stream/seek the final render without pulling the whole
+    file first. Drive honors the Range header and returns 206; if it ever
+    ignores it the caller slices defensively."""
+    svc = _drive_service()
+    req = svc.files().get_media(fileId=file_id)
+    req.headers["Range"] = f"bytes={start}-{end}"
+    return req.execute()
 
 
 @router.get("/drive/{file_id}")
@@ -110,11 +122,49 @@ async def serve_drive_file(file_id: str, request: Request):
         logger.warning("[media] drive meta failed for %s: %s", file_id, str(e)[:200])
         raise HTTPException(status_code=502, detail="Couldn't fetch this file right now.")
 
+    mime = meta.get("mimeType") or "application/octet-stream"
     etag = f'"{meta.get("md5Checksum") or meta.get("modifiedTime") or file_id}"'
-    cache_headers = {"Cache-Control": "public, no-cache", "ETag": etag}
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
+    try:
+        total = int(meta.get("size") or 0)
+    except (TypeError, ValueError):
+        total = 0
+    # Accept-Ranges lets <video> stream/seek the final render. Images keep
+    # working through the plain full-body path below.
+    base_headers = {"Cache-Control": "public, no-cache", "ETag": etag,
+                    "Accept-Ranges": "bytes"}
+    range_header = request.headers.get("range")
 
+    if not range_header and request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=base_headers)
+
+    # ── Ranged request (video scrubbing) → 206 Partial Content ──────────
+    if range_header and total > 0:
+        m = re.match(r"bytes=(\d+)-(\d*)", range_header.strip())
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else total - 1
+            end = min(end, total - 1)
+            if start > end or start >= total:
+                return Response(status_code=416,
+                                headers={**base_headers,
+                                         "Content-Range": f"bytes */{total}"})
+            try:
+                data = await asyncio.to_thread(_download_range, file_id, start, end)
+            except Exception as e:
+                logger.warning("[media] drive range fetch failed for %s: %s",
+                               file_id, str(e)[:200])
+                raise HTTPException(status_code=502,
+                                    detail="Couldn't fetch this file right now.")
+            if len(data) > (end - start + 1):  # Drive ignored Range — slice
+                data = data[start:end + 1]
+            return Response(
+                content=data, status_code=206, media_type=mime,
+                headers={**base_headers,
+                         "Content-Range": f"bytes {start}-{end}/{total}",
+                         "Content-Length": str(len(data))},
+            )
+
+    # ── Full body (images, or a client that didn't ask for a range) ─────
     try:
         data = await asyncio.to_thread(_download_via_drive_api, file_id)
     except Exception as e:
@@ -122,7 +172,6 @@ async def serve_drive_file(file_id: str, request: Request):
         raise HTTPException(status_code=502, detail="Couldn't fetch this file right now.")
 
     return Response(
-        content=data,
-        media_type=meta.get("mimeType") or "application/octet-stream",
-        headers=cache_headers,
+        content=data, media_type=mime,
+        headers={**base_headers, "Content-Length": str(len(data))},
     )

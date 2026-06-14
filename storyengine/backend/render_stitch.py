@@ -4,10 +4,13 @@ For **grok_native** videos every clip already carries its own baked-in audio
 (Grok voices the dialogue into the clip), so the "render" is just concatenating
 the clips in scene/segment order. This bypasses Remotion entirely — no
 ``render_config.json``, no Whisper audio-sync, no muted-clip / narrator bug
-(``Scene.tsx`` issues) — and is cheap enough to run many at once on one box:
-clips from the same model share codec params, so the concat demuxer
-**stream-copies** with ~zero CPU. A re-encode fallback handles the rare clip
-whose params don't line up.
+(``Scene.tsx`` issues).
+
+The concat **re-encodes** to a single clean H.264 stream (see ``_concat`` for
+why stream-copy is unsafe — strict players freeze on copy-concatenated clips
+whose per-clip parameter sets differ). Re-encode of a ~9-min 736x400 video is
+~50s (veryfast); concurrency is bounded by ``_FFMPEG_SEM`` so a burst of
+simultaneous renders queues instead of thrashing the small VPS CPU.
 
 Designed to survive ~20 simultaneous renders on a small VPS:
   * each render works in its own ``tempfile`` dir (no shared ``public/`` like the
@@ -193,38 +196,36 @@ def _write_concat_list(paths: list[Path], list_path: Path) -> None:
 
 
 async def _concat(paths: list[Path], list_path: Path, out_path: Path) -> str:
-    """Concat clips into out_path. Try stream-copy first, then re-encode.
+    """Concat clips into out_path by RE-ENCODING to one clean H.264 stream.
 
-    Returns the method used ("copy" or "reencode"). Raises on total failure.
+    Stream-copy (`-c copy`) is deliberately NOT used. Each source clip carries
+    its own SPS/PPS parameter set (plus an mjpeg "attached picture" track and an
+    unset mov timescale). A copy-concat writes only the *first* clip's avcC into
+    the MP4 header, so strict players (QuickTime) decode clip 1 then freeze on
+    frame 1 while the audio keeps playing — even though ffmpeg/VLC, which read
+    in-band parameter sets, play it fine. One encoder pass produces a single
+    consistent parameter set and clean constant-rate timestamps → universally
+    playable. We `-map` only the real video+audio, dropping the attached pic.
+
+    Returns "reencode". Raises on failure.
     """
-    expected = 0.0
-    for p in paths:  # rough expectation to validate the muxed output
-        expected += await _probe_duration(str(p))
+    preset = os.getenv("STITCH_X264_PRESET", "veryfast")
+    crf = os.getenv("STITCH_X264_CRF", "20")
+    fps = os.getenv("STITCH_FPS", "24")
 
     async with _FFMPEG_SEM:
-        # ── Fast path: stream copy (no transcode, ~zero CPU) ──────────────
         rc, err = await _run_subprocess([
             "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
-            "-c", "copy", "-movflags", "+faststart", str(out_path),
-        ])
-        if rc == 0 and out_path.exists():
-            got = await _probe_duration(str(out_path))
-            # Accept if the muxed duration is within 5% of the sum of inputs.
-            if got > 0 and (expected == 0 or got >= expected * 0.95):
-                return "copy"
-
-        # ── Fallback: re-encode through the demuxer (handles param drift /
-        #    timestamp gaps the copy mux can't splice cleanly) ─────────────
-        rc, err = await _run_subprocess([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+            "-map", "0:v:0", "-map", "0:a:0",
+            "-c:v", "libx264", "-preset", preset, "-crf", crf,
+            "-pix_fmt", "yuv420p", "-r", fps, "-video_track_timescale", "24000",
+            "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
             "-movflags", "+faststart", str(out_path),
         ])
-        if rc == 0 and out_path.exists() and await _probe_duration(str(out_path)) > 0:
-            return "reencode"
 
-    raise RuntimeError(f"ffmpeg concat failed (rc={rc}): {err[-600:]}")
+    if rc == 0 and out_path.exists() and await _probe_duration(str(out_path)) > 0:
+        return "reencode"
+    raise RuntimeError(f"ffmpeg concat re-encode failed (rc={rc}): {err[-600:]}")
 
 
 def _safe_filename(title: str, fallback: str) -> str:

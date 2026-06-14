@@ -45,3 +45,17 @@ export function toDisplayImageUrl(url?: string | null): string | undefined {
   // links (uc, lh3) randomly degrade into HTML interstitials.
   return `${API_URL}/api/media/drive/${m[1]}`;
 }
+
+/**
+ * Final rendered video lives on Drive as a `uc?...&export=download` link, which
+ * a browser <video> can't stream (it downloads / shows an interstitial). The
+ * media proxy serves the bytes (video/mp4) with HTTP Range support, so route the
+ * player through it. Non-Drive URLs pass through untouched.
+ */
+export function toDisplayVideoUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  if (!/^https?:\/\/drive\.google\.com\//.test(url)) return url;
+  const m = url.match(/[?&]id=([\w-]+)/) || url.match(/\/d\/([\w-]+)/);
+  if (!m) return url;
+  return `${API_URL}/api/media/drive/${m[1]}`;
+}
