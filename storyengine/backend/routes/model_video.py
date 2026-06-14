@@ -12,8 +12,12 @@ Background task stages (polled via the existing GET /api/pipeline/task/{video_id
   4. persist   — videos fields, assets prompt rows, competitor_videos attribution,
                  best-effort Drive brief when the tenant has Drive connected
 
-The video lands at 'idea_logged' so the creator reviews the modeled idea before
-any paid image/video generation. Nothing renders or uploads from here.
+The video lands at 'ready_for_scripting' (NOT 'idea_logged') — modeling already
+produces the research material (research_payload: research_brief, script_guidance,
+scene_concepts), so the separate research agent is skipped. Running it would only
+waste tokens AND clobber the modeled research_payload. The creator still reviews
+the modeled idea before scripting; nothing renders or uploads from here. (If a
+clone genuinely needs research, POST /api/pipeline/research/<id> still works.)
 """
 
 import asyncio
@@ -435,7 +439,7 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
            video_motion_system_prompt = $13,
            video_length_minutes = COALESCE(video_length_minutes, $14),
            script_system_prompt = $15,
-           script = NULL, script_validation = NULL, status = 'idea_logged',
+           script = NULL, script_validation = NULL, status = 'ready_for_scripting',
            updated_at = now()
            WHERE id = $16 AND tenant_id = $17""",
         title,
