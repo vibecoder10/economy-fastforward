@@ -1813,6 +1813,7 @@ async def generate_contact_sheet(
     image_client=None,
     character_reference_url=None,
     aspect_ratio: str = "16:9",
+    environment_reference_url=None,
 ) -> str:
     """Generate a 3x3 contact sheet via Nano Banana Pro.
 
@@ -1845,7 +1846,16 @@ async def generate_contact_sheet(
             f"contain scene imagery.\n\n"
         )
 
-    if character_reference_url:
+    # Conditioning image set: the cast (one cast sheet, or each approved
+    # portrait) + at most ONE environment ref (this grid's location), appended
+    # LAST. Tracked separately so the env directive fires only when an env ref
+    # is actually present — a multi-character cast (no env) must NOT be told its
+    # last portrait is "the location".
+    char_refs = (list(character_reference_url) if isinstance(character_reference_url, list)
+                 else ([character_reference_url] if character_reference_url else []))
+    combined_refs = char_refs + ([environment_reference_url] if environment_reference_url else [])
+
+    if char_refs:
         full_prompt += (
             "CHARACTER REFERENCE: the attached image is the official cast sheet — "
             "each character is labeled with their name. Every panel MUST depict these "
@@ -1857,10 +1867,7 @@ async def generate_contact_sheet(
             "illustration or change the art style between panels.\n\n"
         )
 
-    # When a SECOND reference is attached, it's the location for this grid
-    # (the storyboard bot appends one env ref after the cast sheet). Tell the
-    # model the last image is the setting, not another character.
-    if isinstance(character_reference_url, list) and len(character_reference_url) > 1:
+    if environment_reference_url:
         full_prompt += (
             "ENVIRONMENT REFERENCE: the LAST attached image is the official LOCATION for "
             "every panel in this grid. Render all panels in THIS setting — same architecture, "
@@ -1870,14 +1877,14 @@ async def generate_contact_sheet(
 
     full_prompt += contact_sheet_prompt
 
-    if character_reference_url:
-        ref_for_qa = character_reference_url[0] if isinstance(character_reference_url, list) else character_reference_url
+    if combined_refs:
+        ref_for_qa = char_refs[0] if char_refs else combined_refs[0]
         # Use reference-based generation for character consistency,
         # with one style-QA retry (models drift style stochastically)
         for attempt in range(2):
             result = await image_client.generate_with_reference(
                 prompt=full_prompt,
-                reference_image_url=character_reference_url,
+                reference_image_url=combined_refs,
                 aspect_ratio=aspect_ratio,
             )
             grid_url = result.get("url") if isinstance(result, dict) else result
@@ -2459,21 +2466,18 @@ async def run_storyboard_images(
                 # approved reference (opt-in; None unless environments designed).
                 env_ref = _resolve_env_ref_for_images(beat_images, environment_reference_urls)
 
-            # Condition on the cast sheet PLUS the one location ref (2 images
-            # max — more dilutes the character lock). env_ref is appended last;
-            # generate_contact_sheet tells the model the last image is the setting.
-            beat_refs = list(character_ref_url) if isinstance(character_ref_url, list) else (
-                [character_ref_url] if character_ref_url else [])
-            if env_ref:
-                beat_refs = beat_refs + [env_ref]
-
+            # Condition on the cast PLUS the one location ref for this grid.
+            # env_ref is passed separately so the env directive only fires when
+            # a location ref is actually present (a multi-character cast is not
+            # an environment). generate_contact_sheet appends env_ref last.
             try:
                 grid_url = await generate_contact_sheet(
                     contact_sheet_prompt=prompt,
                     real_panel_count=real_panels,
                     image_client=image_client,
-                    character_reference_url=(beat_refs or character_ref_url),
+                    character_reference_url=character_ref_url,
                     aspect_ratio=aspect_ratio,
+                    environment_reference_url=env_ref,
                 )
                 total_cost += 0.075
 
