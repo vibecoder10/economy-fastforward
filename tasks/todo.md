@@ -1,5 +1,38 @@
 # Task Tracking
 
+## ★ HANDOFF — 2026-06-14e (content-quality: Fix #1 + Fix #2 DONE; Fix #3 next)
+
+**Fix #2 — ENVIRONMENT LOCKING — DONE (commit `f1d0490b`, deployed: migration 051
+applied to prod, backend restarted + booted with the new router, frontend rebuilt).**
+Scenes drifted because environments were only text labels with no locked image. Now
+mirrors character locking:
+- `video_environments` table (per `story_bible.locations[]`) + `videos.environments_approved_at`
+  gate + `assets.location_id` (structured per-panel location). Migration `051`.
+- `routes/environments.py` (clone of characters.py) + a new **Environments tab** (between
+  Characters and Scenes) design/approve a reference image per location (nano-banana-2,
+  16:9, "no people" establishing shot, ~$0.025 each, 2–4/video).
+- **Keystone:** `image_prompts/run.py` now persists `block_location_id` onto each asset
+  (`assets.location_id`, via `supabase_adapter`); `_row_to_image` surfaces it. THIS is the
+  reliable beat→location key (the bible's scene_blocks/location_ids don't map cleanly to
+  the final beats — they're a planning layer).
+- **Conditioning:** each storyboard grid resolves its dominant `location_id` from its
+  panels and passes ONE location ref alongside the cast sheet (exactly 2 refs — ≥3 dilutes
+  the character lock). `bot._resolve_env_ref_for_images` + the `generate_contact_sheet`
+  "last image is the location" directive. **Opt-in** — no approved environments = byte-
+  identical to before.
+- Verified FREE: migration live, backend boots + `/environments` route 200, the env-ref
+  resolver unit-tested (dominant/opt-out/unmapped/empty), frontend compiles + serves.
+- ⚠ **STILL NEEDS ONE PAID NEW TEST VIDEO** to validate conditioning QUALITY (do 2 refs hold
+  the room without softening faces?). If faces soften, the fallback is prompt-only env (drop
+  the env image — one-line revert in `bot.py`). Do NOT regen the bird.
+
+**Fix #3 — recap/continuity beats — NOT started (task #13).** Scene-8 vocab recap re-stages
+resolved plot (Tom re-bandaging the bird after release). Smaller, free, self-contained.
+
+(Fix #1 — character-description refusal bug — DONE, see below.)
+
+---
+
 ## ★ HANDOFF — 2026-06-14d (content-quality tightening; Fix #1 of 3 DONE)
 
 Ryan watched the rendered bird video (B−) and flagged 3 issues to tighten before
