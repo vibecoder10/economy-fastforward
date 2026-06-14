@@ -556,7 +556,7 @@ async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
     # actual approved image (vision pass), best-effort per character.
     try:
         from routes.model_video import _resolve_claude_creds
-        from shared.clients.vision_client import vision_call
+        from shared.clients.vision_client import vision_call, _looks_like_refusal
         creds = await _resolve_claude_creds(tenant_id)
         if creds:
             base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
@@ -573,13 +573,19 @@ async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
                         anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
                         tier="fast", max_tokens=300,
                     )
-                    if desc and len(desc) > 20:
+                    # Never let a refusal / non-answer overwrite the script-based
+                    # description (vision_call already guards this; belt-and-
+                    # suspenders so a regression can't reintroduce garbage anchors).
+                    if desc and len(desc) > 20 and not _looks_like_refusal(desc):
                         ch["description"] = desc.strip()[:1000]
                         await execute(
                             "UPDATE video_characters SET description = $1, updated_at = now() "
                             "WHERE id = $2 AND tenant_id = $3",
                             ch["description"], ch["id"], tenant_id,
                         )
+                    elif desc:
+                        logger.warning("[characters] kept original description for %s "
+                                       "(vision reply looked invalid)", ch["name"])
                 except Exception as e:
                     logger.warning("[characters] vision description failed for %s: %s", ch["name"], str(e)[:150])
     except Exception as e:
