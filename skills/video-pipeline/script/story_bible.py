@@ -263,6 +263,8 @@ For EACH block:
 6. **NO CONSECUTIVE SAME-LOCATION BLOCKS** — Never 2 consecutive blocks with same location_id
 7. **TOTAL IMAGES** — You MUST output EXACTLY {total_images} images total across all blocks
 8. **SEQUENTIAL NUMBERING** — image_index must count 1, 2, 3... sequentially with NO gaps
+9. **FORWARD CONTINUITY** — the story timeline only moves FORWARD. Once an "action" has RESOLVED something (a character healed, freed, reunited, saved; a problem fixed), NO later image may re-stage the earlier unresolved state as if it is happening (no re-injuring, re-bandaging, re-breaking, re-trapping). The ending state is permanent.
+10. **RECAP / REVIEW / OUTRO IMAGES** — for narration_excerpts that TEACH a word, REVIEW, SUMMARIZE, or address the viewer (e.g. "Word one: Injured…", "That was a wonderful story", "subscribe", "tell us in the comments"), the "action" must NOT re-enact a past plot moment. Use a NON-STORY action: a labeled word/title card, a character calmly facing the viewer, a simple symbolic prop, or a CALLBACK to an already-RESOLVED happy moment — never the characters re-performing an earlier problem.
 
 Before outputting, VERIFY:
 - Total blocks: 12-24 (aim for {target_blocks})

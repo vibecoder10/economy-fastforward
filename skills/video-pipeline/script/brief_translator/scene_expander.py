@@ -283,7 +283,21 @@ async def _expand_with_scene_blocks(
                         "2. Use the shared location description — don't invent a different setting.\n"
                         "3. If characters_present is 'none', NO character figures — environment/data only.\n"
                         "4. Do NOT include style prefix (e.g. 'Cinematic animated illustration...') — added automatically.\n"
-                        "5. Never mention letterbox bars, black bars, or widescreen framing — the image fills the full frame.\n\n"
+                        "5. Never mention letterbox bars, black bars, or widescreen framing — the image fills the full frame.\n"
+                        "6. CONTINUITY — the story timeline only moves FORWARD. Once the story has\n"
+                        "   RESOLVED something (a character healed, freed, reunited, saved, a problem\n"
+                        "   fixed), NEVER depict the earlier unresolved state again as if it is happening\n"
+                        "   (no re-injuring, re-bandaging, re-breaking, re-trapping). The ending state is\n"
+                        "   permanent — later images must respect what earlier images already resolved.\n"
+                        "7. RECAP / REVIEW / DEFINITION / OUTRO / CALL-TO-ACTION narration — when the\n"
+                        "   narration is teaching a word, reviewing, summarizing, or addressing the viewer\n"
+                        "   (e.g. \"Word one: Injured…\", \"That was a wonderful story\", \"subscribe\",\n"
+                        "   \"tell us in the comments\"), this is NOT story action — do NOT literally\n"
+                        "   re-enact the verb or re-stage a past plot moment. Instead use a NON-STORY\n"
+                        "   visual: a clean word/title card, a character calmly facing the viewer, a simple\n"
+                        "   symbolic prop, or a CALLBACK to an already-shown RESOLVED happy moment. A\n"
+                        "   vocabulary word like \"bandage\" becomes a labeled card or a gentle callback,\n"
+                        "   NEVER the characters re-performing the injury/treatment.\n\n"
                     )
 
                     # Add cross-reference descriptions from earlier overflow batches
