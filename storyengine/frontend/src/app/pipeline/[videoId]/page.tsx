@@ -468,7 +468,7 @@ export default function VideoDetailPage() {
 
       {/* Progress stepper — passive, the banner below is the one place to act */}
       <motion.div variants={item}>
-        <PipelineStepper status={status} liveStatus={liveStatus} />
+        <PipelineStepper status={status} liveStatus={liveStatus} planStages={planStages} />
       </motion.div>
 
       {/* Learnings applied indicator — only on Script tab */}
@@ -525,7 +525,7 @@ export default function VideoDetailPage() {
       })()}
 
       {/* Guided next step — the one big button that always knows what's next */}
-      <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} />
+      <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} />
 
       {/* Tab navigation */}
       <motion.div variants={item}>

@@ -24,6 +24,9 @@ import { getNextAction, NEXT_ACTION_TOTAL_STEPS } from "@/lib/next-action";
 interface GuidedNextStepProps {
   video: VideoDetail & { id: string };
   onNavigate: (tab: string) => void;
+  /** The video's stage plan. When it's a reduced plan, the "Step X of 10"
+   * counter (which counts the full pipeline) is dropped — it would be wrong. */
+  planStages?: string[] | null;
 }
 
 /**
@@ -33,7 +36,8 @@ interface GuidedNextStepProps {
  * slot continuously); a PERSISTENT error card when something fails.
  * Grandma flow: click the big button → wait → click the next big button.
  */
-export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
+export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStepProps) {
+  const reducedPlan = !!planStages && planStages.length > 0;
   const queryClient = useQueryClient();
   const toast = useToast();
   const [starting, setStarting] = useState(false);
@@ -246,7 +250,7 @@ export function GuidedNextStep({ video, onNavigate }: GuidedNextStepProps) {
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex-1 min-w-[220px]">
           <p className="text-[11px] font-mono uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-            Step {action.step} of {NEXT_ACTION_TOTAL_STEPS} · Next up
+            {reducedPlan ? "Next up" : `Step ${action.step} of ${NEXT_ACTION_TOTAL_STEPS} · Next up`}
           </p>
           <p className="text-base font-semibold mt-0.5" style={{ color: "var(--text-primary)" }}>
             {action.description}

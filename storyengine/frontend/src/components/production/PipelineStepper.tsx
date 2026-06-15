@@ -26,6 +26,23 @@ const STEPPER_STAGES = [
   { key: "done", label: "Published" },
 ] as const;
 
+/** Each stepper stage's user-facing plan stage. Used to hide the steps a video
+ * turned off (null plan = full pipeline = show all). "Idea" is always shown. */
+const STEP_STAGE: Record<string, string> = {
+  research: "research",
+  ready_for_scripting: "script",
+  ready_for_voice: "voice",
+  ready_for_storyboards: "images",
+  ready_for_images: "images",
+  ready_for_sound: "sound",
+  ready_for_video: "video",
+  ready_for_thumbnail: "thumbnail",
+  ready_to_render: "render",
+  rendered: "render",
+  uploaded_draft: "upload",
+  done: "upload",
+};
+
 /** Map raw pipeline status to stepper index (0-12). */
 function getStepperIndex(status: string): number {
   // Direct match
@@ -57,6 +74,9 @@ interface PipelineStepperProps {
   status: string;
   /** Optional: override current index from SSE stage_change event. */
   liveStatus?: string | null;
+  /** The video's stage plan (enabled stages). null = full pipeline = show all
+   * steps. Otherwise the stepper hides the steps the creator switched off. */
+  planStages?: string[] | null;
   className?: string;
   /** Compact mode hides labels on mobile. */
   compact?: boolean;
@@ -65,6 +85,7 @@ interface PipelineStepperProps {
 export function PipelineStepper({
   status,
   liveStatus,
+  planStages,
   className = "",
   compact = false,
 }: PipelineStepperProps) {
@@ -74,17 +95,29 @@ export function PipelineStepper({
     [effectiveStatus],
   );
 
+  // Hide the steps this video turned off (keep their original index so the
+  // completed/current colouring stays correct). No plan → show every step.
+  const showAll = !planStages || planStages.length === 0;
+  const visibleStages = STEPPER_STAGES
+    .map((stage, originalIdx) => ({ ...stage, originalIdx }))
+    .filter(
+      (stage) =>
+        showAll ||
+        stage.key === "idea_logged" ||
+        (STEP_STAGE[stage.key] && planStages!.includes(STEP_STAGE[stage.key])),
+    );
+
   return (
     <div
       className={`flex items-start overflow-x-auto scrollbar-hide ${className}`}
       role="progressbar"
-      aria-valuenow={currentIdx + 1}
-      aria-valuemax={STEPPER_STAGES.length}
+      aria-valuenow={visibleStages.filter((s) => s.originalIdx <= currentIdx).length}
+      aria-valuemax={visibleStages.length}
     >
-      {STEPPER_STAGES.map((stage, i) => {
-        const isCompleted = i < currentIdx;
-        const isCurrent = i === currentIdx;
-        const isFuture = i > currentIdx;
+      {visibleStages.map((stage, i) => {
+        const isCompleted = stage.originalIdx < currentIdx;
+        const isCurrent = stage.originalIdx === currentIdx;
+        const isFuture = stage.originalIdx > currentIdx;
 
         return (
           <div key={stage.key} className="flex items-start shrink-0">
@@ -139,7 +172,7 @@ export function PipelineStepper({
             </div>
 
             {/* Connector line */}
-            {i < STEPPER_STAGES.length - 1 && (
+            {i < visibleStages.length - 1 && (
               <div
                 className="shrink-0"
                 style={{
