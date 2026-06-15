@@ -182,6 +182,7 @@ async def list_videos(
 @router.post("", response_model=VideoSummary)
 async def create_video(
     body: CreateVideoRequest,
+    background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Create a new video idea."""
@@ -206,21 +207,53 @@ async def create_video(
         skip_research = body.skip_research
         skip_voice = body.skip_voice
 
+    # Optional "copy this video's style" reference (Create-form modeling path).
+    # When a valid YouTube link is given, the video is created in "modeled" mode:
+    # the creator's own topic/title is kept and the reference's style is copied
+    # onto it (scoped to the switched-on stages) by a background task. The video
+    # holds at 'idea_logged' until that copy finishes.
+    reference_url = (body.reference_url or "").strip() or None
+    reference_youtube_id = None
+    if reference_url:
+        from routes.model_video import _parse_youtube_id
+        reference_youtube_id = _parse_youtube_id(reference_url)
+        if not reference_youtube_id:
+            raise HTTPException(
+                status_code=400,
+                detail="That doesn't look like a YouTube link. Paste a youtube.com or youtu.be URL to copy a video's style.",
+            )
+    is_modeled = reference_youtube_id is not None
+
     # Skip research → land at 'ready_for_scripting' (next step is Script, not
     # Research), same as cloned videos. Otherwise the normal 'idea_logged' start.
-    initial_status = "ready_for_scripting" if skip_research else "idea_logged"
+    # Modeled videos hold at 'idea_logged' regardless until the style copy lands.
+    initial_status = "idea_logged" if is_modeled else (
+        "ready_for_scripting" if skip_research else "idea_logged"
+    )
+    source_val = "modeled" if is_modeled else body.source_url
 
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, accent_color, aspect_ratio, skip_voice, pipeline_stages)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, '#00D4AA'), $11, $12, $13)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, accent_color, aspect_ratio, skip_voice, pipeline_stages, reference_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, '#00D4AA'), $11, $12, $13, $14)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
-        tenant_id, project_id, body.title.strip(), initial_status, body.source_url, body.framework_angle,
+        tenant_id, project_id, body.title.strip(), initial_status, source_val, body.framework_angle,
         body.video_length_minutes, body.writer_guidance, body.visual_style, body.accent_color,
-        body.aspect_ratio, skip_voice, json.dumps(plan) if plan is not None else None,
+        body.aspect_ratio, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
     )
 
     await increment_usage(tenant_id, "videos_created")
+
+    # Kick off the style copy in the background (scoped to the chosen stages).
+    if is_modeled:
+        from routes.pipeline import _set_task_status
+        from routes.model_video import _run_modeling, TASK_TYPE
+        _set_task_status(str(row["id"]), "running", "Copying the video's style…",
+                         tenant_id=tenant_id, task_type=TASK_TYPE)
+        background_tasks.add_task(
+            _run_modeling, tenant_id, str(row["id"]), reference_youtube_id,
+            reference_url, plan, True,
+        )
 
     return VideoSummary(
         id=str(row["id"]),

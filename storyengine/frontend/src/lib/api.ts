@@ -226,6 +226,9 @@ export const createVideo = (data: {
   // Which pipeline stages to run (research, script, voice, images, sound,
   // video, thumbnail, render, upload). Omit for the full pipeline.
   pipeline_stages?: string[];
+  // Optional YouTube link to copy the style of (onto the creator's own topic,
+  // scoped to the switched-on stages).
+  reference_url?: string;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",

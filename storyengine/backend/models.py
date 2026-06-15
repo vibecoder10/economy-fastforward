@@ -191,6 +191,11 @@ class CreateVideoRequest(BaseModel):
     # re-normalizes this (chain rules) and derives skip_research / skip_voice
     # from it, so the plan is the single source of truth when provided.
     pipeline_stages: Optional[list[str]] = None
+    # Optional reference video to COPY THE STYLE OF. When set (a YouTube link),
+    # the video is created in "modeled" mode: the creator's own topic/title is
+    # kept, and the reference's style is copied onto it — but ONLY for the
+    # switched-on stages (pipeline_stages). voice & sound are never copied.
+    reference_url: Optional[str] = None
 
 
 # --- Scripts ---

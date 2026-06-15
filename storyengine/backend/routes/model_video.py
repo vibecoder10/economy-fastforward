@@ -600,6 +600,101 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
     )
 
 
+# User-facing stages whose STYLE this flow copies from a reference. voice &
+# sound are intentionally absent — they're always generated fresh (Ryan's call).
+_MODELABLE_STAGES = {"script", "images", "thumbnail", "video"}
+
+
+async def _persist_style_overrides(
+    tenant_id, video_id: str, reference_url: str, youtube_id: str,
+    info: dict, dna: Optional[dict], pack: dict, blockers: list[str],
+    enabled_stages: Optional[list],
+) -> None:
+    """Apply ONLY the reference's STYLE to a video the creator already defined
+    (their own topic + title). Unlike _persist_pack, this never touches the
+    topic/title/thesis and never inserts the reference's scene concepts — it
+    just sets the per-stage style overrides for the stages the creator switched
+    ON. voice & sound are never styled. enabled_stages None = full pipeline."""
+    on = set(enabled_stages) if enabled_stages else set(_MODELABLE_STAGES)
+
+    visual_brief = str(pack.get("visual_style_brief") or "")
+    negatives = pack.get("negative_prompts") or []
+    avoid_line = ("\nAvoid: " + "; ".join(str(n) for n in negatives)) if negatives else ""
+    image_dna = ((str(pack.get("image_dna") or "") or visual_brief) + avoid_line).strip()
+    thumbnail_dna = (str(pack.get("thumbnail_dna") or "") or visual_brief).strip()
+    motion_dna = (str(pack.get("motion_dna") or "") or visual_brief).strip()
+    script_dna = str(pack.get("script_dna") or "").strip()
+
+    script_override = (
+        "You are writing a video that replicates the SCRIPT STYLE of a reference "
+        "video the creator dropped in — but on the creator's OWN topic. Copy the "
+        "reference's voice, structure, pacing and hook patterns; keep the subject "
+        "matter from the creator's brief. Style instructions:\n\n" + script_dna
+    ) if script_dna else None
+    motion_override = (
+        "Modeled motion DNA from a reference video the creator wants to emulate. "
+        "Apply this shot language to every video clip prompt:\n\n" + motion_dna
+    ) if motion_dna else None
+
+    # Only the switched-on stages get an override; the rest stay NULL (fresh).
+    img_val = (image_dna or None) if "images" in on else None
+    thumb_val = (thumbnail_dna or None) if "thumbnail" in on else None
+    motion_val = motion_override if "video" in on else None
+    script_val = script_override if "script" in on else None
+
+    duration = info.get("duration_seconds") or 0
+    ref_length = min(30, max(3, round(duration / 60))) if duration else None
+
+    original_dna = {
+        "summary": (dna or {}).get("summary") or "Modeled (style only) from a reference.",
+        **((dna or {}).get("structured_metadata") or {}),
+        "modeled_style": {
+            "reference": {"url": reference_url, "youtube_id": youtube_id,
+                          "title": info.get("title"), "channel": info.get("channel")},
+            "scope": sorted(on),
+            "script_dna": script_dna, "image_dna": image_dna,
+            "thumbnail_dna": thumbnail_dna, "motion_dna": motion_dna,
+            "blockers": blockers,
+        },
+    }
+
+    await execute(
+        """UPDATE videos SET
+           idea_reasoning = $1, source_views = $2, source_channel = $3,
+           original_dna = $4,
+           image_style_override = $5, thumbnail_style_override = $6,
+           video_motion_system_prompt = $7, script_system_prompt = $8,
+           video_length_minutes = COALESCE(video_length_minutes, $9),
+           updated_at = now()
+           WHERE id = $10 AND tenant_id = $11""",
+        f"Style modeled from reference: {info.get('title') or reference_url}",
+        info.get("views"), info.get("channel"),
+        json.dumps(original_dna),
+        img_val, thumb_val, motion_val, script_val,
+        ref_length, video_id, tenant_id,
+    )
+
+    # Attribution (same as the full flow) — feeds the intelligence layer.
+    await execute(
+        """INSERT INTO competitor_videos
+               (tenant_id, video_id, title, url, channel, channel_url, views, likes,
+                thumbnail_url, transcript, duration_seconds, description,
+                modeled_by_us, modeled_at, our_video_id, scrape_date)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, now(), $13, CURRENT_DATE)
+           ON CONFLICT (tenant_id, video_id) DO UPDATE SET
+               modeled_by_us = true, modeled_at = now(), our_video_id = $13,
+               transcript = COALESCE(EXCLUDED.transcript, competitor_videos.transcript),
+               thumbnail_url = COALESCE(EXCLUDED.thumbnail_url, competitor_videos.thumbnail_url),
+               updated_at = now()""",
+        tenant_id, youtube_id,
+        info.get("title"), reference_url, info.get("channel"), info.get("channel_url"),
+        info.get("views"), info.get("likes"),
+        info.get("thumbnail_url"), info.get("transcript"),
+        info.get("duration_seconds"), (info.get("description") or "")[:2000],
+        video_id,
+    )
+
+
 def _brief_markdown(pack: dict, info: dict, reference_url: str, blockers: list[str]) -> str:
     lines = [
         f"# Modeled Brief — {pack.get('selected_title')}",
@@ -723,7 +818,18 @@ async def _oembed_fallback(youtube_id: str) -> Optional[dict]:
 
 # --- The background task ---
 
-async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url: str) -> None:
+async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url: str,
+                        pipeline_stages: Optional[list] = None,
+                        preserve_topic: bool = False) -> None:
+    """Extract a reference video's style and apply it.
+
+    Default (preserve_topic=False): the standalone "Model A Video" flow — builds
+    a NEW sibling-topic idea and copies the whole style.
+
+    preserve_topic=True (the Create-form "copy a video" path): the creator
+    already typed their OWN topic and flipped the stage switches; this copies
+    ONLY the style of the switched-on stages onto that topic, leaving the
+    title/topic alone. pipeline_stages scopes which stages get styled."""
     from routes.pipeline import _clear_task_status, _set_task_status
 
     def _set(status: str, message: Optional[str] = None, error: Optional[str] = None):
@@ -777,6 +883,27 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
         pack = await _generate_modeled_pack(creds, info, dna, transcript, blockers, youtube_id)
 
         # 4. Persist everything before any generation credits are spent
+        if preserve_topic:
+            # Create-form path: copy ONLY the switched-on stages' style onto the
+            # creator's own topic — never overwrite their title/brief.
+            _set("running", "Copying the video's style…")
+            await _persist_style_overrides(
+                tenant_id, video_id, reference_url, youtube_id, info, dna, pack,
+                blockers, pipeline_stages,
+            )
+            # Style is in place — open the pipeline at this plan's first step
+            # (research if it's on, otherwise straight to script).
+            research_on = pipeline_stages is None or "research" in pipeline_stages
+            await execute(
+                "UPDATE videos SET status = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                "idea_logged" if research_on else "ready_for_scripting", video_id, tenant_id,
+            )
+            msg = "Style copied from the reference — your video is ready to build."
+            if blockers:
+                msg += " Note: " + " ".join(blockers)
+            _set("completed", msg)
+            return
+
         _set("running", "Writing your prompt pack…")
         await _persist_pack(tenant_id, video_id, reference_url, youtube_id, info, dna, pack, blockers)
 

@@ -274,6 +274,8 @@ export default function VideosPage() {
   // Which pipeline steps to run for the new video (all on = full video).
   // The stage panel is the single source of truth for research/voice/etc.
   const [newStages, setNewStages] = useState<Record<string, boolean>>(ALL_STAGES_ON);
+  // Optional reference link to copy a video's style from (onto our topic).
+  const [newReferenceUrl, setNewReferenceUrl] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Tab order (drag-to-reorder with persistence)
@@ -357,6 +359,7 @@ export default function VideosPage() {
       setNewVisualStyle("");
       setNewAccentColor("");
       setNewStages(ALL_STAGES_ON);
+      setNewReferenceUrl("");
       toast.success("Video created — starting pipeline");
       router.push(`/pipeline/${newVideo.id}`);
     },
@@ -420,6 +423,7 @@ export default function VideosPage() {
       skip_research: !newStages["research"],
       skip_voice: !newStages["voice"],
       pipeline_stages: fullPipeline ? undefined : enabled,
+      reference_url: newReferenceUrl.trim() || undefined,
     });
   };
 
@@ -957,6 +961,29 @@ export default function VideosPage() {
               onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
               autoFocus
             />
+          </div>
+
+          {/* Copy a video's style (optional) — model a reference onto your topic */}
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+              <Film size={12} style={{ color: "var(--text-tertiary)" }} />
+              Copy a video&apos;s style <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={newReferenceUrl}
+              onChange={(e) => setNewReferenceUrl(e.target.value)}
+              placeholder="Paste a YouTube link to model…"
+              className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
+              style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+              onFocus={(e) => (e.target.style.borderColor = "var(--turquoise)")}
+              onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
+            />
+            {newReferenceUrl.trim() && (
+              <p className="text-[10px] mt-1.5 leading-relaxed" style={{ color: "var(--turquoise)" }}>
+                We&apos;ll copy this video&apos;s style onto your topic — but only for the steps you switch on below. Voice &amp; music stay your own.
+              </p>
+            )}
           </div>
 
           {/* What should we make? — per-video stage plan */}
