@@ -223,6 +223,9 @@ export const createVideo = (data: {
   aspect_ratio?: "16:9" | "9:16";
   skip_research?: boolean;
   skip_voice?: boolean;
+  // Which pipeline stages to run (research, script, voice, images, sound,
+  // video, thumbnail, render, upload). Omit for the full pipeline.
+  pipeline_stages?: string[];
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",

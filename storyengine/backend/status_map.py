@@ -180,3 +180,123 @@ def is_at_or_past_stage(current_status: str, required_status: str) -> bool:
     except ValueError:
         return True
     return current_idx >= required_idx
+
+
+# ---------------------------------------------------------------------------
+# Per-video pipeline plan (creator picks which stages run)
+# ---------------------------------------------------------------------------
+#
+# A creator can run a SUBSET of the pipeline (e.g. "script only", "script +
+# voice", "full video without sound"). These are the user-facing stages shown
+# as on/off switches on the Create Video form, in chain order.
+STAGE_ORDER: list[str] = [
+    "research",   # fact-find the topic (optional)
+    "script",     # write the script        (ROOT — always on)
+    "voice",      # AI narration            (optional)
+    "images",     # prompts → storyboards → images
+    "sound",      # sound design / effects  (optional)
+    "video",      # animate the clips
+    "thumbnail",  # YouTube thumbnail       (optional)
+    "render",     # stitch the final video
+    "upload",     # publish to YouTube      (optional)
+]
+
+# Backbone stages cannot be individually skipped: if the pipeline goes PAST
+# them they must run (you can't make clips with no images, render with no
+# clips, etc.). They define how far down the chain a video goes.
+BACKBONE_STAGES: set[str] = {"script", "images", "video", "render"}
+
+# Optional stages can be turned off while later stages still run.
+OPTIONAL_STAGES: set[str] = {"research", "voice", "sound", "thumbnail", "upload"}
+
+# Map every Supabase status to the user-facing stage whose WORK that status
+# represents or triggers. ("rendered" triggers the upload stage; "ready_to_render"
+# is the render stage's own work.) Used to honor a video's reduced plan.
+STATUS_STAGE: dict[str, str] = {
+    "idea_logged": "research",
+    "approved": "research",
+    "ready_for_scripting": "script",
+    "ready_for_voice": "voice",
+    "ready_for_image_prompts": "images",
+    "ready_for_storyboards": "images",
+    "ready_for_storyboard_images": "images",
+    "ready_for_storyboard_extraction": "images",
+    "ready_for_images": "images",
+    "ready_for_sound_design": "sound",
+    "ready_for_sound_effects": "sound",
+    "ready_for_video_scripts": "video",
+    "ready_for_video_generation": "video",
+    "ready_for_thumbnail": "thumbnail",
+    "ready_to_render": "render",
+    "rendered": "upload",
+    "uploaded_draft": "upload",
+    "done": "done",
+}
+
+
+def _stage_index(stage: str) -> int:
+    """Position of a user-facing stage in the chain (unknown → past the end)."""
+    try:
+        return STAGE_ORDER.index(stage)
+    except ValueError:
+        return len(STAGE_ORDER)
+
+
+def normalize_stage_plan(stages: Optional[list[str]]) -> Optional[list[str]]:
+    """Clean a raw stage selection into a valid chain-enforced plan.
+
+    Given the stages a creator switched on, return the stages that should
+    actually run, or None for "run the full pipeline" (no restriction).
+
+    Chain rules:
+      * 'script' is always included (the root deliverable).
+      * The furthest selected stage sets the stop point.
+      * Every backbone stage at or before the stop is forced on (prerequisites).
+      * Selected optional stages at or before the stop are kept.
+      * Anything past the stop is dropped.
+
+    Returns None when the result is the entire pipeline, so full runs and every
+    existing video store NULL and keep their historical behavior untouched.
+    """
+    if not stages:
+        return None
+    selected = {s for s in stages if s in STAGE_ORDER}
+    selected.add("script")
+    stop = max(_stage_index(s) for s in selected)
+
+    enabled: list[str] = []
+    for i, stage in enumerate(STAGE_ORDER):
+        if i > stop:
+            break
+        if stage in BACKBONE_STAGES or stage in selected:
+            enabled.append(stage)
+
+    if len(enabled) == len(STAGE_ORDER):
+        return None
+    return enabled
+
+
+def resolve_planned_status(natural_next: str, enabled_stages: Optional[list[str]]) -> str:
+    """Reroute a forward status advance to honor a video's reduced stage plan.
+
+    Given the status the pipeline would naturally advance to, return the status
+    it should ACTUALLY advance to: the next enabled stage's status, or 'done'
+    when the plan has no more enabled work.
+
+    A None/empty plan means "run everything" and returns natural_next unchanged
+    (the historical behavior — so videos with no plan are never affected).
+    """
+    if not enabled_stages:
+        return natural_next
+    if natural_next == "done" or natural_next not in SUPABASE_ORDER:
+        return natural_next
+
+    stop = max(_stage_index(s) for s in enabled_stages)
+    start = SUPABASE_ORDER.index(natural_next)
+    for status in SUPABASE_ORDER[start:]:
+        stage = STATUS_STAGE.get(status, "")
+        if _stage_index(stage) > stop:
+            return "done"
+        if stage in enabled_stages:
+            return status
+    return "done"

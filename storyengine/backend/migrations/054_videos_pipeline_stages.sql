@@ -1,0 +1,20 @@
+-- 054: per-video pipeline plan — which stages this video should run.
+--
+-- A creator can now pick how far StoryEngine takes a video: script only,
+-- script + voice, full video, full video without sound, etc. The choice is
+-- made on the Create Video form and stored here as the set of ENABLED
+-- user-facing stages, in chain order:
+--
+--   research, script, voice, images, sound, video, thumbnail, render, upload
+--
+-- Rules (enforced in status_map.normalize_stage_plan):
+--   * 'script' is always included (the root deliverable).
+--   * backbone stages (script, images, video, render) before the furthest
+--     enabled stage are forced on — you can't make clips with no images, etc.
+--   * optional stages (research, voice, sound, thumbnail, upload) can be off.
+--
+-- NULL = run the full pipeline (the historical default). EVERY existing video
+-- and every full run stays NULL, so their behavior is completely unchanged —
+-- the pipeline only consults this plan when it is non-NULL. skip_voice /
+-- skip_research are derived from this plan at creation time for back-compat.
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS pipeline_stages JSONB;

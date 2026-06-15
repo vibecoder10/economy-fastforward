@@ -180,6 +180,13 @@ class CreateVideoRequest(BaseModel):
     # ready_for_image_prompts. (Leave on for documentary/Ken-Burns videos —
     # there the narration IS the audio track.)
     skip_voice: bool = False
+    # How far to take this video: the set of enabled user-facing stages, in
+    # chain order (research, script, voice, images, sound, video, thumbnail,
+    # render, upload). Lets a creator make script-only, script+voice, full-video,
+    # etc. None / omitted = run the full pipeline (the default). The server
+    # re-normalizes this (chain rules) and derives skip_research / skip_voice
+    # from it, so the plan is the single source of truth when provided.
+    pipeline_stages: Optional[list[str]] = None
 
 
 # --- Scripts ---

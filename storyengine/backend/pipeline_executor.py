@@ -35,7 +35,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
 
 from database import fetch_one, fetch_all, execute
 from error_utils import humanize_error, user_facing
-from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
+from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage, resolve_planned_status
 from vault import get_secret
 from extraction import extract_grid
 from storage import upload_from_url
@@ -411,10 +411,38 @@ class PipelineExecutor:
         )
 
     @staticmethod
+    def _enabled_stages(video: Optional[dict]) -> Optional[list]:
+        """The video's per-video stage plan (list of enabled stage keys), or
+        None for 'run the full pipeline'. Reads the pipeline_stages JSONB column,
+        tolerating either a parsed list or a JSON string (asyncpg returns JSONB
+        as a str unless a codec is set)."""
+        if not video:
+            return None
+        raw = video.get("pipeline_stages")
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            import json
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                return None
+        if isinstance(raw, list) and raw:
+            return raw
+        return None
+
+    @staticmethod
     def _skip_disabled_next(video: dict, natural_next: str) -> str:
-        """Given a stage's natural next status, skip any creation-time-disabled
-        stages. Currently: skip_voice advances past 'ready_for_voice' straight to
-        'ready_for_image_prompts'. Written to extend to other optional stages."""
+        """Given a stage's natural next status, reroute it to honor this video's
+        stage plan: skip stages the creator turned off, and return 'done' once
+        the plan has no more enabled work.
+
+        When the video has no explicit plan (pipeline_stages NULL) this falls
+        back to the original skip_voice-only behavior, so existing videos are
+        unaffected."""
+        stages = PipelineExecutor._enabled_stages(video)
+        if stages:
+            return resolve_planned_status(natural_next, stages)
         if natural_next == "ready_for_voice" and video.get("skip_voice"):
             return "ready_for_image_prompts"
         return natural_next
@@ -443,13 +471,26 @@ class PipelineExecutor:
         with_voice = sum(1 for r in rows if r.get("voice_over_url"))
         return (total > 0 and with_voice == total), total, with_voice
 
-    async def _update_video_status(self, video_id: str, new_status: str):
-        """Update video status in Supabase.
+    async def _update_video_status(self, video_id: str, new_status: str, video: Optional[dict] = None):
+        """Update video status in Supabase, honoring the video's stage plan.
+
+        If the creator restricted this video to a subset of stages, a forward
+        advance is rerouted to the next enabled stage — or to 'done' when the
+        plan has no more enabled work. Videos with no plan (pipeline_stages NULL,
+        i.e. every existing video and every full run) are unaffected: the status
+        is written exactly as given. This is the single chokepoint every stage
+        uses to advance, so the creator's on/off switches are honored everywhere.
 
         Args:
             video_id: Supabase video UUID
             new_status: New status in Supabase format
+            video: Optional already-loaded video row (avoids a re-fetch)
         """
+        if new_status != "done":
+            v = video if video is not None else await self._get_video(video_id)
+            stages = self._enabled_stages(v)
+            if stages:
+                new_status = resolve_planned_status(new_status, stages)
         await execute(
             "UPDATE videos SET status = $1, updated_at = now() WHERE id = $2",
             new_status, video_id,

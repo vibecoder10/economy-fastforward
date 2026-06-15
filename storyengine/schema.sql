@@ -114,6 +114,12 @@ CREATE TABLE videos (
   clip_duration_seconds NUMERIC,
   -- Output shape, chosen at creation, flows through image/clip gen + render.
   aspect_ratio TEXT NOT NULL DEFAULT '16:9' CHECK (aspect_ratio IN ('16:9', '9:16')),
+  -- Creation-time pipeline toggles (migrations 052, 054). skip_voice drops the
+  -- narration stage. pipeline_stages is the per-video plan: the set of enabled
+  -- user-facing stages (research, script, voice, images, sound, video,
+  -- thumbnail, render, upload) in chain order — NULL = run the full pipeline.
+  skip_voice BOOLEAN NOT NULL DEFAULT false,
+  pipeline_stages JSONB,
 
   -- Drive / YouTube
   final_video_url TEXT,
@@ -1042,3 +1048,40 @@ CREATE POLICY video_characters_tenant_isolation ON video_characters
 
 -- videos.story_locked_at TIMESTAMPTZ (storyboard lock gate) added by migration 047
 -- scripts.storyboard_on_off DEFAULT 'On' as of migration 047
+
+
+-- =============================================
+-- VIDEO ENVIRONMENTS (per-video location design — migration 051)
+-- Mirror of video_characters but for LOCATIONS. One approved reference
+-- image per Story Bible location; at grid time the beat's location is
+-- passed as a second image_input (alongside the cast sheet) so the setting
+-- stays consistent across panels. name == story_bible.locations[].id.
+-- =============================================
+CREATE TABLE video_environments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+  video_id UUID REFERENCES videos(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  reference_url TEXT,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
+  source TEXT DEFAULT 'generated' CHECK (source IN ('generated', 'uploaded', 'project')),
+  sort INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_video_environments_video ON video_environments(video_id);
+CREATE INDEX idx_video_environments_tenant ON video_environments(tenant_id);
+
+ALTER TABLE video_environments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY video_environments_tenant_isolation ON video_environments
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+    OR tenant_id = current_setting('app.tenant_id', true)::uuid
+  );
+-- videos.environments_approved_at TIMESTAMPTZ added by migration 051
+-- assets.location_id TEXT (structured per-panel location) added by migration 051

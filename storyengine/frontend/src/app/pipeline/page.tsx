@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
   RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
-  AlertTriangle, Mic,
+  AlertTriangle,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -144,6 +144,57 @@ type TabId = "ideas" | "active" | "published";
 
 const DEFAULT_TAB_ORDER: TabId[] = ["ideas", "active", "published"];
 
+// --- Pipeline stage plan (creator picks how far a video goes) ---
+// Order = chain order. "backbone" steps can't be individually skipped if the
+// video goes past them (you can't make clips with no images, render with no
+// clips, etc.) — turning one off turns off everything after it. Optional steps
+// flip on/off freely. Script is always on (the root deliverable). This mirrors
+// the server's status_map.normalize_stage_plan so the UI and backend agree.
+type StageDef = { key: string; label: string; desc: string; backbone?: boolean; locked?: boolean };
+const PIPELINE_STAGES: StageDef[] = [
+  { key: "research",  label: "Research",            desc: "Fact-find the topic first" },
+  { key: "script",    label: "Script",              desc: "Write the script", backbone: true, locked: true },
+  { key: "voice",     label: "AI voice-over",       desc: "Narrate the script" },
+  { key: "images",    label: "Images",              desc: "Storyboards & scene images", backbone: true },
+  { key: "sound",     label: "Sound design",        desc: "Music & sound effects" },
+  { key: "video",     label: "Video clips",         desc: "Animate the scenes", backbone: true },
+  { key: "thumbnail", label: "Thumbnail",           desc: "YouTube cover image" },
+  { key: "render",    label: "Final render",        desc: "Stitch the finished video", backbone: true },
+  { key: "upload",    label: "Upload to YouTube",   desc: "Publish the video" },
+];
+const STAGE_KEYS = PIPELINE_STAGES.map((s) => s.key);
+const ALL_STAGES_ON: Record<string, boolean> = Object.fromEntries(STAGE_KEYS.map((k) => [k, true]));
+
+// Apply the chain rules after a single switch is flipped.
+function applyStageToggle(prev: Record<string, boolean>, key: string): Record<string, boolean> {
+  const stage = PIPELINE_STAGES.find((s) => s.key === key);
+  if (!stage || stage.locked) return prev;
+  const next = { ...prev };
+  const idx = STAGE_KEYS.indexOf(key);
+  const turningOn = !prev[key];
+  next[key] = turningOn;
+  if (turningOn) {
+    // Need every backbone step before this one (its prerequisites).
+    for (let i = 0; i < idx; i++) {
+      if (PIPELINE_STAGES[i].backbone) next[STAGE_KEYS[i]] = true;
+    }
+  } else if (stage.backbone) {
+    // A backbone step off → everything after it must be off too.
+    for (let i = idx + 1; i < STAGE_KEYS.length; i++) next[STAGE_KEYS[i]] = false;
+  }
+  next["script"] = true; // root is always on
+  return next;
+}
+
+// Plain-English summary of what a stage selection produces.
+function stageSummary(stages: Record<string, boolean>): string {
+  const on = STAGE_KEYS.filter((k) => stages[k]);
+  if (on.length === STAGE_KEYS.length) return "Full video — every step, ending with a YouTube upload.";
+  const labels = on.map((k) => PIPELINE_STAGES.find((s) => s.key === k)!.label.toLowerCase());
+  const last = PIPELINE_STAGES.find((s) => s.key === on[on.length - 1])!;
+  return `Stops after ${last.label.toLowerCase()}. Runs: ${labels.join(", ")}.`;
+}
+
 function SortableTab({
   id, label, count, icon: Icon, isActive, onClick,
 }: {
@@ -220,8 +271,9 @@ export default function VideosPage() {
   const [newGuidance, setNewGuidance] = useState("");
   const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
-  const [newSkipResearch, setNewSkipResearch] = useState(false);
-  const [newSkipVoice, setNewSkipVoice] = useState(false);
+  // Which pipeline steps to run for the new video (all on = full video).
+  // The stage panel is the single source of truth for research/voice/etc.
+  const [newStages, setNewStages] = useState<Record<string, boolean>>(ALL_STAGES_ON);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Tab order (drag-to-reorder with persistence)
@@ -304,8 +356,7 @@ export default function VideosPage() {
       setNewGuidance("");
       setNewVisualStyle("");
       setNewAccentColor("");
-      setNewSkipResearch(false);
-      setNewSkipVoice(false);
+      setNewStages(ALL_STAGES_ON);
       toast.success("Video created — starting pipeline");
       router.push(`/pipeline/${newVideo.id}`);
     },
@@ -354,6 +405,10 @@ export default function VideosPage() {
 
   const handleCreate = () => {
     if (!newTitle.trim()) return;
+    // The stage panel is the source of truth for what runs. Send the enabled
+    // steps (omit when it's the full pipeline) and derive the legacy skip flags.
+    const enabled = STAGE_KEYS.filter((k) => newStages[k]);
+    const fullPipeline = enabled.length === STAGE_KEYS.length;
     createMutation.mutate({
       title: newTitle.trim(),
       source_url: newSourceUrl.trim() || undefined,
@@ -362,8 +417,9 @@ export default function VideosPage() {
       writer_guidance: newGuidance.trim() || undefined,
       visual_style: newVisualStyle || undefined,
       accent_color: newAccentColor || undefined,
-      skip_research: newSkipResearch,
-      skip_voice: newSkipVoice,
+      skip_research: !newStages["research"],
+      skip_voice: !newStages["voice"],
+      pipeline_stages: fullPipeline ? undefined : enabled,
     });
   };
 
@@ -903,6 +959,64 @@ export default function VideosPage() {
             />
           </div>
 
+          {/* What should we make? — per-video stage plan */}
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+              <Film size={12} style={{ color: "var(--text-tertiary)" }} />
+              What should we make?
+            </label>
+            <p className="text-[10px] mb-2.5" style={{ color: "var(--text-tertiary)" }}>
+              Turn steps on or off. Each step needs the one before it, so turning a step off turns off the steps after it.
+            </p>
+            <div className="space-y-1.5">
+              {PIPELINE_STAGES.map((stage) => {
+                const on = newStages[stage.key];
+                return (
+                  <button
+                    key={stage.key}
+                    type="button"
+                    onClick={() => !stage.locked && setNewStages((prev) => applyStageToggle(prev, stage.key))}
+                    disabled={stage.locked}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-all text-xs"
+                    style={{
+                      background: on ? "rgba(0,212,170,0.08)" : "var(--bg-elevated)",
+                      border: `1px solid ${on ? "var(--turquoise)" : "var(--border)"}`,
+                      cursor: stage.locked ? "default" : "pointer",
+                    }}
+                  >
+                    <div className="text-left">
+                      <div className="font-medium flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
+                        {stage.label}
+                        {stage.locked && (
+                          <span style={{ color: "var(--text-tertiary)", fontSize: "9px", fontWeight: 400 }}>always on</span>
+                        )}
+                      </div>
+                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{stage.desc}</div>
+                    </div>
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 32, height: 18, borderRadius: 9, flexShrink: 0, position: "relative",
+                        background: on ? "var(--turquoise)" : "var(--border)",
+                        opacity: stage.locked ? 0.6 : 1, transition: "background 0.2s",
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: "absolute", top: 2, left: on ? 16 : 2, width: 14, height: 14,
+                          borderRadius: 7, background: "#fff", transition: "left 0.2s",
+                        }}
+                      />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] mt-2" style={{ color: "var(--turquoise)" }}>
+              {stageSummary(newStages)}
+            </p>
+          </div>
+
           {/* Advanced Options Toggle */}
           <button
             type="button"
@@ -920,64 +1034,6 @@ export default function VideosPage() {
           {/* Advanced Options (collapsed by default) */}
           {showAdvanced && (
             <div className="space-y-4 pt-1" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-              {/* Research mode — skip for fiction/story formats */}
-              <div>
-                <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
-                  <Search size={12} style={{ color: "var(--text-tertiary)" }} />
-                  Research this topic first?
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { skip: false, label: "Research first", desc: "Fact-find the topic" },
-                    { skip: true, label: "Skip it", desc: "Fiction · story" },
-                  ].map((opt) => (
-                    <button
-                      key={String(opt.skip)}
-                      type="button"
-                      onClick={() => setNewSkipResearch(opt.skip)}
-                      className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
-                      style={{
-                        background: newSkipResearch === opt.skip ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
-                        border: `1px solid ${newSkipResearch === opt.skip ? "var(--turquoise)" : "var(--border)"}`,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      <div className="font-medium">{opt.label}</div>
-                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{opt.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Voice-over — skip for clip videos that carry their own audio */}
-              <div>
-                <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
-                  <Mic size={12} style={{ color: "var(--text-tertiary)" }} />
-                  Add AI voice-over?
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { skip: false, label: "AI voice-over", desc: "Narrate the script" },
-                    { skip: true, label: "No narration", desc: "Clips' own audio" },
-                  ].map((opt) => (
-                    <button
-                      key={String(opt.skip)}
-                      type="button"
-                      onClick={() => setNewSkipVoice(opt.skip)}
-                      className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
-                      style={{
-                        background: newSkipVoice === opt.skip ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
-                        border: `1px solid ${newSkipVoice === opt.skip ? "var(--turquoise)" : "var(--border)"}`,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      <div className="font-medium">{opt.label}</div>
-                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{opt.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
                   Source URL <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>

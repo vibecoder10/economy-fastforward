@@ -15,7 +15,7 @@ from models import (
 )
 from database import fetch_all, fetch_one, execute, safe_column
 from error_utils import humanize_error
-from status_map import get_next_status_supabase
+from status_map import get_next_status_supabase, normalize_stage_plan
 from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, THUMBNAIL_SYSTEM_PROMPT, SOUND_CURATION_SYSTEM_PROMPT, SOUND_GENERATION_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from typing import Optional, Any
 
@@ -176,18 +176,31 @@ async def create_video(
     project = await _get_or_create_project(tenant_id)
     project_id = str(project["id"])
 
+    # Per-video stage plan: which stages this video should run (script-only,
+    # script+voice, full video, etc.). When the creator picks a reduced plan it
+    # becomes the single source of truth, and the legacy skip_research /
+    # skip_voice flags are derived from it so existing gates keep working. A
+    # full plan (or none) stores NULL → unchanged full-pipeline behavior.
+    plan = normalize_stage_plan(body.pipeline_stages)
+    if plan is not None:
+        skip_research = "research" not in plan
+        skip_voice = "voice" not in plan
+    else:
+        skip_research = body.skip_research
+        skip_voice = body.skip_voice
+
     # Skip research → land at 'ready_for_scripting' (next step is Script, not
     # Research), same as cloned videos. Otherwise the normal 'idea_logged' start.
-    initial_status = "ready_for_scripting" if body.skip_research else "idea_logged"
+    initial_status = "ready_for_scripting" if skip_research else "idea_logged"
 
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, accent_color, aspect_ratio, skip_voice)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, '#00D4AA'), $11, $12)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, accent_color, aspect_ratio, skip_voice, pipeline_stages)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, '#00D4AA'), $11, $12, $13)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, body.source_url, body.framework_angle,
         body.video_length_minutes, body.writer_guidance, body.visual_style, body.accent_color,
-        body.aspect_ratio, body.skip_voice,
+        body.aspect_ratio, skip_voice, json.dumps(plan) if plan is not None else None,
     )
 
     await increment_usage(tenant_id, "videos_created")
