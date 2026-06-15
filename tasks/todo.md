@@ -40,14 +40,24 @@ resilience (was #1) → 14k.)
    video that uses the per-panel path (clip videos use the storyboard-grid path, so
    it didn't bite here, but worth reconciling).
 
-5. **Bidirectional script ↔ Google Drive sync** (Ryan 2026-06-14). **SCOPED — full spec
-   at [`tasks/script-drive-sync-spec.md`](script-drive-sync-spec.md)** (source-of-truth
-   model, EXISTS-vs-BUILD with file:lines, Phase 1 Push / Phase 2 Pull, the scene-marker
-   contract, downstream-staleness, landmines, sizing). TL;DR: edit the script as an
-   editable Google Doc in the video's Drive folder and mirror edits back to Postgres.
-   The Drive foundation already exists (`GoogleClient.create_document`, per-video folder,
-   per-tenant OAuth, even a half-built doc-read) — it's mostly wiring + a reliable
-   scene-mapping contract. **Phase 1 (Push) is small and shippable on its own.**
+5. **Bidirectional script ↔ Google Drive sync** ✅ **DONE + VERIFIED IN PROD (2026-06-15,
+   commit 94d732ec).** Spec: [`tasks/script-drive-sync-spec.md`](script-drive-sync-spec.md).
+   Shipped Phase 1 (Push) + Phase 2 (Pull) + cheap part of Phase 3 (modifiedTime "Drive
+   edited" badge). Build: migration 053 (`videos.drive_script_doc_id/_synced_at/
+   _doc_modified_at`); `GoogleClient.replace_document_body/read_document_text/
+   get_file_modified_time`; `POST .../script/push-to-drive`, `POST .../script/sync-from-drive`,
+   `GET .../script/drive-status` (routes/videos.py); ScriptTab Drive card (Edit/Update in
+   Drive, Open Doc, Sync, badge, conflict "Sync anyway"). Per-tenant client uses
+   `GOOGLE_OAUTH_CLIENT_ID` (mints the tenant token) w/ `GOOGLE_CLIENT_ID` fallback. Scene
+   map = `### SCENE n` markers; Pull fails loud (422) if missing; changed scenes clear
+   voice/image/clip (mirror delete_clip). Verified live on the "SLOW ENGLISH" video:
+   editable scene-delimited Doc in Drive, edit→Sync updated scene 12 + cleared its voice
+   (snapshot+restored byte-identical). **Required Google Docs API enabled on OAuth project
+   802685987716 — done 2026-06-15.** Backend deployed; frontend UI deploys with the next
+   web build. Open follow-ups: (a) `drive_newer` reads true ~1-2s after a push (Drive
+   modifiedTime settles post-batchUpdate) — cosmetic, self-heals; (b) Pull maps onto
+   EXISTING scenes only (a Doc-added scene is skipped); (c) re-push at a stale doc_id (user
+   trashed the Doc) → 502, could recreate on 404.
 
 6. **Auto-detect text cards → "Fix all text cards"** (fast-follow to 14l; Ryan: "manual
    now, auto later"). The manual per-card "Fix text" (GPT Image 2) is DONE + verified.
