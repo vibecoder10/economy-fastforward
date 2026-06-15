@@ -44,6 +44,10 @@ class VideoDetail(VideoSummary):
     characters_approved_at: Optional[str] = None
     story_locked_at: Optional[str] = None
     dialogue_audio: Optional[str] = None
+    # Per-video pipeline plan: which stages this video runs (None = full
+    # pipeline). The UI hides the tabs for stages that are turned off.
+    skip_voice: bool = False
+    pipeline_stages: Optional[list] = None
     headline: Optional[str] = None
     source: Optional[str] = None
     framework_angle: Optional[str] = None

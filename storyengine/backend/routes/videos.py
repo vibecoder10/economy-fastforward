@@ -103,6 +103,23 @@ def _parse_json_field(val: Any) -> Optional[dict]:
             return None
     return None
 
+
+def _parse_stage_plan(val: Any) -> Optional[list]:
+    """Parse the pipeline_stages JSONB column (a list of enabled stage keys, or
+    None for the full pipeline). asyncpg may hand it back as a list or a JSON
+    string depending on codecs."""
+    if val is None:
+        return None
+    if isinstance(val, list):
+        return val or None
+    if isinstance(val, str):
+        try:
+            result = json.loads(val)
+            return result if isinstance(result, list) and result else None
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return None
+
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 logger = logging.getLogger(__name__)
 
@@ -229,7 +246,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
                   accent_color, visual_style, image_style_override, image_model_override, video_model,
-                  dialogue_audio,
+                  dialogue_audio, skip_voice, pipeline_stages,
                   video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   source_views, source_channel, source_urls,
@@ -276,6 +293,8 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         thumbnail_style_override=r.get("thumbnail_style_override"),
         accent_color=r.get("accent_color", "#00D4AA"),
         visual_style=r.get("visual_style"),
+        skip_voice=r.get("skip_voice") or False,
+        pipeline_stages=_parse_stage_plan(r.get("pipeline_stages")),
         image_style_override=r.get("image_style_override"),
         image_model_override=r.get("image_model_override"),
         video_model=r.get("video_model"),

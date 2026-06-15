@@ -93,6 +93,30 @@ const LEGACY_TAB_IDS: Record<string, string> = {
   clips: "scenes",
 };
 
+/** Which pipeline-plan stage(s) a tab belongs to. A tab is shown when the
+ * video's plan includes ANY of these stages. Videos with no plan (the full
+ * pipeline — every existing video) show all tabs. Characters/Environments/Scenes
+ * are all part of building the visuals (the "images"/"video" stages). */
+const TAB_STAGES: Record<string, string[]> = {
+  research: ["research"],
+  "script-voice": ["script", "voice"],
+  characters: ["images"],
+  environments: ["images"],
+  scenes: ["images", "video"],
+  sound: ["sound"],
+  thumbnail: ["thumbnail"],
+  render: ["render"],
+  upload: ["upload"],
+  performance: ["upload"],
+};
+
+function tabVisible(tabId: string, plan: string[] | null | undefined): boolean {
+  if (!plan || plan.length === 0) return true; // full pipeline → show everything
+  const stages = TAB_STAGES[tabId];
+  if (!stages) return true; // unknown tab → leave it visible
+  return stages.some((s) => plan.includes(s));
+}
+
 function parseInjectedLearnings(writerGuidance: string | null | undefined): { use: string[]; avoid: string[] } {
   if (!writerGuidance) return { use: [], avoid: [] };
   const match = writerGuidance.match(/--- PERFORMANCE LEARNINGS.*?---\n([\s\S]*?)--- END LEARNINGS ---/);
@@ -141,6 +165,11 @@ export default function VideoDetailPage() {
 
   const status = video?.status || "idea_logged";
   const defaultTab = useMemo(() => getDefaultTab(status), [status]);
+
+  // Per-video plan: hide the tabs for steps the creator switched off. No plan
+  // (full pipeline / every existing video) → all tabs show, unchanged.
+  const planStages = (video?.pipeline_stages as string[] | null) ?? null;
+  const visibleTabs = TABS.filter((t) => tabVisible(t.id, planStages));
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
 
@@ -212,7 +241,11 @@ export default function VideoDetailPage() {
   };
 
   const rawTab = activeTab || defaultTab;
-  const currentTab = LEGACY_TAB_IDS[rawTab] ?? rawTab;
+  const resolvedTab = LEGACY_TAB_IDS[rawTab] ?? rawTab;
+  // If the resolved tab is hidden by the plan, land on the first visible tab.
+  const currentTab = visibleTabs.some((t) => t.id === resolvedTab)
+    ? resolvedTab
+    : (visibleTabs[0]?.id ?? resolvedTab);
 
   const handleRunNext = async () => {
     setRunningNext(true);
@@ -497,9 +530,12 @@ export default function VideoDetailPage() {
       {/* Tab navigation */}
       <motion.div variants={item}>
         <div className="flex gap-0.5 overflow-x-auto pb-1 -mx-2 px-2" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab, idx) => {
             const isActive = currentTab === tab.id;
             const Icon = tab.icon;
+            // Renumber for the visible set so a hidden step doesn't leave gaps
+            // (e.g. a script-only video shows "1 · Script & Voice", not "2 ·").
+            const label = `${idx + 1} · ${tab.label.replace(/^\d+\s*·\s*/, "")}`;
             return (
               <button
                 key={tab.id}
@@ -512,7 +548,7 @@ export default function VideoDetailPage() {
                 }}
               >
                 <Icon size={14} />
-                {tab.label}
+                {label}
               </button>
             );
           })}
