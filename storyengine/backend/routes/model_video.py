@@ -892,11 +892,11 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
                 blockers, pipeline_stages,
             )
             # Style is in place — open the pipeline at this plan's first step
-            # (research if it's on, otherwise straight to script).
-            research_on = pipeline_stages is None or "research" in pipeline_stages
+            # (e.g. ready_for_thumbnail for a thumbnail-only modeled video).
+            from status_map import first_status_for_plan
             await execute(
                 "UPDATE videos SET status = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
-                "idea_logged" if research_on else "ready_for_scripting", video_id, tenant_id,
+                first_status_for_plan(pipeline_stages), video_id, tenant_id,
             )
             msg = "Style copied from the reference — your video is ready to build."
             if blockers:

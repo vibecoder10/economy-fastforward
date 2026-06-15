@@ -144,55 +144,65 @@ type TabId = "ideas" | "active" | "published";
 
 const DEFAULT_TAB_ORDER: TabId[] = ["ideas", "active", "published"];
 
-// --- Pipeline stage plan (creator picks how far a video goes) ---
-// Order = chain order. "backbone" steps can't be individually skipped if the
-// video goes past them (you can't make clips with no images, render with no
-// clips, etc.) — turning one off turns off everything after it. Optional steps
-// flip on/off freely. Script is always on (the root deliverable). This mirrors
-// the server's status_map.normalize_stage_plan so the UI and backend agree.
-type StageDef = { key: string; label: string; desc: string; backbone?: boolean; locked?: boolean };
+// --- Pipeline stage plan (creator picks which steps run) ---
+// Each step lists what it REQUIRES — turning a step on auto-adds its
+// prerequisites, turning a step off auto-removes anything that needs it. Steps
+// with no requirements (research, script, thumbnail) can run completely alone,
+// which is what makes "thumbnail only" possible. Mirrors the server's
+// status_map (STAGE_PREREQS / normalize_stage_plan) so the UI and backend agree.
+type StageDef = { key: string; label: string; desc: string; requires: string[] };
 const PIPELINE_STAGES: StageDef[] = [
-  { key: "research",  label: "Research",            desc: "Fact-find the topic first" },
-  { key: "script",    label: "Script",              desc: "Write the script", backbone: true, locked: true },
-  { key: "voice",     label: "AI voice-over",       desc: "Narrate the script" },
-  { key: "images",    label: "Images",              desc: "Storyboards & scene images", backbone: true },
-  { key: "sound",     label: "Sound design",        desc: "Music & sound effects" },
-  { key: "video",     label: "Video clips",         desc: "Animate the scenes", backbone: true },
-  { key: "thumbnail", label: "Thumbnail",           desc: "YouTube cover image" },
-  { key: "render",    label: "Final render",        desc: "Stitch the finished video", backbone: true },
-  { key: "upload",    label: "Upload to YouTube",   desc: "Publish the video" },
+  { key: "research",  label: "Research",            desc: "Fact-find the topic first", requires: [] },
+  { key: "script",    label: "Script",              desc: "Write the script", requires: [] },
+  { key: "voice",     label: "AI voice-over",       desc: "Narrate the script", requires: ["script"] },
+  { key: "images",    label: "Images",              desc: "Storyboards & scene images", requires: ["script"] },
+  { key: "sound",     label: "Sound design",        desc: "Music & sound effects", requires: ["images"] },
+  { key: "video",     label: "Video clips",         desc: "Animate the scenes", requires: ["images"] },
+  { key: "thumbnail", label: "Thumbnail",           desc: "YouTube cover — runs on its own", requires: [] },
+  { key: "render",    label: "Final render",        desc: "Stitch the finished video", requires: ["video"] },
+  { key: "upload",    label: "Upload to YouTube",   desc: "Publish the video", requires: ["render"] },
 ];
 const STAGE_KEYS = PIPELINE_STAGES.map((s) => s.key);
+const STAGE_REQUIRES: Record<string, string[]> = Object.fromEntries(
+  PIPELINE_STAGES.map((s) => [s.key, s.requires]),
+);
 const ALL_STAGES_ON: Record<string, boolean> = Object.fromEntries(STAGE_KEYS.map((k) => [k, true]));
 
-// Apply the chain rules after a single switch is flipped.
+// Apply the prerequisite rules after a single switch is flipped.
 function applyStageToggle(prev: Record<string, boolean>, key: string): Record<string, boolean> {
-  const stage = PIPELINE_STAGES.find((s) => s.key === key);
-  if (!stage || stage.locked) return prev;
   const next = { ...prev };
-  const idx = STAGE_KEYS.indexOf(key);
   const turningOn = !prev[key];
-  next[key] = turningOn;
   if (turningOn) {
-    // Need every backbone step before this one (its prerequisites).
-    for (let i = 0; i < idx; i++) {
-      if (PIPELINE_STAGES[i].backbone) next[STAGE_KEYS[i]] = true;
+    next[key] = true;
+    // Pull in every prerequisite (transitively).
+    const stack = [...STAGE_REQUIRES[key]];
+    while (stack.length) {
+      const need = stack.pop()!;
+      if (!next[need]) { next[need] = true; stack.push(...STAGE_REQUIRES[need]); }
     }
-  } else if (stage.backbone) {
-    // A backbone step off → everything after it must be off too.
-    for (let i = idx + 1; i < STAGE_KEYS.length; i++) next[STAGE_KEYS[i]] = false;
+  } else {
+    next[key] = false;
+    // Turn off anything that needs this step (transitively).
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const s of PIPELINE_STAGES) {
+        if (next[s.key] && s.requires.some((r) => !next[r])) { next[s.key] = false; changed = true; }
+      }
+    }
+    // Never allow an empty plan — keep at least the script.
+    if (!STAGE_KEYS.some((k) => next[k])) next["script"] = true;
   }
-  next["script"] = true; // root is always on
   return next;
 }
 
 // Plain-English summary of what a stage selection produces.
 function stageSummary(stages: Record<string, boolean>): string {
   const on = STAGE_KEYS.filter((k) => stages[k]);
+  if (on.length === 0) return "Pick at least one step.";
   if (on.length === STAGE_KEYS.length) return "Full video — every step, ending with a YouTube upload.";
   const labels = on.map((k) => PIPELINE_STAGES.find((s) => s.key === k)!.label.toLowerCase());
-  const last = PIPELINE_STAGES.find((s) => s.key === on[on.length - 1])!;
-  return `Stops after ${last.label.toLowerCase()}. Runs: ${labels.join(", ")}.`;
+  return `We'll make: ${labels.join(", ")}.`;
 }
 
 function SortableTab({
@@ -1002,21 +1012,16 @@ export default function VideosPage() {
                   <button
                     key={stage.key}
                     type="button"
-                    onClick={() => !stage.locked && setNewStages((prev) => applyStageToggle(prev, stage.key))}
-                    disabled={stage.locked}
-                    className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-all text-xs"
+                    onClick={() => setNewStages((prev) => applyStageToggle(prev, stage.key))}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-all text-xs cursor-pointer"
                     style={{
                       background: on ? "rgba(0,212,170,0.08)" : "var(--bg-elevated)",
                       border: `1px solid ${on ? "var(--turquoise)" : "var(--border)"}`,
-                      cursor: stage.locked ? "default" : "pointer",
                     }}
                   >
                     <div className="text-left">
                       <div className="font-medium flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
                         {stage.label}
-                        {stage.locked && (
-                          <span style={{ color: "var(--text-tertiary)", fontSize: "9px", fontWeight: 400 }}>always on</span>
-                        )}
                       </div>
                       <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{stage.desc}</div>
                     </div>
@@ -1025,7 +1030,7 @@ export default function VideosPage() {
                       style={{
                         width: 32, height: 18, borderRadius: 9, flexShrink: 0, position: "relative",
                         background: on ? "var(--turquoise)" : "var(--border)",
-                        opacity: stage.locked ? 0.6 : 1, transition: "background 0.2s",
+                        transition: "background 0.2s",
                       }}
                     >
                       <span

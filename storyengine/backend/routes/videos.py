@@ -15,7 +15,7 @@ from models import (
 )
 from database import fetch_all, fetch_one, execute, safe_column
 from error_utils import humanize_error
-from status_map import get_next_status_supabase, normalize_stage_plan
+from status_map import get_next_status_supabase, normalize_stage_plan, first_status_for_plan
 from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, THUMBNAIL_SYSTEM_PROMPT, SOUND_CURATION_SYSTEM_PROMPT, SOUND_GENERATION_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from typing import Optional, Any
 
@@ -224,12 +224,16 @@ async def create_video(
             )
     is_modeled = reference_youtube_id is not None
 
-    # Skip research → land at 'ready_for_scripting' (next step is Script, not
-    # Research), same as cloned videos. Otherwise the normal 'idea_logged' start.
-    # Modeled videos hold at 'idea_logged' regardless until the style copy lands.
-    initial_status = "idea_logged" if is_modeled else (
-        "ready_for_scripting" if skip_research else "idea_logged"
-    )
+    # Where to start: the first enabled stage's status (so a thumbnail-only
+    # video begins at 'ready_for_thumbnail', a script-only at 'ready_for_scripting',
+    # etc.). Modeled videos hold at 'idea_logged' until the style copy lands. The
+    # plan-less legacy path still honors skip_research.
+    if is_modeled:
+        initial_status = "idea_logged"
+    elif plan is not None:
+        initial_status = first_status_for_plan(plan)
+    else:
+        initial_status = "ready_for_scripting" if skip_research else "idea_logged"
     source_val = "modeled" if is_modeled else body.source_url
 
     row = await fetch_one(

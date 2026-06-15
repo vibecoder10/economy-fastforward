@@ -9,7 +9,12 @@ Pure-function tests — no DB, no pipeline run.
 """
 import pytest
 
-from status_map import normalize_stage_plan, resolve_planned_status, STAGE_ORDER
+from status_map import (
+    normalize_stage_plan,
+    resolve_planned_status,
+    first_status_for_plan,
+    STAGE_ORDER,
+)
 
 
 # --- normalize_stage_plan: clean a raw selection into a valid plan ------------
@@ -21,10 +26,34 @@ def test_full_selection_stores_null():
     assert normalize_stage_plan([]) is None
 
 
-def test_script_is_always_included():
-    # Script is the root deliverable; it can never be dropped.
-    assert "script" in normalize_stage_plan(["research"])
+def test_standalone_stages_need_nothing():
+    # research, script and thumbnail have no prerequisites — each can run alone.
     assert normalize_stage_plan(["script"]) == ["script"]
+    assert normalize_stage_plan(["research"]) == ["research"]
+    assert normalize_stage_plan(["thumbnail"]) == ["thumbnail"]
+
+
+def test_thumbnail_only_does_not_drag_the_video():
+    # "Thumbnail only" must NOT pull in images/video/render — the whole point.
+    plan = normalize_stage_plan(["thumbnail"])
+    assert plan == ["thumbnail"]
+    for unwanted in ("script", "images", "video", "render", "upload"):
+        assert unwanted not in plan
+
+
+def test_dependent_stages_pull_their_prerequisites():
+    # Pick an output and we add what it needs.
+    assert normalize_stage_plan(["voice"]) == ["script", "voice"]
+    assert normalize_stage_plan(["images"]) == ["script", "images"]
+    assert normalize_stage_plan(["video"]) == ["script", "images", "video"]
+
+
+def test_first_status_for_plan():
+    assert first_status_for_plan(None) == "idea_logged"
+    assert first_status_for_plan(["thumbnail"]) == "ready_for_thumbnail"
+    assert first_status_for_plan(["script"]) == "ready_for_scripting"
+    assert first_status_for_plan(["script", "thumbnail"]) == "ready_for_scripting"
+    assert first_status_for_plan(["research", "script"]) == "idea_logged"
 
 
 def test_script_plus_voice():

@@ -191,23 +191,46 @@ def is_at_or_past_stage(current_status: str, required_status: str) -> bool:
 # as on/off switches on the Create Video form, in chain order.
 STAGE_ORDER: list[str] = [
     "research",   # fact-find the topic (optional)
-    "script",     # write the script        (ROOT — always on)
+    "script",     # write the script        (narrative root)
     "voice",      # AI narration            (optional)
     "images",     # prompts → storyboards → images
     "sound",      # sound design / effects  (optional)
     "video",      # animate the clips
-    "thumbnail",  # YouTube thumbnail       (optional)
+    "thumbnail",  # YouTube thumbnail — can stand alone (just needs the topic)
     "render",     # stitch the final video
     "upload",     # publish to YouTube      (optional)
 ]
 
-# Backbone stages cannot be individually skipped: if the pipeline goes PAST
-# them they must run (you can't make clips with no images, render with no
-# clips, etc.). They define how far down the chain a video goes.
-BACKBONE_STAGES: set[str] = {"script", "images", "video", "render"}
+# Each stage's prerequisites — the stages that MUST run before it can. The plan
+# logic pulls these in automatically, so a creator picks the OUTPUT they want
+# and we add whatever it needs. This is what lets "thumbnail only" work: the
+# thumbnail maker only needs the topic/title, so it depends on NOTHING — it can
+# run with no script or video behind it. Everything else chains as expected.
+STAGE_PREREQS: dict[str, list[str]] = {
+    "research": [],            # optional fact-finding; needs nothing
+    "script": [],              # the narrative root; needs only the topic
+    "voice": ["script"],       # narrates the script
+    "images": ["script"],      # illustrates the script
+    "sound": ["images"],       # scored to the visual timeline
+    "video": ["images"],       # animates the images
+    "thumbnail": [],           # made from the topic/title alone — TRUE standalone
+    "render": ["video"],       # stitches the clips
+    "upload": ["render"],      # publishes the finished video
+}
 
-# Optional stages can be turned off while later stages still run.
-OPTIONAL_STAGES: set[str] = {"research", "voice", "sound", "thumbnail", "upload"}
+# First Supabase status for each user-facing stage — where a video that BEGINS
+# with this stage should start.
+STAGE_FIRST_STATUS: dict[str, str] = {
+    "research": "idea_logged",
+    "script": "ready_for_scripting",
+    "voice": "ready_for_voice",
+    "images": "ready_for_image_prompts",
+    "sound": "ready_for_sound_design",
+    "video": "ready_for_video_scripts",
+    "thumbnail": "ready_for_thumbnail",
+    "render": "ready_to_render",
+    "upload": "uploaded_draft",
+}
 
 # Map every Supabase status to the user-facing stage whose WORK that status
 # represents or triggers. ("rendered" triggers the upload stage; "ready_to_render"
@@ -242,18 +265,33 @@ def _stage_index(stage: str) -> int:
         return len(STAGE_ORDER)
 
 
+def _with_prereqs(selected: set) -> set:
+    """Expand a set of selected stages to include every prerequisite, so the
+    plan always has what each chosen stage needs to run."""
+    out = set(selected)
+    changed = True
+    while changed:
+        changed = False
+        for stage in list(out):
+            for need in STAGE_PREREQS.get(stage, []):
+                if need not in out:
+                    out.add(need)
+                    changed = True
+    return out
+
+
 def normalize_stage_plan(stages: Optional[list[str]]) -> Optional[list[str]]:
-    """Clean a raw stage selection into a valid chain-enforced plan.
+    """Clean a raw stage selection into a valid plan.
 
     Given the stages a creator switched on, return the stages that should
     actually run, or None for "run the full pipeline" (no restriction).
 
-    Chain rules:
-      * 'script' is always included (the root deliverable).
-      * The furthest selected stage sets the stop point.
-      * Every backbone stage at or before the stop is forced on (prerequisites).
-      * Selected optional stages at or before the stop are kept.
-      * Anything past the stop is dropped.
+    Rules (prerequisite model):
+      * Each selected stage pulls in its prerequisites automatically (voice/
+        images need a script; video needs images; render needs video; upload
+        needs render). So you pick the OUTPUT and we add what it needs.
+      * Stages with no prerequisites — research, script, and THUMBNAIL — can
+        stand completely alone. This is what makes "thumbnail only" possible.
 
     Returns None when the result is the entire pipeline, so full runs and every
     existing video store NULL and keep their historical behavior untouched.
@@ -261,19 +299,25 @@ def normalize_stage_plan(stages: Optional[list[str]]) -> Optional[list[str]]:
     if not stages:
         return None
     selected = {s for s in stages if s in STAGE_ORDER}
-    selected.add("script")
-    stop = max(_stage_index(s) for s in selected)
-
-    enabled: list[str] = []
-    for i, stage in enumerate(STAGE_ORDER):
-        if i > stop:
-            break
-        if stage in BACKBONE_STAGES or stage in selected:
-            enabled.append(stage)
-
-    if len(enabled) == len(STAGE_ORDER):
+    if not selected:
         return None
-    return enabled
+    enabled_set = _with_prereqs(selected)
+
+    if len(enabled_set) == len(STAGE_ORDER):
+        return None
+    # Return in canonical chain order.
+    return [s for s in STAGE_ORDER if s in enabled_set]
+
+
+def first_status_for_plan(plan: Optional[list[str]]) -> str:
+    """The Supabase status a video on this plan should START at — the first
+    enabled stage's status. None (full pipeline) starts at the very beginning."""
+    if not plan:
+        return "idea_logged"
+    for stage in STAGE_ORDER:
+        if stage in plan:
+            return STAGE_FIRST_STATUS.get(stage, "idea_logged")
+    return "idea_logged"
 
 
 def resolve_planned_status(natural_next: str, enabled_stages: Optional[list[str]]) -> str:
