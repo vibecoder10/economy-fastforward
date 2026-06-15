@@ -1481,3 +1481,373 @@ async def get_export_manifest(video_id: str, tenant_id: str = Depends(get_tenant
             for s in scripts_rows
         ],
     }
+
+
+# =============================================================================
+# Script <-> Google Drive sync
+#
+# Let the creator edit a video's script as an editable Google Doc in THEIR OWN
+# Drive (any AI tool, they own the data) and mirror edits back to Postgres.
+# Postgres stays the operational source of truth — the pipeline only ever reads
+# scripts.scene_text / videos.script; the Doc is an explicit, directional mirror:
+#   Push (Postgres -> Doc): POST .../script/push-to-drive
+#   Pull (Doc -> Postgres): POST .../script/sync-from-drive
+# Scene mapping rides on dead-simple "### SCENE n" marker lines; Pull fails loud
+# if they're gone rather than mis-mapping. See tasks/script-drive-sync-spec.md.
+# =============================================================================
+
+# Lenient scene-marker matcher: tolerates missing '###', a trailing title, ':',
+# extra whitespace, any case — but requires the literal word SCENE + a number.
+_SCENE_HEADER_RE = re.compile(r"^\s*#{0,3}\s*scene\s+(\d+)\b.*$", re.IGNORECASE)
+
+
+def _build_tenant_google_client(refresh_token: str):
+    """Build a GoogleClient bound to ONE tenant's Drive refresh token.
+
+    The token was minted by the GOOGLE_OAUTH_* OAuth app (routes/google_auth.py),
+    so it MUST be refreshed with those same creds — not GoogleClient's default
+    GOOGLE_CLIENT_* (a separate app used for app-owned storage). Falls back to the
+    GOOGLE_CLIENT_* names if the OAuth ones aren't set (single-app deployments).
+    """
+    import sys
+    import os
+    from pathlib import Path
+    pipeline_path = Path(__file__).resolve().parents[3] / "skills" / "video-pipeline"
+    if str(pipeline_path) not in sys.path:
+        sys.path.insert(0, str(pipeline_path))
+    from shared.clients.google_client import GoogleClient
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
+    return GoogleClient(
+        client_id=client_id, client_secret=client_secret, refresh_token=refresh_token
+    )
+
+
+def _build_script_doc_text(title: str, scenes) -> str:
+    """Render scene rows into a scene-delimited, human-editable Doc body."""
+    lines = [
+        f'StoryEngine script — "{title}"',
+        "",
+        'Edit the words under each "### SCENE n" line. Keep those scene lines '
+        "exactly as they are so your changes sync back to StoryEngine.",
+        "",
+    ]
+    for i, s in enumerate(scenes, start=1):
+        n = s.get("scene") if s.get("scene") is not None else i
+        text = (s.get("scene_text") or "").strip()
+        lines.append(f"### SCENE {n}")
+        lines.append("")
+        lines.append(text)
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _parse_script_doc(text: str) -> dict:
+    """Split a pushed Doc back into {scene_number: scene_text} by its scene
+    markers. Requires at least one marker — raises ValueError otherwise so Pull
+    fails loud instead of silently mis-mapping the whole script."""
+    sections: dict[int, str] = {}
+    current = None
+    buf: list[str] = []
+    for line in (text or "").split("\n"):
+        m = _SCENE_HEADER_RE.match(line)
+        if m:
+            if current is not None:
+                sections[current] = "\n".join(buf).strip()
+            current = int(m.group(1))
+            buf = []
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        sections[current] = "\n".join(buf).strip()
+    if not sections:
+        raise ValueError(
+            "Couldn't find any '### SCENE n' lines in the Doc — keep those scene "
+            "markers intact so StoryEngine can map your edits back."
+        )
+    return sections
+
+
+def _parse_drive_time(s):
+    """Parse Drive's RFC-3339 modifiedTime string into a tz-aware datetime."""
+    from datetime import datetime
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+async def _clear_scene_downstream(video_id: str, scene: int, tenant_id: str):
+    """A pulled text change makes that scene's voice/images/clips stale. Mirror
+    delete_clip's URL-nulling (proven safe) across voice + image + clip so the
+    scene visibly needs regeneration instead of silently shipping old media."""
+    await execute(
+        "UPDATE scripts SET voice_over_url = NULL, voice_status = NULL, "
+        "voice_duration_seconds = NULL, updated_at = now() "
+        "WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+        video_id, scene, tenant_id,
+    )
+    await execute(
+        "UPDATE assets SET image_url = NULL, drive_image_url = NULL, "
+        "video_url = NULL, video_clip_url = NULL, video_duration = NULL, "
+        "updated_at = now() "
+        "WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+        video_id, scene, tenant_id,
+    )
+
+
+@router.post("/{video_id}/script/push-to-drive")
+async def push_script_to_drive(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Push (Postgres -> Doc): write the full script as a scene-delimited,
+    editable Google Doc in the creator's own Drive; remember the Doc id.
+
+    Creates the Doc on first push (drive.file scope -> app-owned, so we can always
+    read it back for Pull), overwrites it on subsequent pushes."""
+    video = await fetch_one(
+        "SELECT id, video_title, drive_script_doc_id FROM videos "
+        "WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(404, "Video not found")
+
+    profile = await fetch_one(
+        "SELECT google_drive_refresh_token, google_drive_folder_id "
+        "FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    if not profile or not profile.get("google_drive_refresh_token"):
+        raise HTTPException(400, "Google Drive isn't connected. Connect it in Settings first.")
+
+    scenes = await fetch_all(
+        "SELECT scene, scene_text FROM scripts "
+        "WHERE video_id = $1 AND tenant_id = $2 "
+        "ORDER BY scene NULLS FIRST, created_at",
+        video_id, tenant_id,
+    )
+    if not scenes:
+        raise HTTPException(400, "No script to push yet — generate the script first.")
+
+    title = (video.get("video_title") or "Untitled").strip() or "Untitled"
+    doc_text = _build_script_doc_text(title, scenes)
+    existing_doc_id = video.get("drive_script_doc_id")
+    refresh_token = profile["google_drive_refresh_token"]
+    folder_id = profile.get("google_drive_folder_id") or None
+
+    def _push():
+        client = _build_tenant_google_client(refresh_token)
+        doc_id = existing_doc_id
+        if not doc_id:
+            # Create in My Drive root (app-owned), then best-effort tuck into the
+            # creator's connected folder — under drive.file a move into a folder
+            # the app didn't create may 403, which must NOT fail the whole push.
+            created = client.create_document(f"Script — {title}", None)
+            doc_id = created.get("id")
+            if not doc_id:
+                raise RuntimeError("Google Docs is unavailable right now — try again shortly.")
+            if folder_id:
+                try:
+                    client.drive_service.files().update(
+                        fileId=doc_id, addParents=folder_id,
+                        removeParents="root", fields="id, parents",
+                    ).execute()
+                except Exception as move_err:  # noqa: BLE001 - best effort
+                    logger.info(
+                        "script doc folder-move skipped for %s: %s",
+                        doc_id, str(move_err)[:120],
+                    )
+        if not client.replace_document_body(doc_id, doc_text):
+            raise RuntimeError("Couldn't write the script into the Doc — try again shortly.")
+        return doc_id, client.get_document_url(doc_id), client.get_file_modified_time(doc_id)
+
+    try:
+        doc_id, doc_url, modified = await asyncio.to_thread(_push)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("push_script_to_drive failed for %s: %s", video_id, str(e)[:200])
+        raise HTTPException(502, f"Drive push failed: {str(e)[:200]}")
+
+    await execute(
+        "UPDATE videos SET drive_script_doc_id = $1, drive_script_synced_at = now(), "
+        "drive_script_doc_modified_at = $2, updated_at = now() "
+        "WHERE id = $3 AND tenant_id = $4",
+        doc_id, _parse_drive_time(modified), video_id, tenant_id,
+    )
+    return {"doc_id": doc_id, "doc_url": doc_url, "status": "pushed"}
+
+
+@router.post("/{video_id}/script/sync-from-drive")
+async def sync_script_from_drive(
+    video_id: str, force: bool = Query(False), tenant_id: str = Depends(get_tenant_id)
+):
+    """Pull (Doc -> Postgres): read the Drive Doc, map scenes by their
+    '### SCENE n' markers, update changed scenes' text, and clear those scenes'
+    voice/images/clips so they regenerate. Drive-wins on an explicit pull, but if
+    BOTH sides changed since the last sync we return conflict:true (unless
+    ?force=true) so the UI can confirm before overwriting."""
+    video = await fetch_one(
+        "SELECT id, drive_script_doc_id, drive_script_synced_at, "
+        "drive_script_doc_modified_at FROM videos "
+        "WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(404, "Video not found")
+    doc_id = video.get("drive_script_doc_id")
+    if not doc_id:
+        raise HTTPException(400, "No Drive Doc yet — push the script to Drive first.")
+
+    profile = await fetch_one(
+        "SELECT google_drive_refresh_token FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    if not profile or not profile.get("google_drive_refresh_token"):
+        raise HTTPException(400, "Google Drive isn't connected. Connect it in Settings first.")
+    refresh_token = profile["google_drive_refresh_token"]
+
+    def _read():
+        client = _build_tenant_google_client(refresh_token)
+        return client.get_file_modified_time(doc_id), client.read_document_text(doc_id)
+
+    try:
+        modified, text = await asyncio.to_thread(_read)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("sync_script_from_drive read failed for %s: %s", video_id, str(e)[:200])
+        raise HTTPException(502, f"Drive read failed: {str(e)[:200]}")
+    if text is None:
+        raise HTTPException(502, "Couldn't read the Doc from Drive — try again shortly.")
+
+    modified_dt = _parse_drive_time(modified)
+    last_doc_modified = video.get("drive_script_doc_modified_at")
+    # Fast path: Drive hasn't changed since our last sync.
+    if not force and modified_dt and last_doc_modified and modified_dt <= last_doc_modified:
+        return {"changed": False, "scenes_changed": [], "message": "No new edits in Drive."}
+
+    try:
+        parsed = _parse_script_doc(text)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    # Conflict guard: both the in-app script and the Doc changed since last sync.
+    synced_at = video.get("drive_script_synced_at")
+    if not force and synced_at:
+        app_row = await fetch_one(
+            "SELECT max(updated_at) AS last FROM scripts "
+            "WHERE video_id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        app_last = (app_row or {}).get("last")
+        doc_changed = last_doc_modified is None or bool(modified_dt and modified_dt > last_doc_modified)
+        if app_last and app_last > synced_at and doc_changed:
+            return {
+                "changed": False,
+                "conflict": True,
+                "scenes_changed": [],
+                "message": "Both StoryEngine and the Drive Doc changed since the last "
+                           "sync. Syncing will overwrite the in-app script with the "
+                           "Doc's text.",
+            }
+
+    current = await fetch_all(
+        "SELECT id, scene, scene_text FROM scripts "
+        "WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene NULLS FIRST, created_at",
+        video_id, tenant_id,
+    )
+    row_by_scene = {}
+    for i, row in enumerate(current, start=1):
+        n = row.get("scene") if row.get("scene") is not None else i
+        row_by_scene[n] = row
+
+    changed_scenes = []
+    for scene_num in sorted(parsed.keys()):
+        row = row_by_scene.get(scene_num)
+        if row is None:
+            continue  # Doc has a scene we don't have a row for — MVP maps onto existing scenes only.
+        new_text = parsed[scene_num]
+        if (new_text or "").strip() != (row.get("scene_text") or "").strip():
+            await execute(
+                "UPDATE scripts SET scene_text = $1, updated_at = now() "
+                "WHERE id = $2 AND tenant_id = $3",
+                new_text, row["id"], tenant_id,
+            )
+            changed_scenes.append(scene_num)
+            if row.get("scene") is not None:
+                await _clear_scene_downstream(video_id, row["scene"], tenant_id)
+
+    if changed_scenes:
+        rebuilt = await fetch_all(
+            "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+            "ORDER BY scene NULLS FIRST, created_at",
+            video_id, tenant_id,
+        )
+        full = "\n\n".join(
+            (r.get("scene_text") or "").strip()
+            for r in rebuilt if (r.get("scene_text") or "").strip()
+        )
+        await execute(
+            "UPDATE videos SET script = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+            full, video_id, tenant_id,
+        )
+
+    # Mark this Drive version consumed (runs last so synced_at > scripts.updated_at).
+    await execute(
+        "UPDATE videos SET drive_script_synced_at = now(), "
+        "drive_script_doc_modified_at = $1, updated_at = now() "
+        "WHERE id = $2 AND tenant_id = $3",
+        modified_dt, video_id, tenant_id,
+    )
+    return {
+        "changed": bool(changed_scenes),
+        "scenes_changed": changed_scenes,
+        "message": (
+            f"Synced {len(changed_scenes)} scene(s) from Drive. Their voice/images/clips "
+            "were cleared and need regenerating."
+            if changed_scenes else "Doc read OK — no scene text differed."
+        ),
+    }
+
+
+@router.get("/{video_id}/script/drive-status")
+async def script_drive_status(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Lightweight status for the Script tab's Drive controls: is Drive connected,
+    does a Doc exist, and has the Doc been edited since our last sync (badge)?"""
+    video = await fetch_one(
+        "SELECT drive_script_doc_id, drive_script_synced_at, drive_script_doc_modified_at "
+        "FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(404, "Video not found")
+    profile = await fetch_one(
+        "SELECT google_drive_refresh_token FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    connected = bool(profile and profile.get("google_drive_refresh_token"))
+    doc_id = video.get("drive_script_doc_id")
+    synced_at = video.get("drive_script_synced_at")
+
+    drive_newer = False
+    drive_modified = None
+    if connected and doc_id:
+        refresh_token = profile["google_drive_refresh_token"]
+
+        def _check():
+            return _build_tenant_google_client(refresh_token).get_file_modified_time(doc_id)
+
+        try:
+            drive_modified = await asyncio.to_thread(_check)
+            md = _parse_drive_time(drive_modified)
+            last = video.get("drive_script_doc_modified_at")
+            drive_newer = bool(md and (last is None or md > last))
+        except Exception as e:  # noqa: BLE001 - badge is best-effort
+            logger.info("drive-status modifiedTime check skipped: %s", str(e)[:120])
+
+    return {
+        "connected": connected,
+        "doc_id": doc_id,
+        "doc_url": f"https://docs.google.com/document/d/{doc_id}/edit" if doc_id else None,
+        "synced_at": synced_at.isoformat() if synced_at else None,
+        "drive_modified_at": drive_modified,
+        "drive_newer": drive_newer,
+    }

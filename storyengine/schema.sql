@@ -119,6 +119,12 @@ CREATE TABLE videos (
   final_video_url TEXT,
   drive_folder_link TEXT,
   drive_folder_id TEXT,
+  -- Script <-> Drive sync mirror (migration 053): the app-created Google Doc
+  -- holding the editable script, plus when we last synced and the Doc's Drive
+  -- modifiedTime as of that sync (for "Drive has newer edits" detection).
+  drive_script_doc_id TEXT,
+  drive_script_synced_at TIMESTAMPTZ,
+  drive_script_doc_modified_at TIMESTAMPTZ,
   youtube_video_id TEXT,
   youtube_url TEXT,
   upload_status TEXT,

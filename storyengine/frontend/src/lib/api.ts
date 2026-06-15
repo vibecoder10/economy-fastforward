@@ -273,6 +273,38 @@ export const getVideoScript = (id: string) => fetchApi<ScriptScene[]>(`/api/vide
 export const getAudioToken = (videoId: string) =>
   fetchApi<{ token: string }>(`/api/videos/${videoId}/audio-token`, { method: "POST" });
 
+// Script <-> Google Drive sync
+export interface DriveScriptStatus {
+  connected: boolean;
+  doc_id: string | null;
+  doc_url: string | null;
+  synced_at: string | null;
+  drive_modified_at: string | null;
+  drive_newer: boolean;
+}
+export interface DrivePushResult {
+  doc_id: string;
+  doc_url: string;
+  status: string;
+}
+export interface DrivePullResult {
+  changed: boolean;
+  scenes_changed: number[];
+  conflict?: boolean;
+  message?: string;
+}
+export const getDriveScriptStatus = (videoId: string) =>
+  fetchApi<DriveScriptStatus>(`/api/videos/${videoId}/script/drive-status`);
+
+export const pushScriptToDrive = (videoId: string) =>
+  fetchApi<DrivePushResult>(`/api/videos/${videoId}/script/push-to-drive`, { method: "POST" });
+
+export const syncScriptFromDrive = (videoId: string, force = false) =>
+  fetchApi<DrivePullResult>(
+    `/api/videos/${videoId}/script/sync-from-drive${force ? "?force=true" : ""}`,
+    { method: "POST" }
+  );
+
 // Assets
 export const approveAsset = (id: string) =>
   fetchApi<{ status: string }>(`/api/assets/${id}/approve`, { method: "PATCH" });

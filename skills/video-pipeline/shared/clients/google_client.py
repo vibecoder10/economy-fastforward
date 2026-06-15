@@ -736,3 +736,103 @@ class GoogleClient:
         if not doc_id:
             return None
         return f"https://docs.google.com/document/d/{doc_id}/edit"
+
+    def replace_document_body(self, doc_id: Optional[str], text: str) -> bool:
+        """Overwrite the ENTIRE body of a Google Doc with `text`.
+
+        The Push side of Script <-> Drive sync: the Doc is a mirror of Postgres,
+        so each push rewrites it wholesale. Mirrors append_to_document's
+        batchUpdate shape, but clears the existing body first.
+
+        Args:
+            doc_id: Document ID (None if doc unavailable)
+            text: Full replacement text (with newlines)
+
+        Returns:
+            True if successful, False if unavailable or doc_id missing
+        """
+        if not doc_id:
+            return False
+
+        try:
+            def _replace():
+                doc = self.docs_service.documents().get(documentId=doc_id).execute()
+                content = doc["body"]["content"]
+                # endIndex of the last element is the body length. The very last
+                # newline (at end_index - 1) is structural and can't be deleted,
+                # so we clear [1, end_index - 1) then insert fresh text at 1.
+                end_index = content[-1]["endIndex"]
+                requests = []
+                if end_index - 1 > 1:
+                    requests.append({
+                        "deleteContentRange": {
+                            "range": {"startIndex": 1, "endIndex": end_index - 1}
+                        }
+                    })
+                requests.append({
+                    "insertText": {"location": {"index": 1}, "text": text}
+                })
+                self.docs_service.documents().batchUpdate(
+                    documentId=doc_id,
+                    body={"requests": requests},
+                ).execute()
+
+            self._retry_with_backoff(_replace)
+            return True
+        except GoogleDocsUnavailableError:
+            print(f"    ⚠️  Google Docs API unavailable - script not pushed")
+            return False
+
+    def read_document_text(self, doc_id: Optional[str]) -> Optional[str]:
+        """Read a Google Doc back to plain text (Pull side of Script <-> Drive sync).
+
+        Walks body.content[].paragraph.elements[].textRun.content and joins it.
+        Each paragraph's textRun content already carries its trailing newline, so
+        the result preserves line/paragraph breaks faithfully.
+
+        Args:
+            doc_id: Document ID (None if doc unavailable)
+
+        Returns:
+            The document's plain text, or None if doc_id missing / API down.
+        """
+        if not doc_id:
+            return None
+
+        try:
+            def _read():
+                doc = self.docs_service.documents().get(documentId=doc_id).execute()
+                parts = []
+                for element in doc.get("body", {}).get("content", []):
+                    paragraph = element.get("paragraph")
+                    if not paragraph:
+                        continue
+                    for el in paragraph.get("elements", []):
+                        text_run = el.get("textRun")
+                        if text_run and "content" in text_run:
+                            parts.append(text_run["content"])
+                return "".join(parts)
+
+            return self._retry_with_backoff(_read)
+        except GoogleDocsUnavailableError:
+            print(f"    ⚠️  Google Docs API unavailable - could not read doc")
+            return None
+
+    def get_file_modified_time(self, file_id: Optional[str]) -> Optional[str]:
+        """Return a Drive file's RFC-3339 modifiedTime string (change detection).
+
+        Used to spot "Drive has newer edits than our last sync" cheaply, without
+        reading the whole document. Returns None if file_id missing / API down.
+        """
+        if not file_id:
+            return None
+        try:
+            def _get():
+                return self.drive_service.files().get(
+                    fileId=file_id, fields="modifiedTime"
+                ).execute()
+
+            result = self._retry_with_backoff(_get)
+            return result.get("modifiedTime")
+        except GoogleDocsUnavailableError:
+            return None
