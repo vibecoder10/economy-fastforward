@@ -6,10 +6,9 @@ import {
   ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
   Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
   CheckCircle, Clock, AlertCircle, Save, ShieldCheck,
-  Cloud, CloudUpload, RefreshCw, ExternalLink,
 } from "lucide-react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo, clearStaleTask, getSceneSegments, updateSceneSegments, getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive } from "@/lib/api";
+import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo, clearStaleTask, getSceneSegments, updateSceneSegments } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -346,42 +345,6 @@ export function ScriptTab({ video }: ScriptTabProps) {
     queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
     queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
   };
-
-  // --- Google Drive script sync ---
-  const { data: driveStatus, refetch: refetchDrive } = useQuery({
-    queryKey: ["drive-script-status", video.id],
-    queryFn: () => getDriveScriptStatus(video.id),
-    enabled: !!video.id,
-  });
-  const [driveMsg, setDriveMsg] = useState<string | null>(null);
-  const [driveConflict, setDriveConflict] = useState(false);
-
-  const pushMutation = useMutation({
-    mutationFn: () => pushScriptToDrive(video.id),
-    onSuccess: (res) => {
-      setDriveMsg(null);
-      setDriveConflict(false);
-      refetchDrive();
-      if (res.doc_url) window.open(res.doc_url, "_blank", "noopener,noreferrer");
-    },
-    onError: (e: Error) => setDriveMsg(e.message),
-  });
-
-  const pullMutation = useMutation({
-    mutationFn: (force: boolean) => syncScriptFromDrive(video.id, force),
-    onSuccess: (res) => {
-      if (res.conflict) {
-        setDriveConflict(true);
-        setDriveMsg(res.message || "Both sides changed since the last sync.");
-        return;
-      }
-      setDriveConflict(false);
-      setDriveMsg(res.message || (res.changed ? "Synced from Drive." : "No new edits."));
-      if (res.changed) invalidateVideoQueries();
-      refetchDrive();
-    },
-    onError: (e: Error) => { setDriveConflict(false); setDriveMsg(e.message); },
-  });
 
   const [scriptApproved, setScriptApproved] = useState(false);
 
@@ -1031,98 +994,6 @@ export function ScriptTab({ video }: ScriptTabProps) {
               </div>
             ))}
           </div>
-        </GlassCard>
-
-        {/* Google Drive script sync */}
-        <GlassCard className="p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Cloud size={14} style={{ color: "var(--turquoise)" }} />
-            <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Google Drive</h3>
-            {driveStatus?.drive_newer && (
-              <span className="ml-auto text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                style={{ background: "rgba(255,186,8,0.14)", color: "var(--gold)" }}>
-                Drive edited
-              </span>
-            )}
-          </div>
-
-          {driveStatus && !driveStatus.connected ? (
-            <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-              Connect Google Drive in{" "}
-              <a href="/settings" className="underline" style={{ color: "var(--turquoise)" }}>Settings</a>
-              {" "}to edit this script as a Google Doc — in any AI tool — and sync edits back.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                Edit your script as a Google Doc in your own Drive, then sync changes back here.
-              </p>
-
-              <button
-                onClick={() => pushMutation.mutate()}
-                disabled={pushMutation.isPending}
-                className="inline-flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-[12px] font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-              >
-                {pushMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <CloudUpload size={13} />}
-                {driveStatus?.doc_id ? "Update Doc in Drive" : "Edit in Google Drive"}
-              </button>
-
-              {driveStatus?.doc_id && (
-                <>
-                  <a
-                    href={driveStatus.doc_url || "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-[12px] font-medium transition-all hover:bg-[var(--bg-surface)]"
-                    style={{ color: "var(--turquoise)", border: "1px solid var(--turquoise-dim)" }}
-                  >
-                    <ExternalLink size={12} /> Open Doc
-                  </a>
-                  <button
-                    onClick={() => pullMutation.mutate(false)}
-                    disabled={pullMutation.isPending}
-                    className="inline-flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-[12px] font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-                    style={{
-                      background: driveStatus?.drive_newer ? "var(--gold)" : "rgba(255,255,255,0.05)",
-                      color: driveStatus?.drive_newer ? "var(--bg-void)" : "var(--text-secondary)",
-                      border: "1px solid var(--border-subtle)",
-                    }}
-                  >
-                    {pullMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                    Sync from Drive
-                  </button>
-                </>
-              )}
-
-              {driveStatus?.synced_at && (
-                <p className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                  Last sync: {new Date(driveStatus.synced_at).toLocaleString()}
-                </p>
-              )}
-
-              {driveMsg && (
-                <div className="text-[11px] leading-relaxed rounded-lg px-2.5 py-2"
-                  style={{
-                    background: driveConflict ? "rgba(255,120,73,0.1)" : "rgba(255,255,255,0.04)",
-                    color: driveConflict ? "var(--orange)" : "var(--text-secondary)",
-                  }}>
-                  {driveMsg}
-                  {driveConflict && (
-                    <button
-                      onClick={() => pullMutation.mutate(true)}
-                      disabled={pullMutation.isPending}
-                      className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold disabled:opacity-50"
-                      style={{ background: "var(--orange)", color: "var(--bg-void)" }}
-                    >
-                      {pullMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : null}
-                      Sync anyway (Drive wins)
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </GlassCard>
 
         {/* Script Validation */}
