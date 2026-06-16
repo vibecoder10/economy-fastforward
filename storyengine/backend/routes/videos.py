@@ -1455,11 +1455,12 @@ async def suggest_titles(
     )
 
     try:
-        # Cheapest model that still writes good titles. On the kie.ai path this
-        # is aliased to the configured kie Claude model.
+        # Titles are short but high-stakes (they drive views), and the cost
+        # delta vs Haiku is negligible on so few tokens — use Sonnet for the
+        # sharper hooks. Works on both the Anthropic and kie.ai paths.
         text = await text_client.generate(
             prompt,
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
         )
 

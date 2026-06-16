@@ -519,7 +519,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         try:
             text = await text_client.generate(
                 prompt,
-                model="claude-haiku-4-5-20251001",
+                model="claude-sonnet-4-6",
                 max_tokens=4096,
             )
         except Exception as e:
