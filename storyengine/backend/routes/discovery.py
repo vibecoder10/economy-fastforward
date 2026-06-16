@@ -392,7 +392,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                    AND ci.source_type = 'competitor_transcript'
                WHERE cv.tenant_id = $1
                  AND cv.vph >= 50
-                 AND cv.hours_old <= 720
+                 AND cv.published_date >= (NOW() - INTERVAL '14 days')
                  AND (cv.modeled = false OR cv.modeled IS NULL)
                ORDER BY cv.vph DESC
                LIMIT 15""",
@@ -419,7 +419,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             if total_count == 0:
                 msg = "No competitor videos in database. Scrape competitor channels first."
             else:
-                msg = f"No eligible competitor videos (need VPH >= 50, hours_old <= 720). {total_count} total, {with_vph} with VPH > 0, max VPH: {max_vph:.1f}, avg VPH: {avg_vph:.1f}. Try scraping channels with more popular videos."
+                msg = f"No eligible competitor videos (need VPH >= 50, published within the last 14 days). {total_count} total, {with_vph} with VPH > 0, max VPH: {max_vph:.1f}, avg VPH: {avg_vph:.1f}. Try scraping channels with more popular recent videos."
             print(f"[Discovery] {msg}")
             _refresh_tasks[tenant_id] = {"running": False, "error": msg}
             return
