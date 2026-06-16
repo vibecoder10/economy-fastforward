@@ -439,7 +439,6 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                 entry["summary"] = c["distilled_summary"]
                 metadata = c.get("distilled_metadata")
                 if metadata:
-                    import json
                     if isinstance(metadata, str):
                         metadata = json.loads(metadata)
                     # Hook DNA
