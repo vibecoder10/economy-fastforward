@@ -366,12 +366,14 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
     to generate our angle + 3 title options per video.
     """
     try:
-        from vault import get_secret
-
-        api_key = await get_secret("anthropic_api_key", tenant_id)
-        if not api_key:
-            print(f"[Discovery] No Anthropic API key for tenant {tenant_id}")
-            _refresh_tasks[tenant_id] = {"running": False, "error": "No Anthropic API key configured"}
+        # Same text-LLM resolver scripts use: tenant's own Claude key if set,
+        # otherwise their kie.ai key (one key for everything).
+        from kie_unified import get_text_client_for_tenant, MissingGenerationKeyError
+        try:
+            text_client = await get_text_client_for_tenant(tenant_id)
+        except MissingGenerationKeyError:
+            print(f"[Discovery] No Claude or kie.ai API key for tenant {tenant_id}")
+            _refresh_tasks[tenant_id] = {"running": False, "error": "No Claude or kie.ai API key configured. Add one in Settings → API Keys."}
             return
 
         # Fetch recent high-VPH competitor videos (not yet modeled)
@@ -513,29 +515,17 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         except Exception as e:
             print(f"[Discovery] Error loading channel profile: {e}")
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            prompt = _build_discovery_prompt(comp_list, learnings_context, channel_name, channel_niche)
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 4096,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
+        prompt = _build_discovery_prompt(comp_list, learnings_context, channel_name, channel_niche)
+        try:
+            text = await text_client.generate(
+                prompt,
+                model="claude-haiku-4-5-20251001",
+                max_tokens=4096,
             )
-
-            if resp.status_code != 200:
-                print(f"[Discovery] Claude API error: {resp.status_code} {resp.text[:200]}")
-                _refresh_tasks[tenant_id] = {"running": False, "error": f"Claude API error: {resp.status_code}"}
-                return
-
-            data = resp.json()
-            text = data.get("content", [{}])[0].get("text", "")
+        except Exception as e:
+            print(f"[Discovery] Generation error: {e}")
+            _refresh_tasks[tenant_id] = {"running": False, "error": f"Idea generation failed: {e}"}
+            return
 
         # Parse Claude's response
         ideas = _parse_ideas_response(text)

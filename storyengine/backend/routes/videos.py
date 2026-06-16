@@ -1415,11 +1415,15 @@ async def suggest_titles(
     if not topic:
         raise HTTPException(status_code=400, detail="Topic is required")
 
-    api_key = await get_secret("anthropic_api_key", tenant_id)
-    if not api_key:
+    # Route through the shared text-LLM resolver: the tenant's own Claude key
+    # if they have one, otherwise their kie.ai key (one key for everything).
+    from kie_unified import get_text_client_for_tenant, MissingGenerationKeyError
+    try:
+        text_client = await get_text_client_for_tenant(tenant_id)
+    except MissingGenerationKeyError:
         raise HTTPException(
             status_code=400,
-            detail="Anthropic API key not configured. Add it in Settings.",
+            detail="Add a Claude or kie.ai API key in Settings → API Keys.",
         )
 
     channel_name, channel_niche = "", ""
@@ -1450,35 +1454,14 @@ async def suggest_titles(
         'Return ONLY a JSON array of strings. Example: ["Title One", "Title Two"]'
     )
 
-    import httpx as _httpx
-
     try:
-        async with _httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 1024,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-
-        if resp.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail=humanize_error(
-                    f"Claude {resp.status_code}",
-                    context="We couldn't generate title ideas",
-                ),
-            )
-
-        data = resp.json()
-        text = data.get("content", [{}])[0].get("text", "[]")
+        # Cheapest model that still writes good titles. On the kie.ai path this
+        # is aliased to the configured kie Claude model.
+        text = await text_client.generate(
+            prompt,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+        )
 
         titles = json.loads(text)
         if not isinstance(titles, list):
@@ -1492,9 +1475,12 @@ async def suggest_titles(
         raise HTTPException(
             status_code=502, detail="Failed to parse title suggestions"
         )
-    except _httpx.TimeoutException:
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
-            status_code=504, detail="AI request timed out. Try again."
+            status_code=502,
+            detail=humanize_error(str(e), context="We couldn't generate title ideas"),
         )
 
 

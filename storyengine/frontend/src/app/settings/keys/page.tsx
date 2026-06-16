@@ -39,7 +39,7 @@ const KEY_LABELS: Record<string, { name: string; description: string; group?: st
   anthropic_api_key: { name: "Anthropic (Claude)", description: "AI for scripts, prompts, and analysis", required: true },
   elevenlabs_api_key: { name: "ElevenLabs API Key", description: "Voice synthesis for narration", group: "ElevenLabs", required: true },
   elevenlabs_voice_id: { name: "ElevenLabs Voice ID", description: "Voice ID for narration", group: "ElevenLabs", required: true },
-  kie_ai_api_key: { name: "Kie.ai", description: "Image and video generation", required: true },
+  kie_ai_api_key: { name: "kie.ai", description: "One key for scripts, titles, ideas, images & video — an alternative to a Claude key", required: true },
   openai_api_key: { name: "OpenAI", description: "Whisper transcription", required: true },
   gemini_api_key: { name: "Gemini", description: "Vision analysis for thumbnails", required: false },
   google_client_id: { name: "YouTube Data API", description: "Upload and analytics", group: "Google", required: false },
