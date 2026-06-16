@@ -1463,9 +1463,19 @@ async def suggest_titles(
             max_tokens=1024,
         )
 
-        titles = json.loads(text)
+        # Models (especially via kie.ai) often wrap the array in prose or a
+        # ```json fence — extract the array instead of failing on strict parse.
+        import re as _re
+        raw = text.strip()
+        try:
+            titles = json.loads(raw)
+        except json.JSONDecodeError:
+            m = _re.search(r"\[.*\]", raw, _re.DOTALL)
+            if not m:
+                raise
+            titles = json.loads(m.group(0))
         if not isinstance(titles, list):
-            titles = [text]
+            titles = [str(titles)]
 
         await increment_usage(tenant_id, "api_calls")
 
