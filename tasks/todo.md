@@ -75,6 +75,114 @@ cloned video; see the handoff below. The verify also fixed 3 bugs live
 
 ---
 
+## ★ HANDOFF — 2026-06-16 (New Video = idea/title generator + free channel mgmt + "Generate from my channels" UNBLOCKED end-to-end — ALL DEPLOYED)
+
+New feature area (the CREATE/idea surface, not the render pipeline). 8 commits on `main`,
+all deployed to prod (storyengine.dev). North star unchanged: the title (next to the
+thumbnail) decides a video's success, so the create flow should *generate* metric-backed
+ideas, not force the creator to type a topic.
+
+**Commits (oldest→newest):** `e0b4fdd3` `c5da2f66` `eb9c62db` `f369a4f6` `d38c64d1`
+`f4ec72bc` `49ed96ad` `340be6f0`.
+
+**(1) New Video modal is now a title/idea generator (frontend).** `app/pipeline/page.tsx`
+(the returning-creator "New Video" modal). Topic field is OPTIONAL (no more red `*`; Create
+still needs a title, typed OR picked). Under it:
+- **"Ideas from your example channels"** — pre-loads `getDiscoveryIdeas("fresh")` on modal
+  open; each row = best title option + score + the competitor it's modeled on + its VPH.
+  Pick → fills title + carries the idea's `our_angle` into writer guidance. Empty states:
+  mining spinner, "Generate from my channels" (triggers `refreshDiscoveryIdeas`), and now
+  surfaces `discoveryStatus.error` (e.g. "add a key") instead of failing silently (`c5da2f66`).
+- **"Suggest titles for this"** — appears when a topic is typed; calls `suggestTitles(topic)`.
+- `suggestTitles` in `lib/api.ts` now NORMALIZES the response (backend can return bare
+  strings) → `{title, thumbnail_text, score}`; this also un-broke FirstVideoFlow/CreateVideoStep
+  which were rendering `s.title` on raw strings (blank rows).
+
+**(2) Free example-channel management + Profile IA.** New shared component
+`components/channels/ExampleChannels.tsx` (add-by-URL / delete / re-sync), used BOTH on the
+Profile page and inline in the New Video modal ("Manage channels" toggle / no-channels state).
+Nav relabels (routes unchanged): **"Settings" → "Profile"** (`/settings`, H1 too) with an
+**Example channels** section at the top; **"Visual Profile" → "Visual Styles"** (`/profile`)
+to kill the name clash (`sidebar.tsx`, `bottom-tabs.tsx`). Channel CRUD is now FREE — the
+`/api/niche/*` endpoints were never backend-gated; the heavy `/competitors` analytics page
+stays Pro (`PRO_PATHS` in `AuthenticatedShell.tsx`). See [[storyengine-channels-profile-ia]].
+
+**(3) LLM provider router for titles/ideas (backend).** `suggest_titles` (`routes/videos.py`)
+and discovery (`routes/discovery.py`) now call `kie_unified.get_text_client_for_tenant(tenant)`
+— tenant's own Anthropic key → `AnthropicDirectClient`, else their `kie_ai_api_key` →
+`KieClaudeClient` (kie.ai is the "one key for everything", same path scripts/onboarding use),
+else a clear "add a key" 400. Both use `await client.generate(prompt, model=, max_tokens=)`.
+Model = **Sonnet 4.6** for titles/ideas (Ryan's call after a side-by-side: tiny outputs, the
+cost delta vs Haiku is pennies, Sonnet's hooks are sharper). **`kie_unified.py` is now committed**
+(was VPS-only though onboarding already imported it — committing it un-broke fresh clones).
+kie model facts (live-probed): `claude-haiku-4-5` works (~10s, cheap), `claude-sonnet-4-6`
+works (~35s), `claude-3-5-haiku-*` 422 on kie. The `CLAUDE_MODEL_ALIASES` fix (`d38c64d1`)
+stops Haiku being silently upgraded to Sonnet — keep Haiku for bulk/script work later.
+See [[storyengine-tenant-api-keys]].
+
+**(4) "Generate from my channels" UNBLOCKED — the big one.** It was returning 0 ideas. Root
+cause was NOT in this feature: **YouTube bot-blocks the VPS datacenter IP**, so the yt-dlp
+per-video scrape got 0 views / no dates → VPH 0 → discovery's `VPH >= 50` filter rejected
+everything. Fixed two ways:
+  a. **Competitor scraping switched to the official YouTube Data API** (`49ed96ad`). New
+     `backend/youtube_data_api.py` (`fetch_channel_videos`); `_run_scrape` (`routes/niche.py`)
+     uses it when `YOUTUBE_API_KEY` is set (lazy import, falls back to yt-dlp otherwise),
+     skipping the bot-blocked per-video call. ~3 quota units/channel; one server key reads
+     PUBLIC data for all tenants (competitor data is public — no per-user OAuth, and quota is
+     per-PROJECT not per-user so OAuth wouldn't help anyway). KEY: created in GCP project
+     **storyengineagent** ("Competitor Scrape (StoryEngine)", restricted to YouTube Data API
+     v3), lives as `YOUTUBE_API_KEY` in `storyengine/.env` on the VPS (gitignored).
+  b. **Fixed a latent `UnboundLocalError: json`** (`340be6f0`) in `_run_discovery_generation`
+     — a redundant `import json` inside an `if distilled_summary` branch made `json` local to
+     the whole function, so `json.dumps()` at the insert threw and EVERY generated idea was
+     silently dropped. Was masked until the scrape finally produced eligible videos.
+  **VERIFIED end-to-end on prod:** re-scraping Ryan's "Slow English" example channel via the
+  API revealed its videos actually have 80k–400k views / VPH 174–1795 (the "0 views" was
+  ENTIRELY the bot-block) → discovery generated + saved **5 idea cards** (real competitor
+  matches, appeal 7–9, 3 scored titles each). The engine takes the competitor's winning
+  FORMAT ("Good vs Bad" comparison) and reframes it into the channel's niche (AI/tech/geopol
+  from `channel_profiles`). See [[storyengine-youtube-scrape-botblock]].
+
+**Gotchas for next session:**
+- Ryan's tenant `ee93e6d1-…` has a **kie.ai key, NO Anthropic key**; plan=`null` (free tier)
+  → generation runs via kie.ai/Sonnet.
+- **Local dev preview can't reach authed pages** (login gate); verify with `tsc --noEmit` +
+  `next build`, not the browser. See [[storyengine-local-preview-auth]].
+- **Standalone VPS debug scripts** must load `storyengine/.env` first (for `DATABASE_URL`) or
+  `vault.get_secret` silently returns None. Pattern used all session: read `../.env`, then
+  `from vault import get_secret, fetch_all`.
+- Deploy unchanged: push `main` → on VPS `git pull --ff-only` → restart. Backend SIGTERM
+  STALLS (SSE drains) → escalate to `kill -9 MainPID`; systemd `Restart=always` revives. The
+  frontend stops cleanly. `127.0.0.1:8001` works on the VPS (NOT `localhost` → that's IPv6
+  `::1`; uvicorn binds IPv4 `0.0.0.0`).
+
+**Open / next feature set (queued):**
+1. **Add real popular channels in Ryan's niche** (operational, not code). His only example
+   channel is the test "Slow English" one — it works (it has real views), but ideas come out
+   reframed into the channel-profile niche. For on-target ideas, add the competitors he
+   actually models. `fetch_channel_videos` handles channel-id, `@handle`, `/user/`, and falls
+   back to `search.list` (100 quota units) for `/c/` custom URLs.
+2. **Route SCRIPT writing through the same resolver** + a cheaper model. Scripts/onboarding
+   currently use the env/default Sonnet path; `get_text_client_for_tenant` + Haiku-for-bulk
+   would cut cost and unify on "one key". This is where Haiku's savings actually matter (long
+   outputs), unlike titles.
+3. **Discovery thresholds may be too strict** — `VPH >= 50` AND `hours_old <= 720` (30d). An
+   infrequently-posting (but good) channel can yield 0 eligible videos. Consider relaxing the
+   recency window or adding a raw-views fallback when velocity is unavailable. (Ryan was
+   offered "rank by raw views" earlier and chose to fix the scraper first — revisit if real
+   channels still come up empty.)
+4. **Cheaper/faster kie model for titles at scale** — currently Sonnet (~13–35s via kie). If
+   the inline "Suggest titles" latency annoys, `claude-haiku-4-5` is ~10s and ~3× cheaper
+   (one-line model swap in `routes/videos.py`).
+5. **Cosmetic:** a stale orphan `competitor_videos` row (a Rick Astley video, vph 0, no date)
+   survives re-scrapes because it's not in the channel's current uploads — harmless, filtered
+   out by discovery; delete if tidying.
+6. **yt-dlp transcripts still bot-blocked** — only matters if/when transcript-level "content
+   DNA" distillation is wanted (the idea engine doesn't need it). Same cookies/proxy fix as
+   documented, OR an Apify/transcript-API path — separate, lower priority.
+
+---
+
 ## ★ HANDOFF — 2026-06-14m (portrait/reference retry — one flake can't block approve — DONE + DEPLOYED)
 
 The verify-run bug: `design_characters` / `design_environments` generated each portrait/
