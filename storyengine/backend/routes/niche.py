@@ -731,8 +731,12 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
             return
 
         channel_urls = [c["channel_url"] for c in channels if c.get("channel_url")]
+        # Prefer the official YouTube Data API when a key is configured — it
+        # returns real views/dates and isn't bot-blocked like yt-dlp on the VPS.
+        api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+        source = "YouTube Data API" if api_key else "yt-dlp"
         print(
-            f"[Scrape] Scraping {len(channel_urls)} channels via yt-dlp for tenant {tenant_id}"
+            f"[Scrape] Scraping {len(channel_urls)} channels via {source} for tenant {tenant_id}"
         )
 
         # T4: Track per-channel progress
@@ -762,9 +766,13 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
             ch_name = ch.get("channel_name", url)
             _scrape_tasks[tenant_id]["current_channel"] = ch_name
             try:
-                stubs = await asyncio.to_thread(
-                    _list_channel_videos, url, max_videos_per_channel
-                )
+                if api_key:
+                    from youtube_data_api import fetch_channel_videos
+                    stubs = await fetch_channel_videos(url, api_key, max_videos_per_channel)
+                else:
+                    stubs = await asyncio.to_thread(
+                        _list_channel_videos, url, max_videos_per_channel
+                    )
                 for stub in stubs:
                     stub["channel_name"] = ch.get("channel_name", "")
                     stub["channel_url"] = url
@@ -828,11 +836,30 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                 print(f"[Scrape] Cancelled by user during Phase 2 at video {i}")
                 break
 
-            try:
-                info = await asyncio.to_thread(_extract_video_info, stub["id"])
-            except Exception as e:
-                print(f"[Scrape] Error extracting {stub['id']}: {e}")
-                info = None
+            if api_key:
+                # The stub already carries full metadata from the YouTube Data
+                # API — skip the per-video yt-dlp call (the bot-blocked part).
+                info = {
+                    "video_id": stub["id"],
+                    "title": stub.get("title", ""),
+                    "url": stub.get("url", f"https://www.youtube.com/watch?v={stub['id']}"),
+                    "views": stub.get("view_count", 0),
+                    "likes": stub.get("like_count", 0),
+                    "comment_count": stub.get("comment_count", 0),
+                    "channel": stub.get("channel_name", ""),
+                    "channel_url": stub.get("channel_url", ""),
+                    "published_at": stub.get("published_at"),
+                    "thumbnail_url": stub.get("thumbnail"),
+                    "transcript": None,
+                    "duration_seconds": stub.get("duration", 0),
+                    "description": stub.get("description", ""),
+                }
+            else:
+                try:
+                    info = await asyncio.to_thread(_extract_video_info, stub["id"])
+                except Exception as e:
+                    print(f"[Scrape] Error extracting {stub['id']}: {e}")
+                    info = None
 
             if info:
                 enriched_count += 1
