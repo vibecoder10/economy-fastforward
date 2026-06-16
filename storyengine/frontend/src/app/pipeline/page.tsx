@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
   RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
-  AlertTriangle,
+  AlertTriangle, Key,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -410,6 +410,7 @@ export default function VideosPage() {
         }
       }, 3000);
     },
+    onError: (e: Error) => toast.error(e.message || "Couldn't generate ideas. Try again."),
   });
 
   const launchMutation = useMutation({
@@ -450,6 +451,9 @@ export default function VideosPage() {
     }));
   const hasChannels = (modalChannels?.length ?? 0) > 0;
   const isMining = refreshMutation.isPending || !!discoveryStatus?.is_refreshing;
+  // Surface why generation produced nothing (most commonly: no Anthropic key).
+  const genError = discoveryStatus?.error || "";
+  const genNeedsKey = /api key|anthropic/i.test(genError);
 
   const handlePickGenerated = (idea: DiscoveryIdea, option: TitleOption) => {
     setNewTitle(option.title);
@@ -1150,15 +1154,46 @@ export default function VideosPage() {
                   </div>
                 ) : channelIdeas.length === 0 ? (
                   <div className="text-center space-y-2 py-1">
-                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>No fresh ideas yet.</p>
-                    <button
-                      type="button"
-                      onClick={() => refreshMutation.mutate()}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg"
-                      style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-                    >
-                      <Sparkles size={11} /> Generate from my channels
-                    </button>
+                    {genNeedsKey ? (
+                      <>
+                        <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                          Add your Anthropic API key to generate ideas.
+                        </p>
+                        <Link
+                          href="/settings/keys"
+                          onClick={() => { setActiveModal(null); setShowCreateModal(false); }}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg"
+                          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                        >
+                          <Key size={11} /> Add API key
+                        </Link>
+                      </>
+                    ) : genError ? (
+                      <>
+                        <p className="text-[11px]" style={{ color: "var(--red)" }}>{genError}</p>
+                        <button
+                          type="button"
+                          onClick={() => refreshMutation.mutate()}
+                          disabled={isMining}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50"
+                          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                        >
+                          <Sparkles size={11} /> Try again
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>No fresh ideas yet.</p>
+                        <button
+                          type="button"
+                          onClick={() => refreshMutation.mutate()}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg"
+                          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                        >
+                          <Sparkles size={11} /> Generate from my channels
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : (
                   channelIdeas.map(({ idea, option }, idx) => (
