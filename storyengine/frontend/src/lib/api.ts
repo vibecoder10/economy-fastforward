@@ -1841,11 +1841,24 @@ export interface TitleSuggestion {
   score: number;
 }
 
-export const suggestTitles = (topic: string) =>
-  fetchApi<{ titles: TitleSuggestion[] }>("/api/videos/suggest-titles", {
-    method: "POST",
-    body: JSON.stringify({ topic }),
-  });
+export const suggestTitles = async (topic: string) => {
+  // The backend may return either plain title strings or full objects depending
+  // on what the model emits. Normalize to TitleSuggestion so callers always get
+  // a renderable {title, thumbnail_text, score}.
+  const res = await fetchApi<{ titles: (string | Partial<TitleSuggestion>)[] }>(
+    "/api/videos/suggest-titles",
+    {
+      method: "POST",
+      body: JSON.stringify({ topic }),
+    },
+  );
+  const titles: TitleSuggestion[] = (res.titles ?? []).map((t) =>
+    typeof t === "string"
+      ? { title: t, thumbnail_text: "", score: 0 }
+      : { title: t.title ?? "", thumbnail_text: t.thumbnail_text ?? "", score: t.score ?? 0 },
+  );
+  return { titles };
+};
 
 // Export Manifest
 export interface ExportManifestFile {

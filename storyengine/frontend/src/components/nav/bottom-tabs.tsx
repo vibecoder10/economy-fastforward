@@ -36,11 +36,11 @@ const moreTabs = [
   { href: "/autopilot", icon: Bot, label: "Autopilot" },
   { href: "/competitors", icon: Users, label: "Competitors" },
   { href: "/learnings", icon: Brain, label: "Learnings" },
-  { href: "/profile", icon: Palette, label: "Visual Profile" },
+  { href: "/profile", icon: Palette, label: "Visual Styles" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/system-prompts", icon: ScrollText, label: "System Prompts" },
-  { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/settings", icon: Settings, label: "Profile" },
   { href: "/billing", icon: CreditCard, label: "Billing" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];

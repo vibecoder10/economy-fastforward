@@ -28,13 +28,15 @@ import {
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
   launchIdea, dismissIdea, getUserPreferences, setUserPreference,
   getReadinessStatus, setApiKey, testApiKey,
-  type VideoSummary, type DiscoveryIdea, type TitleOption,
+  getNicheChannels, suggestTitles,
+  type VideoSummary, type DiscoveryIdea, type TitleOption, type TitleSuggestion,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Modal } from "@/components/ui/modal";
 import { ReadinessCheck } from "@/components/pipeline/ReadinessCheck";
 import { FirstVideoFlow } from "@/components/pipeline/FirstVideoFlow";
+import { ExampleChannels } from "@/components/channels/ExampleChannels";
 
 const container = {
   hidden: { opacity: 0 },
@@ -287,6 +289,12 @@ export default function VideosPage() {
   // Optional reference link to copy a video's style from (onto our topic).
   const [newReferenceUrl, setNewReferenceUrl] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Title generator: seeded "suggest titles for what I typed" results.
+  const [seedSuggestions, setSeedSuggestions] = useState<TitleSuggestion[] | null>(null);
+  const [seedLoading, setSeedLoading] = useState(false);
+  const [seedError, setSeedError] = useState("");
+  // Show the inline add/delete/re-sync channel manager inside the modal.
+  const [showChannelManager, setShowChannelManager] = useState(false);
 
   // Tab order (drag-to-reorder with persistence)
   const [tabOrder, setTabOrder] = useState<TabId[]>(DEFAULT_TAB_ORDER);
@@ -342,17 +350,28 @@ export default function VideosPage() {
     queryFn: () => getVideos(),
   });
 
+  // The New Video modal also pulls fresh ideas so they're pre-loaded on open.
+  const createModalOpen = activeModal === "existingCreate" || showCreateModal;
+
   const { data: ideas, isLoading: ideasLoading } = useQuery({
     queryKey: ["discoveryIdeas"],
     queryFn: () => getDiscoveryIdeas("fresh"),
-    enabled: tab === "ideas",
+    enabled: tab === "ideas" || createModalOpen,
   });
 
   const { data: discoveryStatus } = useQuery({
     queryKey: ["discoveryStatus"],
     queryFn: getDiscoveryStatus,
-    enabled: tab === "ideas",
+    enabled: tab === "ideas" || createModalOpen,
     refetchInterval: 5000,
+  });
+
+  // The user's example/modeling channels (drives "Generate from my channels").
+  const { data: modalChannels, isLoading: modalChannelsLoading } = useQuery({
+    queryKey: ["niche-channels"],
+    queryFn: getNicheChannels,
+    enabled: createModalOpen,
+    staleTime: 60000,
   });
 
   // Mutations
@@ -370,6 +389,9 @@ export default function VideosPage() {
       setNewAccentColor("");
       setNewStages(ALL_STAGES_ON);
       setNewReferenceUrl("");
+      setSeedSuggestions(null);
+      setSeedError("");
+      setShowChannelManager(false);
       toast.success("Video created — starting pipeline");
       router.push(`/pipeline/${newVideo.id}`);
     },
@@ -415,6 +437,46 @@ export default function VideosPage() {
       setDeleteTarget(null);
     },
   });
+
+  // ---- Title generator (inside the New Video modal) ----
+  // Top metric-ranked ideas mined from the user's example channels; each row
+  // surfaces the channel's best title option plus the velocity it's modeled on.
+  const channelIdeas = (ideas ?? [])
+    .filter((i) => i.title_options && i.title_options.length > 0)
+    .slice(0, 5)
+    .map((i) => ({
+      idea: i,
+      option: [...i.title_options].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0],
+    }));
+  const hasChannels = (modalChannels?.length ?? 0) > 0;
+  const isMining = refreshMutation.isPending || !!discoveryStatus?.is_refreshing;
+
+  const handlePickGenerated = (idea: DiscoveryIdea, option: TitleOption) => {
+    setNewTitle(option.title);
+    // Carry the mined angle into script guidance so it's a full concept, not
+    // just a headline — but never clobber something the user already typed.
+    if (idea.our_angle && !newGuidance.trim()) setNewGuidance(idea.our_angle);
+    setSeedSuggestions(null);
+  };
+
+  const handlePickSeed = (title: string) => {
+    setNewTitle(title);
+    setSeedSuggestions(null);
+  };
+
+  const handleSuggestSeed = async () => {
+    if (!newTitle.trim()) return;
+    setSeedLoading(true);
+    setSeedError("");
+    try {
+      const res = await suggestTitles(newTitle.trim());
+      setSeedSuggestions(res.titles);
+    } catch (e) {
+      setSeedError((e as Error).message || "Couldn't generate titles. Try again.");
+    } finally {
+      setSeedLoading(false);
+    }
+  };
 
   const handleCreate = () => {
     if (!newTitle.trim()) return;
@@ -953,12 +1015,15 @@ export default function VideosPage() {
       </Modal>
 
       {/* === NEW VIDEO MODAL (existing — for returning users) === */}
-      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); }} title="New Video" size="md">
+      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); }} title="New Video" size="md">
         <div className="space-y-4">
-          {/* Primary: Topic / Title */}
+          {/* Primary: Topic / Title (optional — a title can be generated below) */}
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              What&apos;s your video about? <span style={{ color: "var(--red)" }}>*</span>
+              What&apos;s your video about?{" "}
+              <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>
+                (optional — pick a ready idea below, or write your own)
+              </span>
             </label>
             <input
               type="text"
@@ -971,6 +1036,161 @@ export default function VideosPage() {
               onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
               autoFocus
             />
+            {/* Seeded path: turn a typed topic into scored title options */}
+            <div className="flex justify-end mt-1.5">
+              <button
+                type="button"
+                onClick={handleSuggestSeed}
+                disabled={!newTitle.trim() || seedLoading}
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ color: "var(--turquoise)" }}
+              >
+                {seedLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                {seedLoading ? "Thinking…" : "Suggest titles for this"}
+              </button>
+            </div>
+            {seedError && (
+              <p className="text-[10px] mt-1 text-right" style={{ color: "var(--red)" }}>{seedError}</p>
+            )}
+          </div>
+
+          {/* === Title generator: ready ideas from your example channels === */}
+          <div className="rounded-lg p-3" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)" }}>
+            {seedSuggestions ? (
+              /* Seeded titles for the typed topic */
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
+                    <Sparkles size={11} style={{ color: "var(--turquoise)" }} /> Titles for your topic
+                  </span>
+                  <button type="button" onClick={() => setSeedSuggestions(null)} className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                    ← Channel ideas
+                  </button>
+                </div>
+                {seedSuggestions.length === 0 ? (
+                  <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>No suggestions came back — try rephrasing your topic.</p>
+                ) : (
+                  seedSuggestions.map((s, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handlePickSeed(s.title)}
+                      className="w-full text-left p-2.5 rounded-lg transition-all"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--turquoise)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs" style={{ color: "var(--text-primary)" }}>{s.title}</span>
+                        {s.score > 0 && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0" style={{ background: "rgba(0,212,170,0.1)", color: "var(--turquoise)" }}>
+                            {s.score}/10
+                          </span>
+                        )}
+                      </div>
+                      {s.thumbnail_text && (
+                        <span className="text-[10px] mt-1 block" style={{ color: "var(--text-tertiary)" }}>Thumbnail: {s.thumbnail_text}</span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : (
+              /* Pre-loaded ideas mined from the user's example channels */
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
+                    <TrendingUp size={11} style={{ color: "var(--turquoise)" }} /> Ideas from your example channels
+                  </span>
+                  <div className="flex items-center gap-2.5">
+                    {hasChannels && channelIdeas.length > 0 && !showChannelManager && (
+                      <button
+                        type="button"
+                        onClick={() => refreshMutation.mutate()}
+                        disabled={isMining}
+                        className="inline-flex items-center gap-1 text-[10px] disabled:opacity-40"
+                        style={{ color: "var(--text-tertiary)" }}
+                      >
+                        <RefreshCw size={10} className={isMining ? "animate-spin" : ""} /> Regenerate
+                      </button>
+                    )}
+                    {hasChannels && (
+                      <button
+                        type="button"
+                        onClick={() => setShowChannelManager((v) => !v)}
+                        className="inline-flex items-center gap-1 text-[10px]"
+                        style={{ color: showChannelManager ? "var(--turquoise)" : "var(--text-tertiary)" }}
+                      >
+                        <Plus size={10} /> {showChannelManager ? "Done" : "Manage channels"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {showChannelManager ? (
+                  <ExampleChannels variant="compact" />
+                ) : modalChannelsLoading ? (
+                  <div className="flex items-center gap-2 py-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                    <Loader2 size={12} className="animate-spin" /> Loading…
+                  </div>
+                ) : !hasChannels ? (
+                  <div className="space-y-2.5">
+                    <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                      Add a YouTube channel you want your videos modeled on — we&apos;ll generate title ideas from its best-performing videos.
+                    </p>
+                    <ExampleChannels variant="compact" />
+                  </div>
+                ) : isMining ? (
+                  <div className="flex items-center gap-2 py-3 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                    <Loader2 size={12} className="animate-spin" /> Reading your channels and ranking ideas…
+                  </div>
+                ) : ideasLoading ? (
+                  <div className="flex items-center gap-2 py-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                    <Loader2 size={12} className="animate-spin" /> Loading ideas…
+                  </div>
+                ) : channelIdeas.length === 0 ? (
+                  <div className="text-center space-y-2 py-1">
+                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>No fresh ideas yet.</p>
+                    <button
+                      type="button"
+                      onClick={() => refreshMutation.mutate()}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg"
+                      style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                    >
+                      <Sparkles size={11} /> Generate from my channels
+                    </button>
+                  </div>
+                ) : (
+                  channelIdeas.map(({ idea, option }, idx) => (
+                    <button
+                      key={idea.id || idx}
+                      type="button"
+                      onClick={() => handlePickGenerated(idea, option)}
+                      className="w-full text-left p-2.5 rounded-lg transition-all"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--turquoise)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs" style={{ color: "var(--text-primary)" }}>{option.title}</span>
+                        {option.score > 0 && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0" style={{ background: "rgba(0,212,170,0.1)", color: "var(--turquoise)" }}>
+                            {option.score}/10
+                          </span>
+                        )}
+                      </div>
+                      {(idea.competitor_channel || idea.competitor_vph != null) && (
+                        <div className="flex items-center gap-1.5 mt-1 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                          <Eye size={9} />
+                          {idea.competitor_channel && <span>Modeled on {idea.competitor_channel}</span>}
+                          {idea.competitor_vph != null && <span>· {Math.round(idea.competitor_vph)} views/hr</span>}
+                        </div>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Copy a video's style (optional) — model a reference onto your topic */}

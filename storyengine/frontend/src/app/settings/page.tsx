@@ -9,6 +9,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { FilterSelect } from "@/components/ui/FilterSelect";
+import { ExampleChannels } from "@/components/channels/ExampleChannels";
 import {
   getCurrentProject,
   updateProject,
@@ -320,8 +321,23 @@ export default function SettingsPage() {
       {/* Header */}
       <motion.div variants={item}>
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
-          Channel Settings
+          Profile
         </h1>
+      </motion.div>
+
+      {/* Example channels — the channels your videos are modeled on */}
+      <motion.div variants={item}>
+        <div className="flex items-center gap-3 mb-1" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
+          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+            Example channels
+          </h2>
+        </div>
+        <p className="text-xs mb-4" style={{ paddingLeft: 19, color: "var(--text-tertiary)" }}>
+          Channels you want your videos modeled on. These power the title ideas in New Video. Add, remove, or re-sync them here.
+        </p>
+        <GlassCard className="p-6">
+          <ExampleChannels variant="full" />
+        </GlassCard>
       </motion.div>
 
       {/* Channel Profile */}
