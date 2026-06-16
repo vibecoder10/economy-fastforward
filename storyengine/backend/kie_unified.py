@@ -29,7 +29,10 @@ KIE_TTS_MODEL = os.getenv(
 )
 
 CLAUDE_MODEL_ALIASES = {
-    "claude-haiku-4-5-20251001": KIE_CLAUDE_MODEL,
+    # Haiku 4.5 is supported natively by kie.ai — keep it as Haiku (≈3x cheaper
+    # and ≈3.5x faster than Sonnet) instead of upgrading it to the default model.
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5",
+    "claude-haiku-4-5": "claude-haiku-4-5",
     "claude-sonnet-4-20250514": KIE_CLAUDE_MODEL,
     "claude-3-7-sonnet-20250219": KIE_CLAUDE_MODEL,
     "claude-3-5-sonnet-20241022": KIE_CLAUDE_MODEL,
