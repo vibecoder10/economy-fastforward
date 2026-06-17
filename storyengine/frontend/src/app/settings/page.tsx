@@ -317,7 +317,10 @@ export default function SettingsPage() {
   }
 
   return (
-    <motion.div className="space-y-8 max-w-3xl mx-auto" variants={container} initial="hidden" animate="show">
+    // initial={false}: render at the final (visible) state immediately. With
+    // initial="hidden" the fade-in starts at opacity 0, and if it never runs
+    // (tab backgrounded on load / RAF stall) the whole page stays invisible.
+    <motion.div className="space-y-8 max-w-3xl mx-auto" variants={container} initial={false} animate="show">
       {/* Header */}
       <motion.div variants={item}>
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
