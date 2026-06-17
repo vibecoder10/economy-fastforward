@@ -44,9 +44,11 @@ controls that can conflict:
   `cinematic_dossier`, `clay_mannequin`). These are PROFILE ids (the engine), not
   looks, and are confusing next to the clone box.
 
-Create payload today (`page.tsx` ~497, `models.py:164 CreateVideoRequest`):
-`visual_style`, `accent_color`, `aspect_ratio`, `skip_voice`, `pipeline_stages`,
-`reference_url`, … . The INSERT (`routes/videos.py:240`) writes `visual_style` but
+Create payload today (`page.tsx handleCreate` ~491-503): `title`, `source_url`,
+`framework_angle`, `video_length_minutes`, `writer_guidance`, `visual_style`,
+`accent_color`, `skip_research`, `skip_voice`, `pipeline_stages`, `reference_url`.
+(`aspect_ratio` exists in `CreateVideoRequest`/the INSERT but is server-defaulted, not
+sent by the form.) The INSERT (`routes/videos.py:240`) writes `visual_style` but
 **not** `image_style_override` (only the clone sets that, later).
 
 ## 4. The unified "Visual style" step (UX)
@@ -132,17 +134,22 @@ Resolution at generation (unchanged, already shipped):
   from the form anymore; the form stops sending `visual_style`).
 - After insert, if `lock_in_identity` AND a concrete look is present (preset/custom):
   call a shared helper `upsert_active_visual_style(project_id, label, look)`.
-  - For the **clone mode** + lock-in: the look isn't known until the background
-    modeling finishes, so pass the lock-in intent into `_run_modeling`; persist the
-    active style when `_persist_pack` / `_persist_style_overrides` writes
-    `image_style_override`. (If this proves fiddly, ship lock-in for preset/custom
-    first and treat clone-lock-in as a fast follow — call it out in the plan.)
+  - For the **clone mode** + lock-in (IN SCOPE for this plan): the look isn't known
+    until the background modeling finishes, so thread the lock-in intent into
+    `_run_modeling` (it already takes `pipeline_stages`/`preserve_topic`) and call the
+    same helper when `_persist_pack` / `_persist_style_overrides` writes
+    `image_style_override`, using the cloned `image_dna` as the look and a name like
+    "Cloned from <title>". If modeling fails, no library row is created (no
+    half-state). Split this sub-task out only if it materially complicates the plan.
 
 **New shared helper `upsert_active_visual_style(project_id, name, look)`** (in
 `routes/visual_styles.py`, importable by `videos.py`/`model_video.py`):
 - Deactivate other styles for the project (`is_active=false`).
-- Upsert a row `{name, style_profile: {"prompt_prefix": look}, is_active: true}`.
-  Match on `name` per project to avoid duplicates on repeat lock-ins; else insert.
+- There is **no unique constraint on `(project_id, name)`** (migration 010 has only the
+  `id` PK), so this is an explicit SELECT-by-(project_id, name) → UPDATE-or-INSERT, NOT
+  a Postgres `ON CONFLICT` upsert. On match: update `style_profile` + set active; else
+  insert `{name, style_profile: {"prompt_prefix": look}, is_active: true}`. Matching by
+  name dedups repeat lock-ins (concurrent repeats by a single creator are low-risk).
 - Mirrors the existing `activate_visual_style` deactivation logic.
 
 **No change needed** to `identity.py` / `prompt_builder.py` / `pipeline_executor.py` —
@@ -170,9 +177,17 @@ Phase 4/4b already read `image_style_override` and the active `visual_styles` ro
   see `[[storyengine-local-preview-auth]]`; no browser check).
 
 ## 9. What's removed / replaced
-- The 4 hardcoded profile-id style buttons (`cinematic_illustration` etc.) leave the
-  New Video form. (`cinematic_illustration` etc. remain loadable engine presets in the
-  skill registry — not surfaced here.)
+- The 4 hardcoded profile-id style buttons (`cinematic_illustration`, `holographic_hud`,
+  `cinematic_dossier`, `clay_mannequin`) leave the New Video form. Three of them
+  (`cinematic_illustration`, `holographic_hud`, `clay_mannequin`) remain loadable engine
+  presets in the skill's visual-profile registry — not surfaced here. `cinematic_dossier`
+  is a form-only label with no backing registry profile, so removing the picker simply
+  drops it.
+- **Existing video rows** that carry `visual_style='cinematic_dossier'` (or any value)
+  are unaffected: `videos.visual_style` is the engine PROFILE id, and an unknown/missing
+  id already resolves to the neutral engine (Phase 4: unknown id → `neutral_v1`, never
+  holographic). The actual LOOK now comes from `image_style_override`, so old rows keep
+  rendering fine.
 - The separate "Copy a video's style" box is absorbed into the unified step as the
   "Use this video's style" option.
 - The Visual Styles page is unchanged (kept as the library).
