@@ -291,35 +291,46 @@ git commit -m "feat(videos): persist image_style_override + lock-in the chosen l
 ## Task 4: Clone-mode lock-in (backend)
 
 **Files:**
-- Modify: `storyengine/backend/routes/model_video.py` (`_run_modeling` ~821, `_persist_pack` ~468, `_persist_style_overrides` ~608)
+- Modify: `storyengine/backend/routes/model_video.py` (`_run_modeling` ~821, `_persist_style_overrides` ~608)
 
-The clone's look (`image_dna`) only exists after modeling runs. Thread the lock-in flag
-through `_run_modeling` and, where `image_style_override` is written, also call the
-helper with the cloned look.
+The clone's look only exists after modeling runs. The **New Video / Create-form** clone
+path (`preserve_topic=True`) calls **`_persist_style_overrides`** — that's the one
+required hook here. (`_persist_pack` is the standalone "Model A Video" flow; locking in
+there too is OPTIONAL parity, left out to keep this tight.)
 
-- [ ] **Step 1: Add the param to `_run_modeling`.** Change its signature (line ~821)
-  to accept `lock_in_identity: bool = False`, and capture the video title for the
-  library entry name (it's already loaded in the function / available on the video row).
+**Accuracy notes the implementer must respect (the reviewer caught these):**
+- The module logger is `logger` (`model_video.py:40`), NOT `_log`.
+- In `_persist_style_overrides` the value actually written to `image_style_override` is
+  **`img_val`** (line ~640; it's `None` when "images" isn't an enabled stage), NOT
+  `image_dna`. Gate + pass `img_val`, so lock-in never fires for an images-disabled clone.
+- Neither the creator's `video_title` nor `project_id` is in scope in
+  `_persist_style_overrides` — fetch them from the `videos` row (see Step 2).
 
-- [ ] **Step 2: Lock in where the DNA is persisted.** In BOTH `_persist_pack` (the
-  `image_style_override = $11` write ~533/550) and `_persist_style_overrides` (the
-  `image_style_override = $5` write ~665, where `img_val` is the look), after the
-  UPDATE, if the caller passed `lock_in_identity` AND the look (`image_dna`/`img_val`)
-  is non-empty, call:
+- [ ] **Step 1: Thread the flag through `_run_modeling`.** Add
+  `lock_in_identity: bool = False` to its signature (~821) and pass it down into the
+  `_persist_style_overrides(...)` call (mirror how `enabled_stages` is already threaded).
+
+- [ ] **Step 2: Lock in inside `_persist_style_overrides`.** After the UPDATE that writes
+  `image_style_override = $5` (~665), add (using `img_val`, `logger`, and a freshly
+  fetched project_id + title):
 
 ```python
-    if lock_in_identity and (image_dna or "").strip():
+    if lock_in_identity and (img_val or "").strip():
         try:
             from routes.visual_styles import upsert_active_visual_style
-            await upsert_active_visual_style(project_id, f"Cloned from {video_title}".strip(), image_dna.strip())
+            vrow = await fetch_one(
+                "SELECT project_id, video_title FROM videos WHERE id = $1", video_id,
+            )
+            if vrow and vrow.get("project_id"):
+                name = f"Cloned from {vrow.get('video_title') or 'video'}".strip()
+                await upsert_active_visual_style(str(vrow["project_id"]), name, img_val.strip())
         except Exception as e:
-            _log.warning("clone lock-in failed: %s", e)  # use this module's logger
+            logger.warning("clone lock-in failed: %s", e)
 ```
 
-  Thread `lock_in_identity` from `_run_modeling` into whichever of these it calls
-  (follow the existing call chain; `enabled_stages` is already threaded the same way).
-  You'll need `project_id` in scope — fetch it the same way other functions here do
-  (via the video's `project_id`, or `_get_or_create_project(tenant_id)`).
+  (Confirm `fetch_one` is imported in `model_video.py`; it is used throughout. Accept the
+  signature change to `_persist_style_overrides` to receive `lock_in_identity`, or read
+  it off a value `_run_modeling` already has — whichever matches the existing call shape.)
 
 - [ ] **Step 3: Verify compile.**
 
