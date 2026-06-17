@@ -1050,7 +1050,7 @@ async def _cli_main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Economy FastForward Deep Research Agent",
+        description="StoryEngine Deep Research Agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
