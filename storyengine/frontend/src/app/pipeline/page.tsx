@@ -1059,7 +1059,7 @@ export default function VideosPage() {
       </Modal>
 
       {/* === NEW VIDEO MODAL (existing — for returning users) === */}
-      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); }} title="New Video" size="md">
+      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); setStyleMode(""); setStylePresetId(""); setStyleCustom(""); setLockInIdentity(false); }} title="New Video" size="md">
         <div className="space-y-4">
           {/* Primary: Topic / Title (optional — a title can be generated below) */}
           <div>
