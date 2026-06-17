@@ -15,9 +15,20 @@ thin placeholders to the real, neutral craft for each stage:
 - `video_motion`: verb-first motion / camera only for reveal-scale-isolation /
   max 2 actions / banned filler words / emotional-motion vocabulary, with no
   "never show people" rule — animate whatever the scene contains.
-The remaining keys (thumbnail/title) are still neutral scaffolds pending their
-own phases. The original channel-specific craft captured before each split is
-preserved in tasks/engine-identity-seeds/power-doctrine.md as a saved identity.
+Phase 3 promoted the `title` and `thumbnail` templates from thin scaffolds to
+the real, neutral craft for each stage:
+- `title`: curiosity gap / specificity over vagueness / mobile-truncation
+  length discipline / niche-matched framing (no forced crisis tone) / neutral
+  formula SHAPES / honesty / genuinely different angles — with no "How/Why +
+  country first" rule, no geopolitics framework→verdict map, no proper-noun-
+  country mandate.
+- `thumbnail`: one clear concept / bright-bold-readable at phone size / 2-4
+  colour palette / big short dominant text / a distinct visual metaphor per
+  concept / specific-objects-not-generic — identity-driven via {visual_style}
+  and {niche}, with no power-words, no "YOUR" threat stakes, and no geopolitics
+  object-metaphor / map bias.
+The original channel-specific craft captured before each split is preserved in
+tasks/engine-identity-seeds/power-doctrine.md as a saved identity.
 
 The substitution is the load-bearing part. Real prompts in this repo carry
 foreign braces — single placeholders like {HEADLINE}/{TOPIC} and JSON
@@ -414,12 +425,103 @@ ENGINE_TEMPLATES: Dict[str, str] = {
         "OUTPUT: Return ONLY the motion prompt text. No explanations, no "
         "formatting, no labels."
     ),
+    # ----------------------------------------------------------------------
+    # TITLE — the universal title-writing CRAFT.
+    #
+    # The neutral "engine" for titling a video: open a real curiosity gap, be
+    # specific (real noun > vague category), keep it short enough to survive
+    # mobile truncation, and stay honest so the title pays off. The channel
+    # IDENTITY ({channel_name}/{niche}/{target_audience}/{voice_style}) drives
+    # what the title is ABOUT and how it sounds. There is deliberately NO
+    # "must start with How/Why + a country name", no required proper-noun
+    # country, no geopolitics framework→verdict map, and no "negative framing
+    # always wins" mandate: those were Power-Doctrine identity (see
+    # tasks/engine-identity-seeds/power-doctrine.md) and would be wrong for an
+    # ESL, cooking, or story channel. The formula SHAPES are kept with NEUTRAL
+    # placeholders; the niche decides which fit.
+    #
+    # Any {SLOT} below that is NOT an identity key (e.g. {HEADLINE}, {TOPIC},
+    # or a {{json}} fragment) is a runtime slot the title bot may fill —
+    # safe_fill leaves it untouched, so it survives verbatim.
+    # ----------------------------------------------------------------------
     "title": (
-        "You write titles for {channel_name}, a {niche} channel for "
+        "You write video titles for {channel_name}, a {niche} channel for "
         "{target_audience}.\n"
-        "Write {voice_style}, specific, click-worthy titles that honestly "
-        "reflect the {niche} content.\n"
-        "Avoid clickbait that {target_audience} would feel misled by."
+        "A great title earns the click honestly: it opens a real curiosity gap, "
+        "promises a specific payoff the video actually delivers, and sounds like "
+        "{channel_name} — {voice_style}, never generic. Write titles a {niche} "
+        "viewer scrolling their feed cannot ignore, then would not feel tricked "
+        "by after watching.\n"
+        "\n"
+        "=== CURIOSITY GAP — THE CORE OF EVERY TITLE ===\n"
+        "\n"
+        "A title works when it sits in the gap between what {target_audience} "
+        "already knows and what they want to know. Too vague and there's no "
+        "reason to click; too complete and there's no reason to watch. Promise "
+        "something specific they can't quite predict but now need answered.\n"
+        "\n"
+        "=== SPECIFICITY OVER VAGUENESS ===\n"
+        "\n"
+        "Concrete beats abstract. Name the real thing — the specific subject, "
+        "number, place, dish, word, person, or moment the video is about — not "
+        "'amazing', 'crazy', 'you won't believe', or a vague category. A "
+        "specific noun is the single strongest predictor of a click. Vague "
+        "subjects underperform across every niche. Reach for the real detail "
+        "instead of an empty intensifier.\n"
+        "\n"
+        "=== LENGTH DISCIPLINE — SURVIVE MOBILE TRUNCATION ===\n"
+        "\n"
+        "Most viewers see the title on a phone, where it truncates around "
+        "45-55 characters. Keep titles tight and front-load the hook: the most "
+        "compelling word and the specific subject should appear early, before "
+        "any cut-off. When two titles are equally strong, the shorter one wins.\n"
+        "\n"
+        "=== FRAMING — MATCH THE NICHE, DON'T FORCE A TONE ===\n"
+        "\n"
+        "As a general principle, a sharper emotional frame (tension, stakes, a "
+        "surprising turn) tends to out-click a flat, neutral one — but the RIGHT "
+        "frame depends on the {niche}. A cooking channel leans into desire and "
+        "ease; an ESL channel into clarity and confidence; an investigation into "
+        "stakes and revelation. Pick the framing a {niche} video for "
+        "{target_audience} actually rewards. Do NOT force crisis/threat language "
+        "onto a niche that doesn't want it.\n"
+        "\n"
+        "=== TITLE SHAPES YOU CAN ADAPT (NEUTRAL — FILL FOR THIS NICHE) ===\n"
+        "\n"
+        "These are structural shapes, not scripts. Swap in the real subject of "
+        "the {niche} video; use only the ones that fit:\n"
+        "- \"How [Subject] [does/became/changed] [Specific Outcome]\" — the "
+        "clear-mechanism explainer (tells the viewer exactly what they'll learn).\n"
+        "- \"Why [Subject] [Surprising Present-Tense Claim]\" — the causal "
+        "explainer (promises understanding, not just facts).\n"
+        "- \"[Subject] — the [Superlative] [Noun] [qualifier]\" — the "
+        "definitive deep-dive framing.\n"
+        "- \"[Subject] is [more/different] than you think\" — reframes "
+        "something the viewer assumed they understood.\n"
+        "- \"Something [adjective] is happening with [Specific Subject]\" — "
+        "curiosity from a vague signal grounded by a specific subject.\n"
+        "Choose the shape that best fits the actual video; never bend the video "
+        "to fit a shape.\n"
+        "\n"
+        "=== HONESTY — THE TITLE IS A PROMISE ===\n"
+        "\n"
+        "Never promise what the video can't deliver. No clickbait, no "
+        "overclaiming, no bait-and-switch. {target_audience} should finish the "
+        "video feeling the title was accurate — that is what earns the next "
+        "click and keeps them subscribed. An honest, specific title beats a "
+        "sensational empty one every time.\n"
+        "\n"
+        "=== OFFER GENUINELY DIFFERENT ANGLES ===\n"
+        "\n"
+        "When you produce several candidates, each should take a real different "
+        "angle on the video — a different shape, a different hook, a different "
+        "facet — not three rewordings of one idea. Give {channel_name} a real "
+        "choice.\n"
+        "\n"
+        "Example of the move from vague to specific (generalize to any niche): "
+        "a flat, vague title scores low; the same idea made specific and "
+        "concrete — the real subject, the real number or detail — scores far "
+        "higher and stays just as short."
     ),
 }
 

@@ -1,5 +1,5 @@
 """
-Research Agent — Standalone deep research module for Economy FastForward.
+Research Agent — Standalone deep research module for the video pipeline.
 
 Performs deep thematic research on a topic and produces a structured
 research_payload that feeds directly into the brief_translator pipeline.
@@ -156,14 +156,14 @@ Keep it under 200 words. No headers, no bullet points, just cinematic direction 
 
 
 TITLE_GENERATION_PROMPT = """\
-You are the title strategist for Economy FastForward, a faceless \
-YouTube channel producing 15-20 minute geopolitical and economic analysis videos.
+You are the title strategist for this YouTube channel. Write titles that fit \
+the channel's niche and audience — niche-agnostic craft, not a fixed subject.
 
 TOPIC DATA:
 - Headline: {headline}
 - Key Entities: {entities}
 - Hook/Thesis: {thesis}
-- Analytical Framework: {framework}
+- Angle (optional, may be blank): {framework}
 
 TITLE FORMULA LIBRARY:
 {formulas}
@@ -171,35 +171,39 @@ TITLE FORMULA LIBRARY:
 SCORING CRITERIA:
 {scoring_rules}
 
-MODEL THESE CHANNELS (study their title patterns):
-- CaspianReport (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative, proper noun first
-- AiTelly (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism, tells you exactly what you'll learn
+WHAT MAKES A TITLE WORK (study these principles, not a single niche):
+- Curiosity gap: it sits between what the viewer already knows and what they
+  want to know — specific enough to be answerable, surprising enough to click.
+- Specificity: name the real subject, number, place, or detail. A concrete noun
+  out-clicks a vague category every time.
+- Honesty: the title is a promise the video must keep. No bait-and-switch.
 
 TASK:
-Generate exactly 3 title candidates. Each must use a DIFFERENT formula from the library. For each:
+Generate exactly 3 title candidates. Each must use a DIFFERENT formula from the \
+library. For each:
 1. Write the title (MAXIMUM 55 characters. Ideal is 35-50. Count every character.)
 2. Identify which formula ID you used (e.g., MF-0, MF-2)
 3. Score it 0-100 using the weighted criteria
 4. Write 1 sentence explaining why this angle works
-5. Generate matching 2-word thumbnail verdict (strategic judgment, no YOUR language)
+5. Generate a matching 2-4 word thumbnail line (short, punchy, no "YOU/YOUR")
 
 HARD RULES:
 1. MAXIMUM 55 characters. HARD CEILING. Under 45 is ideal.
-2. Start with "How" or "Why" — the two highest-performing openers in this niche
-3. First word after How/Why MUST be a proper noun (country, company, institution, person)
-4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help
-5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives
-6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG)
-7. No em dashes (—), no parenthetical asides, no pipe separators (|)
-8. No cleverness. The event itself is interesting. Just state what the video explains.
+2. Front-load the hook: the most compelling word and the specific subject appear
+   early, before mobile truncation cuts the title off.
+3. Be specific — name the real subject, not a vague category or empty hype word.
+4. NEVER use "YOU" or "YOUR" — this is about the subject, not self-help.
+5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives.
+6. NEVER use ALL CAPS words except genuine acronyms.
+7. No em dashes (—), no parenthetical asides, no pipe separators (|).
+8. No empty cleverness. The subject itself is interesting. State what the video
+   actually delivers.
 9. Declarative statements only. No question marks unless genuinely unanswered.
-10. The 3 titles should offer genuinely different angles, not variations of the same idea
+10. The 3 titles should offer genuinely different angles, not variations of the
+    same idea.
 
-PREFERRED FORMULAS:
-- MF-0: "How [Entity] [Clear Action] [Target]" — for breaking events, mechanisms
-- MF-1: "How [Entity] [Secret Action] [Surprising Detail]" — for hidden strategies
-- MF-2: "Why [Country/Entity] [Dramatic Present-Tense Claim]" — for causal analysis
-- MF-6: "[Country]'s [Adjective] [Crisis/Collapse/Trap]" — for decline stories
+Pick the framing the channel's niche actually rewards — do NOT force crisis or \
+threat language onto a niche that doesn't want it.
 
 Respond ONLY in this JSON format (no markdown, raw JSON):
 {{
@@ -218,11 +222,11 @@ Respond ONLY in this JSON format (no markdown, raw JSON):
 
 
 TITLE_REFINEMENT_PROMPT = """\
-You are refining the title for an Economy FastForward video. \
+You are refining the title for a video. \
 The script is now written and you have access to the actual content.
 
 CURRENT TITLE: {current_title}
-ANALYTICAL FRAMEWORK: {framework}
+ANGLE (optional, may be blank): {framework}
 
 SCRIPT CONTENT (all scenes):
 {script_text}
@@ -233,20 +237,20 @@ TITLE FORMULA LIBRARY:
 SCORING CRITERIA:
 {scoring_rules}
 
-MODEL THESE CHANNELS for title style:
-- CaspianReport (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative
-- AiTelly (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism
+WHAT MAKES A TITLE WORK (apply across any niche):
+- Curiosity gap, specificity (real subject/number/detail, not vague category),
+  and honesty (the title is a promise the video keeps).
 
 YOUR TASK:
 The current title was a working title generated before the script existed. \
 Now that the script is written, you can see the ACTUAL most compelling details.
 
 Step 1: Extract from the script:
-- The single most surprising statistic or data point
-- The most specific mechanism or strategy described
-- The strongest emotional hook or consequence
-- All proper nouns (countries, companies, people, institutions)
-- The core "hidden playbook" being revealed
+- The single most surprising fact, number, or data point
+- The most specific moment, mechanism, or technique shown
+- The strongest hook or payoff
+- The key concrete nouns (subjects, names, places, things)
+- The core idea the video actually delivers
 
 Step 2: Generate 3 NEW title candidates that leverage these specific details. \
 Each must use a DIFFERENT formula. The new titles should be MORE specific than \
@@ -259,12 +263,12 @@ If the current title is already optimal, say so.
 
 HARD RULES:
 1. MAXIMUM 55 characters. HARD CEILING. Under 45 is ideal.
-2. Start with "How" or "Why" — the two highest-performing openers
-3. First word after How/Why MUST be a proper noun
-4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help
-5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives
-6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG)
-7. No em dashes (—), no parenthetical asides, no pipe separators (|)
+2. Front-load the hook so it survives mobile truncation.
+3. Be specific — name the real subject, not a vague category.
+4. NEVER use "YOU" or "YOUR".
+5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives.
+6. NEVER use ALL CAPS words except genuine acronyms.
+7. No em dashes (—), no parenthetical asides, no pipe separators (|).
 8. Declarative statements only. No question marks unless genuinely unanswered.
 
 When refining the title post-script, prefer SHORTER over LONGER. \
@@ -272,9 +276,10 @@ If the working title is 50 characters and a refinement is 55 characters \
 but only slightly better, keep the shorter one. Brevity wins.
 
 CRITICAL: The #1 reason titles underperform is vagueness. The script gives you \
-specific numbers, names, and mechanisms — USE THEM. But keep it SHORT.
-Example: "China's Economic Problems" (vague, score: 35) → \
-"Why China Is Dumping $800B in US Treasuries" (specific + short, score: 88)
+specific facts, names, and details — USE THEM. But keep it SHORT.
+Example: a flat, vague title scores low; the same idea made specific and \
+concrete — the real subject and the real number or detail — scores far higher \
+and stays just as short.
 
 Respond ONLY in this JSON format (no markdown, raw JSON):
 {{
@@ -319,7 +324,8 @@ async def generate_title_candidates(
     Args:
         anthropic_client: AnthropicClient instance
         topic_data: Dict with keys 'headline', 'entities', 'hook', 'thesis'
-        framework: The analytical framework selected (e.g., 'Thucydides Trap')
+        framework: Optional niche-neutral angle hint (may be ""); the title
+            prompt treats it as optional and never forces a fixed framework.
         model: LLM model to use
 
     Returns:
@@ -411,7 +417,9 @@ async def refine_title_post_script(
         raise ValueError(f"Idea record {record_id} not found")
 
     current_title = idea.get(IdeaFields.VIDEO_TITLE, "")
-    framework = idea.get(IdeaFields.FRAMEWORK_ANGLE, "48 Laws")
+    # Optional angle hint for the title prompt; blank is fine (no forced
+    # framework — the title prompt treats {framework} as optional).
+    framework = idea.get(IdeaFields.FRAMEWORK_ANGLE, "")
 
     # Get all script scenes for this video
     scripts = airtable_client.get_scripts_by_title(current_title)
@@ -741,95 +749,30 @@ class ResearchAgent:
 
 
 def infer_framework_from_research(payload: dict) -> str:
-    """Determine the best analytical framework from a research payload.
+    """Return the niche-neutral analytical angle from a research payload.
 
-    The research agent has deep context about the topic at this point,
-    so it can make a more informed framework choice than the discovery scanner.
-    This field is CRITICAL — the brief translator reads it to determine
-    which voice to write the script in.
+    Engine/identity split (Phase 3): this used to force every topic onto one of
+    17 hardcoded geopolitics/power frameworks (48 Laws, Machiavelli, Thucydides
+    Trap, Sun Tzu, Grand Chessboard, …), defaulting to "48 Laws". That keyword
+    map was Power-Doctrine IDENTITY, not universal craft — it would mislabel an
+    ESL, cooking, or story video. It is preserved verbatim in
+    tasks/engine-identity-seeds/power-doctrine.md.
+
+    The "framework" here is just an optional angle hint passed downstream to the
+    script/title stages (e.g. ``framework_angle or 'Not specified'``). The
+    neutral script profile (neutral_v1) handles no-framework cleanly, so we no
+    longer impose a theory. We return whatever niche-neutral angle the research
+    actually surfaced — ``framework_analysis`` — or an empty string when there
+    isn't one. Callers expect a string; an empty string is a valid value.
 
     Returns:
-        One of the 17 valid Framework Angle values.
+        A niche-neutral angle string drawn from the research, or "".
     """
-    # Combine all rich text fields for analysis
-    text = " ".join([
-        payload.get("framework_analysis", ""),
-        payload.get("themes", ""),
-        payload.get("thesis", ""),
-        payload.get("historical_parallels", ""),
-        payload.get("narrative_arc", ""),
-    ]).lower()
-
-    # Score each framework based on keyword presence
-    # Must match all 17 frameworks in script_generator._build_framework_lens_section()
-    framework_signals = {
-        "48 Laws": ["law of power", "48 laws", "robert greene", "conceal your intentions",
-                     "crush your enemy", "court power", "appear weak",
-                     "power dynamics", "power play", "strategic deception"],
-        "Machiavelli": ["machiavelli", "the prince", "virtù", "fortuna",
-                         "feared or loved", "fox and lion", "principality",
-                         "statecraft", "political realism"],
-        "Thucydides Trap": ["thucydides", "rising power", "established power",
-                             "security dilemma", "power transition", "athens and sparta",
-                             "inevitable conflict", "graham allison", "hegemonic war",
-                             "challenger", "status quo power"],
-        "Antifragile": ["antifragile", "black swan", "nassim taleb", "taleb",
-                         "fragility", "tail risk", "skin in the game",
-                         "barbell strategy", "fat tail", "lindy effect",
-                         "robust", "convexity"],
-        "Game Theory": ["game theory", "nash equilibrium", "prisoner's dilemma",
-                         "zero-sum", "positive-sum", "dominant strategy",
-                         "payoff matrix", "incentive structure", "tit for tat"],
-        "Sun Tzu": ["sun tzu", "art of war", "all warfare is deception",
-                     "supreme excellence", "know your enemy", "terrain",
-                     "military strategy", "flanking", "strategic retreat"],
-        "Grand Chessboard": ["brzezinski", "grand chessboard", "mackinder",
-                              "heartland", "rimland", "spykman", "pivot state",
-                              "chokepoint", "strait of hormuz", "eurasia",
-                              "geopolitics of geography", "great game"],
-        "Kindleberger Trap": ["kindleberger", "hegemonic stability", "public goods",
-                               "power vacuum", "stabilizer", "reserve currency",
-                               "dollar weaponization", "bretton woods",
-                               "systemic collapse", "hegemon withdrawal"],
-        "Schelling": ["schelling", "focal point", "brinkmanship", "credible threat",
-                       "commitment device", "red line", "escalation dominance",
-                       "mutual assured destruction", "deterrence", "coercive diplomacy"],
-        "Collective Action": ["collective action", "mancur olson", "free rider",
-                               "concentrated benefits", "diffuse costs", "lobbying",
-                               "regulatory capture", "cartel", "special interest",
-                               "organized minority"],
-        "Soft Power": ["soft power", "joseph nye", "sharp power", "cultural hegemony",
-                        "gramsci", "influence operation", "confucius institute",
-                        "smart power", "cultural dominance", "narrative warfare"],
-        "Jung Shadow": ["shadow self", "jung", "collective unconscious", "projection",
-                         "persona", "archetype", "individuation", "shadow work"],
-        "Behavioral Econ": ["behavioral economics", "loss aversion", "anchoring",
-                             "sunk cost", "nudge", "kahneman", "tversky",
-                             "cognitive bias", "irrational"],
-        "Stoicism": ["stoic", "marcus aurelius", "seneca", "epictetus",
-                      "what you can control", "memento mori", "amor fati",
-                      "virtue ethics", "tranquility"],
-        "Propaganda": ["propaganda", "bernays", "chomsky", "manufacturing consent",
-                        "media manipulation", "narrative control", "information warfare",
-                        "public relations", "perception management"],
-        "Systems Thinking": ["systems thinking", "feedback loop", "second-order effects",
-                              "unintended consequences", "complexity", "emergent behavior",
-                              "cascade", "systemic risk", "interconnected"],
-        "Evolutionary Psych": ["evolutionary psychology", "tribal instinct",
-                                "dominance hierarchy", "in-group", "out-group",
-                                "status signaling", "survival instinct", "primal"],
-    }
-
-    best_framework = "48 Laws"
-    best_score = 0
-
-    for framework, keywords in framework_signals.items():
-        score = sum(1 for kw in keywords if kw in text)
-        if score > best_score:
-            best_score = score
-            best_framework = framework
-
-    return best_framework
+    # The research stage's own framing of the topic — niche-agnostic by design
+    # (a process, a cause-and-effect, a comparison, a story shape — whatever fit
+    # the subject). No forced theory, no geopolitics default.
+    angle = (payload.get("framework_analysis", "") or "").strip()
+    return angle
 
 
 def write_to_airtable(
@@ -1175,7 +1118,7 @@ Examples:
             "thesis": args.test_title,
         }
         result = await generate_title_candidates(
-            anthropic, topic_data, framework="48 Laws", model=args.model,
+            anthropic, topic_data, framework="", model=args.model,
         )
         print(json.dumps(result, indent=2))
         print(f"\n{'=' * 60}")

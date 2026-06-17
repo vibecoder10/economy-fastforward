@@ -1,62 +1,48 @@
 {
   "version": "3.0",
-  "last_updated": "2026-03-08",
+  "last_updated": "2026-06-17",
   "meta": {
-    "description": "Title formula library derived from competitive analysis of 8 top faceless geopolitical/economics channels",
-    "channels_analyzed": [
-      "Jake Tran", "CaspianReport", "Economics Explained",
-      "ColdFusion", "How Money Works", "RealLifeLore",
-      "MagnatesMedia", "Moon"
+    "description": "Universal title-craft library: structural title formulas and scoring rules derived from what makes any YouTube title click — curiosity gap, specificity, length discipline, honest framing. Niche-agnostic; the channel's niche and audience fill in the subject.",
+    "principles_analyzed": [
+      "curiosity gap", "specificity over vagueness", "mobile-truncation length discipline",
+      "front-loaded hook", "emotional framing matched to niche", "honesty / payoff"
     ]
   },
   "thumbnail_system": {
-    "name": "Strategic Verdict Thumbnail Text",
+    "name": "Short Thumbnail Line",
     "rules": [
-      "EXACTLY 2 words. Maximum 3 words only if absolutely necessary.",
+      "Keep it to 2-4 words. Shorter is stronger.",
       "No YOUR or YOU language — ever.",
-      "Must be a JUDGMENT about the situation, not a description or consequence.",
-      "Think: what would a general say in a briefing room after seeing the evidence?",
-      "White or yellow bold text with thick black outline.",
+      "It should amplify the concept, not repeat the full title.",
+      "Think: the single punchiest phrase that captures the moment.",
+      "Bold, high-contrast text (heavy weight, outline, or backing) so it reads at small size.",
       "Must be readable at mobile thumbnail size (160x90px)."
     ],
     "good_examples": [
-      "CHOKE POINT", "PROXY WAR", "DRONE WALL", "ART OF WAR",
-      "DESIGNED TO FAIL", "EXITS LOCKED", "MISSILE STRATEGY",
-      "FORCED WAR", "POWER VACUUM"
+      "ONE MISTAKE", "THE TURNING POINT", "TOO LATE", "THE REAL REASON",
+      "IT WORKED", "NOBODY NOTICED", "THE FIX", "FINALLY"
     ],
     "bad_examples": [
-      "YOUR MONEY GETS LOCKED (too long, uses YOUR)",
-      "$9 GAS IS COMING (prediction, not verdict)",
-      "YOUR AI JUST GOT WEAPONIZED (too long, uses YOUR)",
-      "YOUR BANK IS NEXT (uses YOUR)"
-    ],
-    "framework_to_verdict": {
-      "Thucydides Trap": ["FORCED WAR", "COLLISION COURSE", "NO EXIT"],
-      "Machiavelli": ["POWER GRAB", "RIGGED GAME", "PUPPET MASTER"],
-      "Antifragile": ["HOUSE OF CARDS", "ONE SPARK", "FRAGILE"],
-      "Game Theory": ["TRAPPED", "NO GOOD MOVES", "LOSE-LOSE"],
-      "Sun Tzu": ["INVISIBLE ARMY", "DECOY", "AMBUSH"],
-      "Grand Chessboard": ["CHECKMATE", "GRAND PLAY", "CHOKE POINT"],
-      "Kindleberger Trap": ["POWER VACUUM", "NO LEADER", "LEADERLESS"],
-      "Schelling": ["BLUFF CALLED", "RED LINE", "ULTIMATUM"],
-      "Collective Action": ["ROTTING EMPIRE", "PARALYSIS", "DEAD WEIGHT"],
-      "Soft Power": ["SILENT CONQUEST", "SOFT KILL", "INFLUENCE WAR"]
-    }
+      "YOUR LIFE CHANGES FOREVER (too long, uses YOUR)",
+      "THIS WILL SHOCK YOU (vague hype, uses YOU)",
+      "YOU WON'T BELIEVE THIS (uses YOU, empty hype)",
+      "EVERYTHING ABOUT THE TOPIC (too long, vague)"
+    ]
   },
   "title_thumbnail_pairing": {
-    "rule": "Title and thumbnail text must cover different parts of the curiosity gap. Title carries the 'what' and 'who'. Thumbnail text is a 2-word strategic verdict — a judgment, not a description.",
+    "rule": "Title and thumbnail line should cover different parts of the curiosity gap. The title carries the specific 'what' and 'who'. The thumbnail line is a short 2-4 word punch — it amplifies, it does not repeat the title.",
     "examples": [
       {
-        "title": "How Vietnam Is Beating China at Its Own Game",
-        "thumbnail_text": "RIGGED GAME"
+        "title": "How One Cook Fixed the Hardest Sauce in French Cuisine",
+        "thumbnail_text": "THE FIX"
       },
       {
-        "title": "Why the US Navy Can't Stop Houthi Rebels",
-        "thumbnail_text": "DRONE WALL"
+        "title": "Why Most English Learners Stall at the Same Point",
+        "thumbnail_text": "THE PLATEAU"
       },
       {
-        "title": "How France Is Becoming a Third-World Economy",
-        "thumbnail_text": "DESIGNED TO FAIL"
+        "title": "The Small Habit That Changed How She Studies",
+        "thumbnail_text": "ONE HABIT"
       }
     ]
   },
@@ -64,245 +50,163 @@
     {
       "id": "MF-0",
       "name": "Direct Mechanism (Search-First)",
-      "template": "How [Entity] [Clear Action] [Target/Object]",
-      "psychology": "Maximum clarity. Tells viewer exactly what they'll learn. Optimized for YouTube Search ranking. No cleverness — the EVENT is inherently interesting.",
+      "template": "How [Subject] [Clear Action] [Specific Outcome]",
+      "psychology": "Maximum clarity. Tells the viewer exactly what they'll learn. Optimized for YouTube Search ranking. No cleverness needed — the subject is inherently interesting.",
       "trigger_words": [],
       "performance_tier": "S",
-      "avg_views": "1M-4M (AiTelly proof)",
-      "best_for": "Breaking/recent events, military/geopolitical actions, mechanism explanations",
-      "source_channels": ["AiTelly", "CaspianReport"],
+      "best_for": "Clear how-it-works explainers, breaking/recent events, step-by-step mechanisms",
       "examples": [
-        "How Iran Breached US Israeli Air Defenses",
-        "How US & Israel Tracked Down Ayatollah Khamenei",
-        "How the Iran War set off a regional conflict",
-        "How Vietnam is beating China at its own game"
-      ],
-      "power_doctrine_adaptations": [
-        "How [Country] [Action] [Target/System]",
-        "Why [Country] [Can't/Won't] [Action]"
+        "How One Cook Fixed the Hardest Sauce in French Cuisine",
+        "How a Small Studio Built a Hit Game in Six Months",
+        "How This Method Doubles Reading Speed"
       ]
     },
     {
       "id": "MF-1",
-      "name": "Hidden Mechanism Exposé",
-      "template": "How [Powerful Entity] [Secret/Evil Action] [Surprising Mechanism]",
-      "psychology": "Names villain + implies wrongdoing + specific 'how' creates irresistible curiosity gap",
+      "name": "Hidden Mechanism",
+      "template": "How [Subject] [Quietly/Secretly] [Action] [Surprising Detail]",
+      "psychology": "Names a subject + implies something not widely known + a specific 'how' creates an irresistible curiosity gap.",
       "trigger_words": ["secretly", "quietly", "really", "actually"],
       "performance_tier": "S",
-      "avg_views": "2M-4M",
-      "best_for": "Corporate power plays, government manipulation, financial engineering",
-      "source_channels": ["Jake Tran", "How Money Works"],
+      "best_for": "Behind-the-scenes mechanisms, surprising methods, things hidden in plain sight",
       "examples": [
-        "How the Ultra Wealthy Evade Taxes with Fine Art",
-        "How BlackRock Quietly Bought Every Government on Earth",
-        "How Saudi Arabia Is Secretly Reshaping Global Finance"
-      ],
-      "power_doctrine_adaptations": [
-        "How [Country] Is Secretly [Action] Using [Framework-Specific Mechanism]",
-        "How [Entity] Quietly [Built/Destroyed] [System] — The [Framework] Playbook"
+        "How Top Chefs Quietly Speed Up Prep",
+        "How This App Actually Keeps You Hooked",
+        "How One Teacher Really Gets Kids Reading"
       ]
     },
     {
       "id": "MF-2",
       "name": "Causal Authority ('Why' Opener)",
-      "template": "Why [Country/Entity] [Dramatic Present-Tense Claim]",
-      "psychology": "Promises causal explanation, not just facts. Viewer will UNDERSTAND something.",
-      "trigger_words": ["is", "can't", "won't", "will never", "keeps"],
+      "template": "Why [Subject] [Surprising Present-Tense Claim]",
+      "psychology": "Promises a causal explanation, not just facts. The viewer will UNDERSTAND something, not merely hear about it.",
+      "trigger_words": ["is", "can't", "won't", "keeps", "always"],
       "performance_tier": "S",
-      "avg_views": "1M-3M",
-      "best_for": "Country-level analysis, structural economic problems, geopolitical positioning",
-      "source_channels": ["CaspianReport", "Economics Explained", "How Money Works"],
+      "best_for": "Cause-and-effect explainers, structural problems, 'why does this happen' questions",
       "examples": [
-        "Why Russia Thinks It Needs To Restore The Old Soviet Borders",
-        "Why Argentina Is Doomed To Fail Over and Over Again",
-        "Why Middle Class Americans Can't Afford Anything"
-      ],
-      "power_doctrine_adaptations": [
-        "Why [Country] Is [Dramatic Claim] — The [Framework] Trap",
-        "Why [Country] Will [Never/Always] [Outcome] (The Hidden Doctrine)"
+        "Why Most English Learners Stall at the Same Point",
+        "Why This Recipe Never Works the First Time",
+        "Why Indie Games Keep Outselling the Big Studios"
       ]
     },
     {
       "id": "MF-3",
-      "name": "Vague Alarm + Location",
-      "template": "Something [Alarming Adjective] Is Happening in [Place]",
-      "psychology": "Maximum curiosity from vagueness of 'something' + grounding specificity of location",
-      "trigger_words": ["weird", "terrible", "strange", "disturbing", "unprecedented"],
+      "name": "Vague Signal + Specific Subject",
+      "template": "Something [Adjective] Is Happening with [Specific Subject]",
+      "psychology": "Maximum curiosity from the vagueness of 'something', grounded by the specificity of a real subject.",
+      "trigger_words": ["strange", "surprising", "unexpected", "new", "different"],
       "performance_tier": "S",
-      "avg_views": "1M-2M",
-      "best_for": "Breaking/emerging economic shifts, country-level crises, paradigm changes",
-      "source_channels": ["Economics Explained"],
+      "best_for": "Emerging shifts, surprising trends, paradigm changes in a known area",
       "examples": [
-        "Something Weird Is Happening In Japan",
-        "Something Terrible Is Happening in Italy",
-        "Something Weird is Happening in California"
-      ],
-      "power_doctrine_adaptations": [
-        "Something [Adjective] Is Happening to [Country]'s [Economy/Military/Power]",
-        "Something [Adjective] Is Happening in [Country] (And Nobody's Talking About It)"
+        "Something Strange Is Happening with Home Baking",
+        "Something Changed in How We Learn Languages",
+        "Something Unexpected Is Happening in Indie Music"
       ]
     },
     {
       "id": "MF-4",
-      "name": "Superlative Drama Noun",
-      "template": "[Entity] — The [Superlative] [Drama Noun] in History",
-      "psychology": "Mini-movie title card effect. Superlatives signal definitive, deep-dive content.",
-      "trigger_words": ["biggest", "greatest", "most evil", "worst", "most dangerous"],
+      "name": "Superlative Deep-Dive",
+      "template": "[Subject] — The [Superlative] [Noun] [qualifier]",
+      "psychology": "Mini-movie title-card effect. A superlative signals definitive, deep-dive content worth the watch.",
+      "trigger_words": ["biggest", "greatest", "hardest", "most surprising", "best"],
       "performance_tier": "A",
-      "avg_views": "1M-4M",
-      "best_for": "Corporate scandals, historical parallels, institutional failures",
-      "source_channels": ["ColdFusion", "MagnatesMedia"],
+      "best_for": "Definitive deep dives, record stories, the-most-X-in-its-field pieces",
       "examples": [
-        "Enron - The Biggest Fraud in History",
-        "Builder.ai - The Greatest AI Scam in History",
-        "Theranos: The Most Evil Business In The World"
-      ],
-      "power_doctrine_adaptations": [
-        "[Entity] — The [Superlative] [Power Play/Trap/Betrayal] in [Domain]",
-        "The [Superlative] [Economic/Geopolitical] [Drama Noun] Nobody Survived"
+        "Sourdough — The Hardest Bread to Get Right",
+        "The Greatest Comeback in Indie Game History",
+        "The Most Useful Trick in Spoken English"
       ]
     },
     {
       "id": "MF-5",
-      "name": "Worse Than You Thought",
-      "template": "[Thing] Is [Worse/Deeper/Bigger] Than You Thought",
-      "psychology": "Direct second-person address + implication viewer's understanding is dangerously incomplete",
-      "trigger_words": ["worse", "deeper", "bigger", "scarier", "more dangerous"],
+      "name": "More Than You Thought",
+      "template": "[Subject] Is [More/Deeper/Different] Than You Thought",
+      "psychology": "Implies the viewer's current understanding is incomplete and invites them to close the gap.",
+      "trigger_words": ["more", "deeper", "bigger", "harder", "simpler"],
       "performance_tier": "A",
-      "avg_views": "1M-5M",
-      "best_for": "Tech platforms, economic crises, geopolitical threats viewers already know about",
-      "source_channels": ["Moon", "ColdFusion"],
+      "best_for": "Reframing something the viewer already knows about, myth-busting, hidden depth",
       "examples": [
-        "TikTok Is Worse Than You Thought",
-        "The FTX Disaster is Deeper Than you Think",
-        "The Metaverse Is Worse Than You Thought"
-      ],
-      "power_doctrine_adaptations": [
-        "[Country]'s [Crisis] Is [Worse] Than You Think (The [Framework] Explanation)",
-        "The [Known Event] Is [Deeper] Than Anyone Realizes"
+        "Espresso Is Harder Than You Think",
+        "Grammar Matters Less Than You Think",
+        "This Old Game Is Deeper Than Anyone Realizes"
       ]
     },
     {
       "id": "MF-6",
-      "name": "Ominous Possessive Decline",
-      "template": "[Country]'s [Ominous Adjective] [Decline Noun]",
-      "psychology": "Compact, authoritative. Possessive signals deep-dive specificity. Adjective adds emotional dimension.",
-      "trigger_words": ["quiet", "slow", "silent", "invisible", "crumbling", "unexpected"],
+      "name": "Possessive Shift",
+      "template": "[Subject]'s [Adjective] [Change/Turn/Rise/Fall]",
+      "psychology": "Compact and authoritative. The possessive signals deep-dive specificity; the adjective adds an emotional dimension.",
+      "trigger_words": ["quiet", "slow", "sudden", "unexpected", "surprising"],
       "performance_tier": "A",
-      "avg_views": "700K-1.5M",
-      "best_for": "Slow-burn economic decline, structural weakness stories, country profiles",
-      "source_channels": ["How Money Works", "Economics Explained", "CaspianReport"],
+      "best_for": "Slow-burn change stories, profiles, the gradual rise or decline of a subject",
       "examples": [
-        "Australia's Quiet Collapse",
-        "China's Crumbling Economic Story",
-        "Germany's Unexpected Economic Crisis"
-      ],
-      "power_doctrine_adaptations": [
-        "[Country]'s [Adjective] [Decline Noun] (The [Framework] Pattern)",
-        "[Country]'s [Adjective] [Power/Economic] Collapse — And Who Benefits"
+        "Bread's Quiet Comeback",
+        "One Channel's Surprising Turnaround",
+        "A Language App's Slow Decline"
       ]
     },
     {
       "id": "MF-7",
       "name": "Parenthetical Stakes Escalation",
-      "template": "[Country] is [dramatic state] ([escalated consequence])",
-      "psychology": "CaspianReport innovation. Main clause hooks, parenthetical escalates stakes and adds personal relevance.",
-      "trigger_words": ["and that's", "and it's", "and nobody", "and you're next"],
+      "template": "[Subject] is [state] ([escalated detail])",
+      "psychology": "The main clause hooks; the parenthetical escalates the stakes or adds a surprising twist.",
+      "trigger_words": ["and that's", "and it's", "and nobody", "and here's why"],
       "performance_tier": "A",
-      "avg_views": "500K-1M",
-      "best_for": "Geopolitical cascading effects, connecting distant events to viewer's life",
-      "source_channels": ["CaspianReport"],
+      "best_for": "Stories with a cascading consequence or a twist worth teasing",
       "examples": [
-        "Pakistan is dying (and that is a global problem)",
-        "America is already at war with Venezuela (open war is next)",
-        "The dollar is losing power (and your savings are exposed)"
-      ],
-      "power_doctrine_adaptations": [
-        "[Country] is [state] (and [Framework] explains why [viewer consequence])",
-        "[System] is [failing] (and [who] is already positioning for what comes next)"
+        "This Recipe is Everywhere (and most people make it wrong)",
+        "The Game is Free (and that's the whole strategy)",
+        "Fluency is Closer Than It Feels (and here's the proof)"
       ]
     }
   ],
   "legacy_formulas": {
-    "note": "Original Power Doctrine formulas from v2. LEGACY ONLY — do not use as primary generation formulas. Kept for backward compatibility and edge cases.",
-    "formulas": [
-      {
-        "id": "PD-1",
-        "name": "Dark Command + Framework Tag",
-        "template": "[DARK COMMAND]. [Consequence] — [Framework]"
-      },
-      {
-        "id": "PD-2",
-        "name": "How To Power Move Using Real Event as Proof",
-        "template": "How to [Power Verb] [Target] Using [Weapon They Don't Expect]"
-      },
-      {
-        "id": "PD-3",
-        "name": "The Power Principle That Consequence",
-        "template": "The [Named Principle/Trap/Weapon] That [Shocking Outcome]"
-      },
-      {
-        "id": "PD-4",
-        "name": "Why Thing You Trust Is Actually Dark Truth",
-        "template": "Why [Trusted Thing] Is Actually [Weapon/Trap/Lie] — [Framework]"
-      },
-      {
-        "id": "PD-5",
-        "name": "Number Signs Dark Pattern",
-        "template": "[N] Signs [Someone/System] Is [Dark Action] You — [Framework Tag]"
-      }
-    ]
+    "note": "Reserved for channel-specific or legacy title shapes. LEGACY ONLY — do not use as primary generation formulas. Kept for backward compatibility and edge cases. Currently empty; the universal master_formulas above are the source of truth.",
+    "formulas": []
   },
   "scoring_rules": {
-    "description": "Score each title candidate 0-100 using these weighted criteria",
+    "description": "Score each title candidate 0-100 using these weighted criteria. The criteria are universal title craft; the niche decides which subjects and framing fit.",
     "criteria": [
       {
-        "name": "proper_noun_present",
+        "name": "specific_subject_present",
         "weight": 25,
-        "rule": "Title MUST contain at least one proper noun (country, company, institution, person). No proper noun = automatic 0 score.",
-        "rationale": "Across all 8 channels, specificity of entity is the strongest predictor of views. Vague subjects kill performance."
+        "rule": "Title MUST name a specific, concrete subject (a real thing, person, place, dish, method, number — not a vague category). A vague subject ('stuff', 'things', 'the topic') scores 0 here.",
+        "rationale": "Specificity of subject is the strongest predictor of clicks across niches. Vague subjects underperform everywhere."
       },
       {
         "name": "emotional_stakes_clear",
         "weight": 20,
-        "rule": "Stakes must be immediately obvious within first 50 characters. Words like 'collapse', 'trap', 'crisis', 'secretly' signal stakes.",
-        "rationale": "Titles that telegraph consequences outperform those that merely describe topics."
+        "rule": "The stakes or payoff must be obvious within the first 50 characters — what the viewer gains, avoids, or finally understands. Match the emotional register to the niche.",
+        "rationale": "Titles that telegraph a clear payoff outperform those that merely describe a topic."
       },
       {
         "name": "curiosity_gap_calibrated",
         "weight": 20,
-        "rule": "Title promises something specific the viewer doesn't know but wants to. Gap must be between what viewer currently knows and what title promises.",
-        "rationale": "Too vague = no click. Too specific = no need to click. The gap must be answerable but surprising."
+        "rule": "The title promises something specific the viewer doesn't yet know but wants to. The gap must sit between what the viewer currently knows and what the title promises.",
+        "rationale": "Too vague = no click. Too complete = no need to click. The gap must be answerable but surprising."
       },
       {
         "name": "front_loaded_hook",
-        "weight": 15,
-        "rule": "Primary entity name and emotional hook must appear in first 50 characters (mobile truncation point).",
+        "weight": 20,
+        "rule": "The primary subject and the emotional hook must appear in the first 50 characters (the mobile truncation point).",
         "rationale": "Mobile truncation occurs at 45-50 characters. The hook must survive truncation."
       },
       {
-        "name": "negative_framing",
-        "weight": 10,
-        "rule": "Negative framing outperforms positive by 63%. Prefer crisis/threat/decline language over opportunity/growth.",
-        "rationale": "Outbrain study of 65,000 headlines. Amplified in geopolitics niche where viewers are threat-aware."
-      },
-      {
-        "name": "power_doctrine_alignment",
-        "weight": 10,
-        "rule": "Title should imply a hidden strategy, playbook, or power dynamic being revealed. Bonus for framework references (Thucydides Trap, Machiavellian, etc.)",
-        "rationale": "Channel brand differentiation. 'There's ALWAYS a hidden playbook operating.'"
+        "name": "niche_appropriate_framing",
+        "weight": 15,
+        "rule": "The framing fits what the channel's niche actually rewards. As a general principle a sharper emotional frame (tension, stakes, a surprising turn) tends to out-click a flat one, but do NOT force crisis/threat language onto a niche that doesn't want it.",
+        "rationale": "Framing that out-clicks is real, but the right frame is niche-dependent — desire for cooking, clarity for learning, stakes for investigations."
       }
     ],
     "hard_rules": [
-      "Total length: 30-55 characters. HARD CEILING of 55 characters. Under 45 is ideal. Mobile truncation occurs at 45-50 characters — the ENTIRE title must be visible on mobile.",
-      "NEVER use second-person 'YOU/YOUR' language in titles. No commands ('NEVER trust...', 'STOP doing...'). No imperatives. Titles are declarative statements or 'How/Why' questions about entities, not instructions to the viewer.",
-      "NEVER use ALL CAPS words in titles except for acronyms (US, NATO, PBOC). No 'NEVER', 'STOP', 'ACTUALLY'. These signal clickbait and reduce CTR on analytical content.",
-      "No question marks unless the question is genuinely unanswered. Declarative titles outperform questions.",
-      "ALWAYS include a proper noun — no exceptions",
-      "Front-load the entity: proper noun must appear within first 5 words",
-      "Prefer 'How' or 'Why' as opener — these are the two highest-performing openers in this niche",
-      "Use numbers/dollar amounts when available (15-25% CTR boost)",
-      "Thumbnail text must be DIFFERENT from title — 2-word strategic verdict"
+      "Total length: 30-55 characters. HARD CEILING of 55 characters. Under 45 is ideal. Mobile truncation occurs at 45-50 characters — the most compelling part of the title must be visible on mobile.",
+      "NEVER use second-person 'YOU/YOUR' language in titles. No commands ('NEVER do...', 'STOP doing...'). No imperatives. Titles are declarative statements or 'How/Why' framings about the subject, not instructions to the viewer.",
+      "NEVER use ALL CAPS words in titles except genuine acronyms. No 'NEVER', 'STOP', 'ACTUALLY' in caps. These signal clickbait and reduce CTR.",
+      "No question marks unless the question is genuinely unanswered. Declarative titles generally outperform questions.",
+      "ALWAYS name a specific, concrete subject — no vague categories.",
+      "Front-load the hook: the most compelling word and the specific subject should appear early, before truncation.",
+      "Use numbers or concrete details when available — they add specificity and tend to lift CTR.",
+      "Thumbnail line must be DIFFERENT from the title — a short 2-4 word punch, not a repeat."
     ]
   }
 }
