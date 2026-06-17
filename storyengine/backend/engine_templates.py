@@ -4,18 +4,20 @@ The CRAFT (the "engine") lives in these templates; the IDENTITY (voice + look
 + framing) is injected via safe_fill. They must stay niche-agnostic: no
 geopolitics, no "Power Doctrine", no "Economy FastForward".
 
-Phase 2 promoted the `script` and `research` templates from thin placeholders
-to the real, neutral craft for each stage:
+Phase 2 promoted the `script`, `research`, and `video_motion` templates from
+thin placeholders to the real, neutral craft for each stage:
 - `script`: universal retention/hook/payoff/specificity/honest-close, with the
   channel's identity driving voice, audience, and the niche-appropriate shape
   (no fixed act count, no exposé structure, no number quota).
 - `research`: go deep / verify before including / cite real sources / mark
   unverified / hand back a structured brief / niche-appropriate specificity (no
   "follow the money", no statistic quota, no incentive-chain exposé structure).
-The remaining keys (thumbnail/video_motion/title) are still neutral scaffolds
-pending their own phases. The original channel-specific craft captured before
-each split is preserved in tasks/engine-identity-seeds/power-doctrine.md as a
-saved identity.
+- `video_motion`: verb-first motion / camera only for reveal-scale-isolation /
+  max 2 actions / banned filler words / emotional-motion vocabulary, with no
+  "never show people" rule — animate whatever the scene contains.
+The remaining keys (thumbnail/title) are still neutral scaffolds pending their
+own phases. The original channel-specific craft captured before each split is
+preserved in tasks/engine-identity-seeds/power-doctrine.md as a saved identity.
 
 The substitution is the load-bearing part. Real prompts in this repo carry
 foreign braces — single placeholders like {HEADLINE}/{TOPIC} and JSON
@@ -262,13 +264,155 @@ ENGINE_TEMPLATES: Dict[str, str] = {
         "The concept should signal the {niche} topic at a glance and feel "
         "{voice_style}."
     ),
+    # ----------------------------------------------------------------------
+    # VIDEO_MOTION — the universal motion-direction CRAFT.
+    #
+    # The neutral "engine" for turning a static image into a clip: verb-first
+    # motion (animate the actual action in the narration), camera static by
+    # default (move only for reveal/scale/isolation), max 2 actions, a banned
+    # filler-word list, and an emotional-motion vocabulary. The channel IDENTITY
+    # ({visual_style}/{voice_style}) tunes the feel. There is deliberately NO
+    # "never show human figures / all motion on data displays" rule — that was
+    # Power-Doctrine identity (data-viz with no people); a story, ESL, cooking,
+    # or vlog channel MUST animate people and characters. Animate whatever the
+    # scene actually contains. The examples are niche-neutral.
+    #
+    # The {SLOT}s below that are NOT identity keys — {duration_note},
+    # {word_limit}, {hero_instruction}, {camera_purpose}, {camera_motion} — are
+    # runtime slots the motion call site fills via .format(); safe_fill leaves
+    # them untouched so they survive verbatim.
+    # ----------------------------------------------------------------------
     "video_motion": (
-        "You direct the motion and pacing for {channel_name}, a {niche} "
-        "channel for {target_audience}.\n"
-        "Keep camera and animation choices consistent with a {visual_style} "
-        "look and a {voice_style} feel.\n"
-        "Use motion to support comprehension of the {niche} content, not to "
-        "distract from it."
+        "You are a cinematographer for {channel_name}, a {niche} channel for "
+        "{target_audience}, writing motion instructions for AI video "
+        "generation.\n"
+        "Each prompt animates a single static image into a {duration_note}. The "
+        "narrator will be speaking the Sentence Text over this clip. Keep the "
+        "feel consistent with a {visual_style} look and a {voice_style} tone.\n"
+        "\n"
+        "YOUR JOB: Write motion that LITERALLY ENACTS the verb in the "
+        "narration. You are not decorating — you are directing a film.\n"
+        "\n"
+        "CRITICAL: The source image ALREADY contains the full scene. Do NOT "
+        "re-describe the scene. Only describe what MOVES and HOW.\n"
+        "Animate whatever the scene actually contains — a person, a character, "
+        "an object, a place, a chart, a hand. There is no restriction on what "
+        "may move; the right motion is the one that enacts the narration.\n"
+        "Maximum {word_limit} words.\n"
+        "{hero_instruction}\n"
+        "\n"
+        "## RULE 1 — VERB-FIRST MOTION DESIGN\n"
+        "\n"
+        "Before writing ANY motion, do this:\n"
+        "1. Read the Sentence Text\n"
+        "2. Identify the CORE VERB or action (\"turns\", \"opens\", \"rises\", "
+        "\"rolls\", \"fills\")\n"
+        "3. The subject animation must LITERALLY ENACT that verb\n"
+        "4. Everything else in frame HOLDS STILL — the animated verb is the "
+        "only motion\n"
+        "\n"
+        "Examples:\n"
+        "- \"She turns to face the door\" -> the character pivots, eyes lifting "
+        "to the doorway, everything else still\n"
+        "- \"The door creaks open\" -> the door swings inward, light widening "
+        "across the floor\n"
+        "- \"Steam rises off the pan\" -> a single ribbon of steam lifts and "
+        "curls upward from the surface\n"
+        "- \"The ball rolls to the edge\" -> the ball rolls across the table and "
+        "stops at the lip\n"
+        "- \"The total climbs\" -> the number ticks upward and the bar fills "
+        "left to right\n"
+        "\n"
+        "The verb IS the animation. Not a metaphor for it. Not a decoration "
+        "around it.\n"
+        "\n"
+        "## RULE 2 — CAMERA MOVES ONLY WHEN CAMERA IS THE MEANING\n"
+        "\n"
+        "Camera must be STATIC by default. Only add camera motion if it serves "
+        "exactly one of three purposes:\n"
+        "1. REVEAL — motion uncovers something new (a pan that exposes who else "
+        "is in the room)\n"
+        "2. SCALE — motion communicates size (a pull-back showing how big the "
+        "space really is)\n"
+        "3. ISOLATION — motion narrows focus (a push-in on the one detail that "
+        "matters)\n"
+        "\n"
+        "If the camera move doesn't serve REVEAL, SCALE, or ISOLATION — it's a "
+        "static shot. Remove all default orbit/drift/push-in that exists as "
+        "cinematography habit.\n"
+        "\n"
+        "WRONG: \"Slow orbit around the kitchen with gradual push-in. The cook "
+        "stirs the pot, steam rises, a timer ticks, light flickers...\"\n"
+        "-> Camera eating attention budget, 4+ simultaneous actions\n"
+        "\n"
+        "RIGHT: \"Static medium shot of the kitchen. The cook stirs the pot "
+        "once, slowly, as steam lifts off the surface.\"\n"
+        "-> Camera still, one meaningful motion\n"
+        "\n"
+        "## RULE 3 — TWO ACTIONS MAXIMUM PER CLIP\n"
+        "\n"
+        "Each animation prompt gets AT MOST:\n"
+        "- 1 camera action (only if it passes Rule 2) + 1 subject action\n"
+        "- OR 0 camera action + 2 subject actions\n"
+        "- NEVER more than 2 total animated elements\n"
+        "\n"
+        "Count your actions before submitting. If you have more than 2, delete "
+        "until you have 2.\n"
+        "\n"
+        "## MOTION VOCABULARY — USE VERBS, NOT ADJECTIVES\n"
+        "\n"
+        "BANNED WORDS (never use):\n"
+        "- gently, softly, subtly, slightly (as filler)\n"
+        "- \"ambient glow intensifies/dims\"\n"
+        "- \"dust particles drift\"\n"
+        "- \"reflections shift across surfaces\"\n"
+        "- \"light pulses\"\n"
+        "- Any motion that could apply to ANY image regardless of narration\n"
+        "\n"
+        "REQUIRED: Every motion must be a specific VERB acting on a specific "
+        "OBJECT:\n"
+        "- \"Her hand closes around the cup\" (specific object + specific "
+        "action)\n"
+        "- \"The dough folds over onto itself\" (specific object + specific "
+        "action)\n"
+        "- \"Lights switch on room by room from left to right\" (specific object "
+        "+ specific action + specific direction)\n"
+        "\n"
+        "## THE PAYOFF LINE TEST\n"
+        "\n"
+        "Read your final line. Does it create a VISUAL IMAGE that lands "
+        "emotionally?\n"
+        "- GOOD: \"...until she finally looks up and meets the camera\"\n"
+        "- GOOD: \"...the last light clicks off, leaving the room dark\"\n"
+        "- BAD: \"...ambient glow softly dims\"\n"
+        "- BAD: \"...elements gently pulse\"\n"
+        "If your final line could be a screensaver, rewrite the entire prompt.\n"
+        "\n"
+        "## EMOTIONAL MOTION DICTIONARY\n"
+        "\n"
+        "COLLAPSE / FAILURE: freeze, stutter, slump, dim in sequence, go dark "
+        "one by one, slow to a crawl, lock up, fall apart, dissolve, drain\n"
+        "ESCALATION / BUILD: accelerate, multiply, cascade, spread outward, "
+        "stack up, swarm, converge, tighten, rise\n"
+        "REVELATION / DISCOVERY: snap into focus, illuminate, peel back, turn "
+        "toward, resolve from blur, sharpen, open, materialize\n"
+        "TENSION / ANTICIPATION: hold unnaturally still, hover, strain, pull "
+        "apart slowly, balance on the edge\n"
+        "RELEASE / ARRIVAL: settle, exhale, land, fall into place, bloom, "
+        "spill, open out\n"
+        "LOSS / ABSENCE: fade to nothing, leave empty, hollow out, slip away, "
+        "scatter, recede\n"
+        "\n"
+        "## CAMERA DECISION\n"
+        "\n"
+        "The camera purpose for this clip is: \"{camera_purpose}\"\n"
+        "The camera direction is: \"{camera_motion}\"\n"
+        "\n"
+        "If camera is \"Static shot\", do NOT add any camera motion. Your entire "
+        "budget is for subject action.\n"
+        "\n"
+        "OUTPUT: Return ONLY the motion prompt text. No explanations, no "
+        "formatting, no labels."
     ),
     "title": (
         "You write titles for {channel_name}, a {niche} channel for "
