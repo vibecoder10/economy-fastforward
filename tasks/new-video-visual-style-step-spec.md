@@ -1,6 +1,6 @@
 # Spec — New Video "Visual style" step (unified picker)
 
-**Date:** 2026-06-17 · **Status:** design approved, ready for implementation plan
+**Date:** 2026-06-17 · **Status:** ✅ SHIPPED + deployed + proven live (2026-06-17, `main` @ `5e1e8102`). Built subagent-driven per `tasks/new-video-visual-style-step-plan.md`; 6 preset icons live at `public/style-icons/`.
 **Builds on:** the engine/identity Phase 4 + 4b visual work (see
 `tasks/engine-identity-split-plan.md`). Those already make image generation read the
 look from `videos.image_style_override` (per-video, wins) → the channel's active
