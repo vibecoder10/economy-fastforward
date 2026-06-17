@@ -20,11 +20,30 @@ resilience (was #1) → 14k.)
    `remotion-video/src/Root.tsx` + `renderConfig` hardcode 1920x1080, so portrait
    voice_over videos render letterboxed.
 
-3. **Extend stage toggles to the rest of the pipeline** (Ryan: "all parts should be
-   toggleable"). Voice is done (14h) via `_skip_disabled_next` + a `skip_*` column.
-   Repeat for the other optional stages (sound design, sound effects, thumbnail):
-   add `skip_<stage>` columns + creation toggles, extend `_skip_disabled_next`, and
-   harden each gate. Ryan chose CREATION-TIME toggles (not live per-stage switches).
+3. **Extend stage toggles to the rest of the pipeline** ✅ **DONE + DEPLOYED + VERIFIED
+   IN PROD (2026-06-16, commit `ced64159`).** The original "add `skip_<stage>` columns"
+   framing was SUPERSEDED: the general per-video `pipeline_stages` plan (commits
+   `d11b63e2`/`b4de08f4`) already made every step toggleable at creation, reroutes the
+   pipeline around turned-off steps at the `_update_video_status` chokepoint, and the
+   per-video page already hides a turned-off step's tab (`tabVisible`/`TAB_STAGES` —
+   so "pipeline-page reflection still owed" was already done). The only real remaining
+   work was "harden each gate," which this commit did:
+   - **Backend:** new `status_map` helpers `parse_stage_plan` + `stage_enabled_in_plan`,
+     and a `_require_stage_enabled(video, stage)` guard wired into **12** manual
+     trigger endpoints in `routes/pipeline.py` (research, voice, dialogue-voice, clip,
+     sound-prompts, sound-effects, video-scripts, video-generation, generate-video-prompts,
+     thumbnail, render, upload). A disabled step now returns a clear 400 instead of
+     running the bot + burning Kie credits + persisting an artifact. Full-pipeline videos
+     (plan NULL) are untouched. 8 new unit tests (21/21 pass).
+   - **Frontend:** the shared Scenes tab (`ScenesWorkspaceTab.tsx`) showed for an
+     images-only plan (Scenes = images OR video) but still exposed Animate controls →
+     a `videoStageEnabled` flag now hides every animate/clip affordance (card hover
+     "Animate", tap-to-animate, "Animate this scene", "Animate the rest", the clip
+     counter, the ⋯ Clips/Speaking-voices/motion block, and the silent motion-prompt
+     auto-run) when the `video` stage is off. Picture workspace stays. tsc + build clean.
+   See [[storyengine-pipeline-stage-plan]]. Open follow-up: `split` (deterministic, free
+   timing) is intentionally NOT gated — a no-voice/images-only video may still need scene
+   timing for the visual timeline.
 
 4. **Env style polish — small remainders.** Structured prompts (14i) fixed the gross
    drift (verified: 2D→3D and photoreal→3D both lock). Open: (a) `fence_line_rubbish`
