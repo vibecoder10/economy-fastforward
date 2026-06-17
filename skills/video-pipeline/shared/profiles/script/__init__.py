@@ -6,7 +6,9 @@ the active editorial voice profile at runtime.
 Profile selection order:
 1. Explicit ``profile_id`` argument (per-video override from Airtable)
 2. ``SCRIPT_PROFILE`` environment variable (per-channel default)
-3. Fallback: ``"power_doctrine_v2"`` (current production voice)
+3. Fallback: ``"neutral_v1"`` (universal craft, no built-in identity).
+   Power Doctrine is now OPT-IN via SCRIPT_PROFILE=power_doctrine_v2 or an
+   explicit profile_id argument.
 
 Usage::
 
@@ -26,11 +28,14 @@ from .schema import ScriptProfile
 
 # Registry of known profile module names
 _PROFILE_MODULES: dict[str, str] = {
+    "neutral_v1": "shared.profiles.script.neutral_v1",
     "power_doctrine_v2": "shared.profiles.script.power_doctrine_v2",
     "power_doctrine_v1": "shared.profiles.script.power_doctrine_v1",
 }
 
-DEFAULT_PROFILE_ID = "power_doctrine_v2"
+# Neutral universal craft is the default. Power Doctrine is opt-in
+# (SCRIPT_PROFILE=power_doctrine_v2 or an explicit profile_id argument).
+DEFAULT_PROFILE_ID = "neutral_v1"
 
 # Module-level cache — one profile loaded per pipeline run
 _profile_cache: dict[str, ScriptProfile] = {}
@@ -41,7 +46,7 @@ def load_script_profile(profile_id: Optional[str] = None) -> Optional[ScriptProf
 
     Args:
         profile_id: Profile to load. If None, reads ``SCRIPT_PROFILE``
-            env var, then falls back to ``"power_doctrine_v2"``.
+            env var, then falls back to ``"neutral_v1"``.
 
     Returns:
         The loaded ``ScriptProfile``, or ``None`` if loading fails

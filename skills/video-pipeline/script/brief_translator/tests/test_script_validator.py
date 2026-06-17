@@ -858,6 +858,97 @@ class TestConfig:
         assert config.act_coherence_check is True
 
 
+class TestDefaultProfileIsNeutral:
+    """The engine/identity split: the DEFAULT profile must be neutral
+    universal craft, with Power Doctrine reintroduced as an opt-in profile.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_profile_loader(self, monkeypatch):
+        """Clear the SCRIPT_PROFILE env var and the module cache so each test
+        sees the true default-resolution behavior, not leakage from another
+        test or the host environment.
+        """
+        from shared.profiles.script import clear_cache
+
+        monkeypatch.delenv("SCRIPT_PROFILE", raising=False)
+        clear_cache()
+        yield
+        clear_cache()
+
+    def test_default_profile_is_neutral_v1(self):
+        """(a) load_script_profile() with no arg / no env returns neutral_v1."""
+        from shared.profiles.script import load_script_profile, DEFAULT_PROFILE_ID
+
+        assert DEFAULT_PROFILE_ID == "neutral_v1"
+        profile = load_script_profile()
+        assert profile is not None
+        assert profile.profile_id == "neutral_v1"
+
+    def test_power_doctrine_still_loadable_with_gates_on(self):
+        """(b) load_script_profile("power_doctrine_v2") still works and keeps
+        the PD validation gates ON.
+        """
+        from shared.profiles.script import load_script_profile
+
+        profile = load_script_profile("power_doctrine_v2")
+        assert profile is not None
+        assert profile.profile_id == "power_doctrine_v2"
+        v = profile.validation
+        assert v.number_density_check is True
+        assert v.incentive_chain_presence is True
+        assert v.framework_max_pct_check is True
+        assert v.personal_stakes_presence is True
+        assert v.actionable_ending_check is True
+        assert v.requires_research_brief is True
+
+    def test_neutral_profile_has_all_pd_gates_off(self):
+        """(c) The neutral profile turns OFF every PD ValidationConfig gate and
+        sets requires_research_brief False so a simple premise is never
+        rejected for lacking documentary depth.
+        """
+        from shared.profiles.script import load_script_profile
+
+        profile = load_script_profile("neutral_v1")
+        assert profile is not None
+        assert profile.profile_id == "neutral_v1"
+        v = profile.validation
+        assert v.number_density_check is False
+        assert v.incentive_chain_presence is False
+        assert v.framework_max_pct_check is False
+        assert v.personal_stakes_presence is False
+        assert v.actionable_ending_check is False
+        assert v.requires_research_brief is False
+
+    def test_neutral_profile_structure_is_unconstrained(self):
+        """The neutral profile imposes no number / framework / incentive-chain
+        requirements, so any niche (ESL, cooking, stories) generates fine.
+        """
+        from shared.profiles.script import load_script_profile
+
+        profile = load_script_profile("neutral_v1")
+        assert profile.number_density.minimum_total == 0
+        assert profile.number_density.per_act == {}
+        assert profile.incentive_chain.required is False
+        assert profile.framework_integration.available_frameworks == []
+        assert profile.framework_integration.max_runtime_pct == 0.0
+        assert profile.teardown.enabled is False
+        # Short floor so brief ESL / story scripts are not blocked on length.
+        assert profile.validation.min_words <= 150
+
+    def test_env_var_selects_power_doctrine(self, monkeypatch):
+        """Power Doctrine remains reachable as a per-channel default via the
+        SCRIPT_PROFILE env var.
+        """
+        from shared.profiles.script import load_script_profile, clear_cache
+
+        monkeypatch.setenv("SCRIPT_PROFILE", "power_doctrine_v2")
+        clear_cache()
+        profile = load_script_profile()
+        assert profile is not None
+        assert profile.profile_id == "power_doctrine_v2"
+
+
 # ---------------------------------------------------------------------------
 # Test: Full validation with new checks
 # ---------------------------------------------------------------------------

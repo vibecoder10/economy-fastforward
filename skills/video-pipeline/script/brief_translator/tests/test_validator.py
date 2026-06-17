@@ -245,3 +245,97 @@ class TestFormatValidationSummary:
         assert "READY" in summary
         assert "✅" in summary
         assert "⚠️" in summary
+
+
+# ---------------------------------------------------------------------------
+# Functional: the brief gate (validate_brief) is opt-in per profile.
+#
+# A simple premise must NOT be rejected for lacking documentary depth when the
+# active profile sets requires_research_brief=False (the neutral default). When
+# the profile requires a research brief (Power Doctrine), the gate must still
+# run. We stub generate_script to raise a sentinel right after the gate so we
+# only exercise the gate decision, and assert whether validate_brief was
+# called.
+# ---------------------------------------------------------------------------
+
+class _SentinelStop(Exception):
+    """Raised by the stubbed generate_script to stop the pipeline right after
+    the brief-gate decision so the test only exercises step 1."""
+
+
+class _Profile:
+    """Minimal stand-in for a ScriptProfile that only needs to expose
+    ``validation.requires_research_brief`` and ``profile_id``."""
+
+    def __init__(self, profile_id, requires_research_brief):
+        self.profile_id = profile_id
+        self.version = "1.0"
+
+        class _V:
+            pass
+
+        self.validation = _V()
+        self.validation.requires_research_brief = requires_research_brief
+
+
+def _run_translate_to_gate(monkeypatch, *, requires_research_brief):
+    """Build a BriefTranslator with a stubbed profile, stub validate_brief
+    (returning READY) and generate_script (raising a sentinel), run
+    translate(), and report whether validate_brief was called.
+    """
+    import asyncio
+    import script.brief_translator as bt_module
+    from script.brief_translator import BriefTranslator
+
+    calls = {"validate_brief": 0, "generate_script": 0}
+
+    async def fake_validate_brief(anthropic_client, brief):
+        calls["validate_brief"] += 1
+        return {
+            "decision": "READY",
+            "criteria": [],
+            "overall_verdict": "READY",
+            "gaps": "",
+        }
+
+    async def fake_generate_script(*args, **kwargs):
+        calls["generate_script"] += 1
+        raise _SentinelStop()
+
+    monkeypatch.setattr(bt_module, "validate_brief", fake_validate_brief)
+    monkeypatch.setattr(bt_module, "generate_script", fake_generate_script)
+
+    translator = BriefTranslator(
+        anthropic_client=object(),
+        airtable_client=object(),
+    )
+    # Override whatever profile the loader picked up with our explicit stub so
+    # the test is deterministic regardless of the host default.
+    translator.profile = _Profile("test_profile", requires_research_brief)
+
+    brief = {"headline": "How to use the present perfect tense"}
+    result = asyncio.run(translator.translate("rec123", brief))
+    return calls, result
+
+
+class TestBriefGateRespectsProfile:
+    def test_gate_skipped_when_not_required(self, monkeypatch):
+        """Neutral profile (requires_research_brief=False): validate_brief is
+        NOT called; pipeline proceeds straight to generate_script."""
+        calls, result = _run_translate_to_gate(
+            monkeypatch, requires_research_brief=False
+        )
+        assert calls["validate_brief"] == 0
+        assert calls["generate_script"] == 1
+        assert result["validation"].get("skipped") is True
+        assert result["validation"]["decision"] == "READY"
+
+    def test_gate_runs_when_required(self, monkeypatch):
+        """Power-Doctrine-style profile (requires_research_brief=True):
+        validate_brief IS called before generation."""
+        calls, result = _run_translate_to_gate(
+            monkeypatch, requires_research_brief=True
+        )
+        assert calls["validate_brief"] == 1
+        assert calls["generate_script"] == 1
+        assert result["validation"].get("skipped") is not True

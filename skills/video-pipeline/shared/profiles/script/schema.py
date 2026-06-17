@@ -108,6 +108,13 @@ class ValidationConfig:
     actionable_ending_check: bool = True
     retry_on_fail: bool = True
     max_retries: int = 2
+    # When True, the LLM brief-readiness judge (validate_brief) must approve the
+    # brief before script generation — it checks documentary-grade depth
+    # (fact density, framework depth, supporting evidence, etc.). This is the
+    # Power Doctrine behavior. When False (the neutral default), a simple
+    # premise (ESL, cooking, a story) proceeds straight to generation without
+    # being rejected for lacking research-brief depth.
+    requires_research_brief: bool = True
 
 
 @dataclass

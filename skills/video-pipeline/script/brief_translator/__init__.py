@@ -131,22 +131,54 @@ class BriefTranslator:
 
         try:
             # === STEP 1: Production Readiness Validation ===
-            logger.info("Step 1: Validating production readiness...")
-            self._notify(f"🔍 Validating brief: {brief.get('headline', 'Untitled')}")
+            # The brief gate (validate_brief) is an LLM judge for DOCUMENTARY
+            # research-brief depth (fact density, framework depth, supporting
+            # evidence, …). It is opt-in per profile: only the Power-Doctrine
+            # style requires it. When the active profile sets
+            # validation.requires_research_brief=False (the neutral default),
+            # a simple premise (ESL, cooking, a story) must proceed straight to
+            # generation — it must NOT be rejected for lacking documentary
+            # depth. If no profile loaded, preserve the legacy behavior and run
+            # the gate.
+            requires_brief_gate = (
+                self.profile is None
+                or self.profile.validation.requires_research_brief
+            )
 
-            validation = await validate_brief(self.anthropic, brief)
-            result["validation"] = validation
-            logger.info(format_validation_summary(validation))
-
-            if validation["decision"] == "REJECT":
-                logger.warning("Brief rejected — insufficient material")
-                self._notify(
-                    f"❌ Brief rejected: {brief.get('headline', 'Untitled')}\n"
-                    f"Reason: {validation.get('gaps', 'Multiple criteria failed')}"
+            if not requires_brief_gate:
+                logger.info(
+                    "Step 1: Brief gate SKIPPED — profile "
+                    f"'{self.profile.profile_id}' does not require a research "
+                    "brief (requires_research_brief=False); proceeding to "
+                    "script generation."
                 )
-                self._mark_rejected(idea_record_id, validation)
-                result["status"] = "rejected"
-                return result
+                validation = {
+                    "decision": "READY",
+                    "criteria": [],
+                    "overall_verdict": "READY",
+                    "gaps": "",
+                    "skipped": True,
+                }
+                result["validation"] = validation
+            else:
+                logger.info("Step 1: Validating production readiness...")
+                self._notify(
+                    f"🔍 Validating brief: {brief.get('headline', 'Untitled')}"
+                )
+
+                validation = await validate_brief(self.anthropic, brief)
+                result["validation"] = validation
+                logger.info(format_validation_summary(validation))
+
+                if validation["decision"] == "REJECT":
+                    logger.warning("Brief rejected — insufficient material")
+                    self._notify(
+                        f"❌ Brief rejected: {brief.get('headline', 'Untitled')}\n"
+                        f"Reason: {validation.get('gaps', 'Multiple criteria failed')}"
+                    )
+                    self._mark_rejected(idea_record_id, validation)
+                    result["status"] = "rejected"
+                    return result
 
             # === STEP 1b: Supplemental Research (if needed) ===
             if validation["decision"] == "NEEDS_SUPPLEMENT":
