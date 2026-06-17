@@ -145,16 +145,29 @@ reviewer-approved.
   Economy-FastForward + CHECKMATE/WEAPONIZED power-words + bear-trap/map metaphors). Promoted
   `engine_templates.py` `title`+`thumbnail` to real neutral craft; `prompt_defaults.THUMBNAIL_SYSTEM_PROMPT`
   → engine_templates. Reviewer-approved (craft preserved, JSON neutral at runtime, no PD fallback). 24+161+22 tests green.
-- **Tracked for later (NOT a regression — deferred by design):** Phase 4 = image-gen identity
-  (`prompt_builder.py` `_CHARACTER_PREFIX`/`_UNIVERSAL_SUFFIX`, the lone `cinematic_illustration` visual
-  profile, AND `anthropic_client.py:~408-487` "intelligence operations center / never show humans"); plus
-  two residual PD spots a later pass should catch — `_generate_cinematic_direction` (PD act-structure
-  ORDINARY-PERSON/OPERATOR/ARCHITECT/PROPHET) in `research/agent.py` and `title_idea/curiosity_gap/
-  gap_title_engine.py` (its own hardcoded `MF_FORMULAS` with CHOKE POINT / "Weaponized [Geography]"); plus
-  a PRE-EXISTING `title_patterns.json` loader path bug (readers resolve it relative to their own dir →
-  FileNotFoundError → research no-ops to curiosity-gap engine, scanner crashes on init; fallback is NOT PD)
-  — spawned as its own task.
-- **Next:** Phase 3 (titles/thumbnails). Live ESL-script proof re-run after this deploy.
+- **Phase 4 (Images) — DONE + MERGED + DEPLOYED + PROVEN LIVE (commit `faa0e4c8`, 2026-06-17):**
+  neutralized the visual engine. New `shared/profiles/visual/neutral_v1.py` (style-agnostic: empty medium
+  prefix + technical-only suffix, `allow_human_figures=True`, NO national archetypes, neutral scene
+  system-prompt with non-political examples, empty metaphor table). Flipped the visual default at all 7
+  spots → `neutral_v1` (the real gate; backend never set `VISUAL_PROFILE` before, so this also fixed a
+  latent "tenants can't switch styles" bug). `prompt_builder.py` constants neutralized; equipment-integrity
+  now profile opt-in (ON for `cinematic_illustration`, OFF for neutral); an unknown/stale profile id resolves
+  to neutral, NEVER holographic. `anthropic_client.py` holographic system/user prompt fires only for explicit
+  `holographic_hud`; profile-None fallback now neutral. `storyboard/bot.py` `_KF_*` + keyframe footer
+  neutralized. **QUICK store (Open Question 1, Ryan picked it):** the channel's free-text look is injected at
+  build time via `VISUAL_STYLE_DESCRIPTION` (per-video `image_style_override` wins, else
+  `IdentityContext.visual_style`/channel `style_description`); backend exports it on every image stage
+  (`_load_idea` per-run reset + `_export_visual_style` on run_prompts/run_images/storyboard). `cinematic_
+  illustration`/`holographic_hud`/`clay_mannequin` stay loadable opt-in presets. Reviewer-approved (2 delivery
+  bugs found + fixed). PROVEN: deployed code on prod, fed Ryan's "Slow English" ESL identity, emits image
+  prompts in the channel look with ZERO Power Doctrine across all 5 scene types.
+- **Still tracked (separate later tasks):** `_generate_cinematic_direction` (PD act-structure
+  ORDINARY-PERSON/OPERATOR/ARCHITECT/PROPHET) in `research/agent.py`; `title_idea/curiosity_gap/
+  gap_title_engine.py` (`MF_FORMULAS` CHOKE POINT / "Weaponized [Geography]"); the PRE-EXISTING
+  `title_patterns.json` loader path bug (a fix is staged uncommitted in `discovery/scanner.py` +
+  `research/agent.py` — `Path.resolve().parent.parent`); and a cleanup of 18 pre-existing stale
+  *holographic-era* unit tests in `image_prompts/engine/tests/` (red on `origin/main` before Phase 4).
+- **Next:** Phase 5 (clone seeds the voice + creator-direction layer).
 
 ---
 
