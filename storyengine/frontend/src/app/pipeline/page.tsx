@@ -170,6 +170,26 @@ const STAGE_REQUIRES: Record<string, string[]> = Object.fromEntries(
 );
 const ALL_STAGES_ON: Record<string, boolean> = Object.fromEntries(STAGE_KEYS.map((k) => [k, true]));
 
+// Visual style presets for the New Video form. Each preset carries the LOOK
+// (image_style_override) the generator front-loads. Icons live at
+// public/style-icons/<id>.png (may not exist yet — a plain <img> just shows
+// broken until the asset lands).
+type VisualPreset = { id: string; label: string; look: string; icon: string };
+const VISUAL_PRESETS: VisualPreset[] = [
+  { id: "pixar_3d",   label: "Pixar 3D",   icon: "/style-icons/pixar_3d.png",
+    look: "Soft 3D Pixar-style CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field" },
+  { id: "flat_2d",    label: "2D flat",    icon: "/style-icons/flat_2d.png",
+    look: "Clean 2D flat vector animation, bold flat colors, simple shapes, crisp outlines, minimal shading" },
+  { id: "realistic",  label: "Realistic",  icon: "/style-icons/realistic.png",
+    look: "Photorealistic cinematic photography, natural lighting, real textures, shallow depth of field" },
+  { id: "anime",      label: "Anime",      icon: "/style-icons/anime.png",
+    look: "Modern anime cel-shaded illustration, expressive faces, clean linework, soft gradient shading" },
+  { id: "watercolor", label: "Watercolor", icon: "/style-icons/watercolor.png",
+    look: "Warm hand-painted watercolor storybook art, soft edges, textured paper, gentle palette" },
+  { id: "comic",      label: "Comic",      icon: "/style-icons/comic.png",
+    look: "Bold graphic-novel illustration, inked outlines, halftone shading, dynamic high-contrast color" },
+];
+
 // Apply the prerequisite rules after a single switch is flipped.
 function applyStageToggle(prev: Record<string, boolean>, key: string): Record<string, boolean> {
   const next = { ...prev };
@@ -281,8 +301,12 @@ export default function VideosPage() {
   const [newFramework, setNewFramework] = useState("");
   const [newLength, setNewLength] = useState(10);
   const [newGuidance, setNewGuidance] = useState("");
-  const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
+  // Unified Visual style step: one of reference (clone), preset, custom, or none.
+  const [styleMode, setStyleMode] = useState<"reference" | "preset" | "custom" | "">("");
+  const [stylePresetId, setStylePresetId] = useState<string>("");
+  const [styleCustom, setStyleCustom] = useState<string>("");
+  const [lockInIdentity, setLockInIdentity] = useState<boolean>(false);
   // Which pipeline steps to run for the new video (all on = full video).
   // The stage panel is the single source of truth for research/voice/etc.
   const [newStages, setNewStages] = useState<Record<string, boolean>>(ALL_STAGES_ON);
@@ -385,10 +409,13 @@ export default function VideosPage() {
       setNewFramework("");
       setNewLength(10);
       setNewGuidance("");
-      setNewVisualStyle("");
       setNewAccentColor("");
       setNewStages(ALL_STAGES_ON);
       setNewReferenceUrl("");
+      setStyleMode("");
+      setStylePresetId("");
+      setStyleCustom("");
+      setLockInIdentity(false);
       setSeedSuggestions(null);
       setSeedError("");
       setShowChannelManager(false);
@@ -488,17 +515,30 @@ export default function VideosPage() {
     // steps (omit when it's the full pipeline) and derive the legacy skip flags.
     const enabled = STAGE_KEYS.filter((k) => newStages[k]);
     const fullPipeline = enabled.length === STAGE_KEYS.length;
+    // Resolve the chosen LOOK from the unified Visual style step. A preset/custom
+    // choice travels as image_style_override (the generator front-loads it);
+    // 'reference'/'' leaves it off so the clone or the channel default decides.
+    const preset = VISUAL_PRESETS.find((p) => p.id === stylePresetId);
+    const imageStyle =
+      styleMode === "preset" ? preset?.look :
+      styleMode === "custom" ? (styleCustom.trim() || undefined) :
+      undefined;
+    const styleLabel =
+      styleMode === "preset" ? preset?.label :
+      styleMode === "custom" ? "Custom" : undefined;
     createMutation.mutate({
       title: newTitle.trim(),
       source_url: newSourceUrl.trim() || undefined,
       framework_angle: newFramework || undefined,
       video_length_minutes: newLength,
       writer_guidance: newGuidance.trim() || undefined,
-      visual_style: newVisualStyle || undefined,
       accent_color: newAccentColor || undefined,
       skip_research: !newStages["research"],
       skip_voice: !newStages["voice"],
       pipeline_stages: fullPipeline ? undefined : enabled,
+      image_style_override: imageStyle,
+      lock_in_identity: lockInIdentity || undefined,
+      visual_style_label: styleLabel,
       reference_url: newReferenceUrl.trim() || undefined,
     });
   };
@@ -1228,25 +1268,123 @@ export default function VideosPage() {
             )}
           </div>
 
-          {/* Copy a video's style (optional) — model a reference onto your topic */}
+          {/* Visual style — one unified single-choice step */}
           <div>
-            <label className="flex items-center gap-1.5 text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+            <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
               <Film size={12} style={{ color: "var(--text-tertiary)" }} />
-              Copy a video&apos;s style <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
+              Visual style <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
             </label>
+
+            {/* 1. Copy a video's style (clone reference) */}
             <input
               type="text"
               value={newReferenceUrl}
-              onChange={(e) => setNewReferenceUrl(e.target.value)}
-              placeholder="Paste a YouTube link to model…"
+              onChange={(e) => {
+                setNewReferenceUrl(e.target.value);
+                // Typing a reference defaults to reference mode if nothing else chosen.
+                if (e.target.value.trim() && styleMode === "") setStyleMode("reference");
+              }}
+              placeholder="Paste a YouTube link to copy its style…"
               className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
               style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
               onFocus={(e) => (e.target.style.borderColor = "var(--turquoise)")}
               onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
             />
             {newReferenceUrl.trim() && (
-              <p className="text-[10px] mt-1.5 leading-relaxed" style={{ color: "var(--turquoise)" }}>
-                We&apos;ll copy this video&apos;s style onto your topic — but only for the steps you switch on below. Voice &amp; music stay your own.
+              <button
+                type="button"
+                onClick={() => { setStyleMode("reference"); setStylePresetId(""); }}
+                className="w-full flex items-center gap-2 mt-2 px-3 py-2 rounded-lg transition-all text-xs text-left"
+                style={{
+                  background: styleMode === "reference" ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
+                  border: `1px solid ${styleMode === "reference" ? "var(--turquoise)" : "var(--border)"}`,
+                  color: "var(--text-primary)",
+                }}
+              >
+                <span
+                  aria-hidden
+                  className="inline-block w-3 h-3 rounded-full shrink-0"
+                  style={{
+                    border: `2px solid ${styleMode === "reference" ? "var(--turquoise)" : "var(--border)"}`,
+                    background: styleMode === "reference" ? "var(--turquoise)" : "transparent",
+                  }}
+                />
+                <span>
+                  <span className="font-medium">Use this video&apos;s style</span>
+                  <span className="block" style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>
+                    Copies the look onto your topic — voice &amp; music stay your own.
+                  </span>
+                </span>
+              </button>
+            )}
+
+            {/* 2. Pick a style — preset grid */}
+            <p className="text-[11px] font-medium mt-3 mb-2" style={{ color: "var(--text-secondary)" }}>Pick a style</p>
+            <div className="grid grid-cols-3 gap-2">
+              {VISUAL_PRESETS.map((p) => {
+                const active = styleMode === "preset" && stylePresetId === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setStyleMode("preset"); setStylePresetId(p.id); }}
+                    className="flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg transition-all text-xs"
+                    style={{
+                      background: active ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
+                      border: `1px solid ${active ? "var(--turquoise)" : "var(--border)"}`,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    <img
+                      src={p.icon}
+                      alt={p.label}
+                      className="w-16 h-16 rounded-lg object-cover"
+                      style={{ background: "var(--surface)" }}
+                    />
+                    <span className="font-medium">{p.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 3. Describe your own — custom look */}
+            <button
+              type="button"
+              onClick={() => setStyleMode("custom")}
+              className="flex items-center gap-1.5 text-[11px] font-medium mt-3 transition-colors"
+              style={{ color: styleMode === "custom" ? "var(--turquoise)" : "var(--text-tertiary)" }}
+            >
+              <Sparkles size={11} /> Describe your own
+            </button>
+            {styleMode === "custom" && (
+              <textarea
+                value={styleCustom}
+                onChange={(e) => setStyleCustom(e.target.value)}
+                onFocus={() => setStyleMode("custom")}
+                placeholder="e.g. Gritty noir comic, heavy shadows, muted palette…"
+                rows={2}
+                className="w-full mt-2 px-3 py-2.5 rounded-lg text-sm font-body outline-none resize-none"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
+              />
+            )}
+
+            {/* 4. Lock this in as the channel's identity */}
+            <label className="flex items-center gap-2 mt-3 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+              <input
+                type="checkbox"
+                checked={lockInIdentity}
+                onChange={(e) => setLockInIdentity(e.target.checked)}
+                className="w-3.5 h-3.5"
+                style={{ accentColor: "var(--turquoise)" }}
+              />
+              Lock this in as your channel&apos;s identity
+            </label>
+
+            {/* 5. Helper text when nothing is selected */}
+            {styleMode === "" && (
+              <p className="text-[10px] mt-2 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                Leave blank to use your channel&apos;s current style.
               </p>
             )}
           </div>
@@ -1383,36 +1521,6 @@ export default function VideosPage() {
                       <option key={n} value={n}>{n} minutes</option>
                     ))}
                   </select>
-                </div>
-              </div>
-
-              {/* Visual Style */}
-              <div>
-                <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
-                  Visual Style
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: "cinematic_illustration", label: "Cinematic Illustration", desc: "Editorial, warm tones" },
-                    { id: "holographic_hud", label: "Holographic HUD", desc: "Data overlays, neon" },
-                    { id: "cinematic_dossier", label: "Cinematic Dossier", desc: "Photorealistic, dramatic" },
-                    { id: "clay_mannequin", label: "Clay Mannequin", desc: "3D clay, faceless figures" },
-                  ].map((style) => (
-                    <button
-                      key={style.id}
-                      type="button"
-                      onClick={() => setNewVisualStyle(newVisualStyle === style.id ? "" : style.id)}
-                      className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
-                      style={{
-                        background: newVisualStyle === style.id ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
-                        border: `1px solid ${newVisualStyle === style.id ? "var(--turquoise)" : "var(--border)"}`,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      <div className="font-medium">{style.label}</div>
-                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{style.desc}</div>
-                    </button>
-                  ))}
                 </div>
               </div>
 

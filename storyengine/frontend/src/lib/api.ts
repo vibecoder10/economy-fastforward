@@ -218,7 +218,6 @@ export const createVideo = (data: {
   framework_angle?: string;
   video_length_minutes?: number;
   writer_guidance?: string;
-  visual_style?: string;
   accent_color?: string;
   aspect_ratio?: "16:9" | "9:16";
   skip_research?: boolean;
@@ -226,6 +225,13 @@ export const createVideo = (data: {
   // Which pipeline stages to run (research, script, voice, images, sound,
   // video, thumbnail, render, upload). Omit for the full pipeline.
   pipeline_stages?: string[];
+  // Per-video LOOK the generator front-loads (from a preset or a custom
+  // description). Omit to let the clone or the channel default decide.
+  image_style_override?: string;
+  // Save the chosen look as the channel's active visual identity.
+  lock_in_identity?: boolean;
+  // Human-readable label for the chosen look (e.g. "Pixar 3D", "Custom").
+  visual_style_label?: string;
   // Optional YouTube link to copy the style of (onto the creator's own topic,
   // scoped to the switched-on stages).
   reference_url?: string;
