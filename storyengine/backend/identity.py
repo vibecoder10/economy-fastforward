@@ -18,6 +18,7 @@ onboarding fallback.
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -75,9 +76,20 @@ def _first_nonempty(*candidates: object, default: str) -> str:
 def _clean_frameworks(value) -> List[str]:
     """Coerce a frameworks value into a list of non-empty strings.
 
-    Accepts a list (the expected shape) and filters out blanks. Anything else
-    (None, str, etc.) yields an empty list — be permissive, never raise.
+    `frameworks` is a JSONB column. The asyncpg pool registers no JSON codec
+    (see database.py), so fetch_one returns it as a raw JSON STRING like
+    '["a", "b"]', NOT a Python list — parse that first (mirrors the pattern in
+    routes/projects.py and routes/channel_profile.py). A real list is accepted
+    as-is. Anything else (None, malformed JSON, non-list) yields []; never raises.
     """
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return []
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return []
     if not isinstance(value, list):
         return []
     out: List[str] = []

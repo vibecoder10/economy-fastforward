@@ -10,7 +10,9 @@ The substitution is the load-bearing part. Real prompts in this repo carry
 foreign braces — single placeholders like {HEADLINE}/{TOPIC} and JSON
 fragments like {{x}} (see prompt_defaults.py). A plain str.format() would
 raise KeyError or mangle those. safe_fill therefore replaces ONLY the known
-identity placeholders and leaves every other brace byte-for-byte intact.
+identity placeholders and leaves every other brace intact — the one exception
+being a doubled brace whose inner name IS an identity key (e.g. `{{niche}}`),
+which is not used anywhere in the current prompts.
 """
 from __future__ import annotations
 
@@ -91,8 +93,8 @@ def safe_fill(text: str, identity: IdentityContext) -> str:
     - {channel_name} {niche} {target_audience} {voice_style} {visual_style}
       are replaced with the identity values.
     - {frameworks} is replaced with the comma-joined frameworks list.
-    - Any other brace — {HEADLINE}, {TOPIC}, or doubled {{x}} — is preserved
-      verbatim. This never raises.
+    - Any other brace — {HEADLINE}, {TOPIC}, or doubled {{x}} (x not an
+      identity key) — is preserved verbatim. This never raises.
     """
     if not text:
         return text

@@ -102,6 +102,21 @@ def test_video_image_style_override_wins_for_visual():
     assert idc.voice_style == "minimalist line art"
 
 
+def test_frameworks_jsonb_string_is_parsed():
+    """frameworks comes back from asyncpg as a raw JSON STRING (JSONB, no
+    codec). The builder must parse it into a list, not silently drop it."""
+    profile = {"frameworks": '["the 3-act explainer", "show-then-tell"]'}
+    idc = build_identity_context_from_rows(project=None, profile=profile, video=None)
+    assert idc.frameworks == ["the 3-act explainer", "show-then-tell"]
+
+
+def test_frameworks_malformed_or_blank_string_yields_empty():
+    """A malformed or blank frameworks string must never raise — just []."""
+    assert build_identity_context_from_rows(None, {"frameworks": "not json"}, None).frameworks == []
+    assert build_identity_context_from_rows(None, {"frameworks": "   "}, None).frameworks == []
+    assert build_identity_context_from_rows(None, {"frameworks": "[]"}, None).frameworks == []
+
+
 def test_async_build_uses_fetch_one_then_pure_builder(monkeypatch):
     """The async fetcher pulls projects then channel_profiles and hands them
     to the pure builder. We stub identity.fetch_one."""
@@ -119,7 +134,9 @@ def test_async_build_uses_fetch_one_then_pure_builder(monkeypatch):
                 "niche": "ignored-legacy",
                 "target_audience": "new investors",
                 "style_description": "approachable and concrete",
-                "frameworks": ["the napkin math"],
+                # asyncpg returns JSONB as a raw JSON STRING (no codec registered),
+                # so the stub must use the real shape — not a Python list.
+                "frameworks": '["the napkin math"]',
             }
         return None
 
