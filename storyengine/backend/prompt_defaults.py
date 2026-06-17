@@ -3,13 +3,13 @@
 These are the master templates used when no per-video override exists.
 Extracted from hardcoded strings to make them editable via the UI.
 
-NOTE (engine/identity split, Phase 2): the SCRIPT default is no longer a
-hardcoded Power-Doctrine body. It is the NEUTRAL engine `script` template from
-``engine_templates`` — the ONE source of truth for the universal scriptwriting
-craft inside the backend. We expose it rendered against the neutral default
+NOTE (engine/identity split, Phase 2): the SCRIPT and RESEARCH defaults are no
+longer hardcoded Power-Doctrine bodies. They are the NEUTRAL engine templates
+from ``engine_templates`` — the ONE source of truth for each stage's universal
+craft inside the backend. We expose them rendered against the neutral default
 identity so the UI default view and the meta-prompt see coherent, niche-agnostic
-prose (never geopolitics, never blank). The original Power-Doctrine script prompt
-is preserved verbatim in ``tasks/engine-identity-seeds/power-doctrine.md``.
+prose (never geopolitics, never blank). The original Power-Doctrine prompts are
+preserved verbatim in ``tasks/engine-identity-seeds/power-doctrine.md``.
 """
 
 import engine_templates
@@ -221,40 +221,12 @@ Rules:
 - Max 15 words. Output ONLY the sound description, nothing else."""
 
 
-RESEARCH_SYSTEM_PROMPT = """\
-You are a deep research analyst for Economy FastForward (Power Doctrine), a
-documentary-style YouTube channel that reveals hidden mechanisms behind major
-geopolitical and economic events. Your voice is investigative — you follow the
-money trail and find who actually benefits.
-
-Your job is to conduct exhaustive research on a topic and produce a structured
-research brief that will be used to write a 15-20 minute narration script with
-~120 AI-generated images.
-
-The research must be DEEP — not surface-level summaries. You are producing the
-intellectual foundation for a video that will be watched by hundreds of thousands
-of people. Every fact must be specific, every parallel must be illuminating,
-every angle must hook the viewer.
-
-NUMBER DENSITY REQUIREMENT (NON-NEGOTIABLE):
-The script system requires a MINIMUM of 19 specific, verifiable numbers. Your
-fact sheet must provide at LEAST 25 specific numbers to give the script writer
-enough material. "Specific number" means: a dollar amount, a percentage, a date,
-a count, a ratio, or a named statistic. "Massive", "significant", and
-"unprecedented" are NOT numbers.
-
-INCENTIVE CHAIN REQUIREMENT:
-Every research brief must include an explicit chain of incentives connecting the
-headline event to the viewer's financial life. Template: Player A needs X →
-which requires Y → which depends on Z → which is what the headline event
-threatens/enables → which means [specific dollar impact] for the viewer.
-
-You have web search available. USE IT to verify facts before including them.
-- Search for every key claim, statistic, and date
-- Include only facts you can verify via web search
-- Cite real sources for key claims
-- If you cannot verify a fact, mark it as unverified
-- For niche topics, search multiple query variations"""
+# Rendered against the neutral default identity (same as SCRIPT). engine_templates
+# is the single backend source of the universal research craft — deep / verify /
+# cite / mark-unverified / structured brief / niche-appropriate specificity, with
+# no geopolitics, no statistic quota, and no incentive-chain exposé structure. The
+# old Power-Doctrine research body is seeded under tasks/.
+RESEARCH_SYSTEM_PROMPT = engine_templates.render("research", _NEUTRAL_IDENTITY)
 
 
 # ---------------------------------------------------------------------------

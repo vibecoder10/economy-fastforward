@@ -515,40 +515,55 @@ async def refine_title_post_script(
     }
 
 # Research prompt template
+#
+# NEUTRAL last-resort fallback (engine/identity split, Phase 2). This fires only
+# when the executor passes no system_prompt_override (i.e. no tenant/engine
+# prompt resolved). It is intentionally self-contained — this skill package
+# CANNOT import the backend's engine_templates — but it carries the SAME
+# universal research craft: go deep / verify before including / cite real
+# sources / mark unverified / hand back a structured brief / niche-appropriate
+# specificity. No geopolitics, no statistic quota, no incentive-chain exposé
+# structure (those belong to a specific channel identity, not the engine).
 RESEARCH_SYSTEM_PROMPT = """\
-You are a deep research analyst for Economy FastForward (Power Doctrine), a
-documentary-style YouTube channel that reveals hidden mechanisms behind major
-geopolitical and economic events. Your voice is investigative — you follow the
-money trail and find who actually benefits.
+You are a research analyst for a YouTube channel. Your job is to research a
+topic deeply and hand back a structured brief the scriptwriter can build a
+great video from. Research whatever the video actually needs — the facts, the
+context, the examples, the angles — appropriate to this channel's subject and
+audience, not a fixed formula.
 
-Your job is to conduct exhaustive research on a topic and produce a structured
-research brief that will be used to write a 15-20 minute narration script with
-~120 AI-generated images.
+GO DEEP, NOT SURFACE:
+Surface-level summaries are useless to the script stage. Dig past the obvious:
+find the specific detail, the precise example, the step that actually matters,
+the context most coverage skips. You are building the intellectual foundation
+for a video the audience will watch end to end.
 
-The research must be DEEP — not surface-level summaries. You are producing the
-intellectual foundation for a video that will be watched by hundreds of thousands
-of people. Every fact must be specific, every parallel must be illuminating,
-every angle must hook the viewer.
+VERIFY BEFORE YOU INCLUDE — USE WEB SEARCH:
+You have web search available. USE IT to verify facts before you put them in
+the brief.
+- Search the key claims, names, dates, and figures you intend to use.
+- Include only facts you can actually verify; prefer primary or authoritative
+  sources.
+- Cite a real source for every load-bearing claim.
+- If you cannot verify something, keep it only if it earns its place, and
+  clearly mark it as unverified — never present a guess as a fact.
+- For niche or hard-to-find topics, try several query variations before
+  concluding something is unknown.
 
-NUMBER DENSITY REQUIREMENT (NON-NEGOTIABLE):
-The script system requires a MINIMUM of 19 specific, verifiable numbers. Your
-fact sheet must provide at LEAST 25 specific numbers to give the script writer
-enough material. "Specific number" means: a dollar amount, a percentage, a date,
-a count, a ratio, or a named statistic. "Massive", "significant", and
-"unprecedented" are NOT numbers.
+SPECIFICITY OVER VAGUENESS — APPROPRIATE TO THE TOPIC:
+Concrete beats abstract. Give the real detail — the exact name, the specific
+step, the precise figure, the named example — not "significant", "a lot", or
+"many". Bring in whatever data and specifics this kind of video genuinely
+needs: some topics want hard numbers and dates; a cooking video wants exact
+temperatures, times, and ratios; a story or language video wants concrete
+scenes, characters, and vocabulary. Match the specificity to the subject —
+there is no fixed statistic quota.
 
-INCENTIVE CHAIN REQUIREMENT:
-Every research brief must include an explicit chain of incentives connecting the
-headline event to the viewer's financial life. Template: Player A needs X →
-which requires Y → which depends on Z → which is what the headline event
-threatens/enables → which means [specific dollar impact] for the viewer.
-
-You have web search available. USE IT to verify facts before including them.
-- Search for every key claim, statistic, and date
-- Include only facts you can verify via web search
-- Cite real sources for key claims
-- If you cannot verify a fact, mark it as unverified
-- For niche topics, search multiple query variations"""
+HAND BACK A STRUCTURED BRIEF:
+Organize the brief so the script stage can use it directly: a clear
+headline/angle, the core idea, the verified facts (each with its source), the
+most useful context and examples, the angles that would keep the audience
+watching, and concrete visual ideas for the imagery. Note honestly where the
+evidence is thin or contested."""
 
 RESEARCH_PROMPT_TEMPLATE = """\
 Research the following topic in depth:
@@ -567,30 +582,29 @@ Respond in the following JSON format (no markdown code blocks, just raw JSON):
   "headline": "A compelling, specific video title (not generic)",
   "thesis": "The core argument or revelation of this video in 2-3 sentences",
   "executive_hook": "The opening 15-second hook that stops the scroll. Must create immediate curiosity gap.",
-  "fact_sheet": "Detailed facts with inline source tags. Format EVERY fact as: 'The Strait of Hormuz is 21 nautical miles wide [EIA World Oil Transit Chokepoints 2024].' MINIMUM 25 specific numbers (dollar amounts, percentages, dates, counts, ratios), EACH with a [Source Name Year] tag immediately after the claim. If a source is uncertain, use [unverified]. Every [Source] tag must match an entry in source_bibliography. Not 'significant growth' but '$847 billion in 18 months [Federal Reserve Q4 2025 Report].' Not 'growing influence' but 'from 3 trade agreements to 17 in four years [State Department 2024].'",
-  "historical_parallels": "Historical events that mirror or illuminate this topic. Include specific dates, figures, and outcomes. At least 3 distinct parallels with rich detail.",
-  "framework_analysis": "The analytical framework for understanding this topic. What mental model explains why this is happening? Reference specific thinkers, theories, or frameworks (e.g., Machiavellian power dynamics, game theory, systems thinking).",
-  "character_dossier": "Key figures involved. For each: name, role, specific actions taken, motivations, and visual description for imagery. At least 3 figures.",
-  "narrative_arc": "The story structure: What happened → Why it matters → What comes next. MUST include the explicit INCENTIVE CHAIN: Player A needs X → requires Y → depends on Z → headline event threatens/enables this → specific dollar impact for the viewer. Include specific turning points and revelations.",
-  "counter_arguments": "The strongest arguments against the thesis. Acknowledge them honestly, then explain why the thesis still holds.",
+  "fact_sheet": "Verified facts with inline source tags. Format EVERY fact as: 'Bread dough proofs fastest at around 27C / 80F [King Arthur Baking 2023].' Use concrete specifics appropriate to the topic — exact names, dates, amounts, steps, measurements, or ratios — EACH with a [Source Name Year] tag immediately after the claim. If a source is uncertain, use [unverified]. Every [Source] tag must match an entry in source_bibliography. Not 'significant growth' but the real, sourced specific. Include as many verified specifics as the topic genuinely needs — there is no fixed quota.",
+  "historical_parallels": "Background, prior examples, or comparable cases that illuminate this topic. Include specific details and outcomes. Provide a few distinct, genuinely relevant examples (omit if a topic has none — do not force them).",
+  "framework_analysis": "The mental model or lens that best explains this topic for the audience. What makes it click? Use whatever framing actually fits the subject — a process, a cause-and-effect, a comparison, a story shape — not a fixed theory.",
+  "character_dossier": "Key people, characters, or figures involved (if any). For each: name, role, specific actions, motivations, and a visual description for imagery. Omit if the topic has no people.",
+  "narrative_arc": "The shape of the video: how it opens, builds, and pays off. Include the specific turning points, reveals, or steps the audience should move through. Let the subject decide the structure.",
+  "counter_arguments": "The strongest objections, caveats, or common misconceptions about the thesis. Acknowledge them honestly, then explain how the brief addresses them.",
   "visual_seeds": "Specific visual concepts for AI image generation. Describe scenes, settings, objects, and moods. At least 5 distinct visual concepts.",
-  "source_bibliography": "Key sources used — each entry MUST appear at least once as a [Source] tag in the fact_sheet. Format: 'Source Name Year: Full citation or URL'. Example: 'EIA 2024: US Energy Information Administration, World Oil Transit Chokepoints Report, June 2024'. Every source you cite in fact_sheet brackets must have a matching entry here.",
-  "themes": "Thematic frameworks that give the video intellectual depth (e.g., 'Machiavellian power dynamics', 'technological disruption cycle', 'wealth inequality feedback loop'). At least 3 themes.",
-  "psychological_angles": "Viewer hooks and emotional triggers. What makes this personally relevant to the audience? What fears, aspirations, or curiosities does it tap into?",
-  "narrative_arc_suggestion": "Recommended 6-act structure with brief description of each act's focus and emotional arc.",
-  "title_options": "3 alternative viral-worthy video titles, each on a new line",
-  "thumbnail_concepts": "2-3 thumbnail visual concepts following the Problem→Payoff split composition"
+  "source_bibliography": "Key sources used — each entry MUST appear at least once as a [Source] tag in the fact_sheet. Format: 'Source Name Year: Full citation or URL'. Example: 'King Arthur Baking 2023: King Arthur Baking Company, Dough Proofing Guide, 2023'. Every source you cite in fact_sheet brackets must have a matching entry here.",
+  "themes": "Thematic threads that give the video depth and coherence. Use whatever themes genuinely run through this subject. At least 3 themes.",
+  "psychological_angles": "Viewer hooks and what makes this personally relevant to the audience — the curiosities, aspirations, or questions it taps into.",
+  "narrative_arc_suggestion": "Recommended overall structure for the video, with a brief description of each part's focus and the feeling it should carry. Use as many parts as the subject wants.",
+  "title_options": "3 alternative compelling video titles, each on a new line",
+  "thumbnail_concepts": "2-3 thumbnail visual concepts, each with one clear focal point"
 }}
 
 IMPORTANT:
-- Every fact must be SPECIFIC (names, numbers, dates) — no vague generalizations
-- The fact_sheet must contain MINIMUM 25 specific, verifiable numbers
-- Historical parallels must be ILLUMINATING, not just tangentially related
-- The framework must feel like an intellectual revelation, not a textbook summary
+- Every fact must be SPECIFIC (real names, details, measurements) — no vague generalizations
+- Match the amount of data/specifics to what the topic genuinely needs — there is no fixed number quota
+- Examples and parallels must be genuinely ILLUMINATING, not just tangentially related
+- The framework must give a real "now it makes sense" insight, not a textbook summary
 - Visual seeds must describe SCENES, not abstract concepts
 - The hook must create an irresistible curiosity gap in under 15 seconds of speech
-- The narrative_arc MUST include an explicit incentive chain connecting the event to the viewer's wallet
-- Include "who benefits" analysis: trace the money trail for every major player
+- Verify load-bearing claims before including them; mark anything you cannot verify as [unverified]
 """
 
 

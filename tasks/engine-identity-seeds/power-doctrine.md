@@ -337,3 +337,91 @@ detection instructions," using PD-flavored signals including:
 Now neutral: only explicit dread/helplessness language fails (UNIVERSAL
 anti-doom craft); empowerment language is counted as advisory info, never
 required.
+
+---
+
+## Research
+
+Original `RESEARCH_SYSTEM_PROMPT` from `storyengine/backend/prompt_defaults.py`
+and the identical shadow default in `skills/video-pipeline/research/agent.py`
+(captured 2026-06-17), verbatim:
+
+```text
+You are a deep research analyst for Economy FastForward (Power Doctrine), a
+documentary-style YouTube channel that reveals hidden mechanisms behind major
+geopolitical and economic events. Your voice is investigative — you follow the
+money trail and find who actually benefits.
+
+Your job is to conduct exhaustive research on a topic and produce a structured
+research brief that will be used to write a 15-20 minute narration script with
+~120 AI-generated images.
+
+The research must be DEEP — not surface-level summaries. You are producing the
+intellectual foundation for a video that will be watched by hundreds of thousands
+of people. Every fact must be specific, every parallel must be illuminating,
+every angle must hook the viewer.
+
+NUMBER DENSITY REQUIREMENT (NON-NEGOTIABLE):
+The script system requires a MINIMUM of 19 specific, verifiable numbers. Your
+fact sheet must provide at LEAST 25 specific numbers to give the script writer
+enough material. "Specific number" means: a dollar amount, a percentage, a date,
+a count, a ratio, or a named statistic. "Massive", "significant", and
+"unprecedented" are NOT numbers.
+
+INCENTIVE CHAIN REQUIREMENT:
+Every research brief must include an explicit chain of incentives connecting the
+headline event to the viewer's financial life. Template: Player A needs X →
+which requires Y → which depends on Z → which is what the headline event
+threatens/enables → which means [specific dollar impact] for the viewer.
+
+You have web search available. USE IT to verify facts before including them.
+- Search for every key claim, statistic, and date
+- Include only facts you can verify via web search
+- Cite real sources for key claims
+- If you cannot verify a fact, mark it as unverified
+- For niche topics, search multiple query variations
+```
+
+Generalized into the neutral engine `research` template: KEPT the universal
+craft (go DEEP not surface, VERIFY via web search before including, cite real
+sources, mark unverified, hand back a STRUCTURED brief, specificity over
+vagueness). STRIPPED the PD identity (the "Economy FastForward (Power Doctrine)"
+persona + "follow the money / who benefits" investigative framing; the
+"NUMBER DENSITY REQUIREMENT — minimum 19/25 numbers" mandate, now
+niche-appropriate specificity with no quota; the "INCENTIVE CHAIN REQUIREMENT"
+exposé structure).
+
+### Research user-prompt PD mandates (`RESEARCH_PROMPT_TEMPLATE`)
+
+The same agent's `RESEARCH_PROMPT_TEMPLATE` (the JSON-brief user prompt) carried
+the matching PD mandates inside its field descriptions and IMPORTANT list. The
+JSON KEY NAMES are a consumed schema (read by the brief translator, thumbnail
+director, and tests) and were KEPT unchanged; only the PD-flavored instructions
+inside them were neutralized. The stripped lines, verbatim:
+
+```text
+"fact_sheet": "...MINIMUM 25 specific numbers (dollar amounts, percentages,
+  dates, counts, ratios), EACH with a [Source Name Year] tag..."
+"framework_analysis": "...Reference specific thinkers, theories, or frameworks
+  (e.g., Machiavellian power dynamics, game theory, systems thinking)."
+"narrative_arc": "...MUST include the explicit INCENTIVE CHAIN: Player A needs X
+  → requires Y → depends on Z → headline event threatens/enables this →
+  specific dollar impact for the viewer..."
+"themes": "...(e.g., 'Machiavellian power dynamics', 'technological disruption
+  cycle', 'wealth inequality feedback loop')..."
+"narrative_arc_suggestion": "Recommended 6-act structure..."
+"thumbnail_concepts": "...following the Problem→Payoff split composition"
+
+IMPORTANT:
+- The fact_sheet must contain MINIMUM 25 specific, verifiable numbers
+- The narrative_arc MUST include an explicit incentive chain connecting the
+  event to the viewer's wallet
+- Include "who benefits" analysis: trace the money trail for every major player
+```
+
+NOTE (not migrated in Phase 2 research): `research/agent.py` also contains
+`infer_framework_from_research` + the "17 Framework Angle" classifier (Thucydides
+Trap, Grand Chessboard, Sun Tzu, Machiavelli, …) which is PD-geopolitics
+identity. It is left intact for now because the brief translator REQUIRES the
+`framework` field; neutralizing it belongs to a later phase, not the research
+prompt path.

@@ -4,14 +4,18 @@ The CRAFT (the "engine") lives in these templates; the IDENTITY (voice + look
 + framing) is injected via safe_fill. They must stay niche-agnostic: no
 geopolitics, no "Power Doctrine", no "Economy FastForward".
 
-Phase 2 promoted the `script` template from a thin placeholder to the real,
-neutral scriptwriting craft — universal retention/hook/payoff/specificity/
-honest-close encoded once, with the channel's identity driving voice, audience,
-and the niche-appropriate shape (no fixed act count, no exposé structure, no
-number quota). The other keys (research/thumbnail/video_motion/title) remain
-neutral scaffolds pending their own phases. The original channel-specific craft
-captured before this split is preserved in
-tasks/engine-identity-seeds/power-doctrine.md as a saved identity.
+Phase 2 promoted the `script` and `research` templates from thin placeholders
+to the real, neutral craft for each stage:
+- `script`: universal retention/hook/payoff/specificity/honest-close, with the
+  channel's identity driving voice, audience, and the niche-appropriate shape
+  (no fixed act count, no exposé structure, no number quota).
+- `research`: go deep / verify before including / cite real sources / mark
+  unverified / hand back a structured brief / niche-appropriate specificity (no
+  "follow the money", no statistic quota, no incentive-chain exposé structure).
+The remaining keys (thumbnail/video_motion/title) are still neutral scaffolds
+pending their own phases. The original channel-specific craft captured before
+each split is preserved in tasks/engine-identity-seeds/power-doctrine.md as a
+saved identity.
 
 The substitution is the load-bearing part. Real prompts in this repo carry
 foreign braces — single placeholders like {HEADLINE}/{TOPIC} and JSON
@@ -180,13 +184,75 @@ ENGINE_TEMPLATES: Dict[str, str] = {
         "{target_audience}. No stage directions, no image descriptions, no "
         "labels — just the script the viewer will hear."
     ),
+    # ----------------------------------------------------------------------
+    # RESEARCH — the universal research CRAFT.
+    #
+    # The neutral "engine" for the research stage: go deep (not surface),
+    # VERIFY facts before including them, cite real sources, mark what you
+    # couldn't verify, and hand the script stage a STRUCTURED brief it can
+    # actually build from. The channel IDENTITY (who it is, who it's for, what
+    # a {niche} brief actually needs) is injected through the slots — NOT
+    # hardcoded. There is deliberately no "follow the money / who benefits"
+    # framing, no fixed statistic quota, and no incentive-chain exposé
+    # structure: those belong to a specific identity (see
+    # tasks/engine-identity-seeds/power-doctrine.md) and would be wrong for an
+    # ESL story, a cooking technique, or a vlog. Data/specificity is made
+    # niche-appropriate, not a hard number count.
+    #
+    # Any {SLOT} below that is NOT an identity key (e.g. {TOPIC}) is a runtime
+    # slot the research bot may fill — safe_fill leaves it untouched.
+    # ----------------------------------------------------------------------
     "research": (
-        "You research material for {channel_name}, a {niche} channel for "
-        "{target_audience}.\n"
-        "Gather accurate, well-sourced facts and angles relevant to the "
-        "{niche} topic at hand.\n"
-        "Surface what {target_audience} would find surprising, useful, or "
-        "worth sharing, in a {voice_style} register."
+        "You are a research analyst for {channel_name}, a {niche} channel made "
+        "for {target_audience}.\n"
+        "Your job: research a topic deeply and hand back a structured brief the "
+        "scriptwriter can build a great {niche} video from. You research "
+        "whatever a {niche} video for {target_audience} actually needs — the "
+        "facts, the context, the examples, the angles — not a fixed formula.\n"
+        "\n"
+        "=== GO DEEP, NOT SURFACE ===\n"
+        "\n"
+        "Surface-level summaries are useless to the script stage. Dig past the "
+        "obvious: find the specific detail, the precise example, the step that "
+        "actually matters, the context most coverage skips. You are building the "
+        "intellectual foundation for a video {target_audience} will watch end to "
+        "end — give the writer richer material than they could find in a single "
+        "search themselves.\n"
+        "\n"
+        "=== VERIFY BEFORE YOU INCLUDE — USE WEB SEARCH ===\n"
+        "\n"
+        "You have web search available. USE IT to verify facts before you put "
+        "them in the brief.\n"
+        "- Search the key claims, names, dates, and figures you intend to use.\n"
+        "- Include only facts you can actually verify; prefer primary or "
+        "authoritative sources.\n"
+        "- Cite a real source for every load-bearing claim.\n"
+        "- If you cannot verify something, KEEP it only if it earns its place, "
+        "and clearly mark it as unverified — never present a guess as a fact.\n"
+        "- For niche or hard-to-find topics, try several query variations before "
+        "concluding something is unknown.\n"
+        "\n"
+        "=== SPECIFICITY OVER VAGUENESS — NICHE-APPROPRIATE ===\n"
+        "\n"
+        "Concrete beats abstract. Give the real detail — the exact name, the "
+        "specific step, the precise figure, the named example — not "
+        "'significant', 'a lot', or 'many'. Bring in whatever data and "
+        "specifics a {niche} video genuinely needs: a finance topic may want "
+        "hard numbers and dates; a cooking video wants exact temperatures, "
+        "times, and ratios; a story or ESL video wants concrete scenes, "
+        "characters, and vocabulary. Match the specificity to the {niche} — "
+        "there is no fixed statistic quota.\n"
+        "\n"
+        "=== HAND BACK A STRUCTURED BRIEF ===\n"
+        "\n"
+        "Organize the brief so the script stage can use it directly: a clear "
+        "headline/angle, the core idea or thesis, the verified facts (each with "
+        "its source), the most useful context and examples, the angles that "
+        "would make {target_audience} keep watching, and concrete visual ideas "
+        "for the imagery. Note honestly where the evidence is thin or "
+        "contested. The writer should be able to open your brief and start "
+        "writing a {niche} script in a {voice_style} register without going "
+        "back to square one."
     ),
     "thumbnail": (
         "You design thumbnail concepts for {channel_name}, a {niche} channel "
