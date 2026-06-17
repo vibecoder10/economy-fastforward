@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorCard } from "@/components/ui/ErrorCard";
-import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ExampleChannels } from "@/components/channels/ExampleChannels";
 import {
   getCurrentProject,
@@ -253,11 +252,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleNicheChange = (value: string) => {
-    setNiche(value);
-    saveField("niche", value);
-  };
-
   const handleTargetAudienceBlur = () => {
     if (targetAudience !== (project?.target_audience ?? "")) {
       saveField("target_audience", targetAudience);
@@ -371,15 +365,14 @@ export default function SettingsPage() {
               <label className="text-[11px] font-medium uppercase tracking-wider block mb-2" style={{ color: "var(--text-secondary)" }}>
                 Niche
               </label>
-              <FilterSelect
-                options={[
-                  { value: "Geopolitics", label: "Geopolitics" },
-                  { value: "Finance", label: "Finance" },
-                  { value: "Economy", label: "Economy" },
-                  { value: "Tech", label: "Tech" },
-                ]}
+              <input
+                type="text"
                 value={niche}
-                onChange={handleNicheChange}
+                onChange={(e) => { setNiche(e.target.value); setHasUnsavedChanges(true); }}
+                onBlur={() => { if (niche !== (project?.niche ?? "")) saveField("niche", niche); }}
+                className="w-full px-3 py-2 rounded-lg text-sm font-body outline-none"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                placeholder="e.g. English language learning"
               />
             </div>
             <div>

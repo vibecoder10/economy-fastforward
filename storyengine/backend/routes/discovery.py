@@ -487,25 +487,27 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         # Get learning context from Supabase for prompt injection
         learnings_context = await _get_learnings_context(tenant_id)
 
-        # Get channel identity for tenant-aware prompt (not hardcoded)
+        # Channel identity for the reframe. Read `projects` FIRST — that's the
+        # table the Profile UI edits. channel_profiles is the legacy onboarding
+        # store and is NOT kept in sync with Profile edits, so reading it first
+        # made the engine ignore the creator's actual channel niche.
         channel_name, channel_niche = "", ""
         try:
-            profile = await fetch_one(
-                "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
+            project = await fetch_one(
+                "SELECT name, niche FROM projects WHERE tenant_id = $1 LIMIT 1",
                 tenant_id,
             )
-            if profile:
-                channel_name = profile.get("channel_name", "")
-                channel_niche = profile.get("niche", "")
-            if not channel_name:
-                # Fallback to projects table
-                project = await fetch_one(
-                    "SELECT name, niche FROM projects WHERE tenant_id = $1 LIMIT 1",
+            if project:
+                channel_name = project.get("name") or ""
+                channel_niche = project.get("niche") or ""
+            if not channel_name or not channel_niche:
+                profile = await fetch_one(
+                    "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
                     tenant_id,
                 )
-                if project:
-                    channel_name = project.get("name", "")
-                    channel_niche = channel_niche or project.get("niche", "")
+                if profile:
+                    channel_name = channel_name or profile.get("channel_name") or ""
+                    channel_niche = channel_niche or profile.get("niche") or ""
             if not channel_name:
                 # Final fallback to tenant name
                 tenant = await fetch_one("SELECT name FROM tenants WHERE id = $1", tenant_id)

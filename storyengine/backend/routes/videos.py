@@ -1426,15 +1426,25 @@ async def suggest_titles(
             detail="Add a Claude or kie.ai API key in Settings → API Keys.",
         )
 
+    # Read `projects` first — that's what the Profile UI edits; channel_profiles
+    # is the legacy onboarding store and can be stale.
     channel_name, channel_niche = "", ""
     try:
-        profile = await fetch_one(
-            "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
+        project = await fetch_one(
+            "SELECT name, niche FROM projects WHERE tenant_id = $1 LIMIT 1",
             tenant_id,
         )
-        if profile:
-            channel_name = profile.get("channel_name", "")
-            channel_niche = profile.get("niche", "")
+        if project:
+            channel_name = project.get("name") or ""
+            channel_niche = project.get("niche") or ""
+        if not channel_name or not channel_niche:
+            profile = await fetch_one(
+                "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
+                tenant_id,
+            )
+            if profile:
+                channel_name = channel_name or profile.get("channel_name") or ""
+                channel_niche = channel_niche or profile.get("niche") or ""
     except Exception:
         pass
 
