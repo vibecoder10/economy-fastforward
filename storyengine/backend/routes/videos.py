@@ -236,17 +236,30 @@ async def create_video(
         initial_status = "ready_for_scripting" if skip_research else "idea_logged"
     source_val = "modeled" if is_modeled else body.source_url
 
+    style_override = (body.image_style_override or "").strip() or None
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, accent_color, aspect_ratio, skip_voice, pipeline_stages, reference_url)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, '#00D4AA'), $11, $12, $13, $14)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, skip_voice, pipeline_stages, reference_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, source_val, body.framework_angle,
-        body.video_length_minutes, body.writer_guidance, body.visual_style, body.accent_color,
+        body.video_length_minutes, body.writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
     )
 
     await increment_usage(tenant_id, "videos_created")
+
+    # Lock the chosen look in as the channel identity (preset/custom path; the
+    # clone path locks in later, when modeling writes the DNA — see model_video).
+    if body.lock_in_identity and style_override and not is_modeled:
+        try:
+            from routes.visual_styles import upsert_active_visual_style
+            await upsert_active_visual_style(
+                project_id, (body.visual_style_label or "Custom style"), style_override,
+            )
+        except Exception as e:  # never block video creation on lock-in
+            import logging
+            logging.getLogger(__name__).warning("lock-in visual style failed: %s", e)
 
     # Kick off the style copy in the background (scoped to the chosen stages).
     if is_modeled:
