@@ -39,9 +39,47 @@ from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is
 from vault import get_secret
 from extraction import extract_grid
 from storage import upload_from_url
+import engine_templates
+from identity import IdentityContext, build_identity_context
 
 import logging
 _logger = logging.getLogger(__name__)
+
+
+def resolve_prompt(
+    per_video: Optional[str],
+    tenant: Optional[str],
+    prompt_key: str,
+    identity: "IdentityContext",
+) -> Optional[str]:
+    """Resolve a single system prompt for one pipeline stage. PURE + testable.
+
+    Precedence: per-video override > tenant override > neutral engine template.
+    The neutral fallback is `engine_templates.render(prompt_key, identity)` IF
+    that key has a template; otherwise None (keys without a template — e.g.
+    sound_curation / sound_generation — keep None so the bot's own neutral
+    default is used).
+
+    Whatever is chosen (override OR template), the identity placeholders are
+    filled via `engine_templates.safe_fill` so the channel's identity is
+    injected in every path while foreign braces ({HEADLINE}, {{x}}, …) survive
+    verbatim. Phase 1 invariant: a tenant with a custom override still gets
+    that override — we only fill identity slots and never overwrite it.
+
+    Returns the resolved prompt string, or None when there's nothing to set
+    (so the bot falls back to its built-in default).
+    """
+    def _nonblank(v):
+        # Treat None and whitespace-only strings as "no override" so a blank
+        # override falls through to the next source rather than producing an
+        # empty prompt (mirrors identity.py's blank-is-missing philosophy).
+        return v if (isinstance(v, str) and v.strip()) else None
+
+    neutral = engine_templates.render(prompt_key, identity)  # "" if no template
+    chosen = _nonblank(per_video) or _nonblank(tenant) or _nonblank(neutral)
+    if chosen:
+        return engine_templates.safe_fill(chosen, identity)
+    return None
 
 
 class PipelineExecutor:
@@ -516,15 +554,25 @@ class PipelineExecutor:
     async def _load_prompt_overrides(self, video: dict):
         """Load system prompt overrides onto the pipeline object.
 
-        Priority: per-video override > tenant override > None (bot uses built-in default).
+        Priority: per-video override > tenant override > neutral engine template
+        (filled with the channel's IdentityContext). Keys without an engine
+        template (sound_curation / sound_generation) fall through to None so the
+        bot uses its own built-in default.
 
-        Sets pipeline attributes like `script_system_prompt`, `thumbnail_system_prompt`, etc.
-        that bots read via `getattr(pipeline, '<key>_system_prompt', None)`.
+        Phase 1 invariant: a tenant that already has a custom override still gets
+        that override — we only inject identity placeholders into it; we never
+        replace it with the neutral template. Behavior only changes where there
+        was NO override before (previously None, now a neutral identity-filled
+        prompt).
+
+        Sets pipeline attributes like `script_system_prompt`, `thumbnail_system_prompt`,
+        etc. that bots read via `getattr(pipeline, '<key>_system_prompt', None)`.
 
         Args:
             video: Video row dict from Supabase (contains per-video override columns).
         """
         # Mapping: tenant prompt_key -> (video column, pipeline attribute)
+        # NOTE: `title` is intentionally left out for now — Phase 3 wires it.
         PROMPT_MAP = {
             "script":           ("script_system_prompt",       "script_system_prompt"),
             "thumbnail":        ("thumbnail_system_prompt",    "thumbnail_system_prompt"),
@@ -533,6 +581,9 @@ class PipelineExecutor:
             "sound_generation": ("sound_system_prompt",        "sound_generation_system_prompt"),
             "research":         (None,                         "research_system_prompt"),
         }
+
+        # Build the channel identity once for this run (defensive — never raises).
+        self._identity = await build_identity_context(self.tenant_id, video)
 
         # Fetch tenant-level defaults
         tenant_overrides = {}
@@ -545,14 +596,13 @@ class PipelineExecutor:
         except Exception as e:
             _logger.warning("Failed to load tenant prompt overrides: %s", e)
 
-        # Resolve each prompt: per-video > tenant > None
+        # Resolve each prompt: per-video > tenant > neutral identity template.
         for prompt_key, (video_col, pipeline_attr) in PROMPT_MAP.items():
             # Per-video override (if column exists on the videos table)
             per_video = video.get(video_col) if video_col else None
             # Tenant override
             tenant = tenant_overrides.get(prompt_key)
-            # Set on pipeline: per-video wins, then tenant, then None
-            resolved = per_video or tenant or None
+            resolved = resolve_prompt(per_video, tenant, prompt_key, self._identity)
             setattr(self._pipeline, pipeline_attr, resolved)
 
     async def _install_cancel_support(self, video_id: str):
