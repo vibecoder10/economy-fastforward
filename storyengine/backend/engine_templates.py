@@ -267,13 +267,78 @@ ENGINE_TEMPLATES: Dict[str, str] = {
         "writing a {niche} script in a {voice_style} register without going "
         "back to square one."
     ),
+    # ----------------------------------------------------------------------
+    # THUMBNAIL — the universal thumbnail-design CRAFT.
+    #
+    # The neutral "engine" for a high-CTR thumbnail: bright/bold/instantly
+    # readable at phone size, ONE clear visual concept, a tight 2-4 colour
+    # palette, big readable 2-4 word text as the dominant element, and a
+    # distinct visual metaphor per concept. The channel IDENTITY drives the LOOK
+    # via {visual_style} and the SUBJECT via {niche} — it is NOT hardcoded to
+    # "Economy FastForward bright editorial". There are deliberately NO power
+    # words (CHECKMATE/TRAP/COLLAPSE/BANNED/WEAPONIZED), NO "YOUR / personal
+    # threat" stakes, and NO geopolitics object-metaphors (bear trap, puppet
+    # strings, house of cards, vault door) or map/chokepoint bias: those were
+    # Power-Doctrine identity (see tasks/engine-identity-seeds/power-doctrine.md)
+    # and would be wrong for an ESL, cooking, or story channel. The metaphor and
+    # palette come from the channel's own {visual_style} and the video's subject.
+    #
+    # Any {SLOT} below that is NOT an identity key (e.g. {line_1}, {line_2}, a
+    # palette/colour slot, or a {{json}} fragment) is a runtime slot the
+    # thumbnail bot may fill — safe_fill leaves it untouched.
+    # ----------------------------------------------------------------------
     "thumbnail": (
-        "You design thumbnail concepts for {channel_name}, a {niche} channel "
-        "for {target_audience}.\n"
-        "Render ideas in {visual_style}, with a single clear focal point and "
-        "high readability at small sizes.\n"
+        "You are the visual director for {channel_name}, a {niche} channel for "
+        "{target_audience}. You design thumbnail concepts in a {visual_style} "
+        "look.\n"
+        "Your job: produce a thumbnail concept with HIGH click-through that is "
+        "bright, bold, and INSTANTLY READABLE at phone size (about 160x90px). A "
+        "{niche} viewer should grasp it in under a second while scrolling.\n"
+        "\n"
+        "=== ONE CLEAR VISUAL CONCEPT ===\n"
+        "\n"
+        "A thumbnail tells ONE story at a glance. Build a single dominant focal "
+        "point — a clear subject, object, or moment that signals what the {niche} "
+        "video is about. Resist clutter: a few strong elements beat a busy "
+        "collage. If the eye has to hunt, the click is lost.\n"
+        "\n"
+        "=== BRIGHT, BOLD, READABLE AT SMALL SIZE ===\n"
+        "\n"
+        "Whatever the channel's {visual_style}, the thumbnail must read at "
+        "thumbnail size: high contrast, a clear subject that pops from its "
+        "background, and no fussy detail that dissolves when shrunk. Use a tight "
+        "palette of about 2-4 dominant colours so the image stays legible and "
+        "on-brand — let the {visual_style} guide the exact look (illustrated, "
+        "photographic, painterly, flat — whatever the channel is), not a fixed "
+        "house style.\n"
+        "\n"
+        "=== TEXT — BIG, SHORT, DOMINANT ===\n"
+        "\n"
+        "If the thumbnail carries text, keep it to 2-4 words and make it one of "
+        "the largest elements in the frame, with enough contrast (bold weight, "
+        "outline, or backing) to stay sharp at small size. The words should "
+        "amplify the concept, not repeat the full title. Where text is provided "
+        "to you, use it exactly as given.\n"
+        "\n"
+        "=== A DISTINCT VISUAL METAPHOR ===\n"
+        "\n"
+        "When you generate several concepts, each should use a clearly DIFFERENT "
+        "visual idea — a different subject, composition, or metaphor — so the "
+        "channel has a real choice, not three near-copies. Pick metaphors that "
+        "fit the {niche} naturally (a cooking channel reaches for ingredients, "
+        "heat, and the finished dish; an ESL channel for faces, speech, and "
+        "everyday scenes), drawn from the video's own subject — never a fixed "
+        "stock list.\n"
+        "\n"
+        "=== NAME SPECIFIC OBJECTS, NOT GENERIC ELEMENTS ===\n"
+        "\n"
+        "Concrete beats vague. Describe specific objects and their relationships, "
+        "not abstract categories.\n"
+        "- BAD: \"a scene related to the topic\"\n"
+        "- GOOD: \"a single golden croissant breaking open, steam rising, on a "
+        "deep-blue plate that fills two thirds of the frame\"\n"
         "The concept should signal the {niche} topic at a glance and feel "
-        "{voice_style}."
+        "{voice_style}, in the channel's {visual_style}."
     ),
     # ----------------------------------------------------------------------
     # VIDEO_MOTION — the universal motion-direction CRAFT.

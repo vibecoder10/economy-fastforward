@@ -52,54 +52,15 @@ VIDEO_MOTION_SYSTEM_PROMPT = engine_templates.render("video_motion", _NEUTRAL_ID
 SCRIPT_SYSTEM_PROMPT = engine_templates.render("script", _NEUTRAL_IDENTITY)
 
 
-THUMBNAIL_SYSTEM_PROMPT = """\
-You are the visual director for Economy FastForward bright editorial thumbnails.
-
-Your job: Fill in the template variables to produce a HIGH CTR YouTube thumbnail.
-The thumbnail must be BRIGHT, BOLD, and INSTANTLY READABLE at phone size (160x90px).
-
-STYLE RULES (MANDATORY — violating any of these kills CTR):
-- BRIGHT editorial illustration style. NOT photorealistic. NOT cinematic.
-- High saturation, bright lighting, NO shadows, NO atmospheric effects, NO film grain
-- Simple, instantly recognizable visuals (maps, symbols, objects)
-- Maximum 3-4 dominant colors from the provided palette
-- Must tell the story at a glance — one clear visual concept
-- 16:9 landscape, 1280x720
-
-ANTI-PATTERNS — NEVER include these words or concepts:
-- "cinematic", "photorealistic", "film grain", "shallow depth of field"
-- "dark", "moody", "atmospheric", "shadows", "chiaroscuro"
-- "Sicario", "Zero Dark Thirty", any film/camera reference
-- "ARRI", "RED", "ISO", any camera/film stock reference
-- Complex multi-layer compositions with more than 3-4 visual elements
-- Any lighting description suggesting darkness or moodiness
-
-TEXT RULES:
-- line_1 and line_2 are PROVIDED — use them exactly as given
-- Text is YELLOW (#FFD700), bold, black outline, heavy drop shadow
-- Text is the SINGLE LARGEST element (60-70% of frame width)
-
-PERSONAL STAKES (build into visuals):
-- Dollar amounts, threat imagery, "YOUR" framing
-- Power words: CHECKMATE, TRAP, COLLAPSE, BANNED, WEAPONIZED
-- The viewer must feel PERSONALLY affected
-
-CRITICAL: Each of the 3 thumbnail concepts you help build will use a
-COMPLETELY DIFFERENT visual metaphor. Think in terms of:
-- OBJECT metaphors: bear trap, chess piece, domino chain, noose, vault door,
-  ticking bomb, puppet strings, house of cards
-- MAP compositions: geography with arrows, barriers, zones, chokepoints
-- SYMBOLIC ACTIONS: hand grabbing/crushing, scale tipping, door slamming,
-  rope pulling, wall cracking
-
-Name SPECIFIC OBJECTS with relationships, not generic elements.
-BAD: "map showing conflict in the region"
-GOOD: "Russian nesting doll shaped like an open bear trap with a burlap
-money sack labeled CASH $$$ as bait, hand pulling rope attached to trap"
-
-OUTPUT FORMAT (JSON only, no markdown):
-Return a JSON object with ALL required variable names as keys.
-Keep descriptions vivid but concise (10-25 words per variable)."""
+# Rendered against the neutral default identity (same as SCRIPT/RESEARCH/
+# VIDEO_MOTION). engine_templates is the single backend source of the universal
+# thumbnail craft — one clear concept / bright-bold-readable at phone size /
+# 2-4 colour palette / big short dominant text / a distinct visual metaphor per
+# concept / specific-objects-not-generic — identity-driven via {visual_style}
+# and {niche}, with no Power-Doctrine power-words, no "YOUR" threat stakes, and
+# no geopolitics object-metaphor / map bias. The old Power-Doctrine "Economy
+# FastForward bright editorial" body is seeded under tasks/.
+THUMBNAIL_SYSTEM_PROMPT = engine_templates.render("thumbnail", _NEUTRAL_IDENTITY)
 
 
 SOUND_CURATION_SYSTEM_PROMPT = """\

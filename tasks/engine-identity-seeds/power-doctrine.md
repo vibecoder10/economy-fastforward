@@ -867,3 +867,77 @@ exists in `script/brief_translator/script_generator.py` and is PD-specific, but
 it only fires when a PD framework string is passed in; with the inference
 neutralized the lens defaults to no-framework for non-PD identities. Left
 `_build_framework_lens_section` in place (out of Phase 3 scope) — flagged.
+
+---
+
+## Thumbnails (Phase 3)
+
+### Original `THUMBNAIL_SYSTEM_PROMPT` (`storyengine/backend/prompt_defaults.py`) and the identical `VARIABLE_FILL_SYSTEM_PROMPT` (`skills/video-pipeline/thumbnail/prompt_builder.py`), captured 2026-06-17, verbatim:
+
+```text
+You are the visual director for Economy FastForward bright editorial thumbnails.
+
+Your job: Fill in the template variables to produce a HIGH CTR YouTube thumbnail.
+The thumbnail must be BRIGHT, BOLD, and INSTANTLY READABLE at phone size (160x90px).
+
+STYLE RULES (MANDATORY — violating any of these kills CTR):
+- BRIGHT editorial illustration style. NOT photorealistic. NOT cinematic.
+- High saturation, bright lighting, NO shadows, NO atmospheric effects, NO film grain
+- Simple, instantly recognizable visuals (maps, symbols, objects)
+- Maximum 3-4 dominant colors from the provided palette
+- Must tell the story at a glance — one clear visual concept
+- 16:9 landscape, 1280x720
+
+ANTI-PATTERNS — NEVER include these words or concepts:
+- "cinematic", "photorealistic", "film grain", "shallow depth of field"
+- "dark", "moody", "atmospheric", "shadows", "chiaroscuro"
+- "Sicario", "Zero Dark Thirty", any film/camera reference
+- "ARRI", "RED", "ISO", any camera/film stock reference
+- Complex multi-layer compositions with more than 3-4 visual elements
+- Any lighting description suggesting darkness or moodiness
+
+TEXT RULES:
+- line_1 and line_2 are PROVIDED — use them exactly as given
+- Text is YELLOW (#FFD700), bold, black outline, heavy drop shadow
+- Text is the SINGLE LARGEST element (60-70% of frame width)
+
+PERSONAL STAKES (build into visuals):
+- Dollar amounts, threat imagery, "YOUR" framing
+- Power words: CHECKMATE, TRAP, COLLAPSE, BANNED, WEAPONIZED
+- The viewer must feel PERSONALLY affected
+
+CRITICAL: Each of the 3 thumbnail concepts you help build will use a
+COMPLETELY DIFFERENT visual metaphor. Think in terms of:
+- OBJECT metaphors: bear trap, chess piece, domino chain, noose, vault door,
+  ticking bomb, puppet strings, house of cards
+- MAP compositions: geography with arrows, barriers, zones, chokepoints
+- SYMBOLIC ACTIONS: hand grabbing/crushing, scale tipping, door slamming,
+  rope pulling, wall cracking
+
+Name SPECIFIC OBJECTS with relationships, not generic elements.
+BAD: "map showing conflict in the region"
+GOOD: "Russian nesting doll shaped like an open bear trap with a burlap
+money sack labeled CASH $$$ as bait, hand pulling rope attached to trap"
+
+OUTPUT FORMAT (JSON only, no markdown):
+Return a JSON object with ALL required variable names as keys.
+Keep descriptions vivid but concise (10-25 words per variable).
+```
+
+Generalized into the neutral `thumbnail` engine template (backend, one source)
+and the in-place neutral `VARIABLE_FILL_SYSTEM_PROMPT` (skill bot): KEPT the
+universal thumbnail CTR craft (bright / bold / instantly readable at phone size;
+ONE clear visual concept; 2-4 dominant colors; big readable 2-4 word text as the
+largest element; distinct visual metaphors across concepts; "name specific
+objects with relationships, not generic elements" with a neutral BAD/GOOD pair;
+JSON output format + concise variable descriptions). STRIPPED the PD identity:
+"Economy FastForward bright editorial" branding; the hardcoded power-words
+(CHECKMATE / TRAP / COLLAPSE / BANNED / WEAPONIZED); the "YOUR framing / dollar
+amounts / threat imagery / viewer must feel PERSONALLY affected" stakes; the
+geopolitics object-metaphor list (bear trap, puppet strings, house of cards,
+vault door, noose, ticking bomb) and the map/chokepoint compositions; the
+geopolitics GOOD example (Russian nesting doll bear trap with CASH bait). Style
+is now identity-driven via `{visual_style}` / `{niche}` rather than hardcoded
+"bright editorial". The fixed YELLOW (#FFD700) text colour was relaxed to a
+high-contrast readable treatment (palette-driven), since the backend palette/
+hex colours are supplied at the call site, not baked into the craft.
