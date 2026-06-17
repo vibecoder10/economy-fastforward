@@ -73,6 +73,45 @@ def _first_nonempty(*candidates: object, default: str) -> str:
     return default
 
 
+def _style_profile_to_look(style_profile) -> str:
+    """Render a `visual_styles.style_profile` JSON into a single look sentence
+    suitable for front-loading into an image prompt.
+
+    Prefers the explicit `prompt_prefix` (the analyze-image schema), else
+    assembles a sentence from the structured parts (the older default-style
+    schema: art_medium / rendering_style / lighting / texture / mood / keywords
+    / palette). Returns '' when nothing usable is present.
+    """
+    if isinstance(style_profile, str):
+        try:
+            style_profile = json.loads(style_profile)
+        except (ValueError, TypeError):
+            return ""
+    if not isinstance(style_profile, dict):
+        return ""
+
+    pre = _clean(style_profile.get("prompt_prefix"))
+    if pre:
+        return pre
+
+    parts: List[str] = []
+    for key in ("art_medium", "rendering_style", "lighting", "texture", "mood"):
+        v = _clean(style_profile.get(key))
+        if v:
+            parts.append(v)
+    kws = style_profile.get("keywords")
+    if isinstance(kws, list):
+        kw = ", ".join(str(k).strip() for k in kws if str(k).strip())
+        if kw:
+            parts.append(kw)
+    cp = style_profile.get("color_palette")
+    if isinstance(cp, dict):
+        pd = _clean(cp.get("palette_description"))
+        if pd:
+            parts.append(pd)
+    return ". ".join(parts).strip()
+
+
 def _clean_frameworks(value) -> List[str]:
     """Coerce a frameworks value into a list of non-empty strings.
 
@@ -104,9 +143,11 @@ def build_identity_context_from_rows(
     project: Optional[dict],
     profile: Optional[dict],
     video: Optional[dict],
+    channel_visual_style: Optional[str] = None,
 ) -> IdentityContext:
     """Pure builder (no DB). Combine a projects row, a channel_profiles row,
-    and a video row into one IdentityContext.
+    a video row, and the channel's active visual-style look into one
+    IdentityContext.
 
     Precedence (matches routes/videos.py — projects is the source of truth the
     Profile UI edits; channel_profiles is the legacy fallback):
@@ -114,9 +155,16 @@ def build_identity_context_from_rows(
       - niche:           project.niche -> profile.niche            -> "general educational content"
       - target_audience: profile.target_audience                  -> "a general audience"
       - voice_style:     profile.style_description                 -> "clear, engaging, and natural"
-      - visual_style:    video.image_style_override -> profile.style_description
-                                                       -> "a clean, consistent illustrated style"
+      - visual_style:    video.image_style_override (per-video clone DNA)
+                            -> channel_visual_style (active visual_styles row)
+                            -> profile.style_description
+                            -> "a clean, consistent illustrated style"
       - frameworks:      profile.frameworks (list)                 -> []
+
+    `channel_visual_style` is the look the creator picked on the Visual Styles
+    page (the active `visual_styles` row, stringified). A per-video clone DNA
+    still wins; the channel look fills in for every non-cloned video so that
+    SWITCHING the active style actually changes the generated images.
 
     Empty strings are treated as missing. The all-empty result is safe and
     generic, never geopolitics, never blank.
@@ -145,6 +193,7 @@ def build_identity_context_from_rows(
     )
     visual_style = _first_nonempty(
         video.get("image_style_override"),
+        channel_visual_style,
         profile.get("style_description"),
         default=_DEFAULT_VISUAL,
     )
@@ -170,9 +219,10 @@ async def build_identity_context(
     """
     project = None
     profile = None
+    channel_visual_style = None
     try:
         project = await fetch_one(
-            "SELECT name, niche FROM projects WHERE tenant_id = $1 LIMIT 1",
+            "SELECT id, name, niche FROM projects WHERE tenant_id = $1 LIMIT 1",
             tenant_id,
         )
         profile = await fetch_one(
@@ -180,9 +230,24 @@ async def build_identity_context(
             "FROM channel_profiles WHERE tenant_id = $1",
             tenant_id,
         )
+        # The creator's ACTIVE visual style (the Visual Styles page). This is what
+        # makes "switch the active style" actually change the generated images —
+        # the look feeds every non-cloned video (a per-video clone DNA still wins).
+        if project and project.get("id") is not None:
+            active_style = await fetch_one(
+                "SELECT style_profile FROM visual_styles "
+                "WHERE project_id = $1 AND is_active = true LIMIT 1",
+                project["id"],
+            )
+            if active_style:
+                channel_visual_style = _style_profile_to_look(active_style.get("style_profile")) or None
     except Exception as e:  # noqa: BLE001 — never let identity lookup break a run
         _logger.warning("build_identity_context: DB lookup failed, using neutral fallback: %s", e)
         project = None
         profile = None
+        channel_visual_style = None
 
-    return build_identity_context_from_rows(project=project, profile=profile, video=video)
+    return build_identity_context_from_rows(
+        project=project, profile=profile, video=video,
+        channel_visual_style=channel_visual_style,
+    )
