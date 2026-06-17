@@ -270,6 +270,7 @@ async def create_video(
         background_tasks.add_task(
             _run_modeling, tenant_id, str(row["id"]), reference_youtube_id,
             reference_url, plan, True,
+            body.lock_in_identity,
         )
 
     return VideoSummary(

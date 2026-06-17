@@ -609,6 +609,7 @@ async def _persist_style_overrides(
     tenant_id, video_id: str, reference_url: str, youtube_id: str,
     info: dict, dna: Optional[dict], pack: dict, blockers: list[str],
     enabled_stages: Optional[list],
+    lock_in_identity: bool = False,
 ) -> None:
     """Apply ONLY the reference's STYLE to a video the creator already defined
     (their own topic + title). Unlike _persist_pack, this never touches the
@@ -673,6 +674,18 @@ async def _persist_style_overrides(
         img_val, thumb_val, motion_val, script_val,
         ref_length, video_id, tenant_id,
     )
+
+    if lock_in_identity and (img_val or "").strip():
+        try:
+            from routes.visual_styles import upsert_active_visual_style
+            vrow = await fetch_one(
+                "SELECT project_id, video_title FROM videos WHERE id = $1", video_id,
+            )
+            if vrow and vrow.get("project_id"):
+                name = f"Cloned from {vrow.get('video_title') or 'video'}".strip()
+                await upsert_active_visual_style(str(vrow["project_id"]), name, img_val.strip())
+        except Exception as e:
+            logger.warning("clone lock-in failed: %s", e)
 
     # Attribution (same as the full flow) — feeds the intelligence layer.
     await execute(
@@ -820,7 +833,8 @@ async def _oembed_fallback(youtube_id: str) -> Optional[dict]:
 
 async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url: str,
                         pipeline_stages: Optional[list] = None,
-                        preserve_topic: bool = False) -> None:
+                        preserve_topic: bool = False,
+                        lock_in_identity: bool = False) -> None:
     """Extract a reference video's style and apply it.
 
     Default (preserve_topic=False): the standalone "Model A Video" flow — builds
@@ -889,7 +903,7 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
             _set("running", "Copying the video's style…")
             await _persist_style_overrides(
                 tenant_id, video_id, reference_url, youtube_id, info, dna, pack,
-                blockers, pipeline_stages,
+                blockers, pipeline_stages, lock_in_identity,
             )
             # Style is in place — open the pipeline at this plan's first step
             # (e.g. ready_for_thumbnail for a thumbnail-only modeled video).
