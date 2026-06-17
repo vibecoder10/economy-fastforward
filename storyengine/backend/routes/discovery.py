@@ -498,21 +498,21 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                 tenant_id,
             )
             if project:
+                # A projects row exists -> it's the source of truth (the Profile
+                # UI manages it). Use it as-is, even if a field is intentionally
+                # blank, so clearing the name doesn't resurrect stale onboarding
+                # values. Niche steers the ideas; a blank name is fine.
                 channel_name = project.get("name") or ""
                 channel_niche = project.get("niche") or ""
-            if not channel_name or not channel_niche:
+            else:
+                # Legacy tenants with no projects row: fall back to channel_profiles.
                 profile = await fetch_one(
                     "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
                     tenant_id,
                 )
                 if profile:
-                    channel_name = channel_name or profile.get("channel_name") or ""
-                    channel_niche = channel_niche or profile.get("niche") or ""
-            if not channel_name:
-                # Final fallback to tenant name
-                tenant = await fetch_one("SELECT name FROM tenants WHERE id = $1", tenant_id)
-                if tenant:
-                    channel_name = tenant.get("name", "")
+                    channel_name = profile.get("channel_name") or ""
+                    channel_niche = profile.get("niche") or ""
         except Exception as e:
             print(f"[Discovery] Error loading channel profile: {e}")
 

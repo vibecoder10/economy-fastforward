@@ -1435,16 +1435,18 @@ async def suggest_titles(
             tenant_id,
         )
         if project:
+            # projects row is the source of truth (the Profile UI manages it);
+            # use as-is so a blank name doesn't resurrect stale onboarding values.
             channel_name = project.get("name") or ""
             channel_niche = project.get("niche") or ""
-        if not channel_name or not channel_niche:
+        else:
             profile = await fetch_one(
                 "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
                 tenant_id,
             )
             if profile:
-                channel_name = channel_name or profile.get("channel_name") or ""
-                channel_niche = channel_niche or profile.get("niche") or ""
+                channel_name = profile.get("channel_name") or ""
+                channel_niche = profile.get("niche") or ""
     except Exception:
         pass
 
