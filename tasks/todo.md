@@ -105,6 +105,36 @@ cloned video; see the handoff below. The verify also fixed 3 bugs live
 
 ---
 
+## ★ HANDOFF — 2026-06-16 (Engine/Identity split — Phases 1+2 BUILT + MERGED + DEPLOYED)
+
+Executes [`tasks/engine-identity-split-plan.md`](engine-identity-split-plan.md) — turning StoryEngine into a
+"cloneable system" where the universal ENGINE (craft) is separated from the swappable per-channel
+IDENTITY (voice/look). See [[storyengine-cloneable-system-vision]]. Subagent-driven; each piece
+reviewer-approved.
+
+- **Phase 1 (Foundation):** `storyengine/backend/identity.py` (`IdentityContext` + builder, projects→
+  channel_profiles→neutral precedence; frameworks parsed from JSONB string), `engine_templates.py`
+  (neutral craft templates + `safe_fill` — fills only the 6 identity slots, leaves `{HEADLINE}`/`{{json}}`
+  untouched), and `pipeline_executor.py` (`resolve_prompt`: per-video→tenant→neutral engine template,
+  then safe_fill). Overrides still win → no change for customized tenants; keyless steps now get neutral
+  craft instead of None/PD.
+- **Phase 2 (Text engine):** `script` (engine template + neutralized `script_generator.py` append-blocks
+  + dropped the PD quota lines from the user-prompt tail), the script **validator** (PD checks —
+  number-density/framework-density/wallet-401k/position-yourself — now OPT-IN via `ScriptProfile`,
+  default OFF; `power_doctrine_v2` re-enables; ESL/cooking scripts pass default, fail under PD gates),
+  `research` (no more "Economy FastForward (Power Doctrine)" / 19-numbers / incentive-chain), and
+  `video_motion` (dropped the "never show humans" rule + missile/bomber examples; kept verb-first/
+  camera-discipline/banned-filler craft). PD originals preserved verbatim in
+  `tasks/engine-identity-seeds/power-doctrine.md`. 24 backend + 154 script tests green.
+- **Tracked for later (NOT a regression — deferred by design):** geopolitics "framework classifier" in
+  `research/agent.py` (`infer_framework_from_research` + 17-framework list) feeds the script angle →
+  Phase 3; titles + thumbnail copy → Phase 3; image-gen identity (`prompt_builder.py` constants, the lone
+  `cinematic_illustration` profile, AND `anthropic_client.py:~408-487` "intelligence operations center /
+  never show humans") → Phase 4.
+- **Next:** Phase 3 (titles/thumbnails). Live ESL-script proof run after this deploy.
+
+---
+
 ## ★ HANDOFF — 2026-06-16 ("Power Doctrine" leak in title/idea generation — FIXED + DEPLOYED + VERIFIED IN PROD)
 
 Ryan: "when I generate an example title it still uploads my old Power Doctrine channel —

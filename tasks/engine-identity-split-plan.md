@@ -8,6 +8,13 @@
 > push `main` → VPS `git pull --ff-only` → restart (see `tasks/todo.md` deploy notes; remember the
 > `kill -9 $(pgrep -f "uvicorn main:app")` self-match footgun — run it from a script file).
 
+## STATUS (2026-06-16)
+- ✅ **Phase 1 (Foundation)** — `IdentityContext` + builder (`identity.py`), neutral engine templates + `safe_fill` (`engine_templates.py`), executor injection + neutral fallback (`pipeline_executor.py resolve_prompt`). Merged to `main`, deployed.
+- ✅ **Phase 2 (Text engine)** — `script` (template + bot append-blocks + user-prompt tail), the script **validator** (PD checks now opt-in via `ScriptProfile`, default OFF; `power_doctrine_v2` re-enables), `research`, and `video_motion` all neutralized. PD originals preserved verbatim in `tasks/engine-identity-seeds/power-doctrine.md`. Reviewer-approved (no craft-loss). 24 backend + 154 script tests green. Merged to `main`, deployed.
+- ◻︎ **Phase 3 (Titles + thumbnail copy)** — next. Also tracked: the geopolitics "framework classifier" in `research/agent.py` (`infer_framework_from_research` + 17-framework list) feeds the script angle; neutralize / make profile-driven here.
+- ◻︎ **Phase 4 (Images)** — `prompt_builder.py` constants, the lone `cinematic_illustration` profile, AND `anthropic_client.py:~408-487` image prompt ("intelligence operations center / never show humans"). Needs the Phase-4 visual-store decision (Open Question 1).
+- ◻︎ **Phase 5 (Clone seeds voice + creator direction)**.
+
 **Goal:** Separate the universal *engine* (the craft of turning a sentence into a video) from the
 swappable *identity* (a channel's voice + look), so any creator can clone a YouTube video, steer it
 in their own direction, and generate on-brand videos — with zero hardcoded "Power Doctrine".
