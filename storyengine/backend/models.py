@@ -168,6 +168,15 @@ class CreateVideoRequest(BaseModel):
     video_length_minutes: Optional[int] = 10
     writer_guidance: Optional[str] = None
     visual_style: Optional[str] = None
+    # Free-text per-video scene LOOK (preset look sentence or the creator's own
+    # words). Front-loaded into every image prompt; wins over channel/neutral.
+    # Omitted for the clone ("use this video's style") and "none" choices.
+    image_style_override: Optional[str] = None
+    # When true, also save+activate this look as the channel's library identity
+    # so future (non-cloned) videos inherit it.
+    lock_in_identity: bool = False
+    # Friendly name for the locked-in library entry ("Pixar 3D", "Custom", …).
+    visual_style_label: Optional[str] = None
     accent_color: Optional[str] = None
     # Output shape, chosen up front; flows through image/clip gen + render.
     aspect_ratio: Literal["16:9", "9:16"] = "16:9"
