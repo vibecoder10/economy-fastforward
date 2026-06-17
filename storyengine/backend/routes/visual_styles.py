@@ -112,6 +112,41 @@ async def _list_styles_with_characters(project_id: str) -> list[VisualStyleRead]
     return result
 
 
+async def upsert_active_visual_style(project_id: str, name: str, look: str) -> None:
+    """Make `look` the project's ACTIVE library style under display name `name`.
+
+    Dedups by (project_id, name) with an explicit SELECT → UPDATE-or-INSERT (no
+    unique constraint exists to ON CONFLICT on). No-op when `look` is blank.
+    Mirrors activate_visual_style: deactivate all, then activate the one row.
+    """
+    look = (look or "").strip()
+    name = (name or "").strip() or "Custom style"
+    if not look:
+        return
+    profile = json.dumps({"prompt_prefix": look})
+
+    await execute(
+        "UPDATE visual_styles SET is_active = false, updated_at = now() WHERE project_id = $1",
+        project_id,
+    )
+    existing = await fetch_one(
+        "SELECT id FROM visual_styles WHERE project_id = $1 AND name = $2 LIMIT 1",
+        project_id, name,
+    )
+    if existing:
+        await execute(
+            "UPDATE visual_styles SET style_profile = $1::jsonb, is_active = true, "
+            "updated_at = now() WHERE id = $2",
+            profile, str(existing["id"]),
+        )
+    else:
+        await execute(
+            "INSERT INTO visual_styles (project_id, name, style_profile, is_active, is_default) "
+            "VALUES ($1, $2, $3::jsonb, true, false)",
+            project_id, name, profile,
+        )
+
+
 # =============================================================
 # IMPORTANT: Non-parameterized routes MUST come BEFORE /{style_id}
 # routes to avoid FastAPI matching "characters" as a style_id.
