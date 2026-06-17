@@ -52,20 +52,21 @@ ACT_MARKER_SIMPLE_PATTERN = re.compile(
 # ---------------------------------------------------------------------------
 
 _ACT_STRUCTURE_OVERRIDE_LEGACY = """\
-=== UPDATED SCRIPT PARAMETERS — THESE OVERRIDE THE ACT STRUCTURE ABOVE ===
+=== SCRIPT PARAMETERS ===
 
-This is a 15-20 minute video. Follow these targets:
-
-Target total: ~2,800 words (~17 minutes at 160 words/min)
+Target total: ~2,800 words (~17 minutes at ~160 words/min).
 Minimum: 2,200 words (~14 min). Maximum: 3,200 words (~20 min).
 
-Act word targets:
-- Act 1 (The Lie): ~350 words (0:00-2:00) — State the official narrative and break it with one contradicting fact
-- Act 2 (The Setup): ~500 words (2:00-6:00) — Key players, incentives, incentive chain with specific numbers
-- Act 3 (The Hidden Mechanism): ~550 words (6:00-11:00) — Money trail / power flow with evidence, framework invisible
-- Act 4 (The Proof): ~500 words (11:00-15:00) — Historical parallel + NOW name the framework
-- Act 5 (The Personal Stakes): ~500 words (15:00-18:00) — Dollar impact on the viewer, steel-man counter-arguments
-- Act 6 (The Play): ~400 words (18:00-20:00) — Specific actionable strategy with historical data
+Shape the script in clear sections (acts), and let the subject and audience
+decide how many and what each one does. Whatever the shape:
+- Open with a concrete hook that sets up the through-line.
+- Build with escalating value or tension — never plateau.
+- Sustain retention with a payoff every ~90 seconds, and open a loop at every
+  section transition.
+- Land the payoff the opening promised.
+- Close on a deliberate final beat (never a subscribe plea).
+
+Mark each section: [ACT X — TITLE | TIMESTAMP | ~WORD COUNT].
 """
 
 
@@ -102,575 +103,321 @@ def _build_act_structure_override(config: Optional["VideoConfig"] = None) -> str
     return "\n".join(lines) + "\n"
 
 _MICRO_PAYOFF_ARCHITECTURE = """\
-=== MICRO-REVELATION ARCHITECTURE — NON-NEGOTIABLE ===
+=== MICRO-PAYOFF ARCHITECTURE — NON-NEGOTIABLE ===
 
-Every 90 seconds of narration must deliver a specific revelation — a fact, \
-number, or connection the viewer didn't know. The viewer should never go \
-more than 90 seconds without learning something specific and new.
+Every ~90 seconds of narration must deliver a payoff — a specific fact, a \
+turn, a vivid image, or a connection the viewer didn't have a moment ago. \
+The viewer should never go more than ~90 seconds without being rewarded for \
+staying.
 
-Structure within each scene (60-90 seconds):
+Structure within each beat (about 60-90 seconds):
 
-CLAIM (first 1-2 sentences): State a specific, verifiable claim with a \
-number. "54% of all PE funding for the top 30 US AI companies comes from \
-three Gulf sovereign wealth funds." This is not a question — it's insider \
-intelligence.
+SETUP (first 1-2 sentences): Open the beat on something concrete and \
+specific — a claim, a moment, a question. Not a warm-up; the first line \
+already does work.
 
-EVIDENCE (middle): Build the case with more specific data. Each fact should \
-connect to the incentive chain — WHO benefits, HOW MUCH, and WHY this \
-matters. Every paragraph must contain at least one specific number.
+BUILD (middle): Develop it with specific detail. Give the precise example, \
+the exact moment, the real number — not vague intensifiers. Each detail \
+should advance the through-line.
 
-REVELATION (last 1-2 sentences): The "oh shit" moment — a connection the \
-viewer didn't see. This is NOT a cliffhanger — it's a REWARD.
+PAYOFF (last 1-2 sentences): The reward — the "oh, that makes sense" or the \
+detail that lands. This is what the viewer stayed for.
 
-BRIDGE (final sentence): The revelation naturally raises a NEW question \
-that pulls them into the next scene. This is the explicit forward sell.
+BRIDGE (final sentence): The payoff naturally raises a NEW question or \
+promise that pulls the viewer into the next beat. This is the open loop.
 
-BAD example (vague, no numbers):
+BAD example (vague, no payoff, stalls the viewer):
 "And what happened next would change everything. But first, let's \
 understand the background..."
 
-GOOD example (specific, number-dense, investigative):
-"Iran didn't strike Ras Tanura to destroy it. They struck it to prove \
-that every dollar of Saudi oil wealth now exists at their mercy — and the \
-cost of that proof was twenty thousand dollars. One drone against a \
-facility processing 7 million barrels a day. That's the asymmetry that \
-breaks empires. But the real question isn't whether Iran can do it again. \
-It's what happens when Lloyd's of London decides the Strait isn't worth \
-the $14 billion premium."
+GOOD example (concrete setup, specific build, real payoff, forward bridge):
+"Most people add the garlic first. That's exactly why it burns. Garlic \
+scorches in about 30 seconds in a hot pan — long before the onions are \
+soft. So the fix is almost insultingly simple: onions in first, garlic in \
+last, off the heat if you have to. Do that and the whole dish stops \
+tasting bitter. But there's one more thing happening in that pan that \
+nobody tells you about — and it decides whether the sauce ever comes \
+together."
 """
 
 _FRAMEWORK_REVELATION_ENGINE = """\
-=== FRAMEWORK INTEGRATION — INVISIBLE ENGINE, NOT THE HEADLINE ===
+=== RECURRING LENS / FRAMEWORK — SHOW IT, DON'T LECTURE IT ===
 
-The selected framework is the analytical engine that structures the \
-investigation. But it is INVISIBLE SCAFFOLDING until Act 4. The viewer \
-sees the pattern playing out in real events BEFORE you name it.
+If this channel uses a recurring lens, framework, or idea to make sense of \
+its subject, that lens should ORGANIZE the script quietly — it is not the \
+subject of the script and it is never a lecture.
 
-FRAMEWORK VISIBILITY RULES:
-- Acts 1-3: The framework operates SILENTLY. Show the pattern through \
-events, money trails, and incentive chains. NEVER name the framework, \
-the author, or use academic terminology. The viewer should feel "something \
-deeper is going on" without being told what it is.
-- Act 4: NOW name the framework. "What you're watching is what [Author] \
-identified as [Concept]." This lands as CONFIRMATION of what the viewer \
-already intuited, not as new information being introduced.
-- Acts 5-6: Reference the framework by name at most once more. Use it \
-as a predictive tool: "If this follows the [framework] pattern, then..."
+HOW TO WEAVE A LENS IN:
+- Show the idea in action through concrete specifics before you ever name \
+it. Let the viewer feel the pattern first.
+- If you name the lens at all, name it as CONFIRMATION of what the viewer \
+has already seen — not as new theory dropped on them. Keep it to a sentence, \
+then return immediately to the concrete story.
+- Use the lens as a tool the viewer can reuse ("when you see X, that's Y \
+happening again"), not as terminology to memorize.
 
-BAD (framework as lecture — kills the investigative tone):
-"Machiavelli wrote in The Prince that consolidating power requires \
-eliminating rival factions. What we're seeing with this company is \
-a textbook application of Chapter 7..."
+BAD (lens as lecture — kills momentum):
+"The author wrote that successful teaching requires comprehensible input \
+slightly above the learner's level. What we're applying here is a textbook \
+case of stage-three acquisition theory, in which..."
 
-GOOD (framework invisible, pattern visible):
-"Three weeks after the acquisition, every executive who opposed the \
-deal was gone. Not fired — reassigned to roles with no budget and no \
-staff. The board members who voted against? Their committee seats were \
-quietly redistributed. Within 90 days, every voice of dissent had been \
-neutralized without a single public confrontation."
-(The viewer FEELS the Machiavellian pattern without being told about it.)
+GOOD (lens invisible, pattern visible):
+"Notice you understood that sentence without translating it. That's not \
+luck — it's because every new word sat next to three you already knew. \
+That's the whole trick, and we'll use it on purpose for the next ten \
+minutes."
 
-GOOD (framework revealed in Act 4):
-"What you've been watching play out — the quiet purge, the strategic \
-appointments, the controlled elimination of opposition — is what \
-Machiavelli identified 500 years ago as the consolidation phase. And \
-the historical record shows what comes next."
-
-CRITICAL: If the framework/tactical/military mechanics section exceeds \
-15% of total script time, the script has drifted into documentary mode. \
-The incentive chain (WHO benefits, HOW MUCH, WHY) must always be the \
-dominant content. The framework EXPLAINS the incentive chain — it does \
-not replace it.
-
-Maximum 2 direct references to the framework by name in the entire script. \
-The rest is showing, not telling.
+CRITICAL: The lens explains the content; it never replaces it. If you find \
+yourself explaining theory or terminology for more than a moment, stop and \
+return to the concrete material the viewer actually came for. Keep direct \
+references to any named framework to a minimum — the rest is showing, not \
+telling.
 """
 
 _FRAMEWORK_SELECTION_RULES = """\
-=== FRAMEWORK SELECTION — DYNAMIC PER-VIDEO ===
+=== ANGLE / LENS SELECTION — PER-VIDEO ===
 
-Before writing the outline, select 1-2 primary frameworks that BEST explain \
-the incentive chain in this story. Do not default to Machiavelli. Choose the \
-framework that creates the most powerful "who benefits" revelation.
+Before writing the outline, decide the ONE angle or lens that makes this \
+specific subject most worth watching for this audience. The right angle is \
+the one that creates the strongest reason to keep watching — the clearest \
+through-line and the most satisfying payoff.
 
-Available frameworks (select 1-2):
-1. Machiavelli / 48 Laws of Power — political maneuvering, deception, betrayal
-2. Thucydides Trap — rising power vs established power, inevitable conflict
-3. Taleb (Antifragile/Black Swan) — asymmetric risk, fragility, hidden tail risks
-4. Game Theory — deterrence, prisoner's dilemma, Nash equilibrium, commitment
-5. Sun Tzu (Art of War) — indirect warfare, winning without fighting, deception
-6. Brzezinski / Grand Chessboard / Mackinder — geographic control, pivot states
-7. Kindleberger Trap — hegemon withdrawal, public goods vacuum, systemic collapse
-8. Schelling (Focal Points/Commitment) — brinkmanship, credible threats, red lines
-9. Mancur Olson (Collective Action) — organized minorities vs disorganized majorities
-10. Joseph Nye (Soft Power/Sharp Power) — influence without coercion, cultural dominance
+If the channel provides recurring frameworks or signature segments, choose \
+the one that best fits this subject; otherwise pick the angle the material \
+itself suggests. Do not force a framework that doesn't fit.
 
 Selection criteria:
-- Which framework best explains the INCENTIVE CHAIN — who benefits and why?
-- Which framework connects this specific event to a MONEY TRAIL the viewer \
-can follow?
-- Which framework gives the viewer a TOOL they can use to predict financial \
-impact and position themselves?
+- Which angle gives the cleanest through-line — one spine from hook to payoff?
+- Which angle creates the strongest reason for THIS audience to care?
+- Which angle gives the viewer something they can use or remember afterward?
 
-State your framework selection at the top of the outline:
-PRIMARY FRAMEWORK: [Name] — [One sentence on why this framework cracks open \
-this story's incentive chain]
-SECONDARY FRAMEWORK: [Name] — [One sentence on what additional dimension \
-this adds]
+State your choice at the top of the outline:
+ANGLE: [Name] — [One sentence on why this angle is the most compelling way \
+into this subject for this audience]
 
-REMEMBER: The framework is INVISIBLE in Acts 1-3. It structures your \
-analysis silently. It is only NAMED in Act 4.
+REMEMBER: A recurring lens organizes the script quietly. Show it in action \
+through concrete specifics; name it only as confirmation, never as a lecture.
 """
 
 _FRAMEWORK_PSYCH_SEPARATION = """\
-=== EMOTIONAL ARC — THE INVESTIGATIVE JOURNEY ===
+=== EMOTIONAL ARC — THE VIEWER'S JOURNEY ===
 
-Each act has a specific emotional function in the investigative journey. \
-The viewer goes from deceived → suspicious → enlightened → alarmed → empowered.
+A script is not just information in order; it is an emotional journey. The \
+viewer should FEEL something change from the first beat to the last. Decide \
+the arc that fits this subject and audience, and make every section move it \
+forward.
 
-Emotional arc per act:
-- Act 1 (The Lie): DECEPTION → SUSPICION. The viewer realizes they've been \
-lied to. They feel betrayed by the official narrative. Curiosity gap opened.
-- Act 2 (The Setup): CURIOSITY → RECOGNITION. The viewer starts seeing the \
-incentive chain. "Oh, so THAT'S why..." Each fact adds to the picture.
-- Act 3 (The Hidden Mechanism): RECOGNITION → REVELATION. The money trail \
-clicks into place. The viewer feels like they're seeing behind the curtain.
-- Act 4 (The Proof): REVELATION → CONVICTION. The historical parallel proves \
-this is a PATTERN, not coincidence. The framework name confirms what they \
-already intuited. "I knew something was off."
-- Act 5 (The Personal Stakes): CONVICTION → ALARM. The abstract becomes \
-personal. Dollar amounts hit the viewer's life directly. Genuine unsettlement.
-- Act 6 (The Play): ALARM → EMPOWERMENT. The viewer receives specific tools \
-and actions. They leave feeling SMARTER and MORE CAPABLE. Not scared — armed.
+How to build the arc:
+- Open by making the viewer FEEL the question, curiosity, or stakes — not \
+just learn the topic. Give them a reason to care in the first beat.
+- Through the middle, deepen that feeling step by step. Each section should \
+shift the viewer's emotional state, not just add facts: curiosity → \
+understanding, confusion → clarity, tension → release.
+- The payoff is emotional as well as informational: the satisfying answer, \
+the click of understanding, the resolution the opening promised.
+- End on the feeling that fits this channel — most often a sense of being \
+rewarded, capable, or moved. The viewer should leave better off than they \
+arrived.
 
-CRITICAL: The arc must end on EMPOWERMENT. The viewer must leave every video \
-feeling like they gained an advantage, not like they lost hope.
+CRITICAL: The arc must resolve. The viewer must leave feeling the payoff \
+landed — never stranded, never cheated, never told a problem with no way \
+through it.
 """
 
 _CINEMATIC_VOICE_RULES = """\
-=== CINEMATIC VOICE — IMMERSIVE POV WRITING ===
+=== IMMERSIVE VOICE — WRITE SCENES, NOT SUMMARIES ===
 
-0. DATA LIVES INSIDE CHARACTERS — THE #1 RULE:
+The difference between narration that holds a viewer and narration they \
+click away from is immersion. Don't report the subject from a distance — \
+put the viewer inside it. Make them see, hear, and feel each beat before \
+(or as) you explain it.
 
-Once you enter a character's perspective at the start of an act, you \
-DO NOT LEAVE IT until the act ends. Every statistic, every percentage, \
-every dollar amount must be something that character sees, knows, fears, \
-or discovers.
+1. CONCRETE, SCENE-DRIVEN OPENINGS:
+Open every section on something specific the viewer can picture — a moment, \
+a place, a person, a concrete example — in the first 1-2 sentences. Ground \
+them before you abstract.
 
-You are NOT a news anchor reading statistics. You are a camera operator \
-standing behind a person who is living this moment.
+GOOD: "You crack the egg into the pan and it slides instead of sizzling. \
+That's the whole problem, right there."
+BAD: "Temperature control is an important factor in cooking eggs."
 
-TEST: For every sentence, ask "whose eyes am I seeing this through?" \
-If the answer is "nobody — this is just information," REWRITE IT through \
-the nearest character.
+2. ACTIVE FRAMING:
+Replace flat, passive statements with active, vivid ones — same fact, \
+better delivery.
 
-BAD (narrator breaks away to brief the audience):
-"China receives 37.7% of all crude oil flowing through Hormuz, according \
-to Visual Capitalist's Q1 2025 data. Saudi Arabia exports 37.2% through \
-the strait. Iraq: 22.8%."
+GOOD: "The dough fights back when you knead it too soon."
+BAD: "Premature kneading can be counterproductive."
 
-GOOD (the destroyer captain knows this because it's his problem):
-"The captain knows what's anchored behind him. Tankers bound for China, \
-which takes 37% of everything that flows through this strait. Tankers \
-for Japan, South Korea, India. His mission is to protect them all. His \
-ship has 90 missile cells. There are 3,000 speedboats."
+3. SCENE TRANSITIONS:
+Move between sections like a film editor cutting between shots — a clean \
+cut to the next concrete moment — not with abstract connective filler.
 
-BAD (narrator lectures about cost asymmetry):
-"This is the asymmetry that breaks empires. Iran fires a $50,000 drone. \
-The U.S. spends $4 million to stop it. That's a 1-to-80 cost ratio."
-
-GOOD (the captain is living the cost asymmetry):
-"Every time his ship fires a $4 million interceptor at a drone that \
-cost $50,000 to build, the captain is watching his ammunition budget \
-evaporate. He has 90 cells. Iran has 2,500 missiles and thousands of \
-drones. He can do the math."
-
-BAD (narrator delivers a history lesson):
-"On April 18, 1988, Operation Praying Mantis saw U.S. forces destroy \
-one Iranian frigate, one gunboat, three speedboats, and two platforms \
-in the largest U.S. naval engagement since World War II."
-
-GOOD (Tangsiri remembers it because he lived through it):
-"Tangsiri was a junior officer in 1988 when American ships destroyed \
-an Iranian frigate, a gunboat, three speedboats, and two platforms in \
-a single afternoon. Forty-five sailors died. He spent the next 35 years \
-making sure Iran would never fight that way again."
-
-THE RULE: If you find yourself writing "according to" or listing \
-percentages without a character reacting to them, you've left the \
-scene. Get back inside.
-
-CITATIONS: Source attributions still appear — but weave them into the \
-character's world. "The Pentagon's own assessment landed on his desk: \
-1 to 6 months" not "A Defense Intelligence Agency assessment estimates \
-1 to 6 months, according to CNN."
-
-MICRO-INSIGHTS: These are the character's earned wisdom, said in their \
-voice at the end of their scene. Not narrator commentary. The captain \
-thinks it. Tangsiri knows it. The family feels it. Van Riper proved it.
-
-ACT 4 IS THE HARDEST ACT TO KEEP IN CHARACTER. This is where the \
-framework drops and the temptation is to break into professor mode. \
-DO NOT.
-
-The Act 4 character is the prophet — the person who predicted or \
-proved this pattern before. The framework insight belongs to THEM, \
-not to a narrator explaining theory.
-
-BAD: "What you're watching is what military theorists call asymmetric \
-cost imposition — the strategic principle that..."
-
-GOOD: "Van Riper quit the war game in protest. He'd proved something \
-the Pentagon didn't want to hear: you don't have to win a fight. You \
-just have to make winning too expensive for the other guy. Twenty-four \
-years later, he's watching Iran prove him right."
-
-BAD: "Halford Mackinder wrote in 1904 that geography determines \
-destiny. Zbigniew Brzezinski updated it for the modern era."
-
-GOOD: "Van Riper didn't need Mackinder to tell him what the map \
-already showed. Twenty-one miles of shallow water with 100 miles of \
-hostile coastline. No carrier group in history was built for this."
-
-THE RULE FOR ACT 4: The framework name can appear ONCE. One sentence. \
-Then immediately return to the character's experience. If you find \
-yourself writing two consecutive sentences of theory without a \
-character acting, seeing, or deciding — you've left the scene.
-
-THE APEX must be said in plain language a teenager could repeat:
-GOOD: "You don't have to win. You just have to make winning too \
-expensive for the other guy."
-BAD: "This demonstrates asymmetric cost imposition where the \
-defender's expenditure exceeds the attacker's investment ratio."
-
-1. SCENE-DRIVEN ACT OPENINGS: Open every act with a specific scene — a place, \
-a person, an action — in the first 2-3 sentences. Ground the viewer in a \
-visual moment BEFORE transitioning to analysis.
-
-GOOD: "In a warehouse outside Isfahan, Iranian engineers loaded the first \
-batch of Shahed drones onto transport planes."
-BAD: "Iran needed regional dominance without direct confrontation."
-
-CRITICAL: The scene you open with IS the act. You don't open with a \
-scene and then leave it to deliver analysis. The analysis happens \
-INSIDE the scene. If Act 2 opens on the destroyer bridge, Act 2 \
-STAYS on the destroyer bridge. The trade flow percentages, the \
-insurance data, the cost ratios — the captain knows all of this \
-because it's his operational reality.
-
-2. ACTIVE FRAMING: Replace passive analytical statements with active cinematic \
-ones. Same facts, cinematic delivery.
-
-GOOD: "Iran's generals studied the map and saw an opportunity."
-BAD: "Iran needed regional dominance."
-
-GOOD: "Three engineers in a Kyiv garage plugged in a 3D printer."
-BAD: "What emerged wasn't a government program."
-
-3. SCENE TRANSITIONS: Cut between locations like a film editor. Use geographic \
-and temporal cuts to move between acts — NOT abstract narrative bridges.
-
-GOOD: "Six hundred miles south, at a shipping container in Kuwait, a US \
-sergeant checked the perimeter for the last time."
+GOOD: "Now move to the pan that's been waiting on the back burner."
 BAD: "But here's what none of this explains."
 
-4. POV ANCHOR: Each act must have ONE moment where the viewer is placed \
-inside the scene — standing in a boardroom, watching a screen, hearing the \
-announcement. This is the cinematic "you are here" beat.
+4. PUT THE VIEWER IN THE MOMENT:
+Each section should have at least one beat where the viewer is placed \
+inside the experience — watching it happen, doing it themselves, feeling \
+the moment. This is the "you are here" beat.
 
-GOOD: "You're sitting in the trading floor when the ticker flashes red."
-GOOD: "Picture standing on that shipping container watching the tankers queue."
+GOOD: "Picture the first word landing and you actually understanding it, \
+no translation."
 
-5. SENTENCE RHYTHM: Short fragments during action and revelation. Longer \
-flowing sentences during explanation and context-building. The rhythm itself \
-creates tension and release.
+5. SENTENCE RHYTHM:
+Short fragments during action and reveals. Longer, flowing sentences during \
+explanation and context. The rhythm itself creates tension and release.
 
-ACTION: "The phone rang. The CFO answered. Three words. Then silence."
-EXPLANATION: "What nobody outside the Pentagon understood was that this \
-particular supply chain had been quietly subsidized for two decades."
+ACTION: "The timer beeps. You lift the lid. Steam everywhere."
+EXPLANATION: "What's actually happening underneath is that the starches \
+have finally absorbed enough water to hold their shape."
 
-6. THE "YOU" PIVOT: The direct address to the viewer ("you", "your wallet", \
-"your 401k") happens ONCE in Act 5 — not scattered throughout. Save it for \
-maximum impact when personal stakes are introduced.
+6. THE "YOU" PIVOT — USE IT DELIBERATELY:
+Direct address to the viewer ("you", "your") is powerful precisely because \
+it's not constant. Reserve the strongest "this is about YOU" moment for \
+where it lands hardest, rather than scattering it through every line.
 
-7. HERO VISUAL MOMENT: Each act gets ONE vivid visual beat that could be a \
-movie still — a face, a place, an object that crystallizes the act's theme. \
-Describe it in sensory detail.
+7. ONE VIVID IMAGE PER SECTION:
+Each section earns one image that could be a still frame — a face, a place, \
+an object, a moment — described in enough sensory detail that the viewer \
+can see it. That image carries the section's point.
 
-8. FORWARD PULL: End every act (except the last) with explicit forward momentum. \
-The final sentence should create genuine curiosity about what comes next.
+8. FORWARD PULL:
+End every section (except the last) with explicit forward momentum. The \
+final sentence should open a loop — genuine curiosity about what comes next.
 
-Every act opening should feel like a camera cutting to a new location. The \
-viewer should SEE the scene before hearing the analysis.
+=== THE APEX — THE ONE LINE THEY KEEP ===
 
-9. THE POWER DOCTRINE APEX (Act 4):
-
-Every video has one moment where the story stops being about the headline \
-and becomes a truth the viewer can use forever. This is the reward for staying.
+Most strong videos have a single moment where the piece stops being about \
+the specific topic and becomes a truth the viewer carries away. This is the \
+reward for staying.
 
 THREE RULES:
-
-A) BUILD A GAP IN ACTS 1-3: Something doesn't add up. The viewer feels a \
-contradiction they can't resolve:
-- "If Iran is losing, why are the tankers still frozen?"
-- "If America has the strongest military, why can't it open a 21-mile strait?"
-
-B) DROP THE INSIGHT THROUGH A CHARACTER: Not as a lecture. As something a \
-person discovered, proved, or lived. The insight belongs to them.
-
-GOOD: "Van Riper proved it in 2002. You don't have to win. You just have to \
-make winning too expensive for the other guy."
-BAD: "This illustrates Nash equilibrium in asymmetric conflict theory."
-
-C) SIMPLE ENOUGH TO REPEAT: If a teenager couldn't say it back to a friend \
+A) BUILD TOWARD IT: Earlier sections set up a question, gap, or tension the \
+viewer wants resolved.
+B) DELIVER IT THROUGH SOMETHING CONCRETE: Land the insight on a specific \
+moment, example, or person — not as abstract theory.
+C) SIMPLE ENOUGH TO REPEAT: If the viewer couldn't say it back to a friend \
 in one sentence, rewrite it.
 
-PLACEMENT: Act 4. Never earlier. Never Act 5 — that's the personal stakes return.
+GOOD: "You don't need a bigger knife. You need a sharper one."
+BAD: "Edge geometry and honing angle jointly determine cutting efficiency."
 
-10. MICRO-INSIGHT BREADCRUMBS (Every Act):
+=== MICRO-INSIGHT BREADCRUMBS (EVERY SECTION) ===
 
-Every act ends with one simple truth the viewer takes with them. These build \
-toward the apex but each one works alone. A viewer who leaves after Act 2 \
-still learned two things they can use.
-
-PATTERN:
-- Act 1: A truth about money, prices, or how hidden systems hit your life
-- Act 2: A truth about perception, appearances, or what power looks like
-- Act 3: A truth about strategy, systems, or how the game was changed
-- Act 4: THE APEX — the big transferable insight
-- Act 5: A truth about signals — how to read what's really happening
-- Act 6: A truth about patterns — how to spot this playing out again
+Every section ends with one simple truth the viewer takes with them. These \
+build toward the apex, but each one also works alone — a viewer who leaves \
+early still learned something they can use.
 
 RULES:
 - One sentence. Two at most.
-- Plain language only. No theory names. No economist citations.
-- Delivered through the character's experience, not narrator commentary.
+- Plain language only. No jargon, no terminology to memorize.
+- Delivered through the concrete material, not as detached commentary.
 - Must pass the "text it to a friend" test.
 
-GOOD: "You don't pay more because something bad happened. You pay more \
-because something bad might happen."
-GOOD: "If everyone believes you can hurt them, you don't actually have to."
-GOOD: "Don't listen to what people say. Watch where the money goes."
+GOOD: "Salt early and you season the food; salt late and you just season \
+the surface."
 
-BAD: "This demonstrates deterrence through perceived capability rather than \
-actual force deployment."
+=== THE CLOSE — AN ENDING, NOT A SIGN-OFF ===
 
-The micro-insights form a chain. Each makes the next feel inevitable. By the \
-time the apex drops, the viewer has already been thinking in the right direction.
-
-11. EMOTIONAL ARC AND ACT STRUCTURE:
-
-The viewer is the common person. They are the through-line. The story starts \
-with their life, leaves to explore the machinery behind their pain, then \
-returns with understanding.
-
-THE ARC:
-- Act 1 — "THAT'S ME": Open with the ordinary person affected. Gas pump, \
-grocery bill, rent increase. They don't understand why. The viewer identifies \
-immediately.
-- Act 2 — "THEY'RE LYING": The official story falls apart. The person in \
-charge can't solve it. The viewer feels the gap between what they're told and \
-what's happening.
-- Act 3 — "SOMEONE BUILT THIS": Meet the architect. The adversary or system \
-designer who planned this deliberately over years or decades. The viewer feels \
-dread and grudging respect.
-- Act 4 — "NOW I UNDERSTAND": The apex. A historical proof or character who \
-demonstrated this truth before. The viewer gets the framework that explains \
-everything they've seen.
-- Act 5 — "IT'S HITTING MY LIFE": Return to the ordinary person. Now every \
-link is visible. The tankers, the insurance, the supply chain — all traced \
-back to the mechanism revealed in Acts 2-4. The abstract becomes personal.
-- Act 6 — "I KNOW WHAT TO WATCH": Return to Act 2's character or scene. Same \
-situation, but the viewer sees it completely differently. Close with what \
-signals to monitor and how to spot this pattern next time.
-
-THE CHARACTER MAP:
-- Act 1: The ordinary person (the viewer's stand-in)
-- Act 2: The front-line operator failing to solve the crisis
-- Act 3: The architect who built the system causing the crisis
-- Act 4: The prophet who predicted or proved this before
-- Act 5: Return to Act 1's ordinary person — now with understanding
-- Act 6: Return to Act 2's operator — same scene, new meaning
-
-This structure means the viewer's own life bookends the story. They enter \
-through their experience, travel through the hidden machinery, and return to \
-their own life with the ability to see what was invisible before. That \
-transformation is why they subscribe.
-
-12. ACT 6 — THE RETURN, NOT THE BRIEFING:
-
-Act 6 returns to the Act 1 and Act 2 characters. The viewer sees the \
-same scene with new understanding. This is emotional payoff, not a \
-financial newsletter.
-
-Actionable signals (insurance markets, pipeline capacity, specific \
-indicators) must be delivered THROUGH a character's perspective, not \
-as a numbered list.
-
-BAD: "Watch for three specific indicators. One: insurance premium \
-movements. Two: bypass pipeline utilization. Three: Chinese vessel \
-transit patterns."
-
-GOOD: "The captain will know it's over when the tankers start moving. \
-Not when the Pentagon says it's safe — when Lloyd's of London says \
-it's insurable. That's the signal. Insurance desks in London will \
-call the end of this crisis before any general does."
-
-BAD: "The sectors that move first: energy obviously, but also \
-shipping insurance, defense contractors..."
-
-GOOD: "That family in Ohio will fill up again next week. If the \
-price drops, someone solved the insurance problem. If it doesn't, \
-the 21-mile kill zone is still open for business. You'll know which \
-one happened before the news tells you — just watch the price."
-
-The final act is a STORY ENDING, not a research report. The viewer \
-should feel closure and empowerment, not like they just read a \
-Bloomberg terminal.
+The final section is a deliberate ending, not a checklist or a sign-off. \
+Land the payoff the opening promised and leave the viewer with the feeling \
+that fits this channel — resolved, rewarded, or moved. Deliver any takeaways \
+through the concrete material, not as a bulleted list, and never close on a \
+subscribe plea.
 """
 
 _STRICT_GROUNDING_RULE = """\
 === STRICT FACTUAL GROUNDING RULE — NON-NEGOTIABLE ===
 
-Every factual claim, entity name, company name, person name, event, date, \
-and dollar amount in the script MUST come directly from the research payload \
-provided. You may NOT introduce:
-- Companies, people, or events not mentioned in the research
-- Dollar amounts or statistics not in the fact sheet
-- Historical events not in the historical parallels section
+Every factual claim, name, place, event, date, and number in the script MUST \
+come directly from the research brief / source material provided. You may NOT \
+introduce:
+- People, places, organizations, or events not mentioned in the research
+- Numbers, amounts, or statistics not in the source material
+- Examples or parallels not supported by the source material
 - Dates or timelines not supported by the source material
 
-If you need a transition, analogy, or rhetorical device, use only the \
-entities and events from the research payload. Do NOT substitute \
-similar-sounding companies (e.g. DeepSeek for Anthropic) or similar topics \
-(e.g. tariffs for Pentagon contracts).
+If you need a transition, analogy, or rhetorical device, build it only from \
+the material in the brief. Do NOT substitute similar-sounding names or swap in \
+a related-but-different topic.
 
-Before finalizing each act, verify: is every proper noun, date, statistic, \
-and event traceable to the research payload? If not, remove it or replace \
-it with something from the research.
-
-The ONLY exception is well-known historical figures or events used in \
-framework references (e.g. Machiavelli, Sun Tzu, Athens vs Sparta) that \
-are part of the analytical framework, NOT part of the factual narrative.
+Before finalizing each section, verify: is every proper noun, date, number, \
+and event traceable to the research brief? If not, remove it or replace it \
+with something that is.
 
 === CRITICAL — FACTUAL GROUNDING (EXTENDED) ===
 
-1. Every specific claim (names, numbers, dates, events, tactics, weapons, \
-quotes) MUST come from the research payload provided. If a fact is not in \
-the payload, DO NOT USE IT.
+1. Every specific claim (names, numbers, dates, events, quotes, technical \
+details) MUST come from the brief. If a fact is not in the brief, DO NOT \
+USE IT.
 
-2. You may describe HOW something happened cinematically, but you MUST NOT \
-invent WHAT happened. Example: You can describe a missile strike \
-dramatically. You CANNOT invent a cyber attack that is not in the sources.
+2. You may describe HOW something happened vividly, but you MUST NOT invent \
+WHAT happened. You can dramatize a sourced event; you cannot invent an event \
+that isn't in the sources.
 
-3. Never fabricate technical details (weapon systems, military tactics, \
-operational specifics) to fill narrative gaps. If the payload does not \
-explain HOW something happened, say "analysts believe" or "evidence \
-suggests" — do not present speculation as confirmed fact.
+3. Never fabricate specifics to fill a narrative gap. If the brief does not \
+explain HOW something happened, hedge honestly ("the records suggest", \
+"it's not fully known") rather than presenting a guess as fact.
 
-4. Historical parallels must come from the research payload's \
-historical_parallels field. Do not invent additional parallels.
+4. Examples, parallels, and case studies must come from the brief. Do not \
+invent additional ones.
 
-5. If a scene needs content the payload does not provide, use the \
-framework analysis to EXPLAIN the event rather than inventing new events. \
-The analytical framework is your gap-filler, not fabricated details.
+5. If a beat needs content the brief does not provide, lean on the chosen \
+angle/lens to EXPLAIN what is sourced, rather than inventing new facts. The \
+lens is your gap-filler, not fabricated detail.
 
-6. After writing each scene, mentally verify: "Could I cite a specific \
-source from the payload for every factual claim in this scene?" If not, \
-rewrite.
+6. After writing each beat, mentally verify: "Could I point to a specific \
+place in the brief for every factual claim here?" If not, rewrite.
 
 WHAT YOU CAN CREATE:
-- Dramatic pacing, sentence structure, rhetorical questions
-- Emotional framing of sourced facts
-- Analytical connections between sourced facts using the framework
-- Metaphors and analogies that illustrate sourced concepts
+- Pacing, sentence structure, rhetorical questions
+- Emotional and vivid framing of sourced facts
+- Connections between sourced facts via the chosen angle
+- Metaphors and analogies that illustrate sourced ideas
 
 WHAT YOU CANNOT CREATE:
 - Events that did not happen
-- Technical details not in the payload (cyber attacks, specific weapon \
-deployments, operational sequences)
-- Quotes from people unless quoted in the payload
-- Statistics, percentages, or numbers not in the payload
-- Specific military tactics or operations not documented in sources
+- Specifics not in the brief
+- Quotes from people unless quoted in the brief
+- Numbers or statistics not in the brief
 """
 
 _ACT_SPECIFIC_RULES = """\
-=== ACT-SPECIFIC RULES (V2 — INVESTIGATIVE VOICE) ===
+=== SECTION CRAFT — APPLIES TO EVERY SECTION ===
 
-Act 1 (The Lie):
-Open with the headline event (one sentence, present tense, specific date). \
-State what "everyone" is being told. Drop ONE fact that contradicts the \
-narrative (with a specific number). If multiple official rationales exist, \
-walk through each and let them contradict each other — this is more \
-devastating than breaking one narrative. End with: "When you follow the \
-[money/data/contracts], you find something completely different." \
-Minimum 2 specific numbers. Explicit cliffhanger teasing Act 3.
+These rules apply to each section/act of the script, whatever the subject \
+and however many sections it has. Let the material and the audience decide \
+the shape; apply this craft within it.
 
-Act 2 (The Setup):
-Introduce key players by their POSITIONS and INCENTIVES, not biographies. \
-Build the incentive chain: Player A needs X → requires Y → depends on Z. \
-Every paragraph must contain at least one specific number or date. Name \
-sources: "according to the Congressional Budget Office" not "experts say." \
-NO framework language yet — pure facts and observable patterns. End with: \
-"But here's what none of this explains..." Minimum 5 specific numbers. \
-Explicit cliffhanger teasing the hidden mechanism.
+OPENING SECTION:
+Open cold on something concrete the viewer can picture or feel — a moment, a \
+question, a vivid example. Establish the through-line: the single question, \
+story, or promise the whole script will pay off. Give the viewer a reason to \
+care immediately. End the section on an open loop that pulls them forward.
 
-Act 3 (The Hidden Mechanism):
-Reveal the real dynamic through EVIDENCE, not theory. This is the money \
-trail / power flow / strategic logic with specific data. Connect dots the \
-mainstream coverage missed. Introduce the first historical parallel as \
-PROOF the pattern is real. The framework principles operate here but are \
-NOT named — show don't tell. Each sub-section must have a mini-revelation. \
-Minimum 4 specific numbers. Cliffhanger: "And there's one more layer \
-that affects you directly."
+MIDDLE SECTIONS:
+Each middle section must ESCALATE — raise the stakes, deepen the payoff, or \
+sharpen the question. Never plateau and never repeat. Ground every claim in \
+the source material. Deliver a payoff at least every ~90 seconds and end each \
+section on an open loop into the next. Specifics over vagueness, always.
 
-Act 4 (The Proof):
-Historical parallel in vivid detail — specific dates, figures, events, \
-outcomes. Point-by-point mapping: "In 1973, [X]. In 2026, [X]." \
-NOW name the framework: "What you're watching is what [Author] identified \
-as [Concept]." Use the framework to PREDICT what comes next based on \
-historical precedent. The framework arrives as CONFIRMATION of what the \
-viewer already sees. Minimum 3 specific numbers. Cliffhanger about \
-personal financial impact.
+PAYOFF SECTION:
+Deliver the resolution, answer, or transformation the opening promised. This \
+is the emotional and informational high point — the moment the viewer stayed \
+for. Make it land through concrete material, not abstract summary.
 
-Act 5 (The Personal Stakes):
-"Here's what this means for your wallet." Use "you" and "your" heavily. \
-Specific scenarios with dollar amounts: "If [mechanism] continues, gas \
-hits $X within Y days and your 401k drops Z%." Steel-man the strongest \
-counterargument — it must be genuinely strong. Then dismantle it with \
-evidence, not opinion. The viewer should feel genuinely unsettled. \
-Minimum 3 specific numbers. Cliffhanger: "So what do you actually DO \
-with this information? That's exactly what the final section reveals."
+FINAL SECTION:
+A deliberate ending, not a sign-off. Close the through-line, leave the viewer \
+with the feeling that fits this channel (rewarded, capable, or moved), and \
+give any takeaway through the concrete material rather than a bulleted list. \
+The final line should feel intentional and complete.
 
-Act 6 (The Play):
-"So what do you actually DO with this information?" This is NON-NEGOTIABLE \
-— the viewer MUST receive a specific, actionable strategy. The close must:
+GOOD close: a line that resolves the opening and lingers — the kind of ending \
+that makes the whole piece feel finished.
+BAD close: trailing off, a flat recap, or "like and subscribe."
 
-1. Give the SPECIFIC ACTION: investment thesis, risk to hedge, sector to \
-watch, signal to monitor. Not "diversify your portfolio" but "watch the \
-[specific index/signal]." Include historical performance data: "Smart money \
-moved [X days] after [similar events], not during."
-
-2. NAME the frameworks and patterns taught in this video by name. The \
-viewer must hear them repeated so they stick.
-
-3. Give 2-3 DETECTION INSTRUCTIONS: "When you see X, ask Y. When A \
-happens, look for B within 48 hours." Concrete, specific.
-
-4. End on AGENCY: the final line connects back to the opening lie and \
-lingers. The viewer leaves feeling SMARTER and MORE CAPABLE. NOT scared, \
-NOT helpless, NOT cynical.
-
-BAD close: "The window is closing and nobody will notice." (passive, hopeless)
-GOOD close: "The repricing window opens 11-14 days after the shock. That's \
-when smart money has moved in every conflict since Pearl Harbor. You now know \
-what [framework] looks like in real time. When [specific signal] appears, \
-you'll know the pattern has entered its final phase. The question isn't \
-whether the system works this way. You just watched it happen. The question \
-is whether you position yourself before or after everyone else figures it out."
-
-If Act 6 does NOT contain a specific action AND at least 2 detection \
-instructions, the script has FAILED.
+EVERY section: open concretely, escalate, pay off, and pull forward (except \
+the final section, which lands the ending).
 """
 
 
@@ -680,250 +427,31 @@ def load_script_prompt() -> str:
 
 
 def _build_framework_lens_section(framework_angle: str) -> str:
-    """Build the framework-specific instructions for the script prompt.
+    """Build the lens/angle instructions for the script prompt.
 
-    Each framework gets detailed instructions on HOW to apply it throughout
-    every act of the script. This is the analytical backbone.
-
-    The 10-framework toolkit gives the channel its identity: 'there is ALWAYS
-    a hidden playbook operating behind world events and we are the channel
-    that shows you which one.'
+    A channel may steer each video through a recurring lens or angle (a free-text
+    ``framework_angle`` carried on the research brief). This is NEUTRAL: it does
+    not hardcode any particular subject matter or named thinker — it simply tells
+    the writer to apply the channel's chosen angle consistently and to show it
+    through concrete material rather than lecture it. When the brief carries no
+    angle, returns "" so the script craft drives the shape on its own.
     """
-    framework_instructions = {
-        "Machiavelli": (
-            "=== PRIMARY ANALYTICAL LENS: MACHIAVELLI / 48 LAWS OF POWER ===\n\n"
-            "Use for: Political maneuvering, deception, betrayal, alliance manipulation, "
-            "strategic theater.\n\n"
-            "Frame the entire narrative through Machiavelli and Robert Greene's Laws of "
-            "Power. The corporate and political actors ARE princes managing their "
-            "principalities. Reference specific concepts throughout:\n\n"
-            "- Conceal intentions, use selective honesty, crush enemies totally\n"
-            "- Court attention at all costs, appear as a friend while working as a spy\n"
-            "- The Fox and the Lion — cunning to recognize traps, fierce to terrify wolves\n"
-            "- Fortune vs Virtù — strategic skill vs circumstances\n"
-            "- Whether it's better to be feared or loved\n"
-            "- New principalities vs hereditary — market entrants vs incumbents\n\n"
-            "Reference specific Laws by number or quote Machiavelli/Greene directly at "
-            "least 3-4 times. Every major actor should be analyzed AS a Machiavellian "
-            "prince executing a deliberate strategy."
-        ),
-        "48 Laws": (
-            "=== PRIMARY ANALYTICAL LENS: THE 48 LAWS OF POWER (Robert Greene) ===\n\n"
-            "Use for: Political maneuvering, deception, betrayal, alliance manipulation, "
-            "strategic theater.\n\n"
-            "You MUST explicitly reference specific Laws of Power throughout the entire\n"
-            "script. Each act should tie to a specific law. The laws are the analytical\n"
-            "backbone — they explain WHY the actors are behaving as they are.\n\n"
-            "Key concepts: Conceal intentions, use selective honesty, crush enemies totally, "
-            "court attention, appear as a friend while working as a spy.\n\n"
-            "Reference at least 4-5 DIFFERENT laws across the 6 acts. Name the law number\n"
-            "and title every time. The viewer should feel like they're getting a masterclass\n"
-            "in power dynamics while watching current events unfold."
-        ),
-        "Thucydides Trap": (
-            "=== PRIMARY ANALYTICAL LENS: THE THUCYDIDES TRAP ===\n\n"
-            "Use for: Rising power vs established power dynamics, inevitable conflict "
-            "between status quo and challenger.\n\n"
-            "Frame the entire narrative through the structural tension between a rising "
-            "power and the established power that fears it. Key concepts:\n\n"
-            "- The established power fears the rising one — preventive action becomes rational\n"
-            "- Security dilemma: defensive moves by one side look offensive to the other\n"
-            "- Structural inevitability: the trap is NOT about individual leaders but about\n"
-            "  the position of the powers relative to each other\n"
-            "- Historical cases: Athens/Sparta, Britain/Germany, Portugal/Spain, US/USSR\n"
-            "- The question is not WHETHER conflict comes but WHAT FORM it takes\n\n"
-            "Reference Thucydides and Graham Allison by name. Show how the same structural\n"
-            "dynamic has produced the same results for 2,500 years. The viewer should feel\n"
-            "the weight of historical inevitability."
-        ),
-        "Antifragile": (
-            "=== PRIMARY ANALYTICAL LENS: TALEB — ANTIFRAGILE / BLACK SWAN / SKIN IN THE GAME ===\n\n"
-            "Use for: Asymmetric risk, fragility of complex systems, things that gain from "
-            "disorder, hidden tail risks.\n\n"
-            "Frame the entire narrative through Nassim Taleb's framework of fragility:\n\n"
-            "- Fragile vs Robust vs Antifragile: categorize every actor and system\n"
-            "- Skin in the game: who bears the consequences of their decisions?\n"
-            "- Turkey problem: the thing that has 'never happened' is the biggest risk\n"
-            "- Barbell strategy: how smart actors position for extreme outcomes\n"
-            "- Black Swans: the events nobody models that change everything\n"
-            "- Lindy Effect: the old has survived; the new is fragile\n\n"
-            "Reference Taleb by name. Show how complexity creates hidden fragility that\n"
-            "looks like strength until the moment it shatters. The viewer should see\n"
-            "fragility in systems they assumed were strong."
-        ),
-        "Game Theory": (
-            "=== PRIMARY ANALYTICAL LENS: GAME THEORY ===\n\n"
-            "Use for: Deterrence, credible threats, prisoner's dilemma, Nash equilibrium, "
-            "commitment devices.\n\n"
-            "Frame the entire narrative through game-theoretic structures:\n\n"
-            "- Nash Equilibrium: actors locked into suboptimal outcomes neither can escape\n"
-            "- Prisoner's Dilemma: mutual defection hurts everyone but is individually rational\n"
-            "- Mutually assured destruction: when both sides can destroy each other\n"
-            "- First-mover advantage: why timing determines winners\n"
-            "- Signaling: costly actions that communicate intent\n"
-            "- Credible vs non-credible threats: why some threats work and others don't\n"
-            "- Tit-for-Tat escalation: retaliatory spirals\n\n"
-            "The viewer should understand that actors aren't making random choices — they're\n"
-            "trapped in game-theoretic structures that make outcomes nearly inevitable.\n"
-            "Name the specific game/equilibrium being played."
-        ),
-        "Sun Tzu": (
-            "=== PRIMARY ANALYTICAL LENS: SUN TZU — THE ART OF WAR ===\n\n"
-            "Use for: Indirect warfare, winning without fighting, deception as strategy, "
-            "exploiting weakness.\n\n"
-            "Frame the entire narrative as strategic warfare:\n\n"
-            '- "All warfare is based on deception" — the recurring theme\n'
-            '- "Supreme excellence consists in breaking the enemy\'s resistance without fighting"\n'
-            '- "Attack where he is unprepared, appear where you are not expected"\n'
-            "- The concept of shì (strategic advantage/momentum)\n"
-            "- The five factors: moral influence, weather, terrain, command, doctrine\n\n"
-            "Frame economic and political moves as military campaigns. Sanctions are\n"
-            "sieges. Trade deals are alliances. Market entries are invasions. Retreats\n"
-            "can be strategic. Quote Sun Tzu directly at least 3-4 times."
-        ),
-        "Grand Chessboard": (
-            "=== PRIMARY ANALYTICAL LENS: BRZEZINSKI / GRAND CHESSBOARD / MACKINDER ===\n\n"
-            "Use for: Geographic control, pivot states, heartland theory, why location "
-            "determines power.\n\n"
-            "Frame the narrative through the geopolitics of geography:\n\n"
-            "- Mackinder's Heartland Theory: who controls the heartland controls the world\n"
-            "- Rimland Theory (Spykman): control of the coastal periphery is the real prize\n"
-            "- Pivot states: countries whose alignment reshapes entire regions\n"
-            "- Chokepoints: Strait of Hormuz, Taiwan Strait, Suez Canal, Malacca\n"
-            "- Brzezinski's chessboard: Eurasia as the ultimate prize of great power competition\n\n"
-            "Reference Brzezinski, Mackinder, or Spykman by name. Show how geography\n"
-            "constrains strategy — actors think they have choices but the map has already\n"
-            "decided. The viewer should see how location determines destiny."
-        ),
-        "Kindleberger Trap": (
-            "=== PRIMARY ANALYTICAL LENS: THE KINDLEBERGER TRAP ===\n\n"
-            "Use for: What happens when the global hegemon stops providing public goods.\n\n"
-            "Frame the narrative through the vacuum left when the dominant power withdraws:\n\n"
-            "- Hegemonic stability theory: global order requires a stabilizer willing to pay\n"
-            "- Free rider problem: everyone benefits from order but nobody wants to fund it\n"
-            "- Power vacuum: what fills the void when the hegemon retreats?\n"
-            "- Dollar weaponization: using the reserve currency as a weapon undermines the\n"
-            "  very system that makes it powerful\n"
-            "- Systemic collapse: the 1930s as the case study of what happens without a stabilizer\n\n"
-            "Reference Kindleberger by name. The viewer should understand that the greatest\n"
-            "threat isn't a rival power — it's the absence of any power willing to maintain\n"
-            "the system everyone depends on."
-        ),
-        "Schelling": (
-            "=== PRIMARY ANALYTICAL LENS: SCHELLING — FOCAL POINTS / COMMITMENT ===\n\n"
-            "Use for: How adversaries coordinate without communication, credible commitments, "
-            "brinkmanship.\n\n"
-            "Frame the narrative through Thomas Schelling's strategic theory:\n\n"
-            "- Focal points: how actors coordinate without direct communication\n"
-            "- Commitment devices: deliberately limiting your own options to make threats credible\n"
-            "- Brinkmanship as rational strategy: deliberately creating shared risk\n"
-            "- Red lines: why some work and others don't (credibility problem)\n"
-            "- The threat that leaves something to chance\n\n"
-            "Reference Schelling by name. Show how the most dangerous situations arise not\n"
-            "from irrationality but from rational actors pushed to the edge of calculated risk.\n"
-            "The viewer should see brinkmanship as a strategy, not madness."
-        ),
-        "Collective Action": (
-            "=== PRIMARY ANALYTICAL LENS: MANCUR OLSON — LOGIC OF COLLECTIVE ACTION ===\n\n"
-            "Use for: Why small organized groups beat large disorganized ones, special interests "
-            "vs public interest.\n\n"
-            "Frame the narrative through Olson's paradox of collective action:\n\n"
-            "- Concentrated benefits, diffuse costs: why small groups win over large ones\n"
-            "- Free rider problem: why the public can't organize against special interests\n"
-            "- Why lobbying works: the math of organized minorities vs disorganized majorities\n"
-            "- Cartel dynamics: how small groups maintain coordination (OPEC, defense contractors)\n"
-            "- Regulatory capture: the regulated industry ends up controlling the regulator\n\n"
-            "Reference Olson by name. Show how the outcomes that seem corrupt or irrational\n"
-            "are actually the predictable result of collective action dynamics. The viewer\n"
-            "should understand why 'the people' always seem to lose to organized interests."
-        ),
-        "Soft Power": (
-            "=== PRIMARY ANALYTICAL LENS: JOSEPH NYE — SOFT POWER / SHARP POWER ===\n\n"
-            "Use for: Influence without coercion, cultural dominance, information warfare.\n\n"
-            "Frame the narrative through the spectrum of power beyond military force:\n\n"
-            "- Soft Power (attraction): cultural exports, values, institutions that make\n"
-            "  others WANT what you want\n"
-            "- Hard Power (coercion): military, economic sanctions, threats\n"
-            "- Sharp Power: manipulation disguised as engagement — Confucius Institutes,\n"
-            "  state media, election interference\n"
-            "- Smart Power: the strategic combination of hard and soft\n"
-            "- Cultural hegemony (Gramsci): controlling what people consider 'normal'\n\n"
-            "Reference Nye by name. Show how the most effective power is invisible —\n"
-            "it shapes what people WANT rather than forcing compliance. The viewer should\n"
-            "question whose influence is shaping their own preferences."
-        ),
-        "Jung Shadow": (
-            "=== PRIMARY ANALYTICAL LENS: JUNGIAN SHADOW PSYCHOLOGY ===\n\n"
-            "Frame the narrative through Jung's concept of the shadow self and\n"
-            "collective unconscious. Nations and corporations have shadow selves\n"
-            "they project onto enemies:\n\n"
-            "- Shadow Self: What the actor refuses to acknowledge about themselves\n"
-            "- Collective Unconscious: Shared archetypes driving mass behavior\n"
-            "- Persona vs Shadow: The public face vs the hidden drives\n"
-            "- Projection: Accusing others of exactly what you're doing\n\n"
-            "Show how nations/companies are acting out their shadow. Reference Jung by name."
-        ),
-        "Behavioral Econ": (
-            "=== PRIMARY ANALYTICAL LENS: BEHAVIORAL ECONOMICS ===\n\n"
-            "Frame the narrative through cognitive biases and irrational decision-making:\n\n"
-            "- Loss Aversion: Actors risk more to avoid losses than to achieve gains\n"
-            "- Anchoring: Initial reference points distort subsequent judgments\n"
-            "- Sunk Cost Fallacy: Continuing failed strategies because of past investment\n"
-            "- Framing Effects: Same facts presented differently lead to opposite conclusions\n\n"
-            "Reference Kahneman, Tversky, or Thaler. Show how supposedly rational actors\n"
-            "make decisions driven by cognitive biases, not rational analysis."
-        ),
-        "Stoicism": (
-            "=== PRIMARY ANALYTICAL LENS: STOIC PHILOSOPHY ===\n\n"
-            "Frame the narrative through what can and cannot be controlled:\n\n"
-            "- The dichotomy of control: who wastes energy fighting the uncontrollable\n"
-            "- Amor fati: actors who embrace fate and turn it to advantage\n"
-            "- Premeditatio malorum: the strategic value of expecting the worst\n\n"
-            "Reference Marcus Aurelius or Seneca. Reveal which actors waste power fighting\n"
-            "the uncontrollable and which strategically accept reality."
-        ),
-        "Propaganda": (
-            "=== PRIMARY ANALYTICAL LENS: PROPAGANDA & INFORMATION CONTROL ===\n\n"
-            "Frame the narrative through information warfare and manufactured consent:\n\n"
-            "- Bernays: the engineering of consent\n"
-            "- Chomsky's Propaganda Model: 5 filters determining what becomes 'news'\n"
-            "- The Overton Window: what's 'acceptable' to discuss is itself controlled\n"
-            "- Controlled opposition: both sides may serve the same master\n\n"
-            "Frame information control as the REAL battlefield. Reference Bernays or Chomsky."
-        ),
-        "Systems Thinking": (
-            "=== PRIMARY ANALYTICAL LENS: SYSTEMS THINKING ===\n\n"
-            "Frame the narrative through feedback loops, second-order effects, and\n"
-            "unintended consequences:\n\n"
-            "- Feedback Loops: reinforcing and balancing loops in the system\n"
-            "- Second-Order Effects: what happens AFTER the obvious first consequence\n"
-            "- Emergence: system behavior no individual actor intended\n"
-            "- The Cobra Effect: solutions that make the problem worse\n\n"
-            "Show how nobody is fully in control — the system has its own logic."
-        ),
-        "Evolutionary Psych": (
-            "=== PRIMARY ANALYTICAL LENS: EVOLUTIONARY PSYCHOLOGY ===\n\n"
-            "Frame the narrative through tribal instincts and dominance hierarchies:\n\n"
-            "- Tribal Instincts: in-group/out-group dynamics driving alliances\n"
-            "- Dominance Hierarchies: status competition at every level\n"
-            "- Status Signaling: actions taken for display, not practical value\n"
-            "- Costly Signaling: demonstrating commitment through expensive actions\n\n"
-            "Show that underneath sophisticated language, these are primal dynamics."
-        ),
-    }
+    angle = (framework_angle or "").strip()
+    if not angle:
+        return ""
 
-    framework = framework_instructions.get(framework_angle, "")
-    if not framework:
-        # Fallback to a generic power dynamics lens
-        framework = (
-            "=== PRIMARY ANALYTICAL LENS: POWER DYNAMICS ===\n\n"
-            "Apply a dark power dynamics analysis to every event. Who gains power?\n"
-            "Who loses it? What strategic maneuver is being executed? Frame every\n"
-            "actor as pursuing a deliberate strategy, not reacting to events.\n"
-            "Reference relevant thinkers (Machiavelli, Greene, Sun Tzu) throughout."
-        )
-
-    return framework
+    return (
+        "=== ANGLE / LENS FOR THIS VIDEO ===\n\n"
+        f"Tell this story through the following lens: {angle}\n\n"
+        "Apply it consistently so the whole script shares one point of view, but "
+        "keep it INVISIBLE craft, not a lecture:\n"
+        "- Show the lens in action through concrete, specific material before you "
+        "ever name it. Let the viewer feel the pattern first.\n"
+        "- If you name the lens, do it once, as confirmation of what the viewer "
+        "has already seen — then return immediately to the concrete story.\n"
+        "- Use the lens to connect and explain the sourced material; never let it "
+        "replace the material or become the subject of the video.\n"
+    )
 
 
 def _build_writer_guidance_section(brief: dict) -> str:
@@ -943,7 +471,7 @@ def _build_writer_guidance_section(brief: dict) -> str:
         "general guidelines when they conflict:\n\n"
         f"{writer_guidance}\n\n"
         "Apply these instructions throughout the script while maintaining "
-        "the investigative voice and factual grounding rules."
+        "the channel's voice and the factual grounding rules."
     )
 
 
@@ -1134,7 +662,7 @@ def build_script_prompt(
 
         # Emotional arc (profile-specific, replaces _FRAMEWORK_PSYCH_SEPARATION)
         if profile.emotional_arc:
-            arc_lines = ["=== EMOTIONAL ARC — THE INVESTIGATIVE JOURNEY ===\n"]
+            arc_lines = ["=== EMOTIONAL ARC — THE VIEWER'S JOURNEY ===\n"]
             for act_num in sorted(profile.emotional_arc.keys()):
                 arc_lines.append(f"- Act {act_num}: {profile.emotional_arc[act_num]}")
             rendered += "\n\n" + "\n".join(arc_lines)
@@ -1290,16 +818,16 @@ def validate_script(
 
 
 def extract_framework_from_script(script: str) -> str:
-    """Extract the PRIMARY FRAMEWORK selection from generated script text.
+    """Extract the chosen angle/lens selection from generated script text.
 
-    The script writer is instructed to state:
-        PRIMARY FRAMEWORK: [Name] — [reason]
+    The script writer is instructed to state the per-video angle as:
+        ANGLE: [Name] — [reason]
+    (legacy scripts may instead say ``PRIMARY FRAMEWORK: [Name] — [reason]``).
 
-    Returns the framework name (e.g. "Thucydides Trap"), or empty string
-    if not found.
+    Returns the angle/framework name, or empty string if not found.
     """
     match = re.search(
-        r"PRIMARY\s+FRAMEWORK:\s*(.+?)(?:\s*[—–-]\s*|$)",
+        r"(?:ANGLE|PRIMARY\s+FRAMEWORK):\s*(.+?)(?:\s*[—–-]\s*|$)",
         script,
         re.IGNORECASE,
     )
@@ -1506,8 +1034,8 @@ async def verify_script_claims(
         "2. MISATTRIBUTED SOURCES — sources cited in the script that don't match "
         "the [Source] tags in the research payload\n\n"
         "For UNVERIFIED CLAIMS, check:\n"
-        "- Named events, operations, or incidents not in the research\n"
-        "- Specific technical details (weapons, cyber attacks, tactics) not sourced\n"
+        "- Named events, places, or incidents not in the research\n"
+        "- Specific technical or procedural details not sourced\n"
         "- Statistics, numbers, dates, or percentages not in the research\n"
         "- Quotes attributed to people that don't appear in the research\n"
         "- Historical parallels not from the historical_parallels field\n\n"
@@ -1518,8 +1046,8 @@ async def verify_script_claims(
         "- Singular sources pluralized ('one CEO' becomes 'CEOs')\n\n"
         "IGNORE:\n"
         "- Dramatic phrasing, rhetorical questions, metaphors\n"
-        "- Analytical connections using the framework (these are allowed)\n"
-        "- Well-known framework references (Machiavelli, Sun Tzu, etc.)\n"
+        "- Connections drawn using the channel's chosen angle (these are allowed)\n"
+        "- Well-known general references that aren't specific factual claims\n"
         "- General knowledge that doesn't constitute a specific factual claim\n\n"
         "Output format:\n"
         "=== UNVERIFIED CLAIMS ===\n"
