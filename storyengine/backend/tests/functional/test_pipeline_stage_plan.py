@@ -13,6 +13,8 @@ from status_map import (
     normalize_stage_plan,
     resolve_planned_status,
     first_status_for_plan,
+    parse_stage_plan,
+    stage_enabled_in_plan,
     STAGE_ORDER,
 )
 
@@ -119,3 +121,45 @@ def test_no_upload_stops_after_render_but_upload_keeps_draft():
 
 def test_done_is_terminal():
     assert resolve_planned_status("done", ["script"]) == "done"
+
+
+# --- parse_stage_plan: normalize the raw JSONB column value ------------------
+
+def test_parse_stage_plan_handles_codecs():
+    # asyncpg may hand back a list or a JSON string; both mean the same plan.
+    assert parse_stage_plan(["script", "voice"]) == ["script", "voice"]
+    assert parse_stage_plan('["script", "voice"]') == ["script", "voice"]
+
+
+def test_parse_stage_plan_empty_is_none():
+    # NULL and "" empty plan both mean "full pipeline" (None).
+    assert parse_stage_plan(None) is None
+    assert parse_stage_plan([]) is None
+    assert parse_stage_plan("[]") is None
+    assert parse_stage_plan("not json") is None
+
+
+# --- stage_enabled_in_plan: the manual-trigger gate --------------------------
+
+def test_full_pipeline_enables_every_stage():
+    # No plan (existing videos / full runs) → every stage may run.
+    for stage in ("voice", "sound", "thumbnail", "render", "upload"):
+        assert stage_enabled_in_plan(stage, None) is True
+        assert stage_enabled_in_plan(stage, []) is True
+
+
+def test_disabled_stage_is_blocked():
+    # A reduced plan refuses a stage the creator switched off.
+    plan = ["script", "images", "video", "render"]  # no sound, no thumbnail, no voice
+    assert stage_enabled_in_plan("sound", plan) is False
+    assert stage_enabled_in_plan("thumbnail", plan) is False
+    assert stage_enabled_in_plan("voice", plan) is False
+    # ...but the switched-on stages still pass.
+    assert stage_enabled_in_plan("video", plan) is True
+    assert stage_enabled_in_plan("render", plan) is True
+
+
+def test_stage_gate_accepts_json_string_plan():
+    # The column comes back as a JSON string under some codecs — gate still works.
+    assert stage_enabled_in_plan("sound", '["script", "images", "video"]') is False
+    assert stage_enabled_in_plan("video", '["script", "images", "video"]') is True

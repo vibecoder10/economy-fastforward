@@ -113,6 +113,16 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
   const model = video.video_model || "grok-imagine";
   const perClip = clipCost(model, 1);
 
+  // The "video" (animation) stage can be switched OFF at creation (an images-
+  // only plan). When it is, keep the picture workspace but hide every animate/
+  // clip affordance — the backend refuses those triggers too. Full-pipeline
+  // videos (no plan) and any plan that includes "video" keep everything.
+  const videoStageEnabled = useMemo(() => {
+    const plan = video.pipeline_stages;
+    if (!Array.isArray(plan) || plan.length === 0) return true;
+    return plan.includes("video");
+  }, [video.pipeline_stages]);
+
   // ── Data ──
   const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
     queryKey: ["video-script", video.id],
@@ -324,7 +334,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
   // Motion prompts are plumbing, not a decision: write them silently the
   // moment the workspace sees animatable cards without one.
   useEffect(() => {
-    if (promptsAutoRan.current || running || clipCards.length === 0 || promptlessCount === 0) return;
+    if (!videoStageEnabled || promptsAutoRan.current || running || clipCards.length === 0 || promptlessCount === 0) return;
     promptsAutoRan.current = true;
     (async () => {
       try {
@@ -334,7 +344,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
         promptsAutoRan.current = false; // 409 etc. — retry on next mount
       }
     })();
-  }, [clipCards.length, promptlessCount, running, video.id, markStarted]);
+  }, [videoStageEnabled, clipCards.length, promptlessCount, running, video.id, markStarted]);
 
   // ── Stage helpers (storyboard side) ──
   const runStageWith409Retry = useCallback(async (stage: string, params?: Record<string, string | number>) => {
@@ -760,12 +770,16 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
             <>
               {" · "}
               <strong style={{ color: "var(--green)" }}>{extractedCount}/{totalSegments} pictures</strong>
-              {" · "}
-              <strong style={{ color: clipsDone === clipCards.length ? "var(--green)" : "var(--text-primary)" }}>
-                {clipsDone}/{clipCards.length} animated
-              </strong>
-              {clipsPending > 0 && (
-                <span style={{ color: "var(--text-tertiary)" }}> · ≈ ${remainingCost.toFixed(2)} to finish · {modelLabel}</span>
+              {videoStageEnabled && (
+                <>
+                  {" · "}
+                  <strong style={{ color: clipsDone === clipCards.length ? "var(--green)" : "var(--text-primary)" }}>
+                    {clipsDone}/{clipCards.length} animated
+                  </strong>
+                  {clipsPending > 0 && (
+                    <span style={{ color: "var(--text-tertiary)" }}> · ≈ ${remainingCost.toFixed(2)} to finish · {modelLabel}</span>
+                  )}
+                </>
               )}
             </>
           )}
@@ -788,7 +802,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
           </span>
         )}
         <div className="flex-1" />
-        {clipsDone > 0 && clipsPending > 0 && (
+        {videoStageEnabled && clipsDone > 0 && clipsPending > 0 && (
           <button
             onClick={() => confirmable("all", remainingCost, animateAll)}
             disabled={running}
@@ -849,6 +863,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
                     Create missing final pictures <span style={{ color: "var(--text-tertiary)" }}>({totalSegments - extractedCount} to make)</span>
                   </button>
                 )}
+                {videoStageEnabled && (
+                <>
                 <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>
                   Clips
                 </p>
@@ -909,6 +925,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
                   <Film size={12} /> {showMotionPrompt ? "Hide" : "Edit"} motion instructions
                 </button>
                 <div className="border-t my-1" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
+                </>
+                )}
                 {extractedCount > 0 && (
                   <button onClick={() => { setShowAdvanced(false); handleClearAllExtracted(); }}
                     disabled={running || clearingExtracted}
@@ -1011,7 +1029,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
                         Start scene over
                       </button>
                     )}
-                    {scenePending.length > 0 && (
+                    {videoStageEnabled && scenePending.length > 0 && (
                       <>
                         {confirmKey === sceneKey && (
                           <button onClick={() => setConfirmKey(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
@@ -1193,6 +1211,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
                     asset={asset}
                     speaker={speakerFor(asset)}
                     perClip={perClip}
+                    canAnimate={videoStageEnabled}
                     isGenerating={generatingClipIds.has(asset.id) && running}
                     isRecropping={recropping === asset.id && running}
                     isFailed={failedClipIds.has(asset.id)}
@@ -1200,7 +1219,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
                     disabled={running}
                     onTap={() => {
                       if (asset.video_clip_url) setPlayingId((p) => (p === asset.id ? null : asset.id));
-                      else animateOne(asset);
+                      else if (videoStageEnabled) animateOne(asset);
                     }}
                     onRedoClip={() => animateOne(asset, true)}
                     onDeleteClip={() => removeClip(asset)}
@@ -1221,10 +1240,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
 /** One story segment: shows the clip when it exists (tap = play), else the
  * final picture (tap = animate, ~$0.10). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onFixText }: {
+function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onFixText }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
+  canAnimate: boolean;
   isGenerating: boolean;
   isRecropping: boolean;
   isFailed: boolean;
@@ -1251,7 +1271,7 @@ function SegmentCard({ asset, speaker, perClip, isGenerating, isRecropping, isFa
 
   return (
     <GlassCard
-      className="p-0 overflow-hidden group cursor-pointer"
+      className={`p-0 overflow-hidden group ${hasClip || canAnimate ? "cursor-pointer" : "cursor-default"}`}
       style={isFailed ? { border: "1px solid rgba(255,90,90,0.5)" }
         : badCrop ? { border: "1px solid rgba(255,110,110,0.45)" } : undefined}
       onClick={onTap}
@@ -1316,7 +1336,7 @@ function SegmentCard({ asset, speaker, perClip, isGenerating, isRecropping, isFa
             </span>
           </div>
         )}
-        {!hasClip && !isGenerating && !isRecropping && !isFailed && (
+        {canAnimate && !hasClip && !isGenerating && !isRecropping && !isFailed && (
           <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ background: "rgba(0,0,0,0.45)" }}>
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"

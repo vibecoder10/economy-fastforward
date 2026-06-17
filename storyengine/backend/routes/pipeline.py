@@ -22,7 +22,7 @@ from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
 from error_utils import humanize_error, USER_FACING_PREFIX
 from pipeline_executor import PipelineExecutor
-from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage
+from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage, stage_enabled_in_plan
 from job_queue import enqueue_stage
 from task_store import db_persist_task
 
@@ -301,6 +301,39 @@ def _clear_task_status(video_id: str, tenant_id: str):
     _running_tasks.pop((tenant_id, video_id), None)
 
 
+# Human-readable names for the optional stages a creator can switch off at
+# creation. Used when refusing a manual trigger for a turned-off stage.
+_STAGE_LABELS = {
+    "research": "Research",
+    "voice": "AI voice-over",
+    "sound": "Sound design",
+    "video": "Video clips",
+    "thumbnail": "Thumbnail",
+    "render": "Final render",
+    "upload": "YouTube upload",
+}
+
+
+def _require_stage_enabled(video: dict, stage: str):
+    """Refuse a manual trigger for a stage the creator turned OFF for this video.
+
+    The per-video stage plan (pipeline_stages) is the source of truth for which
+    steps run. The status-advance chokepoint already reroutes the pipeline AROUND
+    disabled stages, and the UI hides their tabs — but a direct POST to a stage's
+    trigger endpoint would still run the bot and persist an artifact (burning
+    credits on a step the creator switched off). This is the defense-in-depth
+    gate at the endpoint. Full-pipeline videos (no plan) are never affected.
+
+    The video row must include the `pipeline_stages` column.
+    """
+    if not stage_enabled_in_plan(stage, video.get("pipeline_stages")):
+        label = _STAGE_LABELS.get(stage, stage)
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} is turned off for this video — it was switched off when the video was created.",
+        )
+
+
 def _get_arq_pool(request: Request):
     """Get arq pool from app state, or None if not connected."""
     return getattr(request.app.state, "arq", None)
@@ -381,11 +414,13 @@ async def run_research(
     Poll /status/{video_id} or check activity feed.
     """
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "research")
 
     if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running for this video")
@@ -472,11 +507,13 @@ async def run_voice(
     (targeted single-scene regen bypasses status gate).
     """
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "voice")
 
     if scene is None and not is_at_or_past_stage(video["status"], "ready_for_voice"):
         raise HTTPException(
@@ -847,11 +884,13 @@ async def run_dialogue_voice(
         scene: If set, only voice this scene's segments (taste-test mode).
     """
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "voice")
 
     if not is_at_or_past_stage(video["status"], "ready_for_voice"):
         raise HTTPException(
@@ -909,11 +948,13 @@ async def run_clip(
     force=true regenerates a card that already has a clip (Redo).
     """
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "video")
 
     # Relaxed gate (the lessons pattern): finals can exist from extraction
     # onward — the executor itself only animates assets that HAVE a picture.
@@ -1083,11 +1124,13 @@ async def run_sound_prompts(
 ):
     """Generate sound design prompts for a video."""
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "sound")
 
     if not is_at_or_past_stage(video["status"], "ready_for_sound_design"):
         raise HTTPException(
@@ -1125,11 +1168,13 @@ async def run_sound_effects(
 ):
     """Generate sound effects for a video."""
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "sound")
 
     if not is_at_or_past_stage(video["status"], "ready_for_sound_effects"):
         raise HTTPException(
@@ -1167,11 +1212,13 @@ async def run_video_scripts(
 ):
     """Generate video motion scripts for a video."""
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "video")
 
     status = video.get("status") or ""
     if status and not is_at_or_past_stage(status, "ready_for_images"):
@@ -1210,11 +1257,13 @@ async def run_video_generation(
 ):
     """Generate video clips for a video."""
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "video")
 
     status = video.get("status") or ""
     if status and not is_at_or_past_stage(status, "ready_for_video_generation"):
@@ -1259,12 +1308,14 @@ async def run_thumbnail(
     """
     video = await fetch_one(
         """SELECT id, status, thumbnail_prompt, thumbnail_text,
-                  thumbnail_style_override, video_title
+                  thumbnail_style_override, video_title, pipeline_stages
            FROM videos WHERE id = $1 AND tenant_id = $2""",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "thumbnail")
 
     status = video.get("status") or ""
     if status and not is_at_or_past_stage(status, "ready_for_voice"):
@@ -1310,11 +1361,13 @@ async def run_render(
     await check_plan_limits(tenant_id, "render")
 
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "render")
 
     if not is_at_or_past_stage(video["status"], "ready_to_render"):
         raise HTTPException(
@@ -1352,11 +1405,13 @@ async def run_upload(
 ):
     """Upload video to YouTube as unlisted draft."""
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "upload")
 
     if not is_at_or_past_stage(video["status"], "rendered"):
         raise HTTPException(
@@ -1556,11 +1611,13 @@ async def generate_video_prompts(
     video_clip_prompt optimized for motion/animation.
     """
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    _require_stage_enabled(video, "video")
 
     if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")

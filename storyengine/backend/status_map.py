@@ -344,3 +344,39 @@ def resolve_planned_status(natural_next: str, enabled_stages: Optional[list[str]
         if stage in enabled_stages:
             return status
     return "done"
+
+
+def parse_stage_plan(val) -> Optional[list[str]]:
+    """Normalize a raw pipeline_stages value into a plan list, or None.
+
+    The column is JSONB; asyncpg may hand it back as a Python list or as a JSON
+    string depending on codecs, and an empty list means "full pipeline" just
+    like NULL. None is returned for "no plan" (run everything) so callers can
+    treat falsy as unrestricted.
+    """
+    if val is None:
+        return None
+    if isinstance(val, str):
+        import json
+        try:
+            val = json.loads(val)
+        except (json.JSONDecodeError, ValueError):
+            return None
+    if isinstance(val, list) and val:
+        return [s for s in val if isinstance(s, str)] or None
+    return None
+
+
+def stage_enabled_in_plan(stage: str, plan_value) -> bool:
+    """Whether a user-facing stage should run for a video.
+
+    A None/empty plan means the full pipeline — every stage is on (this is the
+    historical default and every existing video). When a creator restricts the
+    plan, only the switched-on stages may run. Used to refuse a direct call to a
+    stage the creator turned off at creation time (creation-time toggles are
+    permanent for a video), behind the UI which already hides that stage's tab.
+    """
+    plan = parse_stage_plan(plan_value)
+    if not plan:
+        return True
+    return stage in plan
