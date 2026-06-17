@@ -750,23 +750,22 @@ def _build_discovery_prompt(competitors: list[dict], learnings_context: str = ""
     ch_name = channel_name or "your YouTube channel"
     ch_niche = channel_niche or "educational content"
 
-    # Master Formula title rules (from title_patterns.json)
-    mf_rules = """
-TITLE RULES (Master Formula System):
-- MF-0: "How [Entity] [Clear Action] [Target]" — Maximum clarity, S-tier
-- MF-1: "How [Entity] Secretly/Quietly [Evil Action] [Mechanism]" — Hidden exposé, S-tier
-- MF-2: "Why [Country/Entity] [Dramatic Present-Tense Claim]" — Causal authority, S-tier
-- MF-6: "[Country]'s [Ominous Adjective] [Decline Noun]" — Compact authority, A-tier
-
-Hard rules:
-- 30-55 characters (HARD CEILING at 55)
-- First word after How/Why MUST be a proper noun
-- NEVER use "YOU/YOUR" — declarative statements only
-- NEVER use ALL CAPS except acronyms (US, NATO, PBOC)
-- Prefer "How" or "Why" openers — highest CTR in this niche
-- Use numbers/dollar amounts when available (+15-25% CTR)
-- Negative framing outperforms positive by 63%
-- Thumbnail text: EXACTLY 2 words, strategic judgment (e.g., CHOKE POINT, POWER GRAB)
+    # Title craft rules — niche-neutral. The proven structure (curiosity gap,
+    # specificity, emotional pull) stays; subject matter and tone FOLLOW the
+    # channel's own niche and the competitor titles, never a hardcoded
+    # geopolitics/exposé voice.
+    mf_rules = f"""
+TITLE CRAFT RULES (adapt to the "{ch_niche}" niche — do NOT impose any other topic or tone):
+- STUDY the competitor titles below and mirror the title PATTERNS that actually work in
+  THIS niche: their length, structure, emoji use, and any level tags (e.g. "A1-A2").
+- Lead with curiosity or an open loop — make the viewer need to know what happens.
+- Be specific, not vague: concrete subjects, names, and outcomes beat generic claims.
+- Match the emotional pull the top competitors use (transformation, surprise,
+  "good vs bad", a relatable problem) — read it off their titles, don't invent one.
+- Use numbers or a clear payoff when they fit naturally.
+- Stay 100% on-topic for a "{ch_niche}" channel. NEVER reframe the topic into politics,
+  geopolitics, economics, war, or "hidden power" angles unless that genuinely IS the niche.
+- Thumbnail text: 1-3 short punchy words that match the title's emotion.
 """
 
     return f"""You are a YouTube content strategist for a {ch_niche} channel called "{ch_name}".
@@ -785,13 +784,13 @@ For the TOP 5 most promising videos, generate a unique angle for OUR channel. Fo
 1. **source_title**: The competitor video title you're modeling
 2. **our_angle**: Our unique take (2-3 sentences) — NOT a copy, but inspired by the same topic
 3. **hook**: A compelling 15-second opening hook (study the competitor openings above for inspiration)
-4. **framework**: The analytical framework (e.g., "Machiavellian Power Analysis", "Systems Thinking", "Game Theory")
+4. **framework**: The angle or storytelling approach that fits a "{ch_niche}" channel (e.g. "beginner-friendly story", "real-life dialogue practice", "step-by-step explainer") — NOT a fixed analytical framework
 5. **estimated_appeal**: Score 1-10 for how well this fits our channel
 6. **appeal_breakdown**: Object with scores for {{  "timeliness": 1-10, "audience_fit": 1-10, "content_gap": 1-10, "virality": 1-10, "depth_potential": 1-10, "visual_potential": 1-10 }}
 7. **title_options**: Array of exactly 3 title options, each with:
-   - **title**: The video title (compelling, specific, under 55 chars, follow Master Formula rules above)
-   - **formula_id**: Which MF formula used (e.g., "MF-0", "MF-1", "MF-2", "MF-6")
-   - **thumbnail_text**: Short bold text for thumbnail (EXACTLY 2 words, strategic judgment)
+   - **title**: The video title (compelling, specific, on-topic for a "{ch_niche}" channel; match the title-length norms of the competitor titles above)
+   - **formula_id**: A short label for the title style you used (e.g. "curiosity-gap", "transformation", "how-to")
+   - **thumbnail_text**: 1-3 short punchy words for the thumbnail that match the title's emotion
    - **score**: Predicted CTR score 1-10
 
 Return ONLY valid JSON array. No markdown, no explanation. Example format:
@@ -804,9 +803,9 @@ Return ONLY valid JSON array. No markdown, no explanation. Example format:
     "estimated_appeal": 8,
     "appeal_breakdown": {{ "timeliness": 9, "audience_fit": 8, "content_gap": 7, "virality": 8, "depth_potential": 9, "visual_potential": 7 }},
     "title_options": [
-      {{ "title": "...", "formula_id": "MF-2", "thumbnail_text": "CHOKE POINT", "score": 8 }},
-      {{ "title": "...", "formula_id": "MF-1", "thumbnail_text": "POWER GRAB", "score": 7 }},
-      {{ "title": "...", "formula_id": "MF-0", "thumbnail_text": "PROXY WAR", "score": 6 }}
+      {{ "title": "...", "formula_id": "curiosity-gap", "thumbnail_text": "...", "score": 8 }},
+      {{ "title": "...", "formula_id": "transformation", "thumbnail_text": "...", "score": 7 }},
+      {{ "title": "...", "formula_id": "how-to", "thumbnail_text": "...", "score": 6 }}
     ]
   }}
 ]"""
