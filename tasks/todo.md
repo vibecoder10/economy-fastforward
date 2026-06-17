@@ -126,12 +126,23 @@ reviewer-approved.
   `video_motion` (dropped the "never show humans" rule + missile/bomber examples; kept verb-first/
   camera-discipline/banned-filler craft). PD originals preserved verbatim in
   `tasks/engine-identity-seeds/power-doctrine.md`. 24 backend + 154 script tests green.
+- **Phase 2b (ScriptProfile — the REAL gate, found by the first live ESL proof):** the script
+  generation loads a `ScriptProfile` (`shared/profiles/script/`) that was hardcoded
+  `DEFAULT_PROFILE_ID = "power_doctrine_v2"` — UPSTREAM of the validator (it re-armed all the gates) AND
+  of the brief validator (`validate_brief` in `brief_translator/validator.py`, an LLM judge with
+  documentary criteria that REJECTED a simple ESL premise before any model call → `total_cost=0`). So
+  the prior "validator default OFF" was true at the class level but moot at runtime. FIX (commit
+  `64b0db67`): added `shared/profiles/script/neutral_v1.py` (all PD gates off, `requires_research_brief=
+  False`, `min_words=150`, neutral structure), flipped `DEFAULT_PROFILE_ID="neutral_v1"`, and made the
+  brief gate profile-aware (`BriefTranslator` skips `validate_brief` when `requires_research_brief=False`).
+  `power_doctrine_v2`/`v1` stay loadable (SCRIPT_PROFILE env / explicit). 161 script tests green.
+  NOTE: SCRIPT_PROFILE is NOT set in the prod backend env, so tenants now resolve to `neutral_v1`.
 - **Tracked for later (NOT a regression — deferred by design):** geopolitics "framework classifier" in
   `research/agent.py` (`infer_framework_from_research` + 17-framework list) feeds the script angle →
   Phase 3; titles + thumbnail copy → Phase 3; image-gen identity (`prompt_builder.py` constants, the lone
   `cinematic_illustration` profile, AND `anthropic_client.py:~408-487` "intelligence operations center /
   never show humans") → Phase 4.
-- **Next:** Phase 3 (titles/thumbnails). Live ESL-script proof run after this deploy.
+- **Next:** Phase 3 (titles/thumbnails). Live ESL-script proof re-run after this deploy.
 
 ---
 
