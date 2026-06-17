@@ -87,10 +87,70 @@ resilience (was #1) → 14k.)
    panels (reuse `run_fix_text_card`). Keep the GPT Image 2 prompt LEAN (long prompts → Kie
    500s; see 14l).
 
+7. **De-Power-Doctrine the GLOBAL defaults** (multi-tenant correctness — owed). Ryan's own
+   tenant is now fixed (see the 2026-06-16 Power-Doctrine-leak handoff), but the platform-wide
+   defaults still hardcode the old geopolitics channel, so a FRESH signup inherits it:
+   `storyengine/backend/prompt_defaults.py` SCRIPT/RESEARCH/THUMBNAIL personas literally say
+   "Power Doctrine"/"Economy FastForward" + a 6-act geopolitical-exposé structure, and
+   `skills/video-pipeline/title_patterns.json` (`power_doctrine_adaptations`, `master_formulas`
+   — imported by autopilot/research/discovery-scanner/learnings) is the same channel's title
+   science. Real fix = make the base templates niche-neutral + channel-driven. NOTE the in-app
+   meta-prompt flow (`routes/system_prompts.py`) only rewrites VOICE and is told to keep ALL
+   structure EXACTLY, so it does NOT solve this. Needs a product call on the universal default.
+
 **Context for the older items below:** the 3 content-quality fixes (char descriptions,
 environment locking, recap continuity) are DONE + verified end-to-end on a real
 cloned video; see the handoff below. The verify also fixed 3 bugs live
 (env-directive misfire, env-image proxy allowlist, harmful clone-research).
+
+---
+
+## ★ HANDOFF — 2026-06-16 ("Power Doctrine" leak in title/idea generation — FIXED + DEPLOYED + VERIFIED IN PROD)
+
+Ryan: "when I generate an example title it still uploads my old Power Doctrine channel —
+it's locked in." ROOT CAUSE was THREE stacked things (NOT a stale cache):
+
+1. **DATA** — his authoritative `projects` row was still `name="Power Doctrine",
+   niche="Tech"` (channel_profiles said TOPAI/technology, but the idea engine now prefers
+   `projects` per commits `6ba6896a`/`1978a894`). So every generator was told the channel IS
+   Power Doctrine. → Renamed `projects` + `channel_profiles` to `name="Slow English",
+   niche="Beginner English learning (ESL)"` (Ryan's call — it's a throwaway example channel,
+   editable live in Profile; the name is FREE TEXT, not pulled from a YouTube connection).
+
+2. **CODE** — `routes/discovery.py _build_discovery_prompt` hardcoded a geopolitics "Master
+   Formula" voice (PROXY WAR/NATO/PBOC examples, Machiavellian frameworks, "How [Country]
+   Secretly…", neg-framing-+63%, 55-char ceiling). Even pointed at ESL competitors it reframed
+   kids' English videos into "How SWIFT Sanctions Broke Russia's War Machine". → Genericized:
+   the title rules, `framework` field, and JSON example are now niche-neutral + driven by
+   `{ch_niche}` and the competitor titles, with an explicit "NEVER reframe into
+   politics/geopolitics unless that IS the niche" guard. Commit `2fd1f6d1`, deployed (backend
+   restart only — backend-only change). py_compile clean.
+
+3. **LATENT** — `tenant_prompt_defaults` was EMPTY for his tenant, so a real video render would
+   fall back to the hardcoded Power Doctrine script/research/thumbnail personas in
+   `prompt_defaults.py`. → Seeded his tenant with ESL starter prompts for `script`/`research`/
+   `thumbnail` (the resolver is PER-KEY; `video_motion`/`sound_*` stay on the neutral defaults).
+
+**VERIFIED end-to-end on prod:** cleared his 20 stale geopolitical ideas, `POST
+/api/discovery/refresh` → 5 fresh ideas, ALL clean ESL ("Are You a Good Guest or a Bad Guest?
+| Slow English (A1-A2)", "They Laughed at the Quiet Girl… Then This Happened", thumbs
+"GOOD vs BAD"/"SO JEALOUS!"). Zero geopolitics. Frameworks now "good vs bad contrast story",
+not "Hegemonic Transition Theory".
+
+**GitHub hygiene:** repo was already even with `origin/main` (nothing unpushed). Gitignored
+`*.tsbuildinfo` (untracked the churning frontend cache) + auto-gen `docs/product-brain.md`;
+committed the hand-written `docs/storyengine-creator-flow-ux-map.md`.
+
+⚠ **STILL OPEN (systemic — see build-plan item 7):** the GLOBAL defaults are still Power
+Doctrine. `prompt_defaults.py` templates + `skills/video-pipeline/title_patterns.json` hardcode
+the old geopolitical channel, so a FRESH tenant inherits it until the base templates are made
+niche-neutral. Ryan's tenant is clean; the platform default is not.
+
+**Deploy gotcha learned:** `kill -9 $(pgrep -f "uvicorn main:app")` self-matches when run from
+an SSH command whose argv contains that literal string — it kills its own shell. The uvicorn
+procs still died + systemd revived them (confirmed: old PIDs gone, fresh proc serving new code),
+but for a clean restart run the kill from a script FILE on the VPS (its argv is `bash file.sh`),
+or use a `[u]vicorn`-style bracket pattern, to avoid the self-match.
 
 ---
 
