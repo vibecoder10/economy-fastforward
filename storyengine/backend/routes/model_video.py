@@ -829,6 +829,55 @@ async def _oembed_fallback(youtube_id: str) -> Optional[dict]:
         return None
 
 
+# Supadata transcript API — used ONLY when yt-dlp is bot-blocked from our servers.
+# The thumbnail + in-video frames come free off YouTube's public image CDN; the
+# transcript is the one piece behind the bot wall, so we fetch it here. Free tier
+# (~100/mo); set SUPADATA_API_KEY to enable. Endpoint/contract:
+#   GET https://api.supadata.ai/v1/transcript?url=<watch_url>   header: x-api-key
+#   -> {"lang": "en", "content": [{"text","offset","duration","lang"}, ...]}
+#   (auto-Whisper for uncaptioned videos; long videos may return an async job,
+#    which we treat as unavailable here.)
+_SUPADATA_TRANSCRIPT_URL = "https://api.supadata.ai/v1/transcript"
+
+
+async def _fetch_transcript_supadata(youtube_id: str) -> Optional[str]:
+    """Fetch a YouTube transcript as plain text via Supadata. Returns None when
+    no key is set, the call fails, or the words aren't available (never raises)."""
+    key = os.environ.get("SUPADATA_API_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                _SUPADATA_TRANSCRIPT_URL,
+                params={"url": f"https://www.youtube.com/watch?v={youtube_id}"},
+                headers={"x-api-key": key},
+            )
+        if resp.status_code != 200:
+            logger.warning("[model_video] Supadata transcript %s: HTTP %s %s",
+                           youtube_id, resp.status_code, resp.text[:200])
+            return None
+        data = resp.json()
+        content = data.get("content")
+        if isinstance(content, list):
+            text = " ".join(
+                seg.get("text", "").strip()
+                for seg in content
+                if isinstance(seg, dict) and seg.get("text")
+            ).strip()
+            return text or None
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        # e.g. an async {"jobId": ...} for very long videos — treat as unavailable.
+        logger.warning("[model_video] Supadata transcript %s: no usable content (keys=%s)",
+                       youtube_id, list(data)[:6])
+        return None
+    except Exception as e:
+        logger.warning("[model_video] Supadata transcript fetch failed for %s: %s",
+                       youtube_id, str(e)[:200])
+        return None
+
+
 # --- The background task ---
 
 async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url: str,
@@ -856,19 +905,30 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
         _set("running", "Fetching the reference video…")
         from routes.niche import _extract_video_info
         info = await asyncio.to_thread(_extract_video_info, youtube_id)
+        used_oembed = False
         if not info or not info.get("title"):
             info = await _oembed_fallback(youtube_id)
-            if info:
-                blockers.append(
-                    "YouTube limited full video access from our servers — modeled from the title, channel, and thumbnail only."
-                )
+            used_oembed = bool(info)
         if not info or not info.get("title"):
             _set("failed", error=user_facing(
                 "We couldn't read that video. Check that the link is a public YouTube video and try again."
             ))
             return
+        # The transcript is the only piece of a reference that isn't on a public
+        # CDN (the thumbnail + in-video frames are). When full extraction is
+        # blocked, fetch the words from Supadata so the SCRIPT side has the real
+        # source material — not just the title/thumbnail. No-ops without a key.
+        if not info.get("transcript"):
+            sd_transcript = await _fetch_transcript_supadata(youtube_id)
+            if sd_transcript:
+                info["transcript"] = sd_transcript
         transcript = info.get("transcript")
-        if transcript is None and not blockers:
+        if used_oembed:
+            blockers.append(
+                "YouTube limited some metadata from our servers — modeled from the title, "
+                "thumbnail, in-video frames" + (", and the transcript." if transcript else " (transcript unavailable).")
+            )
+        if transcript is None and not used_oembed:
             blockers.append("Transcript wasn't available — modeled from the title, thumbnail, and metadata instead.")
 
         creds = await _resolve_claude_creds(tenant_id)
