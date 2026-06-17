@@ -103,6 +103,14 @@ Single source of truth: one `VISUAL_PRESETS` constant in the frontend. (Looks ar
 plain text; if we later want them server-validated, lift the constant to the backend —
 out of scope now.)
 
+**Preview icon per preset.** Each preset button shows a small sample image so a
+creator can *see* the style, not just read its name. The icons are pre-generated
+(Ryan generates them in GPT Image from the canonical prompts in **Appendix A**), saved
+as static frontend assets at `public/style-icons/<id>.png` (e.g. `pixar_3d.png`), and
+shown on the button (~64-96px, rounded). All six use the SAME subject so the STYLE is
+the only thing that differs → directly comparable. Generating/placing the icon files
+is a manual asset step (Ryan), not code; the form just references the paths.
+
 ## 6. Data model & flow
 
 No new tables. Three existing stores, each already read by generation:
@@ -233,3 +241,21 @@ and shows up in the generated image prompts; "lock in" creates/activates a
 `visual_styles` row that future non-cloned videos inherit. Frontend builds clean;
 backend unit tests green; deployed (backend + rebuilt frontend); proven by creating a
 video in a chosen style and inspecting the prompts.
+
+---
+
+## Appendix A — preset preview-icon prompts (for GPT Image)
+
+Generate one square icon per preset, paste each prompt into GPT Image, save to
+`public/style-icons/<id>.png`. **Same subject (a friendly red fox) in every icon** so
+only the STYLE differs — that's what makes them comparable at a glance.
+
+- **`pixar_3d.png`** — Square icon. Soft 3D Pixar-style CG animation: rounded forms, warm cinematic lighting, subsurface-scattered fur, shallow depth of field. Subject: a friendly red fox sitting upright, facing the viewer with a gentle smile, in a simple sunlit forest clearing. Centered, clean uncluttered background, no text, no watermark, no border.
+- **`flat_2d.png`** — Square icon. Clean 2D flat vector animation: bold flat color fills, simple geometric shapes, crisp outlines, minimal shading. Subject: a friendly red fox sitting upright, facing the viewer, in a simple stylized setting. Centered, clean uncluttered background, no text, no watermark, no border.
+- **`realistic.png`** — Square icon. Photorealistic cinematic photography: natural soft lighting, lifelike fur texture, shallow depth of field, true-to-life color. Subject: a real red fox sitting upright, facing the camera, in a softly lit forest clearing. Centered, clean background, no text, no watermark, no border.
+- **`anime.png`** — Square icon. Modern anime cel-shaded illustration: clean linework, expressive eyes, soft gradient shading, vibrant color. Subject: a friendly red fox sitting upright, facing the viewer, in a simple sunlit setting. Centered, clean uncluttered background, no text, no watermark, no border.
+- **`watercolor.png`** — Square icon. Warm hand-painted watercolor storybook art: soft bleeding edges, visible paper texture, gentle muted palette. Subject: a friendly red fox sitting upright, facing the viewer, in a simple setting. Centered, clean light background, no text, no watermark, no border.
+- **`comic.png`** — Square icon. Bold graphic-novel / comic-book illustration: heavy inked outlines, halftone dot shading, dynamic high-contrast color. Subject: a friendly red fox sitting upright, facing the viewer, in a simple setting. Centered, clean background, no text, no watermark, no border.
+
+(For "Use this video's style" and "Describe your own," use a non-style glyph — e.g. a
+film-frame icon and a pencil icon — not a fox.)
