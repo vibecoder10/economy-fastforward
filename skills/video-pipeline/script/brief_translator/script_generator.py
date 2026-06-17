@@ -638,9 +638,7 @@ def build_script_prompt(
             "- Write as continuous narration — no stage directions, no \"[pause]\" markers\n"
             "- Do NOT include image descriptions in the script\n"
             "- Every factual claim must be verifiable from the research brief\n"
-            "- Source citations must appear at least 4-6 times across the script\n"
-            "- Historical parallels must appear in at least 3 different acts\n"
-            "- Direct audience address (\"you\", \"your\") must appear at least 3-4 times\n"
+            "- If the research brief includes sources, weave them into the narration naturally (never as footnotes); never invent a source\n"
         )
 
         # Append profile-specific text blocks

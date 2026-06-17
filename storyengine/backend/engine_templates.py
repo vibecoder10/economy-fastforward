@@ -47,8 +47,9 @@ _PLACEHOLDER_RE = re.compile(r"\{(" + "|".join(_IDENTITY_KEYS) + r")\}")
 
 
 # Neutral craft skeletons keyed by prompt_key. Each references the identity
-# slots so the injected channel becomes the subject. PLACEHOLDER content —
-# the real craft arrives in Phase 2/3.
+# slots so the injected channel becomes the subject. `script` is fully built
+# (Phase 2); research/thumbnail/video_motion/title remain thin scaffolds
+# pending their own phases.
 ENGINE_TEMPLATES: Dict[str, str] = {
     # ----------------------------------------------------------------------
     # SCRIPT — the universal scriptwriting CRAFT.
