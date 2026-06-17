@@ -23,8 +23,8 @@ SAMPLE_PASS_RESPONSE = """
   <criterion name="framework_depth" score="PASS">
     Four Machiavellian principles mapped to specific corporate moves.
   </criterion>
-  <criterion name="historical_parallel_richness" score="PASS">
-    East India Company and Standard Oil parallels with detailed point-by-point mappings.
+  <criterion name="supporting_evidence_depth" score="PASS">
+    Several detailed worked examples and case studies with point-by-point breakdowns.
   </criterion>
   <criterion name="character_visualizability" score="PASS">
     Clear central figure with multiple visual settings available.
@@ -54,8 +54,8 @@ SAMPLE_NEEDS_SUPPLEMENT_RESPONSE = """
   <criterion name="framework_depth" score="PASS">
     Three framework mappings present.
   </criterion>
-  <criterion name="historical_parallel_richness" score="FAIL">
-    Only one historical parallel with vague details.
+  <criterion name="supporting_evidence_depth" score="FAIL">
+    Only one supporting example, and it lacks specific detail.
   </criterion>
   <criterion name="character_visualizability" score="PASS">
     Central figure clearly identified.
@@ -67,11 +67,11 @@ SAMPLE_NEEDS_SUPPLEMENT_RESPONSE = """
     Good variety across all three styles.
   </criterion>
   <criterion name="structural_completeness" score="WEAK">
-    Act 4 is thin without a strong second historical parallel.
+    Act 4 is thin without a strong second supporting example.
   </criterion>
   <overall_verdict>NEEDS_SUPPLEMENT</overall_verdict>
   <gaps>
-    1. Historical parallels lack specific visualizable scenes. Need concrete settings, dates, and figures for a second historical parallel.
+    1. Supporting evidence lacks specific visualizable scenes. Need concrete settings, dates, and figures for a second supporting example.
     2. Fact density needs 5+ additional data points with specific dates and figures.
     3. Implication section needs concrete future scenarios with measurable predictions.
   </gaps>
@@ -89,8 +89,8 @@ SAMPLE_REJECT_RESPONSE = """
   <criterion name="framework_depth" score="FAIL">
     No clear framework identified.
   </criterion>
-  <criterion name="historical_parallel_richness" score="FAIL">
-    No historical parallels provided.
+  <criterion name="supporting_evidence_depth" score="FAIL">
+    No supporting examples or evidence provided.
   </criterion>
   <criterion name="character_visualizability" score="WEAK">
     Topic is systemic with no clear visual proxy.
@@ -123,7 +123,7 @@ class TestParseValidationXML:
         result = parse_validation_xml(SAMPLE_NEEDS_SUPPLEMENT_RESPONSE)
         assert len(result["criteria"]) == 8
         assert result["overall_verdict"] == "NEEDS_SUPPLEMENT"
-        assert "Historical parallels" in result["gaps"]
+        assert "Supporting evidence" in result["gaps"]
 
     def test_parses_reject_response(self):
         result = parse_validation_xml(SAMPLE_REJECT_RESPONSE)

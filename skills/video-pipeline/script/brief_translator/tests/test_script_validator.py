@@ -386,7 +386,15 @@ class TestFullValidation:
         result = validate_script_editorial(script, brief, acts)
         assert result.passed, f"Good script should pass:\n{result.summary}"
 
-    def test_bad_script_fails(self):
+    def test_bad_script_default_only_runs_universal_checks(self):
+        """By default (no profile), only the universal craft checks run.
+
+        The identity-specific checks (number_density, framework_density,
+        personal_stakes, actionable_close) are OFF by default so a non-Power-
+        Doctrine script is never failed for failing to sound like Power
+        Doctrine. The bad script still fails on a universal check (it has no
+        cliffhangers), but NOT on any identity check.
+        """
         script = _make_bad_script()
         brief = _make_brief()
         import re
@@ -399,6 +407,38 @@ class TestFullValidation:
             acts[act_num] = act_text
 
         result = validate_script_editorial(script, brief, acts)
+        ran = {c.name for c in result.checks}
+        # Identity checks must NOT run by default
+        assert "number_density" not in ran
+        assert "framework_density" not in ran
+        assert "personal_stakes" not in ran
+        assert "actionable_close" not in ran
+        # Universal checks DO run
+        assert "cliffhanger_presence" in ran
+        assert "promise_payoff" in ran
+        assert "act_coherence" in ran
+
+    def test_bad_script_fails_identity_checks_when_enabled(self):
+        """When a profile re-enables the identity checks (as Power Doctrine
+        does), the bad script fails them exactly as before."""
+        script = _make_bad_script()
+        brief = _make_brief()
+        import re
+        act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
+        parts = act_pattern.split(script)
+        acts = {}
+        for i in range(1, len(parts), 2):
+            act_num = int(parts[i])
+            act_text = parts[i + 1] if i + 1 < len(parts) else ""
+            acts[act_num] = act_text
+
+        config = ScriptValidationConfig(
+            number_density_check=True,
+            framework_density_check=True,
+            personal_stakes_check=True,
+            actionable_close_check=True,
+        )
+        result = validate_script_editorial(script, brief, acts, config=config)
         assert not result.passed, "Bad script should fail validation"
         failed_names = [c.name for c in result.failed_checks]
         assert "number_density" in failed_names
@@ -467,17 +507,24 @@ class TestRetryPrompt:
         assert "Original prompt here" in retry
 
     def test_includes_specific_number_from_research(self):
+        # Number density is an opt-in (identity) check — enable it explicitly
+        # to exercise the retry-prompt machinery.
         script = _make_bad_script()
         brief = _make_brief()
-        result = validate_script_editorial(script, brief, {})
+        config = ScriptValidationConfig(number_density_check=True)
+        result = validate_script_editorial(script, brief, {}, config=config)
         retry = build_retry_prompt("Prompt", script, result)
         # Should suggest unused numbers from research
         assert "$" in retry or "%" in retry
 
     def test_number_retry_lists_unused_research_numbers(self):
-        """Number density retry should list specific unused numbers from research."""
+        """Number density retry should list specific unused numbers from research.
+
+        Number density is an opt-in (identity) check, so enable it explicitly.
+        """
         script = _make_bad_script()
         brief = _make_brief()
+        config = ScriptValidationConfig(number_density_check=True)
         import re
         act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
         parts = act_pattern.split(script)
@@ -485,7 +532,7 @@ class TestRetryPrompt:
         for i in range(1, len(parts), 2):
             acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
 
-        result = validate_script_editorial(script, brief, acts)
+        result = validate_script_editorial(script, brief, acts, config=config)
         number_check = next(c for c in result.checks if c.name == "number_density")
         assert not number_check.passed
         # Retry should contain actual dollar amounts from research
@@ -494,9 +541,13 @@ class TestRetryPrompt:
         assert "ALREADY IN SCRIPT" in number_check.retry_prompt
 
     def test_framework_retry_identifies_heavy_acts(self):
-        """Framework density retry should name specific acts that are heavy."""
+        """Framework density retry should name specific acts that are heavy.
+
+        Framework density is an opt-in (identity) check, so enable it explicitly.
+        """
         script = _make_bad_script()
         brief = _make_brief()
+        config = ScriptValidationConfig(framework_density_check=True)
         import re
         act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
         parts = act_pattern.split(script)
@@ -504,7 +555,7 @@ class TestRetryPrompt:
         for i in range(1, len(parts), 2):
             acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
 
-        result = validate_script_editorial(script, brief, acts)
+        result = validate_script_editorial(script, brief, acts, config=config)
         fw_check = next(c for c in result.checks if c.name == "framework_density")
         assert not fw_check.passed
         assert "WORST OFFENDERS" in fw_check.retry_prompt
@@ -512,23 +563,37 @@ class TestRetryPrompt:
         assert "Act 2" in fw_check.retry_prompt or "Act 3" in fw_check.retry_prompt
 
     def test_personal_stakes_retry_includes_research_figures(self):
-        """Personal stakes retry should pull actual figures from research."""
+        """Personal stakes retry should pull actual figures from research.
+
+        Personal stakes is an opt-in (identity) check, so enable it explicitly.
+        The retry no longer hard-requires Power-Doctrine phrasing (e.g.
+        'your wallet'); it just surfaces real figures and asks for direct,
+        topic-appropriate stakes.
+        """
         script = _make_bad_script()
         brief = _make_brief()
-        result = validate_script_editorial(script, brief, {})
+        config = ScriptValidationConfig(personal_stakes_check=True)
+        result = validate_script_editorial(script, brief, {}, config=config)
         stakes_check = next(c for c in result.checks if c.name == "personal_stakes")
         assert not stakes_check.passed
-        # Should include actual prices/percentages from research
-        assert "Prices:" in stakes_check.retry_prompt
+        # Should surface actual prices/percentages from research
+        assert "Prices/amounts:" in stakes_check.retry_prompt
         assert "Percentages:" in stakes_check.retry_prompt
         assert "$" in stakes_check.retry_prompt
-        assert "your wallet" in stakes_check.retry_prompt
+        # Neutral: addresses the viewer directly, but no fixed PD finance phrase
+        assert "your" in stakes_check.retry_prompt.lower()
+        assert "your wallet" not in stakes_check.retry_prompt
+        assert "401k" not in stakes_check.retry_prompt
 
     def test_actionable_close_retry_has_3_phase_structure(self):
-        """Actionable close retry should include 3-phase market template."""
+        """Actionable close retry should include 3-phase market template.
+
+        Actionable close is an opt-in (identity) check, so enable it explicitly.
+        """
         script = _make_bad_script()
         brief = _make_brief()
-        result = validate_script_editorial(script, brief, {})
+        config = ScriptValidationConfig(actionable_close_check=True)
+        result = validate_script_editorial(script, brief, {}, config=config)
         close_check = next(c for c in result.checks if c.name == "actionable_close")
         assert not close_check.passed
         assert "Phase 1" in close_check.retry_prompt
@@ -708,17 +773,26 @@ class TestActCoherence:
 class TestConfig:
     def test_default_values(self):
         config = ScriptValidationConfig()
+        # Thresholds are unchanged (still used when a profile opts the
+        # corresponding check in)…
         assert config.number_density_min == 19
         assert config.framework_max_pct == 0.15
         assert config.personal_stakes_min_score == 1  # lowered: one match is enough
         assert config.actionable_close_min_score == 2
+        # …but the identity-specific CHECKS are OFF by default so a non-Power-
+        # Doctrine channel is never gated on PD voice.
+        assert config.number_density_check is False
+        assert config.framework_density_check is False
+        assert config.personal_stakes_check is False
+        assert config.actionable_close_check is False
         # New defaults: validation is blocking
         assert config.max_retries == 1
         assert config.retry_on_fail is True
-        # New checks enabled by default
+        # Universal craft checks enabled by default
+        assert config.cliffhanger_check is True
         assert config.promise_payoff_check is True
         assert config.act_coherence_check is True
-        assert config.act_coherence_max_topics == 6  # Higher for geopolitics content
+        assert config.act_coherence_max_topics == 6  # lenient: multi-subject acts
 
     def test_custom_values(self):
         config = ScriptValidationConfig(
@@ -789,8 +863,8 @@ class TestConfig:
 # ---------------------------------------------------------------------------
 
 class TestFullValidationWithNewChecks:
-    def test_good_script_passes_all_7_checks(self):
-        """Good script should pass all 7 validation checks."""
+    def test_good_script_passes_default_universal_checks(self):
+        """By default only the 3 universal checks run, and a good script passes."""
         script = _make_good_script()
         brief = _make_brief()
         import re
@@ -802,13 +876,43 @@ class TestFullValidationWithNewChecks:
 
         result = validate_script_editorial(script, brief, acts)
 
-        # Should have 7 checks
+        check_names = [c.name for c in result.checks]
+        # Default = universal craft checks only
+        assert set(check_names) == {
+            "cliffhanger_presence", "promise_payoff", "act_coherence",
+        }
+
+        if not result.passed:
+            failed = [c for c in result.checks if not c.passed]
+            for c in failed:
+                print(f"FAILED: {c.name}: {c.detail}")
+        assert result.passed, f"Good script should pass all checks:\n{result.summary}"
+
+    def test_good_pd_script_passes_all_7_checks_when_enabled(self):
+        """When all checks are enabled (Power Doctrine profile), the
+        Power-Doctrine-style good script still passes all 7 checks."""
+        script = _make_good_script()
+        brief = _make_brief()
+        import re
+        act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
+        parts = act_pattern.split(script)
+        acts = {}
+        for i in range(1, len(parts), 2):
+            acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
+
+        config = ScriptValidationConfig(
+            number_density_check=True,
+            framework_density_check=True,
+            personal_stakes_check=True,
+            actionable_close_check=True,
+        )
+        result = validate_script_editorial(script, brief, acts, config=config)
+
         check_names = [c.name for c in result.checks]
         assert "promise_payoff" in check_names
         assert "act_coherence" in check_names
         assert len(check_names) == 7
 
-        # Good script should pass
         if not result.passed:
             failed = [c for c in result.checks if not c.passed]
             for c in failed:
@@ -831,3 +935,184 @@ class TestFullValidationWithNewChecks:
         result = validate_script_editorial(script, brief, {}, config=config)
         assert result.passed  # No checks = passes
         assert len(result.checks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: Non-Power-Doctrine scripts pass the (now identity-neutral) validator
+# ---------------------------------------------------------------------------
+
+def _parse_acts(script):
+    """Parse [ACT N ...] markers into {act_num: text}."""
+    import re
+    acts = {}
+    parts = re.compile(r"\[ACT\s+(\d+).*?\]").split(script)
+    for i in range(1, len(parts), 2):
+        acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
+    return acts
+
+
+def _make_esl_story_script():
+    """A simple ESL kids' story: NO statistics, NO historical parallels,
+    NO 'your 401k' / 'position yourself', NO framework names.
+
+    It uses gentle, story-appropriate forward pulls at act transitions so the
+    universal retention checks are satisfied — without any Power Doctrine voice.
+    """
+    return """
+[ACT 1 — THE NEW SCHOOL]
+Mia was the new girl at Sunny Hill School. On her first morning she stood by
+the gate and felt very shy. She did not know anyone, and her tummy felt full
+of butterflies. A friendly dog named Pip sat near the gate and wagged his
+tail. And what you'll see next is how a lost lunchbox at lunchtime gave shy
+Mia her first chance to help.
+
+[ACT 2 — THE LOST LUNCHBOX]
+At lunchtime, a boy named Sam could not find his red lunchbox. He looked sad,
+and his eyes filled with tears. Mia remembered seeing a red lunchbox by the
+gate where Pip was sitting. She wanted to help, but she was still too shy to
+speak. What you'll see next is the brave moment when shy Mia finally used her
+voice to help Sam.
+
+[ACT 3 — THE BRAVE VOICE]
+Mia took a brave breath and used her voice. "I think I saw your red lunchbox
+by the gate," she said to Sam softly. Sam smiled a big bright smile. Together
+they ran to the gate, and there was the red lunchbox, safe with Pip. Sam was
+so happy that he asked Mia to sit with him at lunch.
+
+[ACT 4 — A NEW FRIEND]
+From that day on, Mia and Sam ate lunch together every day. The butterflies
+in her tummy were gone. Now you know that being kind, even when you feel shy,
+can turn a scary day into a happy one. When you feel nervous, take a brave
+breath and try one small kind thing. That is how shy Mia used her voice and
+made her very first friend.
+"""
+
+
+def _make_esl_brief():
+    """A simple research brief for the ESL story — no fact sheet stats,
+    no historical parallels, no character dossier, no framework analysis."""
+    return {
+        "headline": "Mia's First Day: A Story About Kindness",
+        "thesis": "A shy new student learns that small acts of kindness make friends.",
+        "narrative_arc": (
+            "Mia is shy on her first day. She helps a classmate find his lost "
+            "lunchbox and makes her first friend, learning to be brave and kind."
+        ),
+    }
+
+
+def _make_cooking_script():
+    """A cooking how-to: amounts appear but there is no PD finance/markets
+    framing, no framework names, no 'your 401k' / 'position yourself'."""
+    return """
+[ACT 1 — WHAT YOU'LL MAKE]
+Today we are making soft, fluffy pancakes from scratch. They are golden on
+the outside and light on the inside, and you only need a handful of simple
+ingredients. What you'll see next is how to mix the batter so it stays light
+and never turns out tough.
+
+[ACT 2 — THE BATTER]
+Whisk the flour, baking powder, and a pinch of salt in a bowl. In another
+bowl, beat the eggs with the milk and a little melted butter. Pour the wet
+batter into the dry mix and stir gently — just until it comes together, so it
+stays light and not tough. In the next part you'll see the resting trick that
+makes the batter rise.
+
+[ACT 3 — THE REST]
+Let the batter rest for ten minutes. This is the resting trick: resting lets
+the flour relax and the bubbles settle, so the batter will rise and the
+pancakes turn out tender. While it rests, warm your pan over medium heat. What
+you'll see next is how to cook and flip them so each one turns golden.
+
+[ACT 4 — COOKING AND SERVING]
+Pour a small ladle of batter into the warm pan. When you see little bubbles
+form on top, it's time to flip and cook the other side until golden. Now you
+know how to make tender pancakes at home. Stack them up, add your favorite
+topping, and enjoy.
+"""
+
+
+class TestNonPowerDoctrineScriptsPass:
+    """A non-PD script must PASS the validator under default (no-profile)
+    settings — proving the validator no longer enforces Power Doctrine
+    identity (statistics, historical parallels, '401k', framework names)."""
+
+    def test_esl_story_has_no_pd_identity_markers(self):
+        """Sanity check: the ESL story genuinely lacks PD identity markers."""
+        script = _make_esl_story_script()
+        # No statistics-as-identity: well below the PD number-density floor
+        count, _ = _count_specific_numbers(script)
+        assert count < ScriptValidationConfig().number_density_min
+        # No framework-author voice
+        pct, _, _ = _measure_framework_density(script)
+        assert pct == 0.0
+        # No Power-Doctrine personal-finance framing
+        lower = script.lower()
+        assert "401k" not in lower
+        assert "your wallet" not in lower
+        assert "position yourself" not in lower
+        assert "smart money" not in lower
+
+    def test_esl_story_passes_default_validator(self):
+        """The ESL story PASSES the validator with default settings."""
+        script = _make_esl_story_script()
+        brief = _make_esl_brief()
+        acts = _parse_acts(script)
+
+        result = validate_script_editorial(script, brief, acts)
+
+        # Only universal craft checks run — no identity checks
+        ran = {c.name for c in result.checks}
+        assert "number_density" not in ran
+        assert "framework_density" not in ran
+        assert "personal_stakes" not in ran
+        assert "actionable_close" not in ran
+
+        if not result.passed:
+            for c in result.failed_checks:
+                print(f"FAILED: {c.name}: {c.detail}")
+        assert result.passed, (
+            "A simple ESL kids' story (no stats, no parallels, no '401k') must "
+            f"PASS the neutralized validator:\n{result.summary}"
+        )
+
+    def test_cooking_script_passes_default_validator(self):
+        """A cooking how-to also PASSES the validator with default settings."""
+        script = _make_cooking_script()
+        brief = {
+            "headline": "Fluffy Pancakes From Scratch",
+            "thesis": "Resting the batter makes tender pancakes.",
+            "narrative_arc": "Mix, rest, cook, serve fluffy pancakes.",
+        }
+        acts = _parse_acts(script)
+
+        result = validate_script_editorial(script, brief, acts)
+        if not result.passed:
+            for c in result.failed_checks:
+                print(f"FAILED: {c.name}: {c.detail}")
+        assert result.passed, (
+            f"A cooking how-to must PASS the neutralized validator:\n{result.summary}"
+        )
+
+    def test_esl_story_would_have_failed_under_pd_gates(self):
+        """Proof of WHY this matters: with the old Power Doctrine gates turned
+        ON, the very same ESL story is REJECTED — for lacking statistics,
+        finance stakes, and an investment-style close it has no business
+        containing. The neutral default is what unblocks it."""
+        script = _make_esl_story_script()
+        brief = _make_esl_brief()
+        acts = _parse_acts(script)
+
+        pd_config = ScriptValidationConfig(
+            number_density_check=True,
+            framework_density_check=True,
+            personal_stakes_check=True,
+            actionable_close_check=True,
+        )
+        result = validate_script_editorial(script, brief, acts, config=pd_config)
+        assert not result.passed
+        failed = {c.name for c in result.failed_checks}
+        # It fails the identity gates it should never have been held to
+        assert "number_density" in failed
+        assert "personal_stakes" in failed
+        assert "actionable_close" in failed

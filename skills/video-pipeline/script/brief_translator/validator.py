@@ -12,12 +12,23 @@ from orchestrator.pipeline_constants import Models
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "validation.txt"
 
-# Validation criteria names in order
+# Validation criteria names in order.
+#
+# These are UNIVERSAL production-readiness criteria — they apply to any
+# channel/identity (ESL stories, cooking, geopolitics, …). They check that a
+# brief has enough grounded, visualizable, well-structured material to fill a
+# multi-act video — NOT that it sounds like any particular identity.
+#
+# (Historical note: criterion 4 used to be "historical_parallel_richness", a
+# Power-Doctrine-specific gate that required point-by-point historical
+# parallels. It was generalized to "supporting_evidence_depth" so a brief is
+# never rejected merely for lacking historical parallels. See
+# tasks/engine-identity-seeds/power-doctrine.md.)
 CRITERIA_NAMES = [
     "hook_strength",
     "fact_density",
     "framework_depth",
-    "historical_parallel_richness",
+    "supporting_evidence_depth",
     "character_visualizability",
     "implication_specificity",
     "visual_variety",

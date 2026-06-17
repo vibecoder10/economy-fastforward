@@ -13,12 +13,22 @@ PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "supplemental.txt"
 # Maximum supplemental research passes before giving up
 MAX_SUPPLEMENT_PASSES = 2
 
-# Map criterion names to the brief fields they relate to
+# Map criterion names to the brief fields they relate to.
+#
+# "supporting_evidence_depth" replaces the old, Power-Doctrine-specific
+# "historical_parallel_richness" criterion. It maps to the general supporting
+# fields a brief may carry (historical parallels, the fact sheet, narrative
+# arc) — historical parallels are now just ONE possible source of supporting
+# evidence, not a hard requirement.
 CRITERION_TO_FIELDS = {
     "hook_strength": ["executive_hook"],
     "fact_density": ["fact_sheet"],
     "framework_depth": ["framework_analysis"],
-    "historical_parallel_richness": ["historical_parallels"],
+    "supporting_evidence_depth": [
+        "fact_sheet",
+        "historical_parallels",
+        "narrative_arc",
+    ],
     "character_visualizability": ["character_dossier"],
     "implication_specificity": ["narrative_arc"],
     "visual_variety": ["visual_seeds"],

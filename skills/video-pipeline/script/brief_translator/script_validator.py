@@ -31,35 +31,51 @@ logger = logging.getLogger(__name__)
 class ScriptValidationConfig:
     """Thresholds for post-generation script validation.
 
-    Defaults match Power Doctrine v2 voice. Use ``from_profile()`` to
-    populate from a loaded ScriptProfile at runtime.
+    The DEFAULTS here are IDENTITY-NEUTRAL — they only enable the universal
+    craft checks that apply to any channel (cliffhangers, promise/payoff,
+    act coherence). The identity-specific checks (number density, framework
+    density, "personal stakes", actionable/investment close) are OFF by
+    default so that a non-Power-Doctrine channel (ESL kids' stories, cooking,
+    etc.) is never blocked for failing to sound like Power Doctrine.
+
+    A loaded ``ScriptProfile`` can re-enable any of these via
+    ``from_profile()`` — e.g. a "power_doctrine_v2" profile turns number
+    density and framework density back on with PD thresholds. That is how the
+    Power Doctrine identity is reintroduced: as one profile among many, not as
+    the hard-wired default.
     """
 
-    # Check 1: Number density
-    number_density_check: bool = True
+    # Check 1: Number density — IDENTITY (PD "every claim gets a number").
+    # Off by default; a story/cooking script should not be failed for lacking
+    # statistics. Re-enabled by a profile that wants data-dense scripts.
+    number_density_check: bool = False
     number_density_min: int = 19
 
-    # Check 2: Framework density (max % of sentences with framework refs)
-    framework_density_check: bool = True
+    # Check 2: Framework density — IDENTITY (keyed off a hardcoded PD author
+    # list: Machiavelli, Thucydides, Sun Tzu, …). Off by default; only
+    # meaningful for an analytical/geopolitics identity. Re-enabled by profile.
+    framework_density_check: bool = False
     framework_max_pct: float = 0.15
 
-    # Check 3: Personal stakes presence
-    personal_stakes_check: bool = True
+    # Check 3: Personal stakes presence — IDENTITY (PD "your wallet / your
+    # 401k" personal-finance framing). Off by default. Re-enabled by profile.
+    personal_stakes_check: bool = False
     personal_stakes_min_score: int = 1
 
-    # Check 4: Actionable close
-    actionable_close_check: bool = True
+    # Check 4: Actionable close — IDENTITY (PD "position yourself / smart
+    # money" investment framing). Off by default. Re-enabled by profile.
+    actionable_close_check: bool = False
     actionable_close_min_score: int = 2
 
-    # Check 5: Cliffhanger presence
+    # Check 5: Cliffhanger presence — UNIVERSAL retention craft. On by default.
     cliffhanger_check: bool = True
 
-    # Check 6: Promise-payoff tracking
+    # Check 6: Promise-payoff tracking — UNIVERSAL structural craft. On.
     promise_payoff_check: bool = True
 
-    # Check 7: Act coherence (topic drift)
-    # Geopolitics scripts naturally mention multiple countries/leaders per act.
-    # Threshold of 6 allows for complex multi-actor narratives without false positives.
+    # Check 7: Act coherence (topic drift) — UNIVERSAL pacing craft (advisory).
+    # Threshold of 6 allows complex multi-subject narratives without false
+    # positives.
     act_coherence_check: bool = True
     act_coherence_max_topics: int = 6
 
@@ -87,10 +103,10 @@ class ScriptValidationConfig:
             actionable_close_check=v.actionable_ending_check,
             actionable_close_min_score=2,  # no profile field yet — keep default
             cliffhanger_check=v.cliffhanger_check,
-            # New blocking checks — always enabled, use defaults
+            # Universal craft checks — always enabled, use defaults
             promise_payoff_check=True,
             act_coherence_check=True,
-            act_coherence_max_topics=6,  # Geopolitics needs higher threshold
+            act_coherence_max_topics=6,  # lenient: allow multi-subject acts
             # Validation is now blocking
             retry_on_fail=True,
             max_retries=1,
@@ -936,26 +952,24 @@ def validate_script_editorial(
             count_examples = ", ".join(figures["counts"][:5]) or "N/A"
 
             retry_prompt = (
-                f"PERSONAL STAKES MISSING: Score {score}/{config.personal_stakes_min_score}. "
+                f"VIEWER STAKES MISSING: Score {score}/{config.personal_stakes_min_score}. "
                 f"The script talks ABOUT consequences but never addresses the "
-                f"viewer directly with specific dollar impacts.\n\n"
-                f"AVAILABLE FIGURES FROM RESEARCH:\n"
-                f"  Prices: {price_examples}\n"
+                f"viewer directly or makes the stakes concrete for THEM.\n\n"
+                f"SPECIFIC FIGURES FROM RESEARCH (use real ones, not placeholders):\n"
+                f"  Prices/amounts: {price_examples}\n"
                 f"  Percentages: {pct_examples}\n"
                 f"  Quantities: {count_examples}\n\n"
-                f"ADD THIS STRUCTURE TO ACT 5 (adapt with real figures above):\n"
-                f"  1. 'Here's what this means for your wallet.'\n"
-                f"  2. Gas/energy impact: '$X per gallon means $Y more per year "
-                f"for the average American household.'\n"
-                f"  3. Portfolio exposure: 'X% of the S&P 500 is [sector]. "
-                f"Your 401k has more exposure to [risk] than you think.'\n"
-                f"  4. Job/wage impact: 'If [scenario], your real wages decline "
-                f"X% — that's $Y less purchasing power per month.'\n"
-                f"  5. Direct address: 'You pay more at the pump, your "
-                f"retirement fund drops, your grocery bill rises.'\n\n"
-                f"REQUIRED PHRASES (use at least 3): 'your wallet', 'your 401k', "
-                f"'you pay', 'your savings', 'your retirement', "
-                f"'what this means for you'."
+                f"FIX:\n"
+                f"  1. Open the stakes beat by turning to the viewer: 'Here's "
+                f"what this means for you.'\n"
+                f"  2. Translate at least one figure above into a concrete, "
+                f"first-person consequence for the viewer — whatever is real "
+                f"for THIS topic (cost, time, risk, effort, outcome), not a "
+                f"fixed personal-finance frame.\n"
+                f"  3. Use direct address ('you', 'your') so the viewer feels "
+                f"the consequence rather than just hearing about it.\n\n"
+                f"Pick the stakes that actually fit the subject — a story, a "
+                f"recipe, and a market analysis each have very different stakes."
             )
 
         result.checks.append(CheckResult(
@@ -998,9 +1012,10 @@ def validate_script_editorial(
                 f"  Phase 3 — THE ROTATION: 'The sectors that benefit are "
                 f"[specific names]. The play is [specific position]. Position "
                 f"yourself before the repricing, not during it.'\n\n"
-                f"REQUIRED PHRASES (use at least 2): 'position yourself', "
-                f"'watch for', 'the play is', 'here's what you do', "
-                f"'smart money', 'when you see'."
+                f"Close with a concrete takeaway the viewer can ACT ON: a "
+                f"decision, a thing to watch for, a step to take, or a signal "
+                f"to monitor. Make it specific to THIS topic — don't force an "
+                f"investing/markets frame onto a script that isn't about money."
             )
 
         result.checks.append(CheckResult(

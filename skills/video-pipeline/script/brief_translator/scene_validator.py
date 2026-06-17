@@ -229,18 +229,27 @@ def validate_scene_list(scenes: list[dict], config: Optional[dict] = None) -> di
 
 
 def validate_act6_empowerment(act6_text: str) -> dict:
-    """Check that Act 6 ends with empowerment, not dread.
+    """Check that the final act does NOT end on dread / helplessness.
 
-    Looks for explicit framework names and detection instructions.
-    Returns {"valid": bool, "issues": list[str]}.
+    UNIVERSAL craft check: any video, regardless of identity, should leave the
+    viewer feeling resolved or equipped rather than trapped and powerless. This
+    only flags explicit dread/helpless closing language — it does NOT require
+    any particular vocabulary, framework names, or "detection instructions"
+    (that was a Power-Doctrine-specific requirement and is preserved in
+    tasks/engine-identity-seeds/power-doctrine.md).
+
+    Presence of empowering language is reported as advisory information in
+    ``empowerment_signals`` but never blocks; only dread language fails.
+
+    Returns {"valid": bool, "issues": list[str], "empowerment_signals": int}.
     """
     issues: list[str] = []
     if not act6_text:
-        return {"valid": True, "issues": []}
+        return {"valid": True, "issues": [], "empowerment_signals": 0}
 
     text_lower = act6_text.lower()
 
-    # Check for dread/helpless close patterns
+    # Check for dread/helpless close patterns — UNIVERSAL anti-doom guard.
     _DREAD_PATTERNS = [
         "nobody will notice",
         "no one will notice",
@@ -254,39 +263,36 @@ def validate_act6_empowerment(act6_text: str) -> dict:
     for pattern in _DREAD_PATTERNS:
         if pattern in text_lower:
             issues.append(
-                f"Act 6 contains dread/helpless language: '{pattern}'. "
-                "The close MUST be empowerment, not fear."
+                f"Final act contains dread/helpless language: '{pattern}'. "
+                "The close should resolve or equip the viewer, not leave them "
+                "feeling powerless."
             )
 
-    # Check for framework name mentions (at least one explicit naming)
-    # Look for patterns like "you just learned X", "X, Y, and Z", quoted names
+    # Empowering language is ADVISORY only — counted, never required. A close
+    # like "now you can make this at home" or "the question is what you do next"
+    # is valid even if it hits none of these specific phrases.
     _EMPOWERMENT_SIGNALS = [
         "you just learned",
         "you now ",
         "you now know",
         "you now see",
         "you now read",
-        "pattern recognition",
-        "x-ray vision",
+        "you can now",
+        "now you know",
+        "now you can",
         "when you see",
         "when you notice",
         "look for",
-        "ask who",
-        "ask why",
-        "watch who",
-        "watch what",
         "watch for",
+        "what you do",
+        "the question is",
     ]
     empowerment_count = sum(1 for s in _EMPOWERMENT_SIGNALS if s in text_lower)
-    if empowerment_count < 2:
-        issues.append(
-            f"Act 6 lacks empowerment signals (found {empowerment_count}, need >=2). "
-            "Must contain framework names + detection instructions."
-        )
 
     return {
         "valid": len(issues) == 0,
         "issues": issues,
+        "empowerment_signals": empowerment_count,
     }
 
 

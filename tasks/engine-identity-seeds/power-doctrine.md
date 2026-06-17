@@ -201,3 +201,139 @@ IMPORTANT FORMATTING RULES:
 - Historical parallels must appear in at least 3 different acts
 - Direct audience address ("you", "your") must appear at least 3-4 times
 ```
+
+---
+
+## Validator criteria
+
+The script/brief VALIDATORS used to ENFORCE Power Doctrine identity: a non-PD
+channel (ESL stories, cooking) was rejected for not sounding like Power
+Doctrine. During the engine/identity split (Phase 2, 2026-06-17) these
+identity-specific criteria were stripped from the validators
+(`skills/video-pipeline/script/brief_translator/script_validator.py`,
+`validator.py`, `scene_validator.py`, and `prompts/validation.txt`). The
+universal validation craft (grounding/anti-hallucination, banned filler,
+word-count/length, act-marker formatting, hook/specificity, cliffhanger,
+promise→payoff, act coherence, anti-dread close) was KEPT.
+
+These criteria are recoverable here. They were not deleted from the code
+wholesale — the checks still exist and are re-enabled by loading a Power
+Doctrine `ScriptProfile` (`ScriptValidationConfig.from_profile()`), or by
+passing a config with the checks turned on. The defaults are now neutral
+(identity checks OFF, universal checks ON).
+
+### 1. Number-density quota (was a hard default gate)
+
+`number_density_check=True`, `number_density_min=19` ("19 numbers"). The PD
+"every claim gets a number" identity. Backed by these detectors (kept in code,
+no longer gated by default):
+
+- Plain-large-number regex: `\b\d[\d,]*(?:\.\d+)?\b`
+- Dollars, percentages, dates, years, and counts-with-units (soldiers, troops,
+  missiles, barrels, targets, …).
+
+Brief-side equivalent (`prompts/validation.txt`, criterion 2 — KEPT but
+generic): "FACT DENSITY: Does the Fact Sheet contain at least 15 verified data
+points … to sustain 4.5 minutes of setup narration (Act 2)?"
+
+Verbatim retry instruction fragment (number_density):
+
+```text
+- Every claim needs a number: not 'oil prices rose' but
+  'oil prices rose 300% to $X/barrel'.
+- Distribute numbers across all 6 acts, not just Acts 1-2.
+```
+
+### 2. Framework-density check (keyed off a hardcoded PD author list)
+
+`framework_density_check=True`, `framework_max_pct=0.15`. Counted what % of
+sentences referenced PD framework authors/terms. Author list (verbatim):
+
+```text
+machiavelli, greene, robert greene, the prince, thucydides, thucydides trap,
+taleb, nassim taleb, antifragile, black swan, sun tzu, art of war,
+brzezinski, grand chessboard, mackinder, kindleberger, kindleberger trap,
+schelling, focal point, olson, mancur olson, collective action,
+nye, joseph nye, soft power, sharp power, jung, jungian, shadow self,
+kahneman, tversky, behavioral economics, marcus aurelius, seneca, stoicism,
+bernays, chomsky, propaganda model, game theory, nash equilibrium,
+prisoner's dilemma, systems thinking, feedback loop
+```
+
+Doctrine/military terms also detected: OODA loop, deterrence theory, escalation
+ladder, containment doctrine, balance of power, realpolitik, hegemonic
+stability, asymmetric warfare doctrine, mutually assured destruction, first
+strike capability, brinkmanship, credible commitment, power vacuum, regulatory
+capture, free rider problem.
+
+### 3. Personal-stakes presence — "your wallet / your 401k" (PD finance framing)
+
+`personal_stakes_check=True`, `personal_stakes_min_score=1`. Detected
+personal-finance stakes. Verbatim REQUIRED-PHRASES mandate that was removed
+from the retry prompt:
+
+```text
+REQUIRED PHRASES (use at least 3): 'your wallet', 'your 401k',
+'you pay', 'your savings', 'your retirement', 'what this means for you'.
+```
+
+Removed PD example template (Act 5):
+
+```text
+ADD THIS STRUCTURE TO ACT 5 (adapt with real figures above):
+  1. 'Here's what this means for your wallet.'
+  2. Gas/energy impact: '$X per gallon means $Y more per year
+     for the average American household.'
+  3. Portfolio exposure: 'X% of the S&P 500 is [sector].
+     Your 401k has more exposure to [risk] than you think.'
+  4. Job/wage impact: 'If [scenario], your real wages decline
+     X% — that's $Y less purchasing power per month.'
+  5. Direct address: 'You pay more at the pump, your
+     retirement fund drops, your grocery bill rises.'
+```
+
+### 4. Actionable close — "position yourself / smart money" (PD investment framing)
+
+`actionable_close_check=True`, `actionable_close_min_score=2`. Verbatim
+REQUIRED-PHRASES mandate that was removed from the retry prompt:
+
+```text
+REQUIRED PHRASES (use at least 2): 'position yourself', 'watch for',
+'the play is', 'here's what you do', 'smart money', 'when you see'.
+```
+
+The PD 3-phase market template (THE SHOCK / THE REPRICING WINDOW / THE
+ROTATION, "Position yourself before the repricing, not during it") is preserved
+in the retry-prompt body in code (only fires when the check is opted in).
+
+### 5. Historical-parallel-richness brief criterion (renamed)
+
+The brief production-readiness validator (`validator.py` +
+`prompts/validation.txt`) had criterion 4, verbatim:
+
+```text
+4. HISTORICAL PARALLEL RICHNESS: Are there at least 2 detailed historical
+   parallels with specific point-by-point mappings? Can they fill 5 minutes
+   of content (Act 4)? Are they visually depictable (specific settings,
+   figures, events)?
+```
+
+Generalized to `supporting_evidence_depth` so a brief is never rejected merely
+for lacking historical parallels (a cooking technique walkthrough, a learner
+dialogue, or a worked example now counts as supporting evidence).
+
+### 6. Final-act empowerment requirement (PD "framework names")
+
+`scene_validator.validate_act6_empowerment` used to HARD-require ">= 2
+empowerment signals" with the rationale "Must contain framework names +
+detection instructions," using PD-flavored signals including:
+
+```text
+"you just learned", "you now ", "you now know", "you now see", "you now read",
+"pattern recognition", "x-ray vision", "when you see", "when you notice",
+"look for", "ask who", "ask why", "watch who", "watch what", "watch for"
+```
+
+Now neutral: only explicit dread/helplessness language fails (UNIVERSAL
+anti-doom craft); empowerment language is counted as advisory info, never
+required.

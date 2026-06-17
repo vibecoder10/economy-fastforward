@@ -45,10 +45,14 @@ give a score of PASS, WEAK, or FAIL:
    framework-to-event mappings? Can each mapping sustain 1-2 minutes of
    narration with specific examples?
 
-4. HISTORICAL PARALLEL RICHNESS: Are there at least 2 detailed historical
-   parallels with specific point-by-point mappings? Can they fill 5 minutes
-   of content (Act 4)? Are they visually depictable (specific settings,
-   figures, events)?
+4. SUPPORTING EVIDENCE DEPTH: Is there enough supporting material to sustain
+   a deep middle act (Act 4) — for example detailed examples, case studies,
+   precedents, parallels, or step-by-step breakdowns relevant to THIS topic?
+   Can that material fill ~5 minutes of content? Is it visually depictable
+   (specific settings, figures, events, or objects)? Do NOT require historical
+   parallels specifically — any concrete, grounded supporting evidence counts
+   (a cooking technique walkthrough, a learner dialogue, a worked example, a
+   historical precedent, etc.).
 
 5. CHARACTER VISUALIZABILITY: Is there a clear central figure or entity
    that can be depicted in multiple compositions (close-ups, wide shots,
@@ -83,7 +87,7 @@ Output format:
   <criterion name="framework_depth" score="PASS|WEAK|FAIL">
     [1-2 sentence assessment]
   </criterion>
-  <criterion name="historical_parallel_richness" score="PASS|WEAK|FAIL">
+  <criterion name="supporting_evidence_depth" score="PASS|WEAK|FAIL">
     [1-2 sentence assessment]
   </criterion>
   <criterion name="character_visualizability" score="PASS|WEAK|FAIL">

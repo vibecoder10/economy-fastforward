@@ -3,6 +3,7 @@
 import pytest
 from script.brief_translator.scene_validator import (
     validate_scene_list,
+    validate_act6_empowerment,
     auto_fix_minor_issues,
     REQUIRED_FIELDS_UNIFIED as REQUIRED_FIELDS,
     VALID_STYLES,
@@ -213,3 +214,47 @@ class TestAutoFixMinorIssues:
         original_style = scenes[0]["style"]
         auto_fix_minor_issues(scenes)
         assert scenes[0]["style"] == original_style
+
+
+class TestValidateAct6Empowerment:
+    """The final-act close check is now identity-neutral: it only blocks on
+    dread/helplessness, and never requires Power Doctrine 'framework names +
+    detection instructions'."""
+
+    def test_dread_close_fails(self):
+        """Explicit dread/helpless language still fails — UNIVERSAL craft."""
+        text = "There's nothing you can do. The cage is closing and nobody will notice."
+        result = validate_act6_empowerment(text)
+        assert not result["valid"]
+        assert result["issues"]
+
+    def test_plain_story_close_passes(self):
+        """A gentle story close with NO framework names / detection
+        instructions PASSES — it would have FAILED the old PD requirement."""
+        text = (
+            "Now you know that being kind, even when you feel shy, can turn a "
+            "scary day into a happy one. That is how Mia made her first friend."
+        )
+        result = validate_act6_empowerment(text)
+        assert result["valid"], result["issues"]
+
+    def test_cooking_close_passes(self):
+        """A how-to close with no PD vocabulary PASSES."""
+        text = (
+            "Now you know how to make tender pancakes at home. Stack them up, "
+            "add your favorite topping, and enjoy."
+        )
+        result = validate_act6_empowerment(text)
+        assert result["valid"], result["issues"]
+
+    def test_empowerment_signals_reported_not_required(self):
+        """Empowerment signals are counted for info but never block."""
+        # No empowerment phrases at all, but also no dread → still valid.
+        text = "The recipe is finished. The pancakes are ready to serve."
+        result = validate_act6_empowerment(text)
+        assert result["valid"]
+        assert result["empowerment_signals"] == 0
+
+    def test_empty_text_is_valid(self):
+        result = validate_act6_empowerment("")
+        assert result["valid"]
