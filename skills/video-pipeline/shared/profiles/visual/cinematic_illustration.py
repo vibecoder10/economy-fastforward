@@ -645,6 +645,9 @@ _TEMPLATE_METADATA = TemplateMetadata(
 # =============================================================================
 
 _RAW = {
+    # Military equipment-integrity enforcement is part of this (Power Doctrine)
+    # look; keep it ON here. The neutral default leaves it OFF.
+    "enforce_equipment_integrity": True,
     # Style engine compatibility
     "style_engine_prefix": (
         "Cinematic animated illustration in muted earthy color palette "

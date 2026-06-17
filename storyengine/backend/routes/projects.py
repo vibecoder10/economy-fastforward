@@ -25,7 +25,7 @@ class ProjectRead(BaseModel):
     name: str = ""
     niche: str = ""
     target_audience: str = ""
-    visual_style: str = "cinematic_illustration"
+    visual_style: str = "neutral_v1"
     visual_profile_json: Optional[dict] = None
     accent_color: str = "#00D4AA"
     custom_accent_color: Optional[str] = None
@@ -69,7 +69,7 @@ def _row_to_project(row: dict) -> ProjectRead:
         name=row.get("name") or "",
         niche=row.get("niche") or "",
         target_audience=row.get("target_audience") or "",
-        visual_style=row.get("visual_style") or "cinematic_illustration",
+        visual_style=row.get("visual_style") or "neutral_v1",
         visual_profile_json=_parse_jsonb(row.get("visual_profile_json")),
         accent_color=row.get("accent_color") or "#00D4AA",
         custom_accent_color=row.get("custom_accent_color"),

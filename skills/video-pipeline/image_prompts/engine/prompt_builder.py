@@ -12,6 +12,7 @@ Version: 4.0 (Mar 2026) — Holographic Intelligence Display system
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Optional
 
@@ -278,22 +279,18 @@ Scene type labels become DESCRIPTIVE (assigned after prompt is written
 based on content) not PRESCRIPTIVE (assigned before, constraining output).
 """
 
-# Short medium declaration — front-loaded so the model knows WHAT first.
-# Claude's visual description follows immediately (subject + action).
-_CHARACTER_PREFIX = (
-    "Cinematic 2D animated illustration of"
-)
+# Neutral module-level fallbacks (used only when no profile loads). The look
+# is NOT hardcoded here anymore — the channel's style is injected at build time
+# (VISUAL_STYLE_DESCRIPTION / per-video image_style_override). The old Power
+# Doctrine "Cinematic 2D animated illustration / ink outlines / earthy palette"
+# now lives only in the opt-in cinematic_illustration profile.
+_CHARACTER_PREFIX = ""
 
-# Same for environment scenes (no character language needed — that's in substyle suffix)
-_ENVIRONMENT_PREFIX = (
-    "Cinematic 2D animated illustration of"
-)
+# Same for environment scenes.
+_ENVIRONMENT_PREFIX = ""
 
-# Universal suffix for ALL scenes
-_UNIVERSAL_SUFFIX = (
-    " Stylized ink outlines, muted earthy palette, film grain texture, "
-    "full-bleed 16:9 composition, no black bars"
-)
+# Universal suffix for ALL scenes — purely technical, no style/palette lock-in.
+_UNIVERSAL_SUFFIX = " Full-bleed 16:9 composition, no black bars."
 
 # Words that indicate character presence in the visual description
 # If ANY of these appear, the scene has characters and needs character prefix
@@ -467,13 +464,10 @@ def get_style_wrapping(profile, description: str, image_style_override: str = ""
     is_non_character = _is_non_character_scene(description)
     has_characters = _has_character_indicators(description)
 
-    if is_non_character or not has_characters:
-        prefix = env_prefix
-    else:
-        prefix = char_prefix
+    base_prefix = env_prefix if (is_non_character or not has_characters) else char_prefix
 
-    if image_style_override and image_style_override.strip():
-        suffix = _apply_style_override(suffix, image_style_override)
+    # Channel-look injection (neutral profile) / named-profile medium kept as-is.
+    prefix, suffix = _resolve_style_framing(base_prefix, suffix, image_style_override)
 
     return prefix, suffix
 
@@ -528,16 +522,33 @@ def build_prompt(
         The complete prompt string, ready for image generation.
     """
     profile = _get_profile()
-    is_holographic = (
-        profile is None
-        or profile.profile_id == "holographic_hud"
-    )
+    if profile is None:
+        # Unknown/stale visual_style id, or a load failure. Fall back to the
+        # NEUTRAL default — never the holographic look (handoff §2.C / §7: the
+        # default is the gate, and the Power Doctrine look must not resurface).
+        try:
+            from shared.profiles.visual import (
+                load_profile as _load_default,
+                DEFAULT_PROFILE_ID as _default_id,
+            )
+            profile = _load_default(_default_id)
+        except Exception:
+            profile = None
+    # Holographic is now an EXPLICIT opt-in only; a missing profile is neutral.
+    is_holographic = profile is not None and profile.profile_id == "holographic_hud"
 
     # Clean scene description
     clean_desc = _strip_style_language(scene_description).rstrip(". ")
 
-    # Enforce equipment integrity (drones, weapons, vehicles default to "fully assembled")
-    clean_desc = _enforce_equipment_integrity(clean_desc)
+    # Equipment-integrity enforcement (drones/weapons/vehicles default to
+    # "fully assembled") is a Power-Doctrine (military) behavior — opt-in via
+    # the profile, plus the holographic intelligence-display path. OFF for the
+    # neutral default.
+    _enforce_equip = is_holographic or bool(
+        profile and profile.raw.get("enforce_equipment_integrity")
+    )
+    if _enforce_equip:
+        clean_desc = _enforce_equipment_integrity(clean_desc)
 
     # --- Figure rules: profile-driven ---
     if is_holographic:
@@ -569,32 +580,35 @@ def build_prompt(
         return f"{framing} {clean_desc}, {mood_language}{suffix}"
     else:
         # --- Profile path: CONTENT-DRIVEN prefix detection ---
-        default_prefix = profile.style_system.style_prefix or ""
+        # (profile is the neutral default here; or None only if even that failed
+        # to load — then use the neutral module constants, NEVER holographic.)
+        default_prefix = (profile.style_system.style_prefix if profile else _ENVIRONMENT_PREFIX) or ""
 
         # Strip any existing prefix from description if Claude already included it
         if default_prefix and clean_desc.lower().startswith(default_prefix.lower()):
             clean_desc = clean_desc[len(default_prefix):].strip().lstrip(",").strip()
-        # Also strip our standard prefixes
+        # Also strip our standard prefixes (skip empties — neutral profile)
         for std_prefix in [_CHARACTER_PREFIX, _ENVIRONMENT_PREFIX]:
-            if clean_desc.lower().startswith(std_prefix.lower()):
+            if std_prefix and clean_desc.lower().startswith(std_prefix.lower()):
                 clean_desc = clean_desc[len(std_prefix):].strip().lstrip(",").strip()
                 break
 
         # Use profile prefix/suffix — character_prefix for character scenes
-        env_prefix = default_prefix
-        char_prefix = getattr(profile.style_system, "character_prefix", "") or env_prefix
-        suffix = profile.style_system.style_suffix or ""
+        if profile:
+            env_prefix = default_prefix
+            char_prefix = getattr(profile.style_system, "character_prefix", "") or env_prefix
+            suffix = profile.style_system.style_suffix or ""
+        else:
+            env_prefix, char_prefix, suffix = _ENVIRONMENT_PREFIX, _CHARACTER_PREFIX, _UNIVERSAL_SUFFIX
 
         is_non_character = _is_non_character_scene(clean_desc)
         has_characters = _has_character_indicators(clean_desc)
 
-        if is_non_character or not has_characters:
-            prefix = env_prefix
-        else:
-            prefix = char_prefix
+        base_prefix = env_prefix if (is_non_character or not has_characters) else char_prefix
 
-        if image_style_override and image_style_override.strip():
-            suffix = _apply_style_override(suffix, image_style_override)
+        # Apply the channel-look injection (neutral profile) or keep the named
+        # profile's medium (legacy override tweaks the suffix).
+        prefix, suffix = _resolve_style_framing(base_prefix, suffix, image_style_override)
 
         # Build final prompt: [Medium] [Subject]. [Technical tail]
         if prefix:
@@ -806,7 +820,10 @@ def build_prompt_from_block(
     else:
         env_prefix, char_prefix, suffix = _ENVIRONMENT_PREFIX, _CHARACTER_PREFIX, _UNIVERSAL_SUFFIX
 
-    prefix = char_prefix if has_characters else env_prefix
+    base_prefix = char_prefix if has_characters else env_prefix
+    # Channel-look injection (neutral profile front-loads the channel's look)
+    # or named-profile medium kept as-is (per-video override tweaks the suffix).
+    prefix, suffix = _resolve_style_framing(base_prefix, suffix, image_style_override)
 
     # ---------------------------------------------------------------
     # Assemble prompt following Nano Banana 2 optimum order:
@@ -823,7 +840,7 @@ def build_prompt_from_block(
 
     # 1. Medium + Subject (highest weight)
     if visual_desc:
-        core = f"{prefix} {visual_desc}."
+        core = f"{prefix} {visual_desc}.".strip()
     else:
         core = prefix
 
@@ -851,10 +868,9 @@ def build_prompt_from_block(
 
     prompt_body = f"{core} {style_direction}"
 
-    # 4. Technical tail (palette, texture, aspect ratio)
-    if image_style_override and image_style_override.strip():
-        suffix = _apply_style_override(suffix, image_style_override)
-
+    # 4. Technical tail (palette, texture, aspect ratio). The channel-look
+    # injection / per-video override was already folded into `suffix` (and, for
+    # the neutral profile, into `prefix`) by _resolve_style_framing above.
     return f"{prompt_body}{suffix}"
 
 
@@ -1010,6 +1026,61 @@ def _apply_style_override(mood_language: str, override: str) -> str:
     if stripped.upper().startswith("APPEND:"):
         return mood_language + " " + stripped[len("APPEND:"):].strip()
     return mood_language + " " + stripped
+
+
+# ---------------------------------------------------------------------------
+# Channel-look injection (the "QUICK" identity path)
+#
+# The neutral default profile declares no medium of its own. The channel's
+# actual look is injected at build time, with this precedence:
+#   1. per-video image_style_override (e.g. modeled clone DNA)
+#   2. VISUAL_STYLE_DESCRIPTION env var (the channel's free-text style, set by
+#      the backend from IdentityContext.visual_style)
+# When the active profile DOES declare its own medium (a named preset like
+# cinematic_illustration), that medium is kept and a per-video override still
+# tweaks the technical suffix — the legacy behavior, unchanged.
+# ---------------------------------------------------------------------------
+
+def _clean_style_text(text: str) -> str:
+    """Strip REPLACE:/APPEND:/+ markers, returning the bare look sentence."""
+    s = (text or "").strip()
+    if s.upper().startswith("REPLACE:"):
+        return s[len("REPLACE:"):].strip()
+    if s.upper().startswith("APPEND:"):
+        return s[len("APPEND:"):].strip()
+    if s.startswith("+"):
+        return s[1:].strip()
+    return s
+
+
+def _channel_style_injection() -> str:
+    """The channel's look sentence, set per-run by the backend. '' when unset."""
+    return (os.getenv("VISUAL_STYLE_DESCRIPTION") or "").strip()
+
+
+def _resolve_style_framing(
+    base_prefix: str,
+    base_suffix: str,
+    image_style_override: Optional[str],
+) -> tuple[str, str]:
+    """Return the (prefix, suffix) to wrap a scene description.
+
+    - Named profile (``base_prefix`` non-empty): keep its medium; a per-video
+      override still tweaks the technical suffix (legacy behavior).
+    - Neutral profile (``base_prefix`` empty): front-load the channel look
+      (per-video override, else ``VISUAL_STYLE_DESCRIPTION``) as the leading
+      style directive; the suffix stays purely technical.
+    """
+    override = (image_style_override or "").strip()
+    if base_prefix:
+        suffix = base_suffix
+        if override:
+            suffix = _apply_style_override(suffix, image_style_override)
+        return base_prefix, suffix
+
+    injected = _clean_style_text(override or _channel_style_injection())
+    prefix = (injected.rstrip(" .") + ".") if injected else ""
+    return prefix, base_suffix
 
 
 def generate_prompts(

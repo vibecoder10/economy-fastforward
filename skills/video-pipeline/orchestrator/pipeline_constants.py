@@ -408,12 +408,13 @@ class Models:
 
     # Valid visual styles for Airtable Single Select
     VALID_VISUAL_STYLES = {
+        "neutral_v1",
         "cinematic_illustration",
         "holographic_hud",
         "cinematic_dossier",
         "clay_mannequin",
     }
-    DEFAULT_VISUAL_STYLE = "cinematic_illustration"
+    DEFAULT_VISUAL_STYLE = "neutral_v1"
 
 
 # =============================================================================

@@ -281,7 +281,23 @@ class PipelineExecutor:
             self._pipeline.current_idea = idea
             self._pipeline.current_idea_id = idea.get("id")
             self._pipeline.video_title = idea.get(IdeaFields.VIDEO_TITLE, "")
-            self._pipeline.visual_style = idea.get(IdeaFields.VISUAL_STYLE, "cinematic_illustration")
+            # Style-agnostic default; an explicit tenant choice still wins.
+            visual_style = idea.get(IdeaFields.VISUAL_STYLE) or "neutral_v1"
+            self._pipeline.visual_style = visual_style
+            # The skill pipeline resolves the visual profile via this env var
+            # (load_profile() reads VISUAL_PROFILE). The backend's _load_idea
+            # override never set it before, so every tenant silently got the
+            # registry default — set it here so the tenant's chosen profile is
+            # honored and an unset tenant gets the neutral engine.
+            os.environ["VISUAL_PROFILE"] = visual_style
+            # Per-run RESET of the channel look (the neutral profile injects it
+            # at build time). Set unconditionally so a previous tenant's value
+            # can never leak in. The per-video override is the floor here; the
+            # image stages upgrade this to the full identity look (which falls
+            # back to the channel's style_description) via _export_visual_style.
+            os.environ["VISUAL_STYLE_DESCRIPTION"] = (
+                idea.get(IdeaFields.IMAGE_STYLE_OVERRIDE) or ""
+            ).strip()
             self._pipeline.project_folder_id = idea.get(IdeaFields.DRIVE_FOLDER_ID, "")
             # Video config
             video_length = idea.get(IdeaFields.VIDEO_LENGTH_MIN)
@@ -496,6 +512,29 @@ class PipelineExecutor:
         else:
             print(f"[WARN] Could not load idea for video_id={video_id}", flush=True)
 
+    async def _export_visual_style(self, video: dict) -> None:
+        """Export the channel LOOK to the skill image pipeline.
+
+        The neutral default visual profile declares no medium of its own;
+        image_prompts/prompt_builder.py reads ``VISUAL_STYLE_DESCRIPTION`` and
+        front-loads it into every image prompt (a per-video image_style_override
+        still wins). Skills can't import the backend, so this env var is the
+        seam — mirroring ``VISUAL_PROFILE``.
+
+        The image stages (run_prompts / run_images / storyboard) do NOT go
+        through ``_load_prompt_overrides`` (which is where text stages set this),
+        so they call this directly. Set unconditionally so a previous tenant's
+        value can never leak into this run.
+        """
+        try:
+            identity = await build_identity_context(self.tenant_id, video)
+            os.environ["VISUAL_STYLE_DESCRIPTION"] = identity.visual_style or ""
+        except Exception as e:  # never let look resolution break a run
+            _logger.warning("export visual style failed; using per-video override: %s", e)
+            os.environ["VISUAL_STYLE_DESCRIPTION"] = (
+                (video or {}).get("image_style_override") or ""
+            ).strip()
+
     async def _check_voice_exists(self, video_id: str) -> tuple[bool, int, int]:
         """Check if voice has been generated for all scenes.
 
@@ -584,6 +623,13 @@ class PipelineExecutor:
 
         # Build the channel identity once for this run (defensive — never raises).
         self._identity = await build_identity_context(self.tenant_id, video)
+
+        # Export the channel's LOOK to the skill pipeline. The neutral visual
+        # profile declares no medium of its own; image_prompts/prompt_builder.py
+        # reads VISUAL_STYLE_DESCRIPTION and front-loads it into every image
+        # prompt (per-video image_style_override still wins). Skills can't import
+        # the backend, so this env var is the seam (mirrors VISUAL_PROFILE).
+        os.environ["VISUAL_STYLE_DESCRIPTION"] = self._identity.visual_style or ""
 
         # Fetch tenant-level defaults
         tenant_overrides = {}
@@ -1846,6 +1892,10 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "started", log_msg)
 
             self._load_idea_from_video(video_id)
+            # Deliver the channel look to the neutral image profile (per-video
+            # override else channel style_description). This stage doesn't go
+            # through _load_prompt_overrides, so set it here.
+            await self._export_visual_style(video)
 
             # Override status so the bot's internal check passes on re-runs
             if self._pipeline.current_idea:
@@ -1907,6 +1957,8 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "started", f"Generating storyboard prompts{scene_label}")
 
             self._load_idea_from_video(video_id)
+            # Deliver the channel look to the neutral image profile.
+            await self._export_visual_style(video)
 
             result = await self._pipeline.run_storyboard_prompts(
                 scene_filter=scene,
@@ -2002,6 +2054,8 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "started", f"Generating storyboard images{scene_label}")
 
             self._load_idea_from_video(video_id)
+            # Deliver the channel look (storyboard keyframe prompts + grids).
+            await self._export_visual_style(video)
 
             # Per-video output shape, chosen at creation. The grid generation
             # request honors it; the model has historically ignored aspect on
@@ -2575,6 +2629,9 @@ directions, no labels, no headings inside them."""
             await self._log_activity(bot_name, video_id, "started", log_msg)
 
             self._load_idea_from_video(video_id)
+            # Deliver the channel look (drives characters/environments + any
+            # prompt rebuilds). This stage doesn't go through _load_prompt_overrides.
+            await self._export_visual_style(video)
 
             # Override status so the bot's internal check passes on re-runs
             if self._pipeline.current_idea:

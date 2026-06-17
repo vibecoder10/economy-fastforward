@@ -15,7 +15,7 @@
   "cost_estimate": {"per_run": 0.50, "unit": "USD"},
   "dependencies": ["voice"],
   "configurable_params": {
-    "visual_profile": {"type": "string", "default": "cinematic_illustration", "description": "Visual style profile ID"},
+    "visual_profile": {"type": "string", "default": "neutral_v1", "description": "Visual style profile ID"},
     "storyboard_mode": {"type": "boolean", "default": false, "description": "Route to storyboard pipeline instead of direct images"}
   }
 }

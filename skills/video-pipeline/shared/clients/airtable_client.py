@@ -24,12 +24,13 @@ AIRTABLE_MODEL_NAME_MAP: dict[str, str] = {
 
 # Valid visual styles (maps to visual_profiles module names)
 VALID_VISUAL_STYLES: set[str] = {
-    "cinematic_illustration",  # Default (illustrated characters with faces)
+    "neutral_v1",              # Default (style-agnostic; channel look injected)
+    "cinematic_illustration",  # Power Doctrine look (opt-in preset)
     "holographic_hud",
     "cinematic_dossier",
     "clay_mannequin",
 }
-DEFAULT_VISUAL_STYLE = "cinematic_illustration"
+DEFAULT_VISUAL_STYLE = "neutral_v1"
 
 # Default model for video/scene images (z-image), thumbnails use nano-banana-2
 DEFAULT_IMAGE_MODEL = Models.IMAGE_SCENE
@@ -162,7 +163,7 @@ class AirtableClient:
         - Image Style Override    : Long Text       — custom instructions for image prompt prefix
         - Thumbnail Style Override: Long Text       — custom instructions for thumbnail template
         - Image Model Override    : Multiple Select — hot-swap scene image model (options: z-image, Nano Banana)
-        - Visual Style            : Single Select   — visual profile (options: cinematic_illustration, holographic_hud, cinematic_dossier, clay_mannequin)
+        - Visual Style            : Single Select   — visual profile (options: neutral_v1, cinematic_illustration, holographic_hud, cinematic_dossier, clay_mannequin)
 
     Pipeline-only fields (written by later stages, not discovery/research):
         - Script            : Long Text      — written by brief_translator

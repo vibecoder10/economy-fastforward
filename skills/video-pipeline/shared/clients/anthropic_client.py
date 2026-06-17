@@ -470,8 +470,10 @@ Style suffix: "{profile_suffix}"
     }}
   ]
 }}"""
-        else:
-            # Holographic default system prompt
+        elif profile is not None and profile.profile_id == "holographic_hud":
+            # Holographic intelligence-display prompt — the intended look for the
+            # EXPLICIT holographic_hud profile only. (Quarantined here so it can
+            # no longer leak as the default when a profile fails to load.)
             system_prompt = f"""You are a visual director creating HOLOGRAPHIC INTELLIGENCE DISPLAY image prompts.
 
 === CORE AESTHETIC ===
@@ -537,6 +539,45 @@ Variable 3 — COLOR MOOD PALETTES:
     }}
   ]
 }}"""
+        else:
+            # Neutral generic fallback — fires only when no visual profile loads
+            # (or a profile carries no scene-description prompt). Style-agnostic
+            # craft; NEVER the Power Doctrine / operations-center look. The
+            # channel's art style is added separately at prompt-build time.
+            system_prompt = f"""You are a visual director writing SUBJECT DESCRIPTIONS for image prompts.
+A separate system adds the channel's art style, the camera, and the technical suffix —
+you write ONLY what the image shows (subject + action + environment).
+
+=== EACH PROMPT = {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words describing WHAT is in the frame ===
+Do NOT include art style / medium, camera angle, palette, or aspect ratio — those are added automatically.
+
+FIVE SCENE TYPES — vary across the 6 images:
+1. INTERACTION — two or more people in a moment together (expressions + one action each)
+2. LONE FIGURE — a single person at a turning point (the face carries it)
+3. ENVIRONMENT — an establishing location, no people
+4. INFORMATION — a clear chart / diagram / labeled map, one key number leads
+5. OBJECT CLOSE-UP — a single physical object that carries narrative weight
+
+RULES:
+1. Describe character FACES with expressions ("face showing concern")
+2. ONE action per character — no multi-action choreography
+3. Name environments SPECIFICALLY ("a sunlit ceramics studio with shelves of drying pots", not "a room")
+4. Include one storytelling detail the narration doesn't state
+5. Describe lighting (warm interiors, cool exteriors, golden hour for transitions)
+6. Text in scene: 2-4 words max. Never visualize metaphors literally.
+
+=== OUTPUT FORMAT (JSON only, no markdown) ===
+{{
+  "scene": {scene_number},
+  "prompts": [
+    {{
+      "content_type": "scene",
+      "display_format": "medium",
+      "color_mood": "neutral",
+      "prompt": "the full prompt text..."
+    }}
+  ]
+}}"""
 
         research_context = ""
         if research_payload:
@@ -562,7 +603,7 @@ For each prompt:
 4. Include visual details that serve the narrative
 
 Generate exactly 6 prompts."""
-        else:
+        elif profile is not None and profile.profile_id == "holographic_hud":
             prompt = f"""Create 6 holographic intelligence display image prompts for this scene:
 
 Video Title: {video_title}
@@ -580,6 +621,24 @@ For each prompt:
 5. End every prompt with the universal suffix
 
 Generate exactly 6 prompts. Every prompt describes a holographic projection, NOT a real scene."""
+        else:
+            # Neutral generic fallback (no profile loaded).
+            prompt = f"""Create 6 image prompts for this scene:
+
+Video Title: {video_title}
+Scene Number: {scene_number}
+
+SCENE TEXT:
+{scene_text}
+{research_context}
+
+For each prompt:
+1. Analyze the scene text for visual storytelling opportunities
+2. Pick one of the five scene types and vary across the 6 images
+3. Write a {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word subject description (no art-style words — those are added separately)
+4. Include visual details that serve the narrative
+
+Generate exactly 6 prompts."""
 
         response = await self.generate(
             prompt=prompt,

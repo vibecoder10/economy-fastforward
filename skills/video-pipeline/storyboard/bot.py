@@ -838,12 +838,11 @@ duplicates of a previous frame). If the beat has fewer distinct visual moments t
 panels, output FEWER keyframes and leave the remaining panels blank.
 
 TECHNICAL FOOTER (one paragraph):
-"**Technical specs across all panels:** [focal range], cinematic motion blur feel, subtle \
-organic film grain texture, [palette] dominant palette with [accent] accents, high contrast \
-with rich shadows and controlled warm highlights, metallic surfaces catch highlights while \
-fabric absorbs shadow, skin tones stay warm, stylized ink outlines, full-bleed 16:9 \
-composition with no black bars, strict continuity of [character names] and [setting names] \
-across all panels."
+"**Technical specs across all panels:** [focal range], cinematic depth and motion-blur feel, \
+[palette] dominant palette with [accent] accents, high contrast with rich shadows and \
+controlled highlights, rendered consistently in the art style defined in the VISUAL BIBLE, \
+full-bleed 16:9 composition with no black bars, strict continuity of [character names] and \
+[setting names] across all panels."
 
 Use the VISUAL BIBLE (if provided) to populate the character locks and setting locks. \
 Character outfit descriptions must come VERBATIM from the visual bible.
@@ -1065,11 +1064,12 @@ def map_storyboard_shot_type(shot_type: str) -> str:
     return STORYBOARD_SHOT_MAP.get(shot_type.strip().upper(), "medium")
 
 
-_KF_PREFIX = "Cinematic 2D animated illustration of"
-_KF_SUFFIX = (
-    " Stylized ink outlines, muted earthy palette, film grain texture, "
-    "full-bleed 16:9 composition, no black bars"
-)
+# Neutral fallbacks — used only if the visual profile fails to load. The look
+# is normally injected via get_style_wrapping() (the channel's art style). The
+# old Power Doctrine "2D animated / ink outlines / earthy palette" defaults are
+# gone; they survive only in the opt-in cinematic_illustration profile.
+_KF_PREFIX = ""
+_KF_SUFFIX = " Full-bleed 16:9 composition, no black bars."
 
 
 def build_image_prompt_from_keyframe(
@@ -1124,10 +1124,12 @@ def build_image_prompt_from_keyframe(
 
     core_description = ". ".join(parts)
 
-    # Strip any existing prefix
-    for prefix_text in [_KF_PREFIX, _KF_PREFIX.lower()]:
-        if core_description.lower().startswith(prefix_text.lower()):
-            core_description = core_description[len(prefix_text):].strip().lstrip(",").strip()
+    # Strip any existing prefix (skip when the fallback prefix is empty —
+    # neutral default; startswith("") would match everything).
+    if _KF_PREFIX:
+        for prefix_text in [_KF_PREFIX, _KF_PREFIX.lower()]:
+            if core_description.lower().startswith(prefix_text.lower()):
+                core_description = core_description[len(prefix_text):].strip().lstrip(",").strip()
 
     if prefix:
         return f"{prefix} {core_description}.{suffix}"

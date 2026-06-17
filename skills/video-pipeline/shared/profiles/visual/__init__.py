@@ -6,7 +6,9 @@ active visual identity profile at runtime.
 Profile selection order:
 1. Explicit ``profile_id`` argument (per-video override from Airtable)
 2. ``VISUAL_PROFILE`` environment variable (per-channel default)
-3. Fallback: ``"cinematic_illustration"`` (current production style)
+3. Fallback: ``"neutral_v1"`` (style-agnostic default; the channel's look is
+   injected at build time). ``cinematic_illustration`` (the Power Doctrine
+   look) is now an opt-in preset, not the default.
 
 Usage::
 
@@ -26,6 +28,7 @@ from .schema import VisualProfile
 
 # Registry of known profile module names
 _PROFILE_MODULES: dict[str, str] = {
+    "neutral_v1": "shared.profiles.visual.neutral_v1",
     "holographic_hud": "shared.profiles.visual.holographic_hud",
     "cinematic_dossier": "shared.profiles.visual.cinematic_dossier",
     "clay_mannequin": "shared.profiles.visual.clay_mannequin",
@@ -34,7 +37,9 @@ _PROFILE_MODULES: dict[str, str] = {
     "mannequin_storytelling": "shared.profiles.visual.cinematic_illustration",
 }
 
-DEFAULT_PROFILE_ID = "cinematic_illustration"
+# Style-agnostic default. The Power Doctrine look (cinematic_illustration) is
+# now an opt-in preset; an unset channel gets the neutral engine + its own look.
+DEFAULT_PROFILE_ID = "neutral_v1"
 
 # Module-level cache — one profile loaded per pipeline run
 _profile_cache: dict[str, VisualProfile] = {}
@@ -45,7 +50,7 @@ def load_profile(profile_id: Optional[str] = None) -> Optional[VisualProfile]:
 
     Args:
         profile_id: Profile to load. If None, reads ``VISUAL_PROFILE``
-            env var, then falls back to ``"cinematic_illustration"``.
+            env var, then falls back to ``DEFAULT_PROFILE_ID`` (``"neutral_v1"``).
 
     Returns:
         The loaded ``VisualProfile``, or ``None`` if loading fails

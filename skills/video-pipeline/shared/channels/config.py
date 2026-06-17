@@ -51,7 +51,9 @@ def _from_env(channel_id: str) -> ChannelConfig:
         voice_id=os.getenv("ELEVENLABS_VOICE_ID"),
         drive_folder_id=os.getenv("GOOGLE_DRIVE_FOLDER_ID"),
         script_profile=os.getenv("SCRIPT_PROFILE") or "power_doctrine_v2",
-        visual_profile=os.getenv("VISUAL_PROFILE") or "cinematic_illustration",
+        # Style-agnostic default; set VISUAL_PROFILE=cinematic_illustration to
+        # restore the Power Doctrine look.
+        visual_profile=os.getenv("VISUAL_PROFILE") or "neutral_v1",
         airtable_base_id=os.getenv("AIRTABLE_BASE_ID"),
     )
 
