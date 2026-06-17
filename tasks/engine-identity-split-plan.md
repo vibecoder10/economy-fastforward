@@ -11,7 +11,9 @@
 ## STATUS (2026-06-16)
 - ✅ **Phase 1 (Foundation)** — `IdentityContext` + builder (`identity.py`), neutral engine templates + `safe_fill` (`engine_templates.py`), executor injection + neutral fallback (`pipeline_executor.py resolve_prompt`). Merged to `main`, deployed.
 - ✅ **Phase 2 (Text engine)** — `script` (template + bot append-blocks + user-prompt tail), the script **validator** (PD checks now opt-in via `ScriptProfile`, default OFF; `power_doctrine_v2` re-enables), `research`, and `video_motion` all neutralized. PD originals preserved verbatim in `tasks/engine-identity-seeds/power-doctrine.md`. Reviewer-approved (no craft-loss). 24 backend + 154 script tests green. Merged to `main`, deployed.
-- ◻︎ **Phase 3 (Titles + thumbnail copy)** — next. Also tracked: the geopolitics "framework classifier" in `research/agent.py` (`infer_framework_from_research` + 17-framework list) feeds the script angle; neutralize / make profile-driven here.
+- ✅ **Phase 2b (ScriptProfile)** — added `neutral_v1` profile + flipped `DEFAULT_PROFILE_ID`; brief-gate now opt-in (`requires_research_brief`); PD profiles stay loadable. PROVEN live: a clean ESL script generated on prod. Merged, deployed.
+- ✅ **Phase 3 (Titles + thumbnail copy)** — `title_patterns.json` + the title prompts + the `infer_framework_from_research` 17-framework classifier + the thumbnail prompt all neutralized; engine `title`/`thumbnail` templates promoted. Reviewer-approved. Merged, deployed.
+- ◻︎ **Phase 4 (Images)** — see below. Also still tracked: `_generate_cinematic_direction` PD act-structure in `research/agent.py`, `gap_title_engine.py` `MF_FORMULAS`, and a pre-existing `title_patterns.json` loader path bug (own task).
 - ◻︎ **Phase 4 (Images)** — `prompt_builder.py` constants, the lone `cinematic_illustration` profile, AND `anthropic_client.py:~408-487` image prompt ("intelligence operations center / never show humans"). Needs the Phase-4 visual-store decision (Open Question 1).
 - ◻︎ **Phase 5 (Clone seeds voice + creator direction)**.
 

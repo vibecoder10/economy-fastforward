@@ -137,11 +137,23 @@ reviewer-approved.
   brief gate profile-aware (`BriefTranslator` skips `validate_brief` when `requires_research_brief=False`).
   `power_doctrine_v2`/`v1` stay loadable (SCRIPT_PROFILE env / explicit). 161 script tests green.
   NOTE: SCRIPT_PROFILE is NOT set in the prod backend env, so tenants now resolve to `neutral_v1`.
-- **Tracked for later (NOT a regression — deferred by design):** geopolitics "framework classifier" in
-  `research/agent.py` (`infer_framework_from_research` + 17-framework list) feeds the script angle →
-  Phase 3; titles + thumbnail copy → Phase 3; image-gen identity (`prompt_builder.py` constants, the lone
-  `cinematic_illustration` profile, AND `anthropic_client.py:~408-487` "intelligence operations center /
-  never show humans") → Phase 4.
+- **Phase 3 (Titles + Thumbnails) — DONE + MERGED + DEPLOYED (commits `4c1418dd`+`048fd887`+`84bff0c3`):**
+  neutralized `title_patterns.json` (kept reader keys/schema + the title SCIENCE; stripped
+  `power_doctrine_adaptations`/PROXY-WAR/NATO/Machiavelli verdict map), the `TITLE_GENERATION_PROMPT`/
+  `TITLE_REFINEMENT_PROMPT` + the `infer_framework_from_research` 17-framework geopolitics classifier (now
+  returns ''/neutral) in `research/agent.py`, and the thumbnail `VARIABLE_FILL_SYSTEM_PROMPT` (stripped
+  Economy-FastForward + CHECKMATE/WEAPONIZED power-words + bear-trap/map metaphors). Promoted
+  `engine_templates.py` `title`+`thumbnail` to real neutral craft; `prompt_defaults.THUMBNAIL_SYSTEM_PROMPT`
+  → engine_templates. Reviewer-approved (craft preserved, JSON neutral at runtime, no PD fallback). 24+161+22 tests green.
+- **Tracked for later (NOT a regression — deferred by design):** Phase 4 = image-gen identity
+  (`prompt_builder.py` `_CHARACTER_PREFIX`/`_UNIVERSAL_SUFFIX`, the lone `cinematic_illustration` visual
+  profile, AND `anthropic_client.py:~408-487` "intelligence operations center / never show humans"); plus
+  two residual PD spots a later pass should catch — `_generate_cinematic_direction` (PD act-structure
+  ORDINARY-PERSON/OPERATOR/ARCHITECT/PROPHET) in `research/agent.py` and `title_idea/curiosity_gap/
+  gap_title_engine.py` (its own hardcoded `MF_FORMULAS` with CHOKE POINT / "Weaponized [Geography]"); plus
+  a PRE-EXISTING `title_patterns.json` loader path bug (readers resolve it relative to their own dir →
+  FileNotFoundError → research no-ops to curiosity-gap engine, scanner crashes on init; fallback is NOT PD)
+  — spawned as its own task.
 - **Next:** Phase 3 (titles/thumbnails). Live ESL-script proof re-run after this deploy.
 
 ---
