@@ -1589,12 +1589,15 @@ no stage directions, no labels, no headings."""
                         clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
-                        # card without one still animates (gentle default)
-                        # instead of dead-ending.
+                        # card without one still animates (safe default) instead
+                        # of dead-ending. The default is deliberately filler-free
+                        # ("gentle/soft/subtle" are banned by the motion rules and
+                        # read as screensaver motion) — a single slow push-in plus
+                        # a fidelity lock to the frame.
                         prompt = (r.get("video_prompt") or "").strip() or (
-                            "Subtle cinematic motion: gentle camera push-in, soft natural "
-                            "movement in the scene. Keep the characters, art style and "
-                            "composition exactly as shown.")
+                            "Slow push-in on the main subject. Keep the characters, art "
+                            "style, and composition exactly as shown, and animate only "
+                            "what is already in the frame.")
                         # People rule (Ryan: S1.4's bird close-up grew an
                         # invented toddler — twice): cutaway cards get an
                         # absolute NO PEOPLE, every other narration card gets
