@@ -222,7 +222,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
   const promptsAutoRan = useRef(false);
 
   // Per-scene auto-chain: "Start scene over" runs plan → pictures back to back.
-  const chainRef = useRef<{ scene: number; stages: string[] } | null>(null);
+  // A queue of remaining pipeline steps to run sequentially (one task at a time).
+  // Each step is a (stage, scene) pair; bulk "Generate all scenes" enqueues a
+  // plan+draw pair per scene. Per-scene calls bypass the global stage gate, so
+  // this works at any storyboard sub-stage.
+  const chainRef = useRef<{ queue: Array<{ stage: string; scene?: number }> } | null>(null);
 
   // Clip auto-resume: "Animate the rest" keeps re-triggering the additive backend
   // (each round only animates clips still missing a video_clip_url) until every clip
@@ -248,22 +252,26 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     },
     onComplete: async () => {
       const chain = chainRef.current;
-      if (chain && chain.stages.length > 0) {
-        const nextStage = chain.stages.shift()!;
+      if (chain && chain.queue.length > 0) {
+        const step = chain.queue.shift()!;
+        const stageParams = step.scene != null ? { scene: step.scene } : undefined;
         try {
           queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
           try {
-            await runPipelineStage(video.id, nextStage, { scene: chain.scene });
+            await runPipelineStage(video.id, step.stage, stageParams);
           } catch (err) {
             if (!((err as Error).message || "").includes("409")) throw err;
             await clearStaleTask(video.id);
-            await runPipelineStage(video.id, nextStage, { scene: chain.scene });
+            await runPipelineStage(video.id, step.stage, stageParams);
           }
+          setGeneratingScene(step.scene ?? null);
           markStarted();
           return;
         } catch (err) {
           chainRef.current = null;
-          toast.error(`Scene ${chain.scene} couldn't continue: ${(err as Error).message}`);
+          toast.error(
+            `${step.scene != null ? `Scene ${step.scene}` : "Storyboards"} couldn't continue: ${(err as Error).message}`,
+          );
         }
       }
       chainRef.current = null;
@@ -319,6 +327,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
   const needsUpscale = extractedCount > 0 && extractedCount - upscaledCount > 2;
   const boardsDone = scenes.reduce((n, s) => n + s.storyboardGridCount, 0);
   const boardsTotal = scenes.reduce((n, s) => n + (s.storyboardBeatCount || 1), 0);
+  // Any scene still missing its plan or its drawn pictures → offer "Generate all".
+  const scenesNeedWork = scenes.some((s) => !s.hasStoryboardPrompt || s.storyboardGridCount === 0);
   const remainingCost = clipCost(model, clipsPending);
   const modelLabel = WIRED_MODELS.find((m) => m.id === model)?.label.split(" — ")[0] ?? model;
   const storyLocked = !!video.story_locked_at;
@@ -382,7 +392,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     try {
       await clearSceneStoryboard(video.id, sceneNumber);
       queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
-      chainRef.current = { scene: sceneNumber, stages: ["storyboard-images"] };
+      chainRef.current = { queue: [{ stage: "storyboard-images", scene: sceneNumber }] };
       setGeneratingScene(sceneNumber);
       await runStageWith409Retry("storyboards", { scene: sceneNumber });
     } catch (err) {
@@ -433,6 +443,33 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
       toast.error(`Scene ${sceneNumber} boards failed: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry, toast]);
+
+  // Bulk: plan AND draw every scene that still needs it, in one action. Builds a
+  // per-scene step queue (plan → draw for each), fires the first step, and the
+  // onComplete chain runs the rest one task at a time. Per-scene calls are used
+  // (not a global all-scenes call) so it works at any storyboard sub-stage.
+  const handleGenerateAllScenes = useCallback(async () => {
+    const work = scenes.filter((s) => !s.hasStoryboardPrompt || s.storyboardGridCount === 0);
+    if (work.length === 0) return;
+    if (!window.confirm(
+      `Plan and draw ${work.length} scene${work.length === 1 ? "" : "s"}? We write each scene's plan, then draw its pictures (≈ $0.08 each board). You can Stop anytime.`,
+    )) return;
+    const steps: Array<{ stage: string; scene?: number }> = [];
+    for (const s of work) {
+      if (!s.hasStoryboardPrompt) steps.push({ stage: "storyboards", scene: s.sceneNumber });
+      steps.push({ stage: "storyboard-images", scene: s.sceneNumber });
+    }
+    const [first, ...rest] = steps;
+    try {
+      chainRef.current = { queue: rest };
+      setGeneratingScene(first.scene ?? null);
+      await runStageWith409Retry(first.stage, first.scene != null ? { scene: first.scene } : {});
+    } catch (err) {
+      chainRef.current = null;
+      setGeneratingScene(null);
+      toast.error(`Couldn't start generating all scenes: ${(err as Error).message}`);
+    }
+  }, [scenes, runStageWith409Retry, toast]);
 
   const handleClearAllStoryboards = useCallback(async () => {
     if (!window.confirm(
@@ -812,6 +849,15 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
           </span>
         )}
         <div className="flex-1" />
+        {!running && !storyLocked && scenesNeedWork && (
+          <button
+            onClick={handleGenerateAllScenes}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+            style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+            title="Plan and draw every scene in one go">
+            <ImageIcon size={13} /> Generate all scenes
+          </button>
+        )}
         {videoStageEnabled && clipsDone > 0 && clipsPending > 0 && (
           <button
             onClick={() => confirmable("all", remainingCost, animateAll)}
