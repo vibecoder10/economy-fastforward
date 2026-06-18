@@ -495,7 +495,21 @@ class SupabaseAdapter:
     # ── Scripts Table ────────────────────────────────────────────────────
 
     def get_scripts_by_title(self, title: str) -> list:
-        """Get all script scenes for a video by title."""
+        """Get all script scenes for a video.
+
+        PREFERS the explicitly-loaded current video (set by the executor) over
+        the title — duplicate titles otherwise read another video's scenes.
+        """
+        current_vid = getattr(self, "current_video_id", None)
+        if current_vid:
+            rows = _fetch_all(
+                """SELECT s.*, v.video_title as title FROM scripts s
+                   JOIN videos v ON s.video_id = v.id
+                   WHERE s.video_id = %s
+                   ORDER BY s.scene""",
+                (current_vid,),
+            )
+            return [_row_to_script(r) for r in rows]
         rows = _fetch_all(
             """SELECT s.*, v.video_title as title FROM scripts s
                JOIN videos v ON s.video_id = v.id
@@ -534,17 +548,28 @@ class SupabaseAdapter:
         psych_angle: str = "",
     ) -> dict:
         """Create a script scene record."""
-        # Find video_id from title
-        video = _fetch_one(
-            "SELECT id, tenant_id FROM videos WHERE video_title = %s LIMIT 1", (title,)
-        )
+        # Resolve the target video. PREFER the explicitly-loaded current video
+        # (the executor sets current_video_id when it loads the idea) — resolving
+        # by TITLE is ambiguous when two videos share a title, which silently
+        # writes scenes to the wrong (oldest LIMIT 1) video. Title is only a
+        # fallback for legacy/no-context callers.
+        current_vid = getattr(self, "current_video_id", None)
+        video = None
+        if current_vid:
+            video = _fetch_one(
+                "SELECT id, tenant_id FROM videos WHERE id = %s LIMIT 1", (current_vid,)
+            )
+        if not video:
+            video = _fetch_one(
+                "SELECT id, tenant_id FROM videos WHERE video_title = %s LIMIT 1", (title,)
+            )
         if not video:
             video = _fetch_one(
                 "SELECT id, tenant_id FROM videos WHERE video_title ILIKE %s LIMIT 1",
                 (f"%{title}%",),
             )
         if not video:
-            print(f"  Warning: No video found for title '{title}' — creating script without video_id")
+            print(f"  Warning: No video found (id={current_vid!r}, title='{title}') — creating script without video_id")
             video = {"id": None, "tenant_id": self.tenant_id}
 
         script_id = str(uuid.uuid4())

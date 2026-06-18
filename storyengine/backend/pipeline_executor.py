@@ -281,6 +281,13 @@ class PipelineExecutor:
             self._pipeline.current_idea = idea
             self._pipeline.current_idea_id = idea.get("id")
             self._pipeline.video_title = idea.get(IdeaFields.VIDEO_TITLE, "")
+            # Point the title→id adapter at THIS exact video so script scene
+            # reads/writes can't misroute to a duplicate-titled video (the
+            # adapter otherwise resolves by title with LIMIT 1).
+            try:
+                self._pipeline.airtable.current_video_id = idea.get("id")
+            except Exception:
+                pass
             # Style-agnostic default; an explicit tenant choice still wins.
             visual_style = idea.get(IdeaFields.VISUAL_STYLE) or "neutral_v1"
             self._pipeline.visual_style = visual_style
