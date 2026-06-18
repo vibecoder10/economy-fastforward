@@ -143,6 +143,16 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     [scriptScenes],
   );
 
+  // Voice is optional. When AI voice-over is off (skip_voice / no "voice" stage),
+  // image segmentation is timed from word count instead (the backend's
+  // deterministic splitter falls back to a default words-per-second), so the
+  // Scenes step must NOT hard-block on voice.
+  const voiceSkipped = useMemo(() => {
+    if (video.skip_voice) return true;
+    const plan = video.pipeline_stages;
+    return Array.isArray(plan) && plan.length > 0 && !plan.includes("voice");
+  }, [video.skip_voice, video.pipeline_stages]);
+
   // Storyboarding is MANDATORY: boards are the only path to image spend.
   useEffect(() => {
     if (scriptScenes && scriptScenes.length > 0) {
@@ -712,7 +722,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     );
   }
 
-  if (!hasVoice) {
+  if (!hasVoice && !voiceSkipped) {
     return (
       <GlassCard className="p-10 text-center max-w-lg mx-auto">
         <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
