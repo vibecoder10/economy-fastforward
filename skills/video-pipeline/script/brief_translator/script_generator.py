@@ -32,8 +32,13 @@ SCRIPT_TARGET_WORDS = 2800
 EXPECTED_ACT_COUNT = 6
 
 # Act marker regex pattern — full format: [ACT 1 — Title | 0:00 - 4:10 | ~500 words]
+# The timestamp range separator must accept en/em dashes too (—–), not just a
+# hyphen: the model routinely emits "0:00–1:45" (en-dash). When it only matched
+# a hyphen, en-dash scripts parsed as 0 acts → 0 scene rows written → the split
+# step 500'd ("No scripts found") and the UI showed "Script Not Generated Yet"
+# despite a perfectly good script. Mirror the title separator's [—–-] class.
 ACT_MARKER_PATTERN = re.compile(
-    r"\[ACT\s+(\d+)\s*[—–-]\s*(.*?)\s*\|\s*([\d:]+\s*-\s*[\d:]+)\s*(?:\|\s*~?\s*(\d+)\s*words?)?\s*\]",
+    r"\[ACT\s+(\d+)\s*[—–-]\s*(.*?)\s*\|\s*([\d:]+\s*[—–-]\s*[\d:]+)\s*(?:\|\s*~?\s*(\d+)\s*words?)?\s*\]",
     re.IGNORECASE,
 )
 
