@@ -614,7 +614,13 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const scenesWithScript = scenes.filter(
     (s) => !!s.narrationText.trim(),
   ).length;
-  const allReady = totalScenes > 0 && scenesWithVoice === totalScenes && scenesWithScript === totalScenes;
+  // Voice is OPTIONAL. When the creator turned AI voice-over off (skip_voice, or
+  // no "voice" stage in the plan) it must not be required to finish this stage or
+  // advance — otherwise a no-voice video is stuck behind a mandatory voice step.
+  const voiceSkipped = !!video.skip_voice ||
+    (Array.isArray(video.pipeline_stages) && !video.pipeline_stages.includes("voice"));
+  const allReady = totalScenes > 0 && scenesWithScript === totalScenes &&
+    (voiceSkipped || scenesWithVoice === totalScenes);
 
   // ---------------------------------------------------------------------------
   // Script handlers
@@ -1077,7 +1083,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
 
   // ---- Script pipeline stepper ----
   const scriptDone = scenesWithScript === totalScenes && totalScenes > 0;
-  const voiceDone = scenesWithVoice === totalScenes && totalScenes > 0;
+  const voiceDone = voiceSkipped || (scenesWithVoice === totalScenes && totalScenes > 0);
 
   return (
     <div className="space-y-6 pb-24">
@@ -1086,7 +1092,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
             <span>Script {scenesWithScript}/{totalScenes}</span>
-            <span>Voice {scenesWithVoice}/{totalScenes}</span>
+            <span>Voice {voiceSkipped ? "off" : `${scenesWithVoice}/${totalScenes}`}</span>
           </div>
           <button onClick={handleAdvanceStage} disabled={advancing}
             className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
@@ -1126,7 +1132,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         <div className="flex items-center gap-0">
           {[
             { label: "Generate Script", done: scriptDone, count: `${scenesWithScript}/${totalScenes}` },
-            { label: "Generate Voice", done: voiceDone, count: `${scenesWithVoice}/${totalScenes}` },
+            { label: voiceSkipped ? "Voice (off)" : "Generate Voice", done: voiceDone, count: voiceSkipped ? "Skipped" : `${scenesWithVoice}/${totalScenes}` },
             { label: "Approve", done: approved, count: approved ? "Done" : "Pending" },
           ].map((step, i, arr) => {
             const isNext = !step.done && (i === 0 || arr[i - 1].done);
