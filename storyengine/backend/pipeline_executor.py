@@ -1000,6 +1000,49 @@ class PipelineExecutor:
         except Exception as e:
             print(f"[Script] Error injecting learnings: {e}")
 
+    @staticmethod
+    def _parse_modeled_scenes(raw: str) -> list:
+        """Parse modeled-script model output into [{"scene", "text"}].
+
+        Primary format is sentinel markers (@@@SCENE n@@@), which are robust to
+        quotes and newlines inside long narration — the old JSON contract broke
+        on unescaped quotes in the text. Falls back to the JSON shape for any
+        response that still comes back as {"scenes": [...]}. Scenes are
+        renumbered sequentially from 1.
+        """
+        import json as _json
+        import re as _re
+        text = (raw or "").strip()
+        if text.startswith("```"):
+            # drop the opening fence line and any trailing closing fence
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+        markers = list(_re.finditer(r"@@@\s*SCENE\s*\d+\s*@@@", text, _re.IGNORECASE))
+        if markers:
+            out: list = []
+            for idx, m in enumerate(markers):
+                start = m.end()
+                end = markers[idx + 1].start() if idx + 1 < len(markers) else len(text)
+                body = text[start:end].strip()
+                if body:
+                    out.append({"scene": len(out) + 1, "text": body})
+            return out
+
+        # Fallback: legacy JSON contract.
+        try:
+            data = _json.loads(text)
+        except Exception:
+            return []
+        raw_scenes = data.get("scenes") if isinstance(data, dict) else None
+        if not isinstance(raw_scenes, list):
+            return []
+        out = []
+        for s in raw_scenes:
+            t = (s.get("text") or "").strip() if isinstance(s, dict) else ""
+            if t:
+                out.append({"scene": len(out) + 1, "text": t})
+        return out
+
     async def _run_modeled_script(self, video_id: str, video: dict) -> dict:
         """Script generation for style-replicated ('Model A Video') videos.
 
@@ -1046,24 +1089,36 @@ Target length: about {target_words} words total, spread across the scenes.
 Background material you may draw from (use only what fits the video's style and audience):
 {research_excerpt}
 
-Return ONLY valid JSON, no markdown fences:
-{{"scenes": [{{"scene": 1, "text": "narration text for scene 1"}}, ...]}}
-
-The "text" fields are exactly what the narrator will read aloud — no stage
-directions, no labels, no headings inside them."""
+FORMAT — plain text, no JSON, no markdown. Start each scene on its own line
+with exactly this marker:
+@@@SCENE n@@@
+where n is the scene number (1, 2, 3, ...). Put that scene's narration on the
+lines right after its marker. Use the markers and nothing else to separate
+scenes. The text after each marker is exactly what the narrator reads aloud —
+no stage directions, no labels, no headings."""
 
         style_system = video.get("script_system_prompt") or ""
-        raw = await self._pipeline.anthropic.generate(
-            prompt=prompt,
-            system_prompt=style_system,
-            max_tokens=16000,
-            temperature=0.7,
-        )
-        text = raw.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        scenes = _json.loads(text).get("scenes") or []
-        scenes = [s for s in scenes if (s.get("text") or "").strip()]
+        # Long free-text narration used to be returned as one big JSON blob and
+        # json.loads choked on unescaped quotes/newlines inside the text
+        # (JSONDecodeError ~char 5298). Sentinel markers are immune to that.
+        # Retry once with a stricter nudge + lower temperature before giving up.
+        scenes: list = []
+        for attempt in range(2):
+            raw = await self._pipeline.anthropic.generate(
+                prompt=prompt if attempt == 0 else (
+                    prompt + "\n\nIMPORTANT: separate scenes with ONLY the "
+                    "@@@SCENE n@@@ markers. Do not return JSON."
+                ),
+                system_prompt=style_system,
+                max_tokens=16000,
+                temperature=0.7 if attempt == 0 else 0.4,
+            )
+            scenes = self._parse_modeled_scenes(raw)
+            if len(scenes) >= 3:
+                break
+            if attempt == 0:
+                await self._log_activity(bot_name, video_id, "started",
+                                         "Reformatting script for clean scene breaks")
         if len(scenes) < 3:
             raise Exception("Modeled script came back with too few scenes")
 
