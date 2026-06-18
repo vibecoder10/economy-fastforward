@@ -114,6 +114,43 @@ def _extract_environments(video: dict) -> list[dict]:
     return envs
 
 
+async def _extract_locations_from_script(video: dict, api_key: str) -> list[dict]:
+    """Recurring locations read straight from the script — the fallback used when
+    the Story Bible has no locations yet (it's generated later, at the image step,
+    so it's empty during environment design). Mirrors characters._extract_cast's
+    script fallback so environments work the same way characters already do.
+    Returns [{name, description}] (possibly empty)."""
+    script = (video.get("script") or "").strip()
+    if not script:
+        return []
+    from routes.model_video import _call_claude, _resolve_claude_creds  # provider-aware Claude
+    creds = await _resolve_claude_creds(video["tenant_id"]) if video.get("tenant_id") else None
+    if creds is None:
+        creds = {"provider": "kie", "key": api_key}
+    prompt = f"""Read this video narration script and list the RECURRING VISIBLE LOCATIONS
+(distinct places shown on screen — e.g. a kitchen, a classroom, a park). Merge duplicates
+of the same place; skip one-off throwaway mentions. Maximum {MAX_ENVIRONMENTS}.
+
+SCRIPT:
+{script[:12000]}
+
+Return ONLY valid JSON:
+{{"locations": [{{"name": "short location name", "description": "what the place looks like + its lighting/time of day, written so an image generator draws the SAME place every time (40-80 words)"}}]}}"""
+    try:
+        text = await _call_claude(prompt, creds, tier="smart", max_tokens=2000)
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        locs = (json.loads(text).get("locations") or [])[:MAX_ENVIRONMENTS]
+    except Exception as e:
+        logger.warning("[environments] script location extraction failed: %s", str(e)[:200])
+        return []
+    return [
+        {"name": (l.get("name") or "").strip(), "description": (l.get("description") or "").strip()}
+        for l in locs if isinstance(l, dict) and (l.get("name") or "").strip()
+    ]
+
+
 async def _generate_environment(api_key: str, description: str, style_dna: str, aspect_ratio: str = "16:9") -> str:
     """One environment reference (wide establishing shot) via Kie (same job
     pattern as the character portrait generation). Rendered at the video's
@@ -223,8 +260,15 @@ async def design_environments(
         try:
             envs = _extract_environments(video)
             if not envs:
+                # Story Bible not built yet (it's generated at the image step) —
+                # fall back to reading locations from the script, exactly like
+                # character design does. Only truly skip when the script has none.
+                _set_task_status(video_id, "running", "Reading the script for locations…",
+                                 tenant_id=tenant_id, task_type=TASK_TYPE)
+                envs = await _extract_locations_from_script(video, api_key)
+            if not envs:
                 _set_task_status(video_id, "failed",
-                                 error=user_facing("No locations found in the Story Bible — this video can skip environment design."),
+                                 error=user_facing("No recurring locations found in the script — this video can skip environment design."),
                                  tenant_id=tenant_id, task_type=TASK_TYPE)
                 return
 
