@@ -59,6 +59,12 @@ class CharacterUpdate(BaseModel):
     description: Optional[str] = None
 
 
+class ImportCastRequest(BaseModel):
+    # When given, import only saved characters with these names; when omitted
+    # (legacy callers), import all saved characters.
+    names: Optional[list[str]] = None
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -543,10 +549,16 @@ async def _sync_bible_to_cast(video_id: str, tenant_id, cast: list[dict]) -> Non
 
 
 @router.post("/{video_id}/characters/approve")
-async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
+async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_id=Depends(get_tenant_id)):
     """Lock the cast: every character with a reference becomes 'approved',
     the primary ref lands on videos.character_reference_url (the storyboard
-    bot's existing input), and storyboards unlock."""
+    bot's existing input), and storyboards unlock.
+
+    The heavy part (a per-character vision pass that rewrites each description
+    from its approved portrait, then the cast-sheet build) runs as a background
+    task with progress, so the UI shows "Locking in Tom (1/4)…" instead of a
+    silent multi-minute spinner that looked hung.
+    """
     await _get_video(video_id, tenant_id)
     rows = await fetch_all(
         "SELECT * FROM video_characters WHERE video_id = $1 AND tenant_id = $2 ORDER BY sort, created_at",
@@ -562,65 +574,94 @@ async def approve_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
             detail=f"These characters have no image yet: {', '.join(missing[:4])}. Regenerate, upload, or delete them.",
         )
 
-    await execute(
-        "UPDATE video_characters SET status = 'approved', updated_at = now() "
-        "WHERE video_id = $1 AND tenant_id = $2",
-        video_id, tenant_id,
-    )
+    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
+    task = _get_task_status(video_id, tenant_id)
+    if task and task.get("status") == "running":
+        raise HTTPException(status_code=409, detail="A task is already running for this video.")
 
-    cast = [dict(r) for r in with_refs]
+    _set_task_status(video_id, "running", "Locking in the cast…", tenant_id=tenant_id, task_type=TASK_TYPE)
 
-    # Pixel-accurate descriptions: the portraits were GENERATED from the text,
-    # but image models take liberties — when the saved text says "light blue
-    # tee" and the approved portrait shows red, downstream prompts fight the
-    # reference sheet and costumes drift. Rewrite each description from the
-    # actual approved image (vision pass), best-effort per character.
-    try:
-        from routes.model_video import _resolve_claude_creds
-        from shared.clients.vision_client import vision_call, _looks_like_refusal
-        creds = await _resolve_claude_creds(tenant_id)
-        if creds:
-            base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
-            for ch in cast:
-                fid = _drive_file_id(ch.get("reference_url") or "")
-                img_url = f"{base}/api/media/drive/{fid}" if fid else ch.get("reference_url")
-                try:
-                    desc = await vision_call(
-                        f"Describe EXACTLY how this character looks so an image generator can redraw the SAME character: "
-                        f"hair (style + color), face/age, and every clothing item WITH ITS COLOR. "
-                        f"40-60 words, no preamble. The character's name is {ch['name']}.",
-                        [img_url],
-                        kie_key=creds["key"] if creds["provider"] == "kie" else None,
-                        anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
-                        tier="fast", max_tokens=300,
-                    )
-                    # Never let a refusal / non-answer overwrite the script-based
-                    # description (vision_call already guards this; belt-and-
-                    # suspenders so a regression can't reintroduce garbage anchors).
-                    if desc and len(desc) > 20 and not _looks_like_refusal(desc):
-                        ch["description"] = desc.strip()[:1000]
-                        await execute(
-                            "UPDATE video_characters SET description = $1, updated_at = now() "
-                            "WHERE id = $2 AND tenant_id = $3",
-                            ch["description"], ch["id"], tenant_id,
+    async def _run():
+        try:
+            await execute(
+                "UPDATE video_characters SET status = 'approved', updated_at = now() "
+                "WHERE video_id = $1 AND tenant_id = $2",
+                video_id, tenant_id,
+            )
+            cast = [dict(r) for r in with_refs]
+
+            # Pixel-accurate descriptions: the portraits were GENERATED from the
+            # text, but image models take liberties — when the saved text says
+            # "light blue tee" and the approved portrait shows red, downstream
+            # prompts fight the reference sheet and costumes drift. Rewrite each
+            # description from the actual approved image (vision pass),
+            # best-effort per character.
+            try:
+                from routes.model_video import _resolve_claude_creds
+                from shared.clients.vision_client import vision_call, _looks_like_refusal
+                creds = await _resolve_claude_creds(tenant_id)
+                if creds:
+                    base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+                    for idx, ch in enumerate(cast):
+                        _set_task_status(
+                            video_id, "running",
+                            f"Locking in {ch['name']} ({idx + 1}/{len(cast)})…",
+                            tenant_id=tenant_id, task_type=TASK_TYPE,
                         )
-                    elif desc:
-                        logger.warning("[characters] kept original description for %s "
-                                       "(vision reply looked invalid)", ch["name"])
-                except Exception as e:
-                    logger.warning("[characters] vision description failed for %s: %s", ch["name"], str(e)[:150])
-    except Exception as e:
-        logger.warning("[characters] vision sync skipped: %s", str(e)[:150])
+                        fid = _drive_file_id(ch.get("reference_url") or "")
+                        img_url = f"{base}/api/media/drive/{fid}" if fid else ch.get("reference_url")
+                        try:
+                            desc = await vision_call(
+                                f"Describe EXACTLY how this character looks so an image generator can redraw the SAME character: "
+                                f"hair (style + color), face/age, and every clothing item WITH ITS COLOR. "
+                                f"40-60 words, no preamble. The character's name is {ch['name']}.",
+                                [img_url],
+                                kie_key=creds["key"] if creds["provider"] == "kie" else None,
+                                anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+                                tier="fast", max_tokens=300,
+                            )
+                            # Never let a refusal / non-answer overwrite the
+                            # script-based description (vision_call already guards
+                            # this; belt-and-suspenders so a regression can't
+                            # reintroduce garbage anchors).
+                            if desc and len(desc) > 20 and not _looks_like_refusal(desc):
+                                ch["description"] = desc.strip()[:1000]
+                                await execute(
+                                    "UPDATE video_characters SET description = $1, updated_at = now() "
+                                    "WHERE id = $2 AND tenant_id = $3",
+                                    ch["description"], ch["id"], tenant_id,
+                                )
+                            elif desc:
+                                logger.warning("[characters] kept original description for %s "
+                                               "(vision reply looked invalid)", ch["name"])
+                        except Exception as e:
+                            logger.warning("[characters] vision description failed for %s: %s", ch["name"], str(e)[:150])
+            except Exception as e:
+                logger.warning("[characters] vision sync skipped: %s", str(e)[:150])
 
-    sheet_url = await _build_cast_sheet(tenant_id, video_id, cast)
-    await _sync_bible_to_cast(video_id, tenant_id, cast)
+            _set_task_status(video_id, "running", "Building the cast sheet…",
+                             tenant_id=tenant_id, task_type=TASK_TYPE)
+            sheet_url = await _build_cast_sheet(tenant_id, video_id, cast)
+            await _sync_bible_to_cast(video_id, tenant_id, cast)
 
-    await execute(
-        "UPDATE videos SET characters_approved_at = now(), character_reference_url = $1, "
-        "updated_at = now() WHERE id = $2 AND tenant_id = $3",
-        sheet_url or with_refs[0]["reference_url"], video_id, tenant_id,
-    )
-    return {"status": "approved", "count": len(with_refs), "cast_sheet": bool(sheet_url)}
+            await execute(
+                "UPDATE videos SET characters_approved_at = now(), character_reference_url = $1, "
+                "updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                sheet_url or with_refs[0]["reference_url"], video_id, tenant_id,
+            )
+            _set_task_status(video_id, "completed",
+                             f"Cast approved ({len(with_refs)}) — storyboards unlocked.",
+                             tenant_id=tenant_id, task_type=TASK_TYPE)
+        except Exception as e:
+            _set_task_status(video_id, "failed",
+                             error=user_facing(humanize_error(e, context="We couldn't approve the cast")),
+                             tenant_id=tenant_id, task_type=TASK_TYPE)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return {"status": "running", "message": "Approving the cast — locking in each face."}
 
 
 @router.post("/{video_id}/characters/save-to-project")
@@ -658,9 +699,46 @@ async def save_cast_to_project(video_id: str, tenant_id=Depends(get_tenant_id)):
     return {"status": "saved", "count": len(rows)}
 
 
+@router.get("/{video_id}/characters/project-cast")
+async def list_project_cast(video_id: str, tenant_id=Depends(get_tenant_id)):
+    """The project's saved cast, for the "Use Saved Cast" picker. Flags which
+    are already in this video so the picker can pre-skip them."""
+    video = await _get_video(video_id, tenant_id)
+    if not video.get("project_id"):
+        return {"characters": [], "has_project": False}
+    project = await fetch_one(
+        "SELECT character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+        video["project_id"], tenant_id,
+    )
+    saved = _parse_json((project or {}).get("character_references")) or []
+    existing = await fetch_all(
+        "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    existing_names = {r["name"] for r in (existing or [])}
+    out = []
+    for c in saved:
+        if not (isinstance(c, dict) and c.get("reference_url")):
+            continue
+        name = c.get("name") or "Character"
+        out.append({
+            "name": name,
+            "description": (c.get("description") or "")[:400],
+            "reference_url": c["reference_url"],
+            "already_in_video": name in existing_names,
+        })
+    return {"characters": out, "has_project": True}
+
+
 @router.post("/{video_id}/characters/import-from-project")
-async def import_cast_from_project(video_id: str, tenant_id=Depends(get_tenant_id)):
-    """Use the project's saved cast (series consistency) for this video."""
+async def import_cast_from_project(
+    video_id: str,
+    body: Optional[ImportCastRequest] = None,
+    tenant_id=Depends(get_tenant_id),
+):
+    """Use the project's saved cast (series consistency) for this video. When
+    `names` is given, only those are imported (the picker); otherwise all
+    saved characters are imported (legacy)."""
     video = await _get_video(video_id, tenant_id)
     if not video.get("project_id"):
         raise HTTPException(status_code=400, detail="Video has no project.")
@@ -673,6 +751,8 @@ async def import_cast_from_project(video_id: str, tenant_id=Depends(get_tenant_i
     if not saved:
         raise HTTPException(status_code=400, detail="No saved characters on this project yet.")
 
+    selected = {n for n in (body.names or [])} if (body and body.names) else None
+
     existing = await fetch_all(
         "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -680,12 +760,15 @@ async def import_cast_from_project(video_id: str, tenant_id=Depends(get_tenant_i
     existing_names = {r["name"] for r in (existing or [])}
     imported = 0
     for i, c in enumerate(saved[:MAX_CHARACTERS]):
-        if c.get("name") in existing_names:
+        name = c.get("name")
+        if selected is not None and name not in selected:
+            continue
+        if name in existing_names:
             continue
         await execute(
             "INSERT INTO video_characters (tenant_id, video_id, name, description, reference_url, source, sort) "
             "VALUES ($1, $2, $3, $4, $5, 'project', $6)",
-            tenant_id, video_id, (c.get("name") or "Character")[:120],
+            tenant_id, video_id, (name or "Character")[:120],
             (c.get("description") or "")[:1000], c["reference_url"], 100 + i,
         )
         imported += 1

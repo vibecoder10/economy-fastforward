@@ -1039,7 +1039,7 @@ export const deleteCharacter = (videoId: string, charId: string) =>
   });
 
 export const approveCast = (videoId: string) =>
-  fetchApi<{ status: string; count: number }>(`/api/videos/${videoId}/characters/approve`, {
+  fetchApi<{ status: string; message?: string; count?: number }>(`/api/videos/${videoId}/characters/approve`, {
     method: "POST",
   });
 
@@ -1048,9 +1048,22 @@ export const saveCastToProject = (videoId: string) =>
     method: "POST",
   });
 
-export const importCastFromProject = (videoId: string) =>
+export interface ProjectCastMember {
+  name: string;
+  description: string;
+  reference_url: string;
+  already_in_video: boolean;
+}
+
+export const getProjectCast = (videoId: string) =>
+  fetchApi<{ characters: ProjectCastMember[]; has_project: boolean }>(
+    `/api/videos/${videoId}/characters/project-cast`
+  );
+
+export const importCastFromProject = (videoId: string, names?: string[]) =>
   fetchApi<{ status: string; count: number }>(`/api/videos/${videoId}/characters/import-from-project`, {
     method: "POST",
+    body: JSON.stringify({ names: names ?? null }),
   });
 
 export const uploadCharacterImage = async (

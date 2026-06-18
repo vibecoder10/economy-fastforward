@@ -21,12 +21,14 @@ import {
   approveCast,
   deleteCharacter,
   designCharacters,
+  getProjectCast,
   getVideoCharacters,
   importCastFromProject,
   regenerateCharacter,
   saveCastToProject,
   updateCharacter,
   uploadCharacterImage,
+  type ProjectCastMember,
   type VideoCharacter,
   type VideoDetail,
 } from "@/lib/api";
@@ -48,8 +50,11 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [taskRunning, setTaskRunning] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDesc, setEditDesc] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const { data, isLoading } = useQuery({
@@ -74,9 +79,16 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
       setTaskRunning(false);
       refresh();
       if (msg) toast.success(msg);
+      // Approve runs as a background task now — advance to Environments only
+      // once it actually finishes (cast sheet built, references locked).
+      if (approving) {
+        setApproving(false);
+        onApproved?.();
+      }
     },
     onFailed: (error) => {
       setTaskRunning(false);
+      setApproving(false);
       refresh();
       toast.error(humanizeError(error, "Character design hit a snag."));
     },
@@ -96,10 +108,12 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
 
   const approveMutation = useMutation({
     mutationFn: () => approveCast(video.id),
-    onSuccess: (res) => {
-      refresh();
-      toast.success(`Cast approved (${res.count}) — storyboards are unlocked.`);
-      onApproved?.();
+    // Approve is a background task — flip into the polled "approving" state so
+    // the button shows live progress ("Locking in Tom (1/4)…") instead of a
+    // silent multi-minute spinner. onApproved fires from the poller onComplete.
+    onSuccess: () => {
+      setApproving(true);
+      setTaskRunning(true);
     },
     onError: (err) => toast.error(humanizeError(err, "We couldn't approve the cast.")),
   });
@@ -110,11 +124,32 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
     onError: (err) => toast.error(humanizeError(err, "We couldn't save the cast to the project.")),
   });
 
+  // The "Use Saved Cast" picker — fetched only while open so it's always fresh.
+  const { data: projectCastData, isLoading: projectCastLoading } = useQuery({
+    queryKey: ["project-cast", video.id],
+    queryFn: () => getProjectCast(video.id),
+    enabled: pickerOpen,
+  });
+  const projectCast: ProjectCastMember[] = projectCastData?.characters ?? [];
+
+  const openPicker = () => {
+    setPicked(new Set());
+    setPickerOpen(true);
+  };
+  const togglePick = (name: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
   const importMutation = useMutation({
-    mutationFn: () => importCastFromProject(video.id),
+    mutationFn: (names: string[]) => importCastFromProject(video.id, names),
     onSuccess: (res) => {
+      setPickerOpen(false);
       refresh();
-      toast.success(res.count > 0 ? `Imported ${res.count} saved character(s).` : "All saved characters are already here.");
+      toast.success(res.count > 0 ? `Imported ${res.count} saved character(s).` : "Nothing new to import.");
     },
     onError: (err) => toast.error(humanizeError(err, "We couldn't import the project cast.")),
   });
@@ -185,11 +220,11 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <ActionButton
-              icon={taskRunning ? Loader2 : Users}
+              icon={taskRunning && !approving ? Loader2 : Users}
               onClick={() => designMutation.mutate()}
               disabled={taskRunning || designMutation.isPending}
             >
-              {taskRunning
+              {taskRunning && !approving
                 ? (taskMessage || "Designing…")
                 : characters.length > 0
                   ? "Redesign Cast"
@@ -198,8 +233,8 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
             <ActionButton
               variant="outline"
               icon={FolderDown}
-              onClick={() => importMutation.mutate()}
-              disabled={taskRunning || importMutation.isPending}
+              onClick={openPicker}
+              disabled={taskRunning}
             >
               Use Saved Cast
             </ActionButton>
@@ -360,15 +395,110 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
                 Save Cast to Project
               </ActionButton>
               <ActionButton
-                icon={approveMutation.isPending ? Loader2 : CheckCircle2}
+                icon={approving || approveMutation.isPending ? Loader2 : CheckCircle2}
                 onClick={() => approveMutation.mutate()}
                 disabled={!allHaveImages || taskRunning || approveMutation.isPending}
               >
-                {approvedAt ? "Re-approve Cast" : "Approve Cast"}
+                {approving
+                  ? (taskMessage || "Approving…")
+                  : approvedAt
+                    ? "Re-approve Cast"
+                    : "Approve Cast"}
               </ActionButton>
             </div>
           </div>
         </GlassCard>
+      )}
+
+      {/* "Use Saved Cast" picker — choose WHICH saved characters to bring in,
+          instead of dumping the whole project pile into this video. */}
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => !importMutation.isPending && setPickerOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl p-5 max-h-[80vh] overflow-y-auto"
+            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-lg font-display mb-1" style={{ color: "var(--text-primary)" }}>
+              Use a saved character
+            </p>
+            <p className="text-sm mb-4" style={{ color: "var(--text-tertiary)" }}>
+              Pick who to bring into this video. Only the ones you check are added.
+            </p>
+
+            {projectCastLoading ? (
+              <div className="py-10 text-center">
+                <Loader2 size={24} className="animate-spin mx-auto" style={{ color: "var(--turquoise)" }} />
+              </div>
+            ) : projectCast.length === 0 ? (
+              <p className="py-8 text-sm text-center" style={{ color: "var(--text-tertiary)" }}>
+                No saved characters yet. Approve a cast and hit “Save Cast to Project” to build your reusable library.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {projectCast.map((m) => {
+                  const disabled = m.already_in_video;
+                  const checked = picked.has(m.name);
+                  return (
+                    <button
+                      key={m.name}
+                      onClick={() => !disabled && togglePick(m.name)}
+                      disabled={disabled}
+                      className="w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors disabled:opacity-50"
+                      style={{
+                        background: checked ? "rgba(45, 212, 191, 0.12)" : "var(--bg-void)",
+                        border: `1px solid ${checked ? "var(--turquoise)" : "var(--border)"}`,
+                      }}
+                    >
+                      <div
+                        className="w-12 h-12 rounded-md overflow-hidden shrink-0 flex items-center justify-center"
+                        style={{ background: "var(--bg-elevated)" }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={toDisplayImageUrl(m.reference_url)} alt={m.name} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                          {m.name}
+                        </p>
+                        <p className="text-xs truncate" style={{ color: "var(--text-tertiary)" }}>
+                          {disabled ? "Already in this video" : (m.description || "Saved character")}
+                        </p>
+                      </div>
+                      {checked && !disabled && (
+                        <Check size={16} style={{ color: "var(--turquoise)" }} className="shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                onClick={() => setPickerOpen(false)}
+                disabled={importMutation.isPending}
+                className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+                style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => importMutation.mutate(Array.from(picked))}
+                disabled={picked.size === 0 || importMutation.isPending}
+                className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40 flex items-center gap-1.5"
+                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+              >
+                {importMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <FolderDown size={14} />}
+                {picked.size > 0 ? `Add ${picked.size}` : "Add selected"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
