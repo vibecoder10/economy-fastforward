@@ -467,15 +467,23 @@ def _drive_file_id(url: str):
 
 
 async def _fetch_image_bytes(url: str) -> bytes:
-    """Portrait bytes — authorized Drive API when it's a Drive file (public
-    links degrade), plain fetch otherwise."""
+    """Portrait bytes for cast-sheet composition.
+
+    Drive files are fetched through the PUBLIC media proxy (plain HTTP), not the
+    authorized Drive API: the backend process has no Google OAuth creds, so the
+    API path raised "Google OAuth credentials not found" and _build_cast_sheet
+    silently returned None — every video then fell back to a SINGLE-character
+    reference (the first portrait), so only one character locked and the rest
+    drifted (live: a white cast rendered as a different family). The proxy is the
+    same URL Kie fetches for generation, so it is known-good and needs no creds.
+    """
     fid = _drive_file_id(url)
-    if fid and "drive.google.com" in url:
-        from routes.media import _download_via_drive_api
-        data, _ = await asyncio.to_thread(_download_via_drive_api, fid)
-        return data
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        r = await client.get(url)
+        if fid and "drive.google.com" in url:
+            base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+            r = await client.get(f"{base}/api/media/drive/{fid}")
+        else:
+            r = await client.get(url)
         r.raise_for_status()
         return r.content
 
