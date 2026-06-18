@@ -18,7 +18,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check, Loader2, Pencil, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
-  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, Type,
+  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, Type, MapPin,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -31,7 +31,7 @@ import {
   clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
-  deleteClip, recropAsset, fixTextAsset,
+  deleteClip, recropAsset, fixTextAsset, getEnvironments,
 } from "@/lib/api";
 import { clipCost } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
@@ -104,10 +104,11 @@ function parseStoryboardPromptBlocks(promptText: string | null | undefined) {
 interface ScenesWorkspaceTabProps {
   video: VideoDetail & { id: string };
   onGoToScriptVoice?: () => void;
+  onGoToEnvironments?: () => void;
   onAdvanced?: () => void;
 }
 
-export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: ScenesWorkspaceTabProps) {
+export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironments, onAdvanced }: ScenesWorkspaceTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const model = video.video_model || "grok-imagine";
@@ -137,6 +138,24 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     queryFn: () => getDialogueMap(video.id),
     staleTime: 60_000,
   });
+
+  // Storyboards require the environments step to be done (approved OR skipped) —
+  // the backend enforces this; we mirror it here so the creator sees a clear
+  // banner and we never fire a generation that will just fail.
+  const { data: environmentsData } = useQuery({
+    queryKey: ["video-environments", video.id],
+    queryFn: () => getEnvironments(video.id),
+    staleTime: 30_000,
+  });
+  const environmentsReady = !!environmentsData?.approved_at;
+
+  // Guard every storyboard-generating action: bounce with a clear message
+  // (and a pointer to the Environments tab) instead of firing a doomed task.
+  const requireEnvironments = useCallback(() => {
+    if (environmentsReady) return true;
+    toast.error('Design your environments first — open the Environments tab (or hit "No locations — skip" there) before generating storyboards.');
+    return false;
+  }, [environmentsReady, toast]);
 
   const hasVoice = useMemo(
     () => (scriptScenes ?? []).some((s) => !!s.voice_over_url),
@@ -384,6 +403,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
   }, [video.id, markStarted]);
 
   const handleRedoSceneFromScratch = useCallback(async (sceneNumber: number) => {
+    if (!requireEnvironments()) return;
     const confirmed = window.confirm(
       `Start Scene ${sceneNumber} over? We'll throw away its plan and pictures, write a fresh plan, and draw new pictures (≈ $0.08 each).\n\nTo redo just the pictures, use "Redo pictures". To remove one picture, hover it and click the X.`
     );
@@ -402,9 +422,10 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
     } finally {
       setClearingScene(null);
     }
-  }, [video.id, queryClient, toast, runStageWith409Retry]);
+  }, [video.id, queryClient, toast, runStageWith409Retry, requireEnvironments]);
 
   const handleRedoScenePictures = useCallback(async (sceneNumber: number) => {
+    if (!requireEnvironments()) return;
     const scene = scenes.find((s) => s.sceneNumber === sceneNumber);
     const boardCount = scene?.storyboardBeats.filter((b) => b.gridUrl).length || 0;
     const confirmed = window.confirm(
@@ -422,9 +443,10 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
       setGeneratingScene(null);
       toast.error(`Couldn't redo Scene ${sceneNumber}'s pictures: ${(err as Error).message}`);
     }
-  }, [video.id, scenes, queryClient, toast, runStageWith409Retry]);
+  }, [video.id, scenes, queryClient, toast, runStageWith409Retry, requireEnvironments]);
 
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
+    if (!requireEnvironments()) return;
     setGeneratingScene(sceneNumber);
     try {
       await runStageWith409Retry("storyboards", { scene: sceneNumber });
@@ -432,9 +454,10 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
       setGeneratingScene(null);
       toast.error(`Scene ${sceneNumber} plan failed: ${(err as Error).message}`);
     }
-  }, [runStageWith409Retry, toast]);
+  }, [runStageWith409Retry, toast, requireEnvironments]);
 
   const handleGenerateSceneGrids = useCallback(async (sceneNumber: number) => {
+    if (!requireEnvironments()) return;
     setGeneratingScene(sceneNumber);
     try {
       await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
@@ -442,13 +465,14 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
       setGeneratingScene(null);
       toast.error(`Scene ${sceneNumber} boards failed: ${(err as Error).message}`);
     }
-  }, [runStageWith409Retry, toast]);
+  }, [runStageWith409Retry, toast, requireEnvironments]);
 
   // Bulk: plan AND draw every scene that still needs it, in one action. Builds a
   // per-scene step queue (plan → draw for each), fires the first step, and the
   // onComplete chain runs the rest one task at a time. Per-scene calls are used
   // (not a global all-scenes call) so it works at any storyboard sub-stage.
   const handleGenerateAllScenes = useCallback(async () => {
+    if (!requireEnvironments()) return;
     const work = scenes.filter((s) => !s.hasStoryboardPrompt || s.storyboardGridCount === 0);
     if (work.length === 0) return;
     if (!window.confirm(
@@ -469,7 +493,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
       setGeneratingScene(null);
       toast.error(`Couldn't start generating all scenes: ${(err as Error).message}`);
     }
-  }, [scenes, runStageWith409Retry, toast]);
+  }, [scenes, runStageWith409Retry, toast, requireEnvironments]);
 
   const handleClearAllStoryboards = useCallback(async () => {
     if (!window.confirm(
@@ -804,6 +828,28 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
   // ── Render ──
   return (
     <div className="space-y-4">
+      {/* Environments gate: storyboards need locations locked (or skipped)
+          first — guide the creator there instead of generating drifting
+          backgrounds. The generation handlers are guarded too. */}
+      {!environmentsReady && (
+        <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
+          style={{ background: "rgba(245, 158, 11, 0.10)", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
+          <MapPin size={16} style={{ color: "var(--gold)" }} className="shrink-0" />
+          <p className="text-sm flex-1 min-w-[12rem]" style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>Design your environments first.</strong>{" "}
+            Storyboards lock each location so backgrounds stay consistent. Approve them in the
+            Environments tab — or mark “No locations” there if this video has none.
+          </p>
+          {onGoToEnvironments && (
+            <button
+              onClick={onGoToEnvironments}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 shrink-0"
+              style={{ background: "var(--gold)", color: "var(--bg-void)" }}>
+              <MapPin size={13} /> Design environments
+            </button>
+          )}
+        </div>
+      )}
       {/* One quiet status line; the page banner stays the only big CTA. */}
       <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
         style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
@@ -849,7 +895,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onAdvanced }: Sce
           </span>
         )}
         <div className="flex-1" />
-        {!running && !storyLocked && scenesNeedWork && (
+        {!running && !storyLocked && scenesNeedWork && environmentsReady && (
           <button
             onClick={handleGenerateAllScenes}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"

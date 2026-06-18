@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Loader2,
   MapPin,
+  MapPinOff,
   RefreshCw,
   Trash2,
   Upload,
@@ -21,6 +22,7 @@ import {
   designEnvironments,
   getEnvironments,
   regenerateEnvironment,
+  skipEnvironments,
   updateEnvironment,
   uploadEnvironmentImage,
   type VideoEnvironment,
@@ -100,6 +102,24 @@ export function EnvironmentsTab({ video, onApproved }: EnvironmentsTabProps) {
     onError: (err) => toast.error(humanizeError(err, "We couldn't approve the environments.")),
   });
 
+  // For location-less videos (talking head, explainer): mark "no locations" so
+  // the storyboard gate passes without designing any.
+  const skipMutation = useMutation({
+    mutationFn: () => skipEnvironments(video.id),
+    onSuccess: () => {
+      refresh();
+      toast.success("Marked as no locations — storyboards unlocked.");
+      onApproved?.();
+    },
+    onError: (err) => toast.error(humanizeError(err, "We couldn't skip environments.")),
+  });
+
+  const handleSkip = () => {
+    if (window.confirm("Skip environment design? Use this only if the video has no real locations to keep consistent.")) {
+      skipMutation.mutate();
+    }
+  };
+
   const handleUpload = async (envId: string, file: File | undefined) => {
     if (!file) return;
     try {
@@ -176,6 +196,16 @@ export function EnvironmentsTab({ video, onApproved }: EnvironmentsTabProps) {
                   ? "Redesign Environments"
                   : "Design Environments"}
             </ActionButton>
+            {!approvedAt && (
+              <ActionButton
+                variant="outline"
+                icon={skipMutation.isPending ? Loader2 : MapPinOff}
+                onClick={handleSkip}
+                disabled={taskRunning || skipMutation.isPending}
+              >
+                No locations — skip
+              </ActionButton>
+            )}
           </div>
         </div>
       </GlassCard>

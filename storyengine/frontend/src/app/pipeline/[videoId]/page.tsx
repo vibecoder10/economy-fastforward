@@ -584,7 +584,7 @@ export default function VideoDetailPage() {
         {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("scenes")} />}
         {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("environments")} />}
         {currentTab === "environments" && <EnvironmentsTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} />}
-        {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onAdvanced={() => setActiveTab("sound")} />}
+        {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onGoToEnvironments={() => setActiveTab("environments")} onAdvanced={() => setActiveTab("sound")} />}
         {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} />}
         {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} />}
         {currentTab === "render" && <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} />}

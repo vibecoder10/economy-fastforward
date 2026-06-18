@@ -1127,6 +1127,11 @@ export const approveEnvironments = (videoId: string) =>
     method: "POST",
   });
 
+export const skipEnvironments = (videoId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/environments/skip`, {
+    method: "POST",
+  });
+
 export const uploadEnvironmentImage = async (
   videoId: string,
   envId: string,

@@ -579,3 +579,19 @@ async def approve_environments(video_id: str, tenant_id=Depends(get_tenant_id)):
         video_id, tenant_id,
     )
     return {"status": "approved", "count": len(with_refs)}
+
+
+@router.post("/{video_id}/environments/skip")
+async def skip_environments(video_id: str, tenant_id=Depends(get_tenant_id)):
+    """Mark this video as having no distinct locations. Stamps
+    environments_approved_at (with no rows) so the storyboard gate passes
+    without any locked locations — for talking-head / location-less videos.
+    Reversible: designing environments later resets approval (design sets
+    environments_approved_at = NULL, so you'd re-approve)."""
+    await _get_video(video_id, tenant_id)
+    await execute(
+        "UPDATE videos SET environments_approved_at = now(), updated_at = now() "
+        "WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    return {"status": "skipped"}

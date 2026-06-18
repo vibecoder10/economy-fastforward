@@ -737,6 +737,33 @@ class PipelineExecutor:
         }
         return None
 
+    async def _environments_ready_gate(self, video_id: str, video: dict) -> Optional[str]:
+        """Storyboards require the environments step to be DONE — either
+        approved (locations locked) or explicitly skipped ("No locations" stamps
+        environments_approved_at with no rows). Returns an error string to block,
+        or None to allow. Applies to bulk AND per-scene generation, so the
+        creator can't sail past environment design unintentionally."""
+        if video.get("environments_approved_at"):
+            return None
+        try:
+            row = await fetch_one(
+                "SELECT count(*) AS n FROM video_environments WHERE video_id = $1 AND tenant_id = $2",
+                video_id, self.tenant_id,
+            )
+            n = (row or {}).get("n") or 0
+        except Exception:
+            n = 0
+        if n > 0:
+            return user_facing(
+                "Approve your environments first — open the Environments tab, review the "
+                "locations, and hit Approve before generating storyboards."
+            )
+        return user_facing(
+            "Design your environments first — open the Environments tab and design the "
+            "locations (or hit “No locations — skip” if this video has none) before "
+            "generating storyboards."
+        )
+
     async def _persist_url(self, source_url: str, storage_path: str) -> str:
         """Re-upload a temporary URL to Google Drive for permanent access.
 
@@ -2016,6 +2043,15 @@ no stage directions, no labels, no headings."""
 
             current_status = video.get("status")
             scene_label = f" (Scene {scene})" if scene else ""
+
+            # Gate: environments must be designed+approved (or explicitly
+            # skipped) before ANY storyboard prompts — bulk or per-scene — so
+            # backgrounds get locked instead of silently drifting.
+            env_gate = await self._environments_ready_gate(video_id, video)
+            if env_gate:
+                await self._log_activity(bot_name, video_id, "failed", env_gate)
+                return {"status": "failed", "error": env_gate}
+
             await self._log_activity(bot_name, video_id, "started", f"Generating storyboard prompts{scene_label}")
 
             self._load_idea_from_video(video_id)
@@ -2130,13 +2166,15 @@ no stage directions, no labels, no headings."""
                 await self._log_activity(bot_name, video_id, "failed", gate)
                 return {"status": "failed", "error": gate}
 
-            # Optional environment locking: if the creator designed + approved
-            # location references, the bot conditions each grid on its location
-            # (one extra ref alongside the cast sheet). Opt-in — no rows = no-op.
-            env_gate = await self._load_environment_refs(video_id, video)
-            if env_gate and scene is None:
+            # Gate: environments must be done (approved or explicitly skipped)
+            # before grids — bulk OR per-scene. After it passes,
+            # _load_environment_refs populates the {location: ref} map the bot
+            # conditions each grid on (empty when the video was skipped).
+            env_gate = await self._environments_ready_gate(video_id, video)
+            if env_gate:
                 await self._log_activity(bot_name, video_id, "failed", env_gate)
                 return {"status": "failed", "error": env_gate}
+            await self._load_environment_refs(video_id, video)
 
             await self._install_cancel_support(video_id)
             result = await self._pipeline.run_storyboard_images(
