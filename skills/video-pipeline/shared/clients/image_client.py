@@ -623,6 +623,7 @@ class ImageClient:
         prompt: str,
         reference_image_url,
         aspect_ratio: str = "16:9",
+        resolution: str = "1K",
     ) -> Optional[dict]:
         """Generate an image using a reference for character consistency.
 
@@ -633,6 +634,10 @@ class ImageClient:
             prompt: Image generation prompt
             reference_image_url: URL of reference image (e.g., start_image)
             aspect_ratio: Output aspect ratio
+            resolution: nano-banana-pro output resolution ("1K", "2K", "4K").
+                Storyboard grids pass a higher value so each extracted panel
+                (1/9th of the grid) is sharp enough to drive video generation;
+                the panels are the final frames and there is no upscale pass.
 
         Returns:
             Dict with 'url' key, or None if failed
@@ -656,11 +661,11 @@ class ImageClient:
                 "prompt": prompt,
                 "image_input": refs,
                 "aspect_ratio": aspect_ratio,
-                "resolution": "1K",  # Required with image_input to enforce aspect ratio
+                "resolution": resolution,  # Required with image_input to enforce aspect ratio
             },
         }
 
-        print(f"      🎨 Generating with reference (nano-banana-pro)...")
+        print(f"      🎨 Generating with reference (nano-banana-pro, {resolution})...")
 
         try:
             async with httpx.AsyncClient() as client:

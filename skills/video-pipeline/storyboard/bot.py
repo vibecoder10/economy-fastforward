@@ -1881,6 +1881,11 @@ async def generate_contact_sheet(
 
     if combined_refs:
         ref_for_qa = char_refs[0] if char_refs else combined_refs[0]
+        # Each extracted panel is 1/9th of this grid and becomes a FINAL frame
+        # (no upscale pass — the generative upscaler refuses kids content), so
+        # generate the grid at higher resolution. Default 2K (~2x the old 1K);
+        # set STORYBOARD_GRID_RESOLUTION=4K for sharper panels at higher cost.
+        grid_resolution = os.getenv("STORYBOARD_GRID_RESOLUTION", "2K")
         # Use reference-based generation for character consistency,
         # with one style-QA retry (models drift style stochastically)
         for attempt in range(2):
@@ -1888,6 +1893,7 @@ async def generate_contact_sheet(
                 prompt=full_prompt,
                 reference_image_url=combined_refs,
                 aspect_ratio=aspect_ratio,
+                resolution=grid_resolution,
             )
             grid_url = result.get("url") if isinstance(result, dict) else result
             if not grid_url:
