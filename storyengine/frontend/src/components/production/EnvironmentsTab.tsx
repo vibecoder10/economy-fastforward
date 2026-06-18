@@ -46,6 +46,7 @@ export function EnvironmentsTab({ video, onApproved }: EnvironmentsTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [taskRunning, setTaskRunning] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDesc, setEditDesc] = useState("");
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -72,9 +73,16 @@ export function EnvironmentsTab({ video, onApproved }: EnvironmentsTabProps) {
       setTaskRunning(false);
       refresh();
       if (msg) toast.success(msg);
+      // Approve runs as a background task now — advance to Scenes only once it
+      // actually finishes (locations locked).
+      if (approving) {
+        setApproving(false);
+        onApproved?.();
+      }
     },
     onFailed: (error) => {
       setTaskRunning(false);
+      setApproving(false);
       refresh();
       toast.error(humanizeError(error, "Environment design hit a snag."));
     },
@@ -94,10 +102,13 @@ export function EnvironmentsTab({ video, onApproved }: EnvironmentsTabProps) {
 
   const approveMutation = useMutation({
     mutationFn: () => approveEnvironments(video.id),
-    onSuccess: (res) => {
-      refresh();
-      toast.success(`Environments approved (${res.count}) — references are locked.`);
-      onApproved?.();
+    // Approve is a background task — flip into the polled "approving" state so
+    // the button shows live progress ("Locking in kitchen (1/8)…") instead of a
+    // ~100s silent request that trips the fetch timeout ("servers hit a snag").
+    // onApproved fires from the poller onComplete.
+    onSuccess: () => {
+      setApproving(true);
+      setTaskRunning(true);
     },
     onError: (err) => toast.error(humanizeError(err, "We couldn't approve the environments.")),
   });
@@ -186,11 +197,11 @@ export function EnvironmentsTab({ video, onApproved }: EnvironmentsTabProps) {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <ActionButton
-              icon={taskRunning ? Loader2 : MapPin}
+              icon={taskRunning && !approving ? Loader2 : MapPin}
               onClick={() => designMutation.mutate()}
               disabled={taskRunning || designMutation.isPending}
             >
-              {taskRunning
+              {taskRunning && !approving
                 ? (taskMessage || "Designing…")
                 : environments.length > 0
                   ? "Redesign Environments"
@@ -355,11 +366,15 @@ export function EnvironmentsTab({ video, onApproved }: EnvironmentsTabProps) {
             </p>
             <div className="flex items-center gap-2">
               <ActionButton
-                icon={approveMutation.isPending ? Loader2 : CheckCircle2}
+                icon={approving || approveMutation.isPending ? Loader2 : CheckCircle2}
                 onClick={() => approveMutation.mutate()}
                 disabled={!allHaveImages || taskRunning || approveMutation.isPending}
               >
-                {approvedAt ? "Re-approve Environments" : "Approve Environments"}
+                {approving
+                  ? (taskMessage || "Approving…")
+                  : approvedAt
+                    ? "Re-approve Environments"
+                    : "Approve Environments"}
               </ActionButton>
             </div>
           </div>

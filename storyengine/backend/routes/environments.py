@@ -502,10 +502,16 @@ async def _sync_bible_to_locations(video_id: str, tenant_id, envs: list[dict]) -
 
 
 @router.post("/{video_id}/environments/approve")
-async def approve_environments(video_id: str, tenant_id=Depends(get_tenant_id)):
+async def approve_environments(video_id: str, background_tasks: BackgroundTasks, tenant_id=Depends(get_tenant_id)):
     """Lock the environments: every location with a reference becomes
     'approved', videos.environments_approved_at is stamped, and storyboards
-    unlock."""
+    unlock.
+
+    The heavy part (a per-location vision pass that rewrites each description
+    from its approved reference) runs as a background task with progress — it
+    took ~96-111s synchronously for 8 locations, blowing past the frontend's
+    fetch timeout ("Our servers hit a snag") even though it actually saved.
+    """
     await _get_video(video_id, tenant_id)
     rows = await fetch_all(
         "SELECT * FROM video_environments WHERE video_id = $1 AND tenant_id = $2 ORDER BY sort, created_at",
@@ -521,64 +527,90 @@ async def approve_environments(video_id: str, tenant_id=Depends(get_tenant_id)):
             detail=f"These environments have no image yet: {', '.join(missing[:4])}. Regenerate, upload, or delete them.",
         )
 
-    await execute(
-        "UPDATE video_environments SET status = 'approved', updated_at = now() "
-        "WHERE video_id = $1 AND tenant_id = $2",
-        video_id, tenant_id,
-    )
+    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
+    task = _get_task_status(video_id, tenant_id)
+    if task and task.get("status") == "running":
+        raise HTTPException(status_code=409, detail="A task is already running for this video.")
 
-    envs = [dict(r) for r in with_refs]
+    _set_task_status(video_id, "running", "Locking in the locations…",
+                     tenant_id=tenant_id, task_type=TASK_TYPE)
 
-    # Pixel-accurate descriptions: the references were GENERATED from the bible
-    # prose, but image models take liberties — when the saved text disagrees
-    # with the approved reference, downstream prompts fight the reference and
-    # the setting drifts. Rewrite each description from the actual approved
-    # image (vision pass), best-effort per environment.
-    try:
-        from routes.model_video import _resolve_claude_creds
-        from shared.clients.vision_client import vision_call, _looks_like_refusal
-        creds = await _resolve_claude_creds(tenant_id)
-        if creds:
-            base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
-            for env in envs:
-                fid = _drive_file_id(env.get("reference_url") or "")
-                img_url = f"{base}/api/media/drive/{fid}" if fid else env.get("reference_url")
-                try:
-                    desc = await vision_call(
-                        "Describe this location/setting EXACTLY so an image generator can redraw the SAME place: "
-                        "architecture, props, lighting, and time of day. 40-60 words, no preamble. "
-                        f"The location's name is {env['name']}.",
-                        [img_url],
-                        kie_key=creds["key"] if creds["provider"] == "kie" else None,
-                        anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
-                        tier="fast", max_tokens=300,
-                    )
-                    # Never let a refusal / non-answer overwrite the bible-based
-                    # description (vision_call already guards this; belt-and-
-                    # suspenders so a regression can't reintroduce garbage anchors).
-                    if desc and len(desc) > 20 and not _looks_like_refusal(desc):
-                        env["description"] = desc.strip()[:1000]
-                        await execute(
-                            "UPDATE video_environments SET description = $1, updated_at = now() "
-                            "WHERE id = $2 AND tenant_id = $3",
-                            env["description"], env["id"], tenant_id,
+    async def _run():
+        try:
+            await execute(
+                "UPDATE video_environments SET status = 'approved', updated_at = now() "
+                "WHERE video_id = $1 AND tenant_id = $2",
+                video_id, tenant_id,
+            )
+            envs = [dict(r) for r in with_refs]
+
+            # Pixel-accurate descriptions: the references were GENERATED from the
+            # bible prose, but image models take liberties — when the saved text
+            # disagrees with the approved reference, downstream prompts fight the
+            # reference and the setting drifts. Rewrite each description from the
+            # actual approved image (vision pass), best-effort per environment.
+            try:
+                from routes.model_video import _resolve_claude_creds
+                from shared.clients.vision_client import vision_call, _looks_like_refusal
+                creds = await _resolve_claude_creds(tenant_id)
+                if creds:
+                    base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+                    for idx, env in enumerate(envs):
+                        _set_task_status(
+                            video_id, "running",
+                            f"Locking in {env['name']} ({idx + 1}/{len(envs)})…",
+                            tenant_id=tenant_id, task_type=TASK_TYPE,
                         )
-                    elif desc:
-                        logger.warning("[environments] kept original description for %s "
-                                       "(vision reply looked invalid)", env["name"])
-                except Exception as e:
-                    logger.warning("[environments] vision description failed for %s: %s", env["name"], str(e)[:150])
-    except Exception as e:
-        logger.warning("[environments] vision sync skipped: %s", str(e)[:150])
+                        fid = _drive_file_id(env.get("reference_url") or "")
+                        img_url = f"{base}/api/media/drive/{fid}" if fid else env.get("reference_url")
+                        try:
+                            desc = await vision_call(
+                                "Describe this location/setting EXACTLY so an image generator can redraw the SAME place: "
+                                "architecture, props, lighting, and time of day. 40-60 words, no preamble. "
+                                f"The location's name is {env['name']}.",
+                                [img_url],
+                                kie_key=creds["key"] if creds["provider"] == "kie" else None,
+                                anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+                                tier="fast", max_tokens=300,
+                            )
+                            # Never let a refusal / non-answer overwrite the
+                            # bible-based description (vision_call already guards
+                            # this; belt-and-suspenders against a regression).
+                            if desc and len(desc) > 20 and not _looks_like_refusal(desc):
+                                env["description"] = desc.strip()[:1000]
+                                await execute(
+                                    "UPDATE video_environments SET description = $1, updated_at = now() "
+                                    "WHERE id = $2 AND tenant_id = $3",
+                                    env["description"], env["id"], tenant_id,
+                                )
+                            elif desc:
+                                logger.warning("[environments] kept original description for %s "
+                                               "(vision reply looked invalid)", env["name"])
+                        except Exception as e:
+                            logger.warning("[environments] vision description failed for %s: %s", env["name"], str(e)[:150])
+            except Exception as e:
+                logger.warning("[environments] vision sync skipped: %s", str(e)[:150])
 
-    await _sync_bible_to_locations(video_id, tenant_id, envs)
+            await _sync_bible_to_locations(video_id, tenant_id, envs)
 
-    await execute(
-        "UPDATE videos SET environments_approved_at = now(), updated_at = now() "
-        "WHERE id = $1 AND tenant_id = $2",
-        video_id, tenant_id,
-    )
-    return {"status": "approved", "count": len(with_refs)}
+            await execute(
+                "UPDATE videos SET environments_approved_at = now(), updated_at = now() "
+                "WHERE id = $1 AND tenant_id = $2",
+                video_id, tenant_id,
+            )
+            _set_task_status(video_id, "completed",
+                             f"Environments approved ({len(with_refs)}) — storyboards unlocked.",
+                             tenant_id=tenant_id, task_type=TASK_TYPE)
+        except Exception as e:
+            _set_task_status(video_id, "failed",
+                             error=user_facing(humanize_error(e, context="We couldn't approve the environments")),
+                             tenant_id=tenant_id, task_type=TASK_TYPE)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return {"status": "running", "message": "Approving the locations — locking in each one."}
 
 
 @router.post("/{video_id}/environments/skip")

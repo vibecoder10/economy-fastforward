@@ -1123,7 +1123,7 @@ export const deleteEnvironment = (videoId: string, envId: string) =>
   });
 
 export const approveEnvironments = (videoId: string) =>
-  fetchApi<{ status: string; count: number }>(`/api/videos/${videoId}/environments/approve`, {
+  fetchApi<{ status: string; message?: string; count?: number }>(`/api/videos/${videoId}/environments/approve`, {
     method: "POST",
   });
 
