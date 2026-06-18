@@ -14,6 +14,7 @@ For now, EFF profile is the default. Future: load per-tenant from config or Airt
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -30,7 +31,7 @@ class LensProfile:
     movement_vocabulary: list[str] = field(default_factory=lambda: [
         "slow push-in for tension building",
         "lateral track for reveals",
-        "subtle orbit for power dynamics",
+        "subtle orbit for emphasis",
         "static lock-off for impact moments",
         "gentle handheld micro-shake for urgency/chaos",
     ])
@@ -40,32 +41,33 @@ class LensProfile:
 
 @dataclass
 class ColorGrade:
-    """Lighting and color grading direction."""
-    primary_palette: str = "teal-navy dominant with warm amber accent highlights"
-    contrast: str = "high contrast — deep blacks, controlled highlights"
-    shadow_treatment: str = "rich shadows with visible detail, never crushed"
-    highlight_treatment: str = "warm key light on subjects, cool environmental fill"
+    """Lighting and color grading direction. Style-agnostic by default — the
+    palette is whatever the video's visual style and reference images call for,
+    NOT a fixed channel look."""
+    primary_palette: str = (
+        "no fixed palette — follow the video's visual style and the attached "
+        "reference images; use colors that fit the scene and the channel's look"
+    )
+    contrast: str = "contrast appropriate to the visual style and the scene's mood"
+    shadow_treatment: str = "shadows with visible detail, never crushed"
+    highlight_treatment: str = "motivated lighting that reads the subject clearly"
     material_priorities: str = (
-        "metallic surfaces catch highlights, fabric absorbs shadow, "
-        "skin tones stay warm"
+        "render materials (skin, fabric, surfaces) believably for the chosen style"
     )
     time_of_day_default: str = (
-        "varies by scene emotional beat — dawn for hope, dusk for tension, "
-        "night for crisis"
+        "match the time of day implied by the script and the location reference"
     )
 
 
 @dataclass
 class CharacterHandling:
     """How subjects are treated in storyboards."""
-    mode: str = "archetype"  # "archetype", "named_persistent", "no_characters"
+    mode: str = "named_persistent"  # "archetype", "named_persistent", "no_characters"
     description: str = (
-        "Use archetypal figures — The Strategist (suited, war room energy), "
-        "The Operative (field agent, tactical gear), The Civilian (everyman), "
-        "The Authority Figure (government/institutional), The Disruptor "
-        "(tech/finance). Characters should have expressive faces and body "
-        "language that convey the narrative beat. Do NOT use real-world "
-        "political figures by name — imply through context and setting."
+        "Use the characters that appear in the script, kept visually consistent "
+        "with the attached cast sheet. Give them expressive faces and body "
+        "language that convey each narrative beat. Do NOT invent characters who "
+        "are not in the scene, and do NOT use real-world public figures by name."
     )
     reference_images: dict[str, str] = field(default_factory=dict)
 
@@ -86,7 +88,7 @@ class ShotRequirements:
         "1 environment-establishing wide (ELS or LS)",
         "1 intimate character close-up (CU or MCU)",
         "1 extreme detail shot (ECU) — hands, documents, screens, objects",
-        "1 power-angle shot (low angle or high angle)",
+        "1 dynamic-angle shot (low angle or high angle)",
     ])
     continuity_rules: list[str] = field(default_factory=lambda: [
         "Strict continuity: same subjects, wardrobe, environment, lighting "
@@ -289,18 +291,21 @@ def load_model_profile(idea_record: Optional[dict] = None) -> ModelProfile:
 
 
 # =============================================================================
-# Default Profile — Economy FastForward / Power Doctrine
+# Default Profile — style-agnostic. The channel's actual look is supplied per
+# video (image_style_override / Visual Style / the VISUAL_STYLE_DESCRIPTION the
+# backend exports). This default must NOT impose any specific channel identity.
 # =============================================================================
 
 DEFAULT_PROFILE = ChannelProfile(
-    channel_name="Power Doctrine",
+    channel_name="Default",
 
     visual_style_directive=(
-        "Cinematic animated illustration style inspired by War Archive channel. "
-        "Characters with expressive faces performing actions in narrative "
-        "environments. Emotional lighting with dramatic compositions. Rich "
-        "environmental detail. NOT photorealistic. NOT holographic HUD. NOT "
-        "mannequins. Think graphic novel meets documentary cinematography."
+        "Render in the channel's defined visual style, supplied per video and "
+        "shown in the attached cast and location references — match those "
+        "references exactly and never switch art styles mid-video. When no "
+        "style is supplied, default to a clean, modern, cinematic look: "
+        "characters with expressive faces performing actions in believable "
+        "environments, with motivated lighting and clear compositions."
     ),
 
     lens_profile=LensProfile(),
@@ -353,13 +358,17 @@ def _build_visual_style_directive(profile_id: str) -> Optional[str]:
 
 
 def load_profile(idea_record: Optional[dict] = None) -> ChannelProfile:
-    """Load channel profile for storyboard generation.
+    """Load the channel profile for storyboard generation.
 
-    For now, returns DEFAULT_PROFILE (EFF).
-    Future: read from idea_record['Channel Profile'] or a per-tenant config.
-
-    If the idea record has a visual style override, merge it into the
-    visual_style_directive.
+    The base profile is style-agnostic (DEFAULT_PROFILE). The channel's actual
+    look is layered on in priority order:
+      1. idea_record['Image Style Override'] — freeform per-video instruction.
+      2. idea_record['Visual Style'] — a preset style id, resolved to a directive.
+      3. VISUAL_STYLE_DESCRIPTION env var — the look the backend exports for this
+         video (the engine seam), so the directive uses it even when the idea
+         record didn't carry the field. This closes the gap where the storyboard
+         directive ignored the backend's resolved look.
+      4. otherwise the neutral default.
     """
     profile = ChannelProfile(
         channel_name=DEFAULT_PROFILE.channel_name,
@@ -373,18 +382,22 @@ def load_profile(idea_record: Optional[dict] = None) -> ChannelProfile:
     )
 
     if idea_record:
-        # Freeform per-video instructions should win over any preset style id.
+        # Freeform per-video instructions win over any preset style id.
         image_style_override = idea_record.get("Image Style Override")
-        if image_style_override and isinstance(image_style_override, str):
-            profile.visual_style_directive = image_style_override
+        if image_style_override and isinstance(image_style_override, str) and image_style_override.strip():
+            profile.visual_style_directive = image_style_override.strip()
             return profile
 
         visual_style = idea_record.get("Visual Style")
-        if visual_style and isinstance(visual_style, str):
+        if visual_style and isinstance(visual_style, str) and visual_style.strip():
             resolved_directive = _build_visual_style_directive(visual_style.strip())
-            if resolved_directive:
-                profile.visual_style_directive = resolved_directive
-            else:
-                profile.visual_style_directive = visual_style
+            profile.visual_style_directive = resolved_directive or visual_style.strip()
+            return profile
+
+    # Engine seam: the backend exports the resolved channel look here so the
+    # directive matches the rest of the pipeline even without an idea_record field.
+    env_style = os.getenv("VISUAL_STYLE_DESCRIPTION")
+    if env_style and env_style.strip():
+        profile.visual_style_directive = env_style.strip()
 
     return profile
