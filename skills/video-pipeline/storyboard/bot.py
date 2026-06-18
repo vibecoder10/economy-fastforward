@@ -1886,9 +1886,13 @@ async def generate_contact_sheet(
         # generate the grid at higher resolution. Default 2K (~2x the old 1K);
         # set STORYBOARD_GRID_RESOLUTION=4K for sharper panels at higher cost.
         grid_resolution = os.getenv("STORYBOARD_GRID_RESOLUTION", "2K")
-        # Use reference-based generation for character consistency,
-        # with one style-QA retry (models drift style stochastically)
-        for attempt in range(2):
+        # Up to 3 attempts, retrying on BOTH failure modes:
+        #  - outright generation FAILURE (Kie returns None — transient 502
+        #    "internal error" silently dropped whole beats, leaving missing
+        #    boards on a full batch; back off and retry instead of giving up).
+        #  - style-QA mismatch (models drift art style stochastically).
+        grid_url = None
+        for attempt in range(3):
             result = await image_client.generate_with_reference(
                 prompt=full_prompt,
                 reference_image_url=combined_refs,
@@ -1897,12 +1901,14 @@ async def generate_contact_sheet(
             )
             grid_url = result.get("url") if isinstance(result, dict) else result
             if not grid_url:
-                return grid_url
+                logger.warning("Grid generation failed (attempt %d/3) — retrying", attempt + 1)
+                await asyncio.sleep(3 * (attempt + 1))
+                continue
             if await _grid_style_matches_reference(grid_url, ref_for_qa, image_client.api_key):
                 return grid_url
-            if attempt == 0:
-                logger.warning("Grid failed style QA (wrong art style) — regenerating once")
-        logger.warning("Grid failed style QA twice — keeping last attempt")
+            logger.warning("Grid failed style QA (wrong art style) — regenerating (attempt %d/3)", attempt + 1)
+        if not grid_url:
+            logger.error("Grid generation failed after 3 attempts (no image produced)")
         return grid_url
     else:
         # No reference image — use standard text-to-image
