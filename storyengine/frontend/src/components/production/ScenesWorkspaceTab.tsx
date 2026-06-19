@@ -16,7 +16,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Check, Loader2, Pencil, Image as ImageIcon, RefreshCw,
+  Check, Loader2, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
   MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, Type, MapPin,
 } from "lucide-react";
@@ -429,70 +429,38 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [video.id, queryClient, toast, runStageWith409Retry, requireEnvironments]);
 
-  const handleRedoScenePictures = useCallback(async (sceneNumber: number) => {
-    if (!requireEnvironments()) return;
-    const scene = scenes.find((s) => s.sceneNumber === sceneNumber);
-    const boardCount = scene?.storyboardBeats.filter((b) => b.gridUrl).length || 0;
-    const confirmed = window.confirm(
-      `Redo Scene ${sceneNumber}'s pictures? The current ${boardCount === 1 ? "picture" : `${boardCount} pictures`} will be replaced (≈ $0.08 each). The scene's plan stays the same.`
-    );
-    if (!confirmed) return;
-    setGeneratingScene(sceneNumber);
-    try {
-      for (const beat of scene?.storyboardBeats || []) {
-        if (beat.gridUrl) await clearStoryboardSlot(video.id, sceneNumber, beat.beatNumber);
-      }
-      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
-      await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
-    } catch (err) {
-      setGeneratingScene(null);
-      toast.error(`Couldn't redo Scene ${sceneNumber}'s pictures: ${(err as Error).message}`);
-    }
-  }, [video.id, scenes, queryClient, toast, runStageWith409Retry, requireEnvironments]);
-
-  const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
-    if (!requireEnvironments()) return;
-    setGeneratingScene(sceneNumber);
-    try {
-      await runStageWith409Retry("storyboards", { scene: sceneNumber });
-    } catch (err: unknown) {
-      setGeneratingScene(null);
-      toast.error(`Scene ${sceneNumber} plan failed: ${(err as Error).message}`);
-    }
-  }, [runStageWith409Retry, toast, requireEnvironments]);
-
+  // One per-scene action: "Generate scene" fires the DRAW step; the backend
+  // self-heals by writing the scene's plan first if it's missing. (Empty-slot
+  // clicks reuse this too.)
   const handleGenerateSceneGrids = useCallback(async (sceneNumber: number) => {
     if (!requireEnvironments()) return;
+    chainRef.current = null;
     setGeneratingScene(sceneNumber);
     try {
       await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
     } catch (err: unknown) {
       setGeneratingScene(null);
-      toast.error(`Scene ${sceneNumber} boards failed: ${(err as Error).message}`);
+      toast.error(`Scene ${sceneNumber} failed: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry, toast, requireEnvironments]);
 
-  // Bulk: plan AND draw every scene that still needs it, in one action. Builds a
-  // per-scene step queue (plan → draw for each), fires the first step, and the
-  // onComplete chain runs the rest one task at a time. Per-scene calls are used
-  // (not a global all-scenes call) so it works at any storyboard sub-stage.
+  // Bulk: generate every scene that still needs pictures, one at a time. We
+  // only fire the DRAW step per scene — the backend self-heals (writes the
+  // scene's plan first if it's missing), so the queue stays simple and can't
+  // fire a draw before its plan. onComplete pops the next scene.
   const handleGenerateAllScenes = useCallback(async () => {
     if (!requireEnvironments()) return;
-    const work = scenes.filter((s) => !s.hasStoryboardPrompt || s.storyboardGridCount === 0);
+    const work = scenes.filter((s) => s.storyboardGridCount === 0);
     if (work.length === 0) return;
     if (!window.confirm(
-      `Plan and draw ${work.length} scene${work.length === 1 ? "" : "s"}? We write each scene's plan, then draw its pictures (≈ $0.08 each board). You can Stop anytime.`,
+      `Generate ${work.length} scene${work.length === 1 ? "" : "s"}? We plan each scene, then draw its pictures (≈ $0.08 each board). You can Stop anytime.`,
     )) return;
-    const steps: Array<{ stage: string; scene?: number }> = [];
-    for (const s of work) {
-      if (!s.hasStoryboardPrompt) steps.push({ stage: "storyboards", scene: s.sceneNumber });
-      steps.push({ stage: "storyboard-images", scene: s.sceneNumber });
-    }
+    const steps = work.map((s) => ({ stage: "storyboard-images", scene: s.sceneNumber }));
     const [first, ...rest] = steps;
     try {
       chainRef.current = { queue: rest };
       setGeneratingScene(first.scene ?? null);
-      await runStageWith409Retry(first.stage, first.scene != null ? { scene: first.scene } : {});
+      await runStageWith409Retry(first.stage, { scene: first.scene });
     } catch (err) {
       chainRef.current = null;
       setGeneratingScene(null);
@@ -1099,41 +1067,27 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               <div className="ml-auto flex items-center gap-2 flex-wrap">
                 {generatingScene === scene.sceneNumber ? (
                   <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--purple)" }}>
-                    <Loader2 size={13} className="animate-spin" /> Redoing this scene…
+                    <Loader2 size={13} className="animate-spin" /> Generating this scene…
                   </span>
                 ) : (
                   <>
-                    {!scene.hasStoryboardPrompt && (
-                      <button onClick={() => handleGenerateScenePrompts(scene.sceneNumber)} disabled={running}
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                        style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
-                        <Pencil size={13} /> Plan this scene
-                      </button>
-                    )}
-                    {scene.hasStoryboardPrompt && scene.storyboardGridCount === 0 && (
-                      <button onClick={() => handleGenerateSceneGrids(scene.sceneNumber)} disabled={running}
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                        style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
-                        <ImageIcon size={13} /> Draw the pictures
-                      </button>
-                    )}
-                    {scene.hasStoryboardPrompt && scene.storyboardGridCount > 0 && (
-                      <button onClick={() => handleRedoScenePictures(scene.sceneNumber)}
+                    {/* ONE clear action per scene: generate it (plan + draw,
+                        backend self-heals the plan), or regenerate if it's done. */}
+                    {scene.storyboardGridCount === 0 ? (
+                      <button onClick={() => handleGenerateSceneGrids(scene.sceneNumber)}
                         disabled={running || storyLocked}
-                        title={storyLocked ? "Unlock the story first (top right)" : "Replace this scene's boards — the plan stays"}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                        style={{ background: "rgba(168, 85, 247, 0.15)", color: "var(--purple)", border: "1px solid rgba(168, 85, 247, 0.4)" }}>
-                        <RefreshCw size={13} /> Redo boards
+                        title={storyLocked ? "Unlock the story first (top right)" : "Plan this scene and draw its pictures"}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                        style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
+                        <ImageIcon size={13} /> Generate scene
                       </button>
-                    )}
-                    {scene.hasStoryboardData && (
+                    ) : (
                       <button onClick={() => handleRedoSceneFromScratch(scene.sceneNumber)}
                         disabled={running || storyLocked || clearingScene === scene.sceneNumber}
-                        title={storyLocked ? "Unlock the story first (top right)" : "New plan AND new boards for this scene"}
-                        className="text-xs font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-40 hover:bg-[rgba(255,255,255,0.05)]"
-                        style={{ color: "var(--text-tertiary)" }}>
-                        {clearingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin inline mr-1" /> : null}
-                        Start scene over
+                        title={storyLocked ? "Unlock the story first (top right)" : "Throw away this scene and make a fresh plan + new pictures"}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                        style={{ background: "rgba(168, 85, 247, 0.15)", color: "var(--purple)", border: "1px solid rgba(168, 85, 247, 0.4)" }}>
+                        {clearingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={13} />} Regenerate
                       </button>
                     )}
                     {videoStageEnabled && scenePending.length > 0 && (
