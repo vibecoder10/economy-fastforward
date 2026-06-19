@@ -1047,7 +1047,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                   title={storyLocked ? "Unlock the story first" : undefined}
                   className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
                   style={{ color: "var(--orange)" }}>
-                  Start storyboard over <span style={{ color: "var(--text-tertiary)" }}>— deletes every board + plan</span>
+                  Clear ALL storyboards <span style={{ color: "var(--text-tertiary)" }}>— deletes every board + plan</span>
                 </button>
                 <button onClick={() => { setShowAdvanced(false); handleAdvanceStage(); }} disabled={advancing}
                   className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
