@@ -2174,28 +2174,6 @@ no stage directions, no labels, no headings."""
             scene_label = f" (Scene {scene})" if scene else ""
             await self._log_activity(bot_name, video_id, "started", f"Generating storyboard images{scene_label}")
 
-            # Self-heal: drawing a scene's grids needs that scene's plan. If the
-            # plan is missing (drawing fired before planning, or the UI ran
-            # stages out of order / on stale state), write the plan first
-            # instead of hard-failing with "No storyboard prompts found".
-            # run_storyboard_prompts re-checks the environments gate + syncs the
-            # cast into the bible, so the plan comes out correct.
-            if scene is not None:
-                _pr = await fetch_one(
-                    "SELECT storyboard_prompts FROM scripts WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
-                    video_id, scene, self.tenant_id,
-                )
-                if not (_pr and (_pr.get("storyboard_prompts") or "").strip()):
-                    if progress_callback:
-                        try:
-                            await progress_callback(f"Writing the plan for Scene {scene} first…")
-                        except Exception:
-                            pass
-                    plan_result = await self.run_storyboard_prompts(video_id, scene=scene, progress_callback=progress_callback)
-                    if plan_result.get("status") == "failed":
-                        await self._log_activity(bot_name, video_id, "failed", plan_result.get("error") or "Could not write the scene plan")
-                        return plan_result
-
             self._load_idea_from_video(video_id)
             # Deliver the channel look (storyboard keyframe prompts + grids).
             await self._export_visual_style(video)

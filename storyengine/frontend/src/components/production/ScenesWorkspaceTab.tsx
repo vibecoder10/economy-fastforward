@@ -429,9 +429,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [video.id, queryClient, toast, runStageWith409Retry, requireEnvironments]);
 
-  // One per-scene action: "Generate scene" fires the DRAW step; the backend
-  // self-heals by writing the scene's plan first if it's missing. (Empty-slot
-  // clicks reuse this too.)
+  // Draw a scene's grids only (no re-plan) — used by empty-slot clicks on a
+  // scene that already has a plan.
   const handleGenerateSceneGrids = useCallback(async (sceneNumber: number) => {
     if (!requireEnvironments()) return;
     chainRef.current = null;
@@ -444,10 +443,26 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [runStageWith409Retry, toast, requireEnvironments]);
 
-  // Bulk: generate every scene that still needs pictures, one at a time. We
-  // only fire the DRAW step per scene — the backend self-heals (writes the
-  // scene's plan first if it's missing), so the queue stays simple and can't
-  // fire a draw before its plan. onComplete pops the next scene.
+  // One per-scene action: PLAN then DRAW as two chained tasks (the draw runs
+  // from onComplete, after the plan task finishes — separate tasks so the draw
+  // reads the freshly-written plan; an in-process plan+draw can't see its own
+  // new prompts). Always plans first, so a draw never fires without a plan.
+  const handleGenerateScene = useCallback(async (sceneNumber: number) => {
+    if (!requireEnvironments()) return;
+    try {
+      chainRef.current = { queue: [{ stage: "storyboard-images", scene: sceneNumber }] };
+      setGeneratingScene(sceneNumber);
+      await runStageWith409Retry("storyboards", { scene: sceneNumber });
+    } catch (err) {
+      chainRef.current = null;
+      setGeneratingScene(null);
+      toast.error(`Couldn't generate Scene ${sceneNumber}: ${(err as Error).message}`);
+    }
+  }, [runStageWith409Retry, toast, requireEnvironments]);
+
+  // Bulk: generate every scene that still needs pictures, one at a time. Each
+  // scene is PLAN then DRAW (two tasks); the onComplete chain runs the queue in
+  // order. Always plans first per scene — never fires a draw before its plan.
   const handleGenerateAllScenes = useCallback(async () => {
     if (!requireEnvironments()) return;
     const work = scenes.filter((s) => s.storyboardGridCount === 0);
@@ -455,7 +470,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     if (!window.confirm(
       `Generate ${work.length} scene${work.length === 1 ? "" : "s"}? We plan each scene, then draw its pictures (≈ $0.08 each board). You can Stop anytime.`,
     )) return;
-    const steps = work.map((s) => ({ stage: "storyboard-images", scene: s.sceneNumber }));
+    const steps: Array<{ stage: string; scene: number }> = [];
+    for (const s of work) {
+      steps.push({ stage: "storyboards", scene: s.sceneNumber });
+      steps.push({ stage: "storyboard-images", scene: s.sceneNumber });
+    }
     const [first, ...rest] = steps;
     try {
       chainRef.current = { queue: rest };
@@ -1074,7 +1093,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     {/* ONE clear action per scene: generate it (plan + draw,
                         backend self-heals the plan), or regenerate if it's done. */}
                     {scene.storyboardGridCount === 0 ? (
-                      <button onClick={() => handleGenerateSceneGrids(scene.sceneNumber)}
+                      <button onClick={() => handleGenerateScene(scene.sceneNumber)}
                         disabled={running || storyLocked}
                         title={storyLocked ? "Unlock the story first (top right)" : "Plan this scene and draw its pictures"}
                         className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
