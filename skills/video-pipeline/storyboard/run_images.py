@@ -67,10 +67,23 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
             "skipped": True,
         }
 
-    # Check that prompts exist
-    first_script = script_records[0].get("fields", script_records[0])
-    prompts = first_script.get("Storyboard Prompts", "")
-    if not prompts:
+    # Check that prompts exist FOR THE SCENE BEING DRAWN — not just the first
+    # script record. The old check looked only at script_records[0] (scene 1),
+    # so drawing any scene failed whenever scene 1 had no plan, even if the
+    # target scene was fully planned (e.g. generating scenes one at a time).
+    def _scene_num(rec):
+        f = rec.get("fields", rec)
+        try:
+            return int(f.get("Scene", f.get("scene")))
+        except (TypeError, ValueError):
+            return None
+
+    if scene_filter is not None:
+        target = next((r for r in script_records if _scene_num(r) == scene_filter), None)
+        prompts = (target.get("fields", target).get("Storyboard Prompts", "") if target else "")
+    else:
+        prompts = "present" if any_prompts_exist else ""
+    if not (prompts or "").strip():
         return {
             "error": "No storyboard prompts found — run prompt generation first",
             "bot": "Storyboard Images",
