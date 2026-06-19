@@ -726,6 +726,15 @@ Each panel MUST show the same subject and scene as its assigned prompt.
 Your job: enhance each with cinematic direction — shot type, camera angle, \
 composition, lighting, transitions — while preserving the exact subject described.
 
+CHARACTER APPEARANCE AUTHORITY (overrides the assigned prompt): the VISUAL BIBLE \
+is the ONLY source for what a character LOOKS LIKE — clothing, colors, hair, \
+face, accessories. If an assigned Image Prompt describes a named character's \
+clothing or features differently than the visual bible, IGNORE the image \
+prompt's wardrobe/appearance and use the visual bible's EXACT appearance. The \
+image prompt governs only the ACTION, framing, and composition — never a \
+character's wardrobe or face. Never give a character glasses, hats, or clothing \
+the visual bible does not explicitly list.
+
 CRITICAL: Total duration for all keyframes MUST equal approximately {beat_duration_seconds:.0f} seconds \
 (calculated from the narration word count at 2.5 words/second). Distribute the duration across \
 keyframes based on the pacing of the narration — longer dialogue sections get longer keyframes, \
