@@ -86,6 +86,10 @@ interface SceneGroup {
   storyboardGridCount: number;
   hasStoryboardPrompt: boolean;
   hasStoryboardData: boolean;
+  /** Cache-bust key — boards update in place at the same URL, so the <img>
+   *  must change its src when the scene's row changes or the browser/CDN
+   *  serves a stale grid. */
+  gridVersion: number;
   assets: Asset[];
 }
 
@@ -209,6 +213,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           scene.storyboard_prompts || scene.storyboard_status ||
           scene.storyboard_beat_count != null || gridUrls.some(Boolean)
         ),
+        gridVersion: scene.updated_at ? Date.parse(scene.updated_at) || 0 : 0,
         assets: assets
           .filter((a) => a.scene === scene.scene)
           .sort((a, b) => (a.image_index || 0) - (b.image_index || 0)),
@@ -1162,7 +1167,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                 <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
                   {scene.storyboardBeats.map((beat) => {
                     const slotKey = `${scene.sceneNumber}-${beat.beatNumber}`;
-                    const bust = gridBust[slotKey];
+                    // Boards update in place at the same URL — cache-bust by the
+                    // scene's updated_at (changes on every regen) so the browser/
+                    // CDN never shows a stale grid. A manual upload bumps gridBust
+                    // for that one slot and takes precedence.
+                    const bust = gridBust[slotKey] || scene.gridVersion;
                     const displayUrl = beat.gridUrl
                       ? `${toDisplayImageUrl(beat.gridUrl)}${bust ? `?cb=${bust}` : ""}`
                       : undefined;

@@ -1382,6 +1382,7 @@ export interface ScriptScene {
   storyboard_beat_count: number | null;
   storyboard_status: string | null;
   tone: string | null; // serious | conversational | urgent | concise
+  updated_at?: string | null; // bumps when a board is (re)generated — used to cache-bust grid images
 }
 
 export interface ActivityEntry {
