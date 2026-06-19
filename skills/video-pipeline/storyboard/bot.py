@@ -692,8 +692,12 @@ environment, same time-of-day and lighting. Only action, expression, blocking, f
 angle, and camera movement may change.
 4) Depth of field must be realistic per the lens profile. Keep ONE consistent cinematic color \
 grade across the entire sequence per the color grade profile.
-5) Do NOT introduce new characters/objects not supported by the narration. If you need \
-tension/conflict beyond what's described, imply it off-screen (shadow, reflection, gaze).
+5) NO INVENTED PEOPLE — the ONLY people who may appear in ANY panel are the named \
+characters listed in the VISUAL BIBLE / cast. NEVER add a guest, friend, sibling, \
+daughter, neighbor, classmate, crowd member, or any unnamed extra — not even for visual \
+interest or to fill a frame, and never invent a name for one. If a panel's narration names \
+no one, show the existing cast or an empty environment. Do NOT introduce new objects not \
+supported by the narration; imply any off-screen tension through shadow, reflection, or gaze.
 6) If a VISUAL BIBLE is provided in the user message, it contains BINDING character and \
 location descriptions. Use the EXACT costume/appearance for each character and the EXACT \
 environment description for each location. These are visual anchors that ensure consistency \
