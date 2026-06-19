@@ -542,7 +542,11 @@ async def _sync_bible_to_cast(video_id: str, tenant_id, cast: list[dict]) -> Non
         by_name = {c["name"].strip().lower(): c for c in cast if c.get("name")}
         changed = False
         for ch in bible["characters"]:
-            match = by_name.get((ch.get("name") or "").strip().lower())
+            # Bible characters key on `id` ("tom"), NOT `name` — matching only on
+            # `name` silently failed, so the bible kept its invented costumes
+            # (Tom in a hoodie, Dad in glasses) and fought the approved cast.
+            key = (ch.get("name") or ch.get("id") or "").strip().lower()
+            match = by_name.get(key)
             if match and match.get("description"):
                 ch["description"] = match["description"]
                 ch["costume"] = match["description"]

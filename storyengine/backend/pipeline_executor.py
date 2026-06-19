@@ -2061,6 +2061,26 @@ no stage directions, no labels, no headings."""
             # Deliver the channel look to the neutral image profile.
             await self._export_visual_style(video)
 
+            # Reconcile the Story Bible's character costumes with the APPROVED
+            # cast BEFORE writing prompts. The bible is generated from the script
+            # and invents its own outfits (Tom in a hoodie, Dad in glasses) that
+            # contradict the approved portraits — and the storyboard prompt text
+            # then overrides the cast-sheet image, so characters drift. The
+            # approved descriptions (vision pass from the portraits) are the
+            # source of truth. Runs every prompt build so re-approvals propagate.
+            try:
+                cast_rows = await fetch_all(
+                    "SELECT name, description FROM video_characters "
+                    "WHERE video_id = $1 AND tenant_id = $2 AND reference_url IS NOT NULL "
+                    "ORDER BY sort, created_at",
+                    video_id, self.tenant_id,
+                )
+                if cast_rows:
+                    from routes.characters import _sync_bible_to_cast
+                    await _sync_bible_to_cast(video_id, self.tenant_id, [dict(r) for r in cast_rows])
+            except Exception as e:
+                _logger.warning("[storyboard] bible<-cast sync skipped: %s", str(e)[:150])
+
             result = await self._pipeline.run_storyboard_prompts(
                 scene_filter=scene,
                 progress_callback=progress_callback,
