@@ -16,7 +16,7 @@ from logging_config import logger, RequestLoggingMiddleware
 from rate_limit import RateLimitMiddleware
 from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media
 from routes.autopilot import _bg_task_status
-from routes.pipeline import recover_stale_tasks
+from routes.pipeline import recover_stale_tasks, reap_stale_running_tasks
 from job_queue import enqueue_stage
 
 
@@ -272,6 +272,27 @@ async def _auto_check_trial_expired():
         await asyncio.sleep(21600)  # Run every 6 hours
 
 
+async def _auto_reap_stale_tasks():
+    """Background task: fail tasks stuck 'running'/'pending' past the stale
+    threshold (a dead worker leaves a zombie row that blocks a 1-job-plan
+    tenant's whole pipeline). recover_stale_tasks() only runs at startup; this
+    runs on a timer so the tenant auto-unblocks without an API restart.
+
+    Runs every 30 minutes. The 3h threshold (in reap_stale_running_tasks) keeps
+    it from ever touching a legitimately long-running render.
+    """
+    await asyncio.sleep(210)  # Offset from the other startup tasks
+    while True:
+        try:
+            reaped = await reap_stale_running_tasks()
+            if reaped:
+                logger.info("[Reaper] Failed %d stale background task(s)", reaped)
+        except Exception as e:
+            logger.error("[Reaper] Error: %s", e)
+
+        await asyncio.sleep(1800)  # Run every 30 minutes
+
+
 async def _run_pending_migrations():
     """Auto-run SQL migration files on startup.
 
@@ -449,6 +470,7 @@ async def lifespan(app: FastAPI):
     trial_expired_task = asyncio.create_task(_auto_check_trial_expired())
     distillation_task = asyncio.create_task(_auto_distill_intelligence())
     meta_insights_task = asyncio.create_task(_auto_generate_meta_insights())
+    reaper_task = asyncio.create_task(_auto_reap_stale_tasks())
 
     yield
 
@@ -463,6 +485,7 @@ async def lifespan(app: FastAPI):
     trial_expired_task.cancel()
     distillation_task.cancel()
     meta_insights_task.cancel()
+    reaper_task.cancel()
     await close_pool()
 
 
@@ -495,6 +518,25 @@ app.add_middleware(
 # Rate limiting + request logging (added AFTER CORS so they run on CORS-allowed requests)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all so an uncaught error returns clean JSON instead of a raw 500
+    that could leak internals. HTTPException keeps its own (more specific)
+    handler, so this only fires for genuinely unhandled exceptions."""
+    from fastapi.responses import JSONResponse
+    from logging_config import track_error
+    from error_utils import humanize_error
+    try:
+        track_error()
+    except Exception:
+        pass
+    logger.error(
+        "Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(status_code=500, content={"detail": humanize_error(exc)})
 
 # Register routes
 app.include_router(dashboard.router)

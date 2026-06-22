@@ -364,41 +364,24 @@ class SupabaseAdapter:
     def __init__(self, tenant_id: str = None):
         self.tenant_id = tenant_id
 
-    def _tw(self, alias: str = "") -> tuple:
-        """Tenant-isolation predicate for title/status lookups.
-
-        Returns (" AND <col> = %s", [tenant_id]) when a tenant is bound, else
-        ("", []). Every lookup that resolves a row by TITLE or STATUS must AND
-        this in — without it, two tenants sharing a video title or pipeline
-        status read (or DELETE) each other's rows. id-based reads add it as
-        defense in depth. The else branch keeps standalone/CLI callers (no
-        tenant) working unchanged.
-        """
-        if not self.tenant_id:
-            return "", []
-        col = f"{alias}.tenant_id" if alias else "tenant_id"
-        return f" AND {col} = %s", [self.tenant_id]
-
     # ── Idea Concepts (videos table) ─────────────────────────────────────
 
     def get_idea(self, record_id: str) -> Optional[dict]:
-        """Fetch single video by ID (tenant-scoped)."""
-        tw, tp = self._tw()
-        row = _fetch_one(f"SELECT * FROM videos WHERE id = %s{tw}", (record_id, *tp))
+        """Fetch single video by ID."""
+        row = _fetch_one("SELECT * FROM videos WHERE id = %s", (record_id,))
         if not row:
             row = _fetch_one(
-                f"SELECT * FROM videos WHERE airtable_record_id = %s{tw}", (record_id, *tp)
+                "SELECT * FROM videos WHERE airtable_record_id = %s", (record_id,)
             )
         return _row_to_idea(row) if row else None
 
     def get_ideas_by_status(self, status: str, limit: int = 1) -> list:
-        """Filter videos by pipeline status (tenant-scoped)."""
+        """Filter videos by pipeline status."""
         from status_map import to_supabase
         supabase_status = to_supabase(status) if " " in status else status
-        tw, tp = self._tw()
         rows = _fetch_all(
-            f"SELECT * FROM videos WHERE status = %s{tw} ORDER BY created_at DESC LIMIT %s",
-            (supabase_status, *tp, limit),
+            "SELECT * FROM videos WHERE status = %s ORDER BY created_at DESC LIMIT %s",
+            (supabase_status, limit),
         )
         return [_row_to_idea(r) for r in rows]
 
@@ -406,27 +389,20 @@ class SupabaseAdapter:
         return self.get_ideas_by_status("Ready For Scripting", limit)
 
     def get_all_ideas(self) -> list:
-        """Fetch all videos (tenant-scoped)."""
-        if self.tenant_id:
-            rows = _fetch_all(
-                "SELECT * FROM videos WHERE tenant_id = %s ORDER BY created_at DESC",
-                (self.tenant_id,),
-            )
-        else:
-            rows = _fetch_all("SELECT * FROM videos ORDER BY created_at DESC")
+        """Fetch all videos."""
+        rows = _fetch_all("SELECT * FROM videos ORDER BY created_at DESC")
         return [_row_to_idea(r) for r in rows]
 
     def find_idea_by_title(self, title: str) -> Optional[dict]:
-        """Find video by exact title (tenant-scoped); fuzzy fallback stays in-tenant."""
-        tw, tp = self._tw()
+        """Find video by exact title match."""
         row = _fetch_one(
-            f"SELECT * FROM videos WHERE video_title = %s{tw} LIMIT 1", (title, *tp)
+            "SELECT * FROM videos WHERE video_title = %s LIMIT 1", (title,)
         )
         if not row:
-            # Fuzzy fallback: ILIKE — still scoped to this tenant
+            # Fuzzy fallback: ILIKE
             row = _fetch_one(
-                f"SELECT * FROM videos WHERE video_title ILIKE %s{tw} LIMIT 1",
-                (f"%{title}%", *tp),
+                "SELECT * FROM videos WHERE video_title ILIKE %s LIMIT 1",
+                (f"%{title}%",),
             )
         return _row_to_idea(row) if row else None
 
@@ -525,43 +501,40 @@ class SupabaseAdapter:
         the title — duplicate titles otherwise read another video's scenes.
         """
         current_vid = getattr(self, "current_video_id", None)
-        tw, tp = self._tw("v")
         if current_vid:
             rows = _fetch_all(
-                f"""SELECT s.*, v.video_title as title FROM scripts s
+                """SELECT s.*, v.video_title as title FROM scripts s
                    JOIN videos v ON s.video_id = v.id
-                   WHERE s.video_id = %s{tw}
+                   WHERE s.video_id = %s
                    ORDER BY s.scene""",
-                (current_vid, *tp),
+                (current_vid,),
             )
             return [_row_to_script(r) for r in rows]
         rows = _fetch_all(
-            f"""SELECT s.*, v.video_title as title FROM scripts s
+            """SELECT s.*, v.video_title as title FROM scripts s
                JOIN videos v ON s.video_id = v.id
-               WHERE v.video_title = %s{tw}
+               WHERE v.video_title = %s
                ORDER BY s.scene""",
-            (title, *tp),
+            (title,),
         )
         if not rows:
-            # Fuzzy fallback — still scoped to this tenant
+            # Fuzzy fallback
             rows = _fetch_all(
-                f"""SELECT s.*, v.video_title as title FROM scripts s
+                """SELECT s.*, v.video_title as title FROM scripts s
                    JOIN videos v ON s.video_id = v.id
-                   WHERE v.video_title ILIKE %s{tw}
+                   WHERE v.video_title ILIKE %s
                    ORDER BY s.scene""",
-                (f"%{title}%", *tp),
+                (f"%{title}%",),
             )
         return [_row_to_script(r) for r in rows]
 
     def get_scripts_to_create(self) -> list:
-        """Get scripts with status 'Create' (tenant-scoped)."""
-        tw, tp = self._tw("s")
+        """Get scripts with status 'Create'."""
         rows = _fetch_all(
-            f"""SELECT s.*, v.video_title as title FROM scripts s
+            """SELECT s.*, v.video_title as title FROM scripts s
                JOIN videos v ON s.video_id = v.id
-               WHERE s.script_status = 'Create'{tw}
-               ORDER BY s.scene""",
-            tuple(tp),
+               WHERE s.script_status = 'Create'
+               ORDER BY s.scene"""
         )
         return [_row_to_script(r) for r in rows]
 
@@ -581,20 +554,19 @@ class SupabaseAdapter:
         # writes scenes to the wrong (oldest LIMIT 1) video. Title is only a
         # fallback for legacy/no-context callers.
         current_vid = getattr(self, "current_video_id", None)
-        tw, tp = self._tw()
         video = None
         if current_vid:
             video = _fetch_one(
-                f"SELECT id, tenant_id FROM videos WHERE id = %s{tw} LIMIT 1", (current_vid, *tp)
+                "SELECT id, tenant_id FROM videos WHERE id = %s LIMIT 1", (current_vid,)
             )
         if not video:
             video = _fetch_one(
-                f"SELECT id, tenant_id FROM videos WHERE video_title = %s{tw} LIMIT 1", (title, *tp)
+                "SELECT id, tenant_id FROM videos WHERE video_title = %s LIMIT 1", (title,)
             )
         if not video:
             video = _fetch_one(
-                f"SELECT id, tenant_id FROM videos WHERE video_title ILIKE %s{tw} LIMIT 1",
-                (f"%{title}%", *tp),
+                "SELECT id, tenant_id FROM videos WHERE video_title ILIKE %s LIMIT 1",
+                (f"%{title}%",),
             )
         if not video:
             print(f"  Warning: No video found (id={current_vid!r}, title='{title}') — creating script without video_id")
@@ -657,12 +629,11 @@ class SupabaseAdapter:
         return {"id": record_id}
 
     def delete_scripts_for_video(self, video_title: str) -> int:
-        """Delete all scripts for a video (tenant-scoped — never touches another tenant)."""
-        tw, tp = self._tw()
+        """Delete all scripts for a video."""
         result = _execute(
-            f"""DELETE FROM scripts WHERE video_id IN
-               (SELECT id FROM videos WHERE video_title = %s{tw})""",
-            (video_title, *tp),
+            """DELETE FROM scripts WHERE video_id IN
+               (SELECT id FROM videos WHERE video_title = %s)""",
+            (video_title,),
         )
         # psycopg2 returns "DELETE N"
         try:
@@ -673,84 +644,43 @@ class SupabaseAdapter:
     # ── Images/Assets Table ──────────────────────────────────────────────
 
     def get_pending_images(self) -> list:
-        """Get all pending images (tenant-scoped)."""
-        tw, tp = self._tw()
+        """Get all pending images."""
         rows = _fetch_all(
-            f"SELECT * FROM assets WHERE status = 'pending'{tw} ORDER BY scene, image_index",
-            tuple(tp),
+            "SELECT * FROM assets WHERE status = 'pending' ORDER BY scene, image_index"
         )
         return [_row_to_image(r) for r in rows]
 
     def get_all_images_for_video(self, video_title: str) -> list:
-        """Get all assets for a video (prefers current video, tenant-scoped).
-
-        PREFERS the explicitly-loaded current video (set by the executor) over
-        the title — duplicate or soft-deleted same-titled videos otherwise read
-        another video's assets. Title is a deleted-excluding, tenant-scoped fallback.
-        """
-        tw, tp = self._tw("v")
-        current_vid = getattr(self, "current_video_id", None)
-        if current_vid:
-            rows = _fetch_all(
-                f"""SELECT a.* FROM assets a
-                   JOIN videos v ON a.video_id = v.id
-                   WHERE a.video_id = %s{tw}
-                   ORDER BY a.scene, a.image_index""",
-                (current_vid, *tp),
-            )
-            return [_row_to_image(r) for r in rows]
+        """Get all assets for a video by title."""
         rows = _fetch_all(
-            f"""SELECT a.* FROM assets a
+            """SELECT a.* FROM assets a
                JOIN videos v ON a.video_id = v.id
-               WHERE v.video_title = %s AND v.deleted_at IS NULL{tw}
+               WHERE v.video_title = %s
                ORDER BY a.scene, a.image_index""",
-            (video_title, *tp),
+            (video_title,),
         )
         return [_row_to_image(r) for r in rows]
 
     def get_pending_images_for_video(self, video_title: str) -> list:
-        """Get pending images for a specific video (prefers current video, tenant-scoped)."""
-        tw, tp = self._tw("v")
-        current_vid = getattr(self, "current_video_id", None)
-        if current_vid:
-            rows = _fetch_all(
-                f"""SELECT a.* FROM assets a
-                   JOIN videos v ON a.video_id = v.id
-                   WHERE a.video_id = %s AND a.status = 'pending'{tw}
-                   ORDER BY a.scene, a.image_index""",
-                (current_vid, *tp),
-            )
-            return [_row_to_image(r) for r in rows]
+        """Get pending images for a specific video."""
         rows = _fetch_all(
-            f"""SELECT a.* FROM assets a
+            """SELECT a.* FROM assets a
                JOIN videos v ON a.video_id = v.id
-               WHERE v.video_title = %s AND v.deleted_at IS NULL AND a.status = 'pending'{tw}
+               WHERE v.video_title = %s AND a.status = 'pending'
                ORDER BY a.scene, a.image_index""",
-            (video_title, *tp),
+            (video_title,),
         )
         return [_row_to_image(r) for r in rows]
 
     def get_images_ready_for_video_generation(self, video_title: str) -> list:
-        """Get images ready for video clip generation (prefers current video, tenant-scoped)."""
-        tw, tp = self._tw("v")
-        current_vid = getattr(self, "current_video_id", None)
-        if current_vid:
-            rows = _fetch_all(
-                f"""SELECT a.* FROM assets a
-                   JOIN videos v ON a.video_id = v.id
-                   WHERE a.video_id = %s AND a.status = 'done'
-                   AND (a.video_url IS NULL OR a.video_url = ''){tw}
-                   ORDER BY a.scene, a.image_index""",
-                (current_vid, *tp),
-            )
-            return [_row_to_image(r) for r in rows]
+        """Get images ready for video clip generation."""
         rows = _fetch_all(
-            f"""SELECT a.* FROM assets a
+            """SELECT a.* FROM assets a
                JOIN videos v ON a.video_id = v.id
-               WHERE v.video_title = %s AND v.deleted_at IS NULL AND a.status = 'done'
-               AND (a.video_url IS NULL OR a.video_url = ''){tw}
+               WHERE v.video_title = %s AND a.status = 'done'
+               AND (a.video_url IS NULL OR a.video_url = '')
                ORDER BY a.scene, a.image_index""",
-            (video_title, *tp),
+            (video_title,),
         )
         return [_row_to_image(r) for r in rows]
 
@@ -766,28 +696,14 @@ class SupabaseAdapter:
         location_id: Optional[str] = None,
     ) -> dict:
         """Create an image/asset record."""
-        # PREFER the explicitly-loaded current video (the executor sets
-        # current_video_id) — resolving by title LIMIT 1 silently writes assets
-        # to the wrong (often soft-deleted) same-titled video, which is how a live
-        # video ends up with ZERO assets while a deleted twin holds them. Title is
-        # a deleted-excluding, tenant-scoped fallback for legacy callers.
-        tw, tp = self._tw()
-        current_vid = getattr(self, "current_video_id", None)
-        video = None
-        if current_vid:
-            video = _fetch_one(
-                f"SELECT id, tenant_id FROM videos WHERE id = %s{tw} LIMIT 1",
-                (current_vid, *tp),
-            )
+        video = _fetch_one(
+            "SELECT id, tenant_id FROM videos WHERE video_title = %s LIMIT 1",
+            (video_title,),
+        )
         if not video:
             video = _fetch_one(
-                f"SELECT id, tenant_id FROM videos WHERE video_title = %s AND deleted_at IS NULL{tw} LIMIT 1",
-                (video_title, *tp),
-            )
-        if not video:
-            video = _fetch_one(
-                f"SELECT id, tenant_id FROM videos WHERE video_title ILIKE %s AND deleted_at IS NULL{tw} LIMIT 1",
-                (f"%{video_title}%", *tp),
+                "SELECT id, tenant_id FROM videos WHERE video_title ILIKE %s LIMIT 1",
+                (f"%{video_title}%",),
             )
 
         asset_id = str(uuid.uuid4())
@@ -899,12 +815,11 @@ class SupabaseAdapter:
         return {"id": record_id}
 
     def delete_images_for_video(self, video_title: str) -> int:
-        """Delete all assets for a video (tenant-scoped — never touches another tenant)."""
-        tw, tp = self._tw()
+        """Delete all assets for a video."""
         result = _execute(
-            f"""DELETE FROM assets WHERE video_id IN
-               (SELECT id FROM videos WHERE video_title = %s{tw})""",
-            (video_title, *tp),
+            """DELETE FROM assets WHERE video_id IN
+               (SELECT id FROM videos WHERE video_title = %s)""",
+            (video_title,),
         )
         # psycopg2 returns "DELETE N"
         try:

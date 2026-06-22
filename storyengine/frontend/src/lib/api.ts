@@ -87,6 +87,7 @@ export interface AuthUser {
   plan: string;
   tenant_id?: string | null;
   created_at?: string | null;
+  email_verified?: boolean;
 }
 
 export const googleLogin = (credential: string) =>
@@ -108,6 +109,17 @@ export const loginUser = (email: string, password: string) =>
   });
 
 export const getMe = () => fetchApi<AuthUser>("/api/auth/me");
+
+export const verifyEmail = (token: string) =>
+  fetchApi<{ verified: boolean }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+
+export const resendVerification = () =>
+  fetchApi<{ sent: boolean; already_verified?: boolean }>("/api/auth/resend-verification", {
+    method: "POST",
+  });
 
 export const forgotPassword = (email: string) =>
   fetchApi<{ status: string; message: string }>("/api/auth/forgot-password", {

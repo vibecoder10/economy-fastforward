@@ -23,7 +23,6 @@ import {
   Upload,
   Zap,
   Crown,
-  Building2,
   CheckCircle2,
   X,
   Clock,
@@ -157,28 +156,20 @@ const STATS = [
 const PRICING_TIERS = [
   {
     key: "starter",
-    name: "Starter",
-    price: 25,
+    name: "Basic",
+    price: 50,
     icon: Zap,
-    tagline: "For solo creators getting started",
-    features: ["Full 18-stage pipeline", "1 channel", "4 videos/month", "1 visual style", "Manual mode"],
+    tagline: "Everything you need to make videos",
+    features: ["Full 18-stage pipeline", "12 videos/month", "All visual styles", "Review & edit every stage"],
   },
   {
-    key: "creator",
-    name: "Creator",
-    price: 40,
+    key: "pro",
+    name: "Pro",
+    price: 100,
     icon: Crown,
-    tagline: "For creators who want AI-powered growth",
+    tagline: "The full AI engine, on autopilot",
     popular: true,
-    features: ["Everything in Starter", "15 videos/month", "Autopilot mode", "Analytics & learnings", "Competitor analysis", "3 visual styles"],
-  },
-  {
-    key: "studio",
-    name: "Studio",
-    price: 75,
-    icon: Building2,
-    tagline: "For teams managing multiple channels",
-    features: ["Everything in Creator", "Unlimited videos", "Multi-channel", "Team management", "Priority rendering", "Custom styles"],
+    features: ["Everything in Basic", "30 videos/month", "Autopilot mode", "Analytics & learnings", "Competitor analysis", "Discovery ideas"],
   },
 ];
 
@@ -300,7 +291,7 @@ function LandingPage() {
           className="text-xs mt-4"
           style={{ color: "var(--text-tertiary)" }}
         >
-          14-day free trial. No credit card required. BYOK — bring your own API keys.
+          7-day free trial. No credit card required. BYOK — bring your own API keys.
         </motion.p>
       </motion.div>
       </section>
@@ -570,7 +561,7 @@ function LandingPage() {
               Ready to produce smarter?
             </h2>
             <p className="text-base mb-6" style={{ color: "var(--text-secondary)" }}>
-              Start your 14-day free trial. Full Pro features, no credit card.
+              Start your 7-day free trial. Full features, no credit card.
             </p>
             <Link
               href="/login"

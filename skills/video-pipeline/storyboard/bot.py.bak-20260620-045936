@@ -639,156 +639,6 @@ def _format_story_bible_for_beat(
 
 
 # =============================================================================
-# Closed-cast enforcement (anti-invention)
-# =============================================================================
-
-# Speaker labels that are stage/sound cues, never characters.
-_NON_SPEAKER_TOKENS = {"sfx", "sound", "music", "note", "narrator", "vo"}
-
-# Person-words that signal an INVENTED extra. Deliberately EXCLUDES generic
-# descriptors (boy/man/woman/elderly) that legitimately describe the real cast
-# (Tom is "a teenage boy", Gran is "an elderly woman") - flagging those would
-# false-positive on the canonical bible descriptions.
-_FORBIDDEN_PERSON_TERMS = (
-    "houseguest", "house guest", "guest", "visitor", "neighbor", "neighbour",
-    "classmate", "schoolmate", "stranger", "passerby", "passer-by", "bystander",
-    "onlooker", "friend", "babysitter", "nanny", "maid", "butler", "waiter",
-    "waitress", "roommate", "housemate", "cousin", "aunt", "uncle", "niece",
-    "nephew",
-)
-
-# Capitalized tokens that are NOT personal names (headers, craft terms, places,
-# style words) - so they are never mistaken for an invented character.
-_NAME_STOPWORDS = {
-    "kf", "panel", "top", "middle", "bottom", "left", "center", "centre", "right",
-    "row", "same", "scene", "beat", "composition", "action", "camera", "lens",
-    "dof", "lighting", "grade", "sound", "atmos", "shot", "hero", "ecu", "cu",
-    "mcu", "ms", "ls", "els", "ots", "pov", "wide", "close", "medium", "kelvin",
-    "pixar", "the", "and", "for", "with", "this", "that", "each", "panels",
-    "generate", "create", "warm", "cool", "amber", "honey", "cream", "navy",
-    "charcoal", "golden", "wood", "tungsten", "daylight", "theme", "logline",
-    "emotional", "arc", "setup", "build", "turn", "payoff", "subjects",
-    "environment", "visual", "anchors", "approach", "keyframes", "contact",
-    "preamble", "technical", "specs", "story", "bible", "topic", "slow",
-    "english", "family", "manners", "home", "good", "bad", "learn", "lucy",
-    "kitchen", "dining", "living", "table", "staircase", "hallway", "garden",
-    "bedroom", "sink", "kettle", "exterior", "interior", "foreground",
-    "background", "midground", "frame", "sconce", "pendant", "highlight",
-    "shadow", "duration", "seconds",
-}
-
-
-def _parse_scene_speakers(beat_text: str) -> list[str]:
-    """Ordered, unique set of speaking characters in a beat's narration.
-
-    Lines look like "Mum: dinner is ready"; "[door opening]" is a sound cue and
-    is ignored. This is the ground-truth closed cast for a scene.
-    """
-    speakers: list[str] = []
-    seen: set[str] = set()
-    for raw in (beat_text or "").splitlines():
-        m = re.match(r"^\s*([A-Z][A-Za-z]{1,15})\s*:", raw)
-        if not m:
-            continue
-        name = m.group(1)
-        key = name.lower()
-        if key in _NON_SPEAKER_TOKENS or key in seen:
-            continue
-        seen.add(key)
-        speakers.append(name)
-    return speakers
-
-
-def _bible_cast_for_scenes(story_bible: dict | None, scenes: list[int]) -> list[str]:
-    """Fallback closed cast: bible characters whose scenes_present overlaps this
-    beat's scenes (or who appear everywhere). Used only when a beat has no
-    spoken lines to parse.
-    """
-    names: list[str] = []
-    for char in (story_bible or {}).get("characters", []):
-        present = char.get("scenes_present") or []
-        if present and not any(s in present for s in scenes):
-            continue
-        cid = (char.get("name") or char.get("id") or "").strip()
-        if cid:
-            names.append(cid[:1].upper() + cid[1:])
-    return names
-
-
-# Negation words that, when they precede a person noun, mean the person is
-# explicitly ABSENT ("no guest", "without a visitor") - which is COMPLIANCE,
-# not a violation. Used to avoid punishing the model for writing "no houseguest".
-_NEGATION_CUES = (
-    "no ", "not ", "without", "never", "any ", "neither", "nor ", "absent",
-    "empty", "zero ", "lacking", "free of", "minus ", "sans ", "devoid",
-)
-
-
-def _validate_directive_cast(text: str, allowed_cast: list[str]) -> list[str]:
-    """Return forbidden people found in a directive response.
-
-    Tuned for HIGH PRECISION (false positives trigger needless regenerations and
-    can corrupt a good prompt via the scrub). Two detectors:
-      1) explicit extra-person nouns (houseguest, guest, neighbor, ...), unless
-         negated ("no guest", "without a visitor") which is compliance.
-      2) a capitalized proper name not in the cast, INTRODUCED as a new person -
-         i.e. the previous word is "named"/"called" or a forbidden-person noun
-         ("a boy named Sam", "houseguest Maya"). This is exactly the observed
-         failure mode and does NOT fire on craft words like "Eye-level" / "Open".
-    The final backstop is the human visual gate (viewing the grid).
-    """
-    if not text or not allowed_cast:
-        return []
-    allowed_lower = {n.strip().lower() for n in allowed_cast}
-    low = text.lower()
-    violations: set[str] = set()
-
-    # (1) extra-person nouns, skipping negated mentions.
-    for term in _FORBIDDEN_PERSON_TERMS:
-        for m in re.finditer(r"\b" + re.escape(term) + r"s?\b", low):
-            pre = low[max(0, m.start() - 16):m.start()]
-            if any(neg in pre for neg in _NEGATION_CUES):
-                continue
-            violations.add(term)
-            break
-
-    # (2) a capitalized name introduced as a new person.
-    intro_words = {"named", "called"} | {
-        t.split()[-1] for t in _FORBIDDEN_PERSON_TERMS
-    }
-    tokens = list(re.finditer(r"[A-Za-z][A-Za-z'\-]*", text))
-    for idx, m in enumerate(tokens):
-        tok = m.group(0)
-        if not re.fullmatch(r"[A-Z][a-z]{2,}", tok):
-            continue
-        tl = tok.lower()
-        if tl in allowed_lower or tl in _NAME_STOPWORDS or idx == 0:
-            continue
-        if tokens[idx - 1].group(0).lower() in intro_words:
-            violations.add(tok)
-
-    return sorted(violations)
-
-
-def _scrub_forbidden_people(
-    text: str, allowed_cast: list[str], violations: list[str]
-) -> str:
-    """Last-resort deterministic scrub when regeneration still leaks a forbidden
-    person. Replaces invented proper names with the primary cast member and
-    deletes generic extra-person nouns, so an invented character can never reach
-    the image model. Crude but guarantees the closed-cast invariant.
-    """
-    primary = allowed_cast[0] if allowed_cast else "the character"
-    out = text
-    for v in violations:
-        if re.fullmatch(r"[A-Z][a-z]+", v):
-            out = re.sub(r"\b" + re.escape(v) + r"\b", primary, out)
-        else:
-            out = re.sub(r"\b" + re.escape(v) + r"\b", "", out, flags=re.IGNORECASE)
-    return out
-
-
-# =============================================================================
 # Cinematic Directive Generator — Core Intelligence
 # =============================================================================
 
@@ -801,11 +651,9 @@ def _build_directive_system_prompt(profile: ChannelProfile, beat_duration_second
     """
     return f"""\
 <role>
-You are an award-winning trailer director, cinematographer, and storyboard artist. You work \
-STRICTLY in the visual style defined for this channel (see <channel_identity> and the VISUAL \
-BIBLE) - never a documentary, photoreal, or generic look unless that IS the channel style. \
-Your job: turn script narration into a cohesive cinematic shot sequence, then output \
-AI-video-ready keyframes as a 3×3 contact sheet, using ONLY the exact characters you are given.
+You are an award-winning trailer director, cinematographer, and storyboard artist working \
+on a cinematic documentary-style video. Your job: turn script narration into a cohesive \
+cinematic shot sequence, then output AI-video-ready keyframes as a 3×3 contact sheet.
 </role>
 
 <channel_identity>
@@ -844,16 +692,12 @@ environment, same time-of-day and lighting. Only action, expression, blocking, f
 angle, and camera movement may change.
 4) Depth of field must be realistic per the lens profile. Keep ONE consistent cinematic color \
 grade across the entire sequence per the color grade profile.
-5) CLOSED CAST - ABSOLUTE. The user message contains a "CLOSED CAST" list: the EXACT, \
-COMPLETE set of people allowed in this scene. The ONLY humans who may appear in ANY panel \
-are those names. You MUST refer to them by those EXACT names - never rename them, never \
-invent an alias (do NOT turn "Tom" into "Sam"), never give them a role or backstory not in \
-the cast. You may NOT add, invent, or imply ANY other person: no guest, houseguest, visitor, \
-friend, sibling, daughter, son, child, girl, boy, neighbor, classmate, teacher, crowd member, \
-or any unnamed or newly named extra - not for visual interest, not to fill a frame, not ever. \
-If a panel's narration names no one, show one or more of the CLOSED CAST or an empty \
-environment. Do NOT introduce objects not supported by the narration; imply any off-screen \
-person only through an unoccupied chair, a sound, or the cast's gaze - never by drawing them.
+5) NO INVENTED PEOPLE — the ONLY people who may appear in ANY panel are the named \
+characters listed in the VISUAL BIBLE / cast. NEVER add a guest, friend, sibling, \
+daughter, neighbor, classmate, crowd member, or any unnamed extra — not even for visual \
+interest or to fill a frame, and never invent a name for one. If a panel's narration names \
+no one, show the existing cast or an empty environment. Do NOT introduce new objects not \
+supported by the narration; imply any off-screen tension through shadow, reflection, or gaze.
 6) If a VISUAL BIBLE is provided in the user message, it contains BINDING character and \
 location descriptions. Use the EXACT costume/appearance for each character and the EXACT \
 environment description for each location. These are visual anchors that ensure consistency \
@@ -1024,7 +868,6 @@ def _build_directive_user_prompt(
     beat_scenes: list[int],
     video_title: str,
     image_prompts: list[str],
-    allowed_cast: list[str] | None = None,
     story_bible: dict | None = None,
     prev_beat_exit: dict | None = None,
 ) -> str:
@@ -1042,29 +885,6 @@ def _build_directive_user_prompt(
         f"\nScenes covered: {', '.join(str(s) for s in beat_scenes)}",
         f"\nBeat narration:\n{beat_text}",
     ]
-
-    # Closed cast: the EXACT, complete set of people allowed in this scene.
-    # This is the hard anti-invention constraint - declared high in the prompt
-    # and restated inside the bible/format rules.
-    if allowed_cast:
-        cast_lines = "\n".join(f"  - {n}" for n in allowed_cast)
-        parts.append(
-            "\n=== CLOSED CAST (HARD CONSTRAINT - READ FIRST) ===\n"
-            "The ONLY people who may appear in ANY panel of this scene are:\n"
-            f"{cast_lines}\n"
-            "You MUST follow these rules with zero exceptions:\n"
-            "- Use these EXACT names. NEVER rename a character or invent an alias "
-            "(do not turn 'Tom' into 'Sam').\n"
-            "- NEVER add, invent, or imply any other person - no houseguest, guest, "
-            "visitor, friend, neighbor, classmate, sibling, child, girl, boy, lady, "
-            "extra, or crowd - not for visual interest, not to fill a panel, never.\n"
-            "- If a line names no one, show one or more of the cast above, or an "
-            "empty room - never a new person.\n"
-            "- This applies to EVERY keyframe AND to the contact sheet prompt's "
-            "TOPIC SUMMARY, CHARACTER LOCKS, and panel descriptions. Anyone not "
-            "listed above is FORBIDDEN everywhere in your output.\n"
-            "=== END CLOSED CAST ==="
-        )
 
     # Cross-beat continuity: inject previous beat's exit state
     if prev_beat_exit:
@@ -1110,7 +930,6 @@ async def generate_storyboard_directive(
     video_title: str,
     image_prompts: list[str],
     profile: ChannelProfile,
-    allowed_cast: list[str] | None = None,
     anthropic_client=None,
     story_bible: dict | None = None,
     beat_duration_seconds: float = 120.0,
@@ -1134,55 +953,17 @@ async def generate_storyboard_directive(
     system_prompt = _build_directive_system_prompt(profile, beat_duration_seconds)
     user_prompt = _build_directive_user_prompt(
         beat_number, beat_text, beat_scenes, video_title, image_prompts,
-        allowed_cast=allowed_cast,
         story_bible=story_bible,
         prev_beat_exit=prev_beat_exit,
     )
 
-    # Generate with a closed-cast fidelity loop. Temperature is LOW (was 0.9,
-    # which hallucinated renamed/invented people) so the model honors the cast
-    # instead of inventing a story. After each draft, scan for any person not in
-    # the closed cast; if found, regenerate with an explicit correction. As a
-    # last resort, scrub deterministically so an invented character can never
-    # reach the image model.
-    response = ""
-    violations: list[str] = []
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        attempt_prompt = user_prompt
-        if attempt > 0 and violations:
-            allowed_str = ", ".join(allowed_cast) if allowed_cast else ""
-            attempt_prompt = (
-                user_prompt
-                + "\n\n=== CORRECTION (your previous attempt BROKE the closed cast) ===\n"
-                + "Your previous output included forbidden people: "
-                + ", ".join(violations) + ".\n"
-                + "This is NOT allowed. Regenerate using ONLY: " + allowed_str + ".\n"
-                + "Do not rename anyone. Do not invent or imply anyone else, "
-                + "anywhere in the keyframes or the contact sheet prompt.\n"
-                + "=== END CORRECTION ==="
-            )
-        response = await anthropic_client.generate(
-            prompt=attempt_prompt,
-            system_prompt=system_prompt,
-            model=Models.CLAUDE_SONNET,
-            max_tokens=12000,  # Hero expansion + contact sheet requires ~10000 tokens
-            temperature=0.35,
-        )
-        violations = _validate_directive_cast(response, allowed_cast) if allowed_cast else []
-        if not violations:
-            break
-        logger.warning(
-            "Storyboard directive (beat %s) attempt %s leaked forbidden people %s - regenerating",
-            beat_number, attempt + 1, violations,
-        )
-
-    if violations:
-        logger.error(
-            "Storyboard directive (beat %s) still leaked %s after %s attempts - scrubbing",
-            beat_number, violations, max_attempts,
-        )
-        response = _scrub_forbidden_people(response, allowed_cast or [], violations)
+    response = await anthropic_client.generate(
+        prompt=user_prompt,
+        system_prompt=system_prompt,
+        model=Models.CLAUDE_SONNET,
+        max_tokens=12000,  # Hero expansion + contact sheet requires ~10000 tokens
+        temperature=0.9,
+    )
 
     # Parse sections from the response
     keyframes = parse_keyframe_metadata(response)
@@ -1678,9 +1459,6 @@ async def run_storyboard_preview(
             img.get(ImageFields.IMAGE_PROMPT, "")
             for img in beat_images
         ]
-        allowed_cast = _parse_scene_speakers(beat["text"]) or _bible_cast_for_scenes(
-            story_bible, beat["scenes"]
-        )
 
         directive = await generate_storyboard_directive(
             beat_number=beat["beat_number"],
@@ -1689,7 +1467,6 @@ async def run_storyboard_preview(
             video_title=video_title,
             image_prompts=image_prompts,
             profile=profile,
-            allowed_cast=allowed_cast,
             anthropic_client=anthropic_client,
             story_bible=story_bible,
             beat_duration_seconds=beat.get("estimated_duration_seconds", 120.0),
@@ -1955,10 +1732,8 @@ def extract_panels(
     img = Image.open(grid_image_path)
     width, height = img.size
 
-    # Crop a rigid 3x3 (matches generate_contact_sheet, which always renders an
-    # even 3x3); is_blank_panel() below drops the solid-black unused cells, so
-    # short beats still return only their real panels.
-    grid_rows, grid_cols = 3, 3
+    # Determine grid dimensions from expected panel count
+    grid_rows, grid_cols = _grid_layout(expected_real_panels)
     panel_width = width // grid_cols
     panel_height = height // grid_rows
 
@@ -2067,29 +1842,23 @@ async def generate_contact_sheet(
         from shared.clients.image_client import ImageClient
         image_client = ImageClient()
 
-    # FIXED 3x3 layout. The directive's contact-sheet prompt is authored as a
-    # strict 3x3, and panel extraction crops a rigid 3x3 — so the grid MUST be a
-    # clean, even 3x3 every time. (Previously this used _grid_layout(n), e.g. 2x3
-    # for 5 panels, which CONFLICTED with the directive text's "3x3" and made the
-    # image model render uneven/merged panels the extractor then mis-cropped.)
-    rows, cols = 3, 3
-    total_cells = 9
+    # Dynamic grid sizing — only make as big a grid as needed
+    rows, cols = _grid_layout(real_panel_count)
+    total_cells = rows * cols
 
     full_prompt = (
-        "CRITICAL OUTPUT FORMAT: Generate a single image laid out as a STRICT 3×3 grid "
-        "(3 rows × 3 columns) of 9 EQUAL rectangular panels. Every panel is exactly the "
-        "same size — each one-third of the image width and one-third of the height. Do NOT "
-        "resize, merge, span, crop, or rearrange panels; do NOT make any panel larger than "
-        "the others. Separate the panels with thin black gutters. Panel labels "
-        "[KF# | shot_type | duration] appear small in the top-left margin of each panel.\n\n"
+        f"CRITICAL OUTPUT FORMAT: Generate a single image containing a {rows}×{cols} grid "
+        f"({rows} row{'s' if rows > 1 else ''} × {cols} column{'s' if cols > 1 else ''}) "
+        f"of {total_cells} cinematic panels. Each panel must be clearly "
+        f"separated. Panel labels [KF# | shot_type | duration] must appear in the "
+        f"top-left margin of each panel, small and non-intrusive.\n\n"
     )
 
     if real_panel_count < total_cells:
         full_prompt += (
-            f"IMPORTANT: Panels {real_panel_count + 1} through 9 are EMPTY — fill each of "
-            f"those cells with SOLID BLACK and no content, while keeping the 3×3 cell grid "
-            f"perfectly even (do not enlarge the remaining panels to fill the space). Only "
-            f"panels 1 through {real_panel_count} contain scene imagery.\n\n"
+            f"IMPORTANT: Panels {real_panel_count + 1} through {total_cells} must be SOLID "
+            f"BLACK with no content. Only panels 1 through {real_panel_count} "
+            f"contain scene imagery.\n\n"
         )
 
     # Conditioning image set: the cast (one cast sheet, or each approved
@@ -2356,13 +2125,6 @@ async def run_storyboard_prompts(
             for img in beat_images
         ]
 
-        # Closed cast for this beat: the script's spoken characters are the
-        # ground truth (fall back to the bible's per-scene cast for silent
-        # beats). The directive is hard-constrained to ONLY these people.
-        allowed_cast = _parse_scene_speakers(beat["text"]) or _bible_cast_for_scenes(
-            story_bible, beat["scenes"]
-        )
-
         # Generate directive via Claude with retry on failure
         directive = None
         for attempt in range(2):  # Max 2 attempts
@@ -2374,7 +2136,6 @@ async def run_storyboard_prompts(
                     video_title=video_title,
                     image_prompts=image_prompts,
                     profile=profile,
-                    allowed_cast=allowed_cast,
                     anthropic_client=anthropic_client,
                     story_bible=story_bible,
                     beat_duration_seconds=beat.get("estimated_duration_seconds", 120.0),

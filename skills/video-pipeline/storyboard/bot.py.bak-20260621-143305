@@ -1955,10 +1955,8 @@ def extract_panels(
     img = Image.open(grid_image_path)
     width, height = img.size
 
-    # Crop a rigid 3x3 (matches generate_contact_sheet, which always renders an
-    # even 3x3); is_blank_panel() below drops the solid-black unused cells, so
-    # short beats still return only their real panels.
-    grid_rows, grid_cols = 3, 3
+    # Determine grid dimensions from expected panel count
+    grid_rows, grid_cols = _grid_layout(expected_real_panels)
     panel_width = width // grid_cols
     panel_height = height // grid_rows
 
@@ -2067,29 +2065,23 @@ async def generate_contact_sheet(
         from shared.clients.image_client import ImageClient
         image_client = ImageClient()
 
-    # FIXED 3x3 layout. The directive's contact-sheet prompt is authored as a
-    # strict 3x3, and panel extraction crops a rigid 3x3 — so the grid MUST be a
-    # clean, even 3x3 every time. (Previously this used _grid_layout(n), e.g. 2x3
-    # for 5 panels, which CONFLICTED with the directive text's "3x3" and made the
-    # image model render uneven/merged panels the extractor then mis-cropped.)
-    rows, cols = 3, 3
-    total_cells = 9
+    # Dynamic grid sizing — only make as big a grid as needed
+    rows, cols = _grid_layout(real_panel_count)
+    total_cells = rows * cols
 
     full_prompt = (
-        "CRITICAL OUTPUT FORMAT: Generate a single image laid out as a STRICT 3×3 grid "
-        "(3 rows × 3 columns) of 9 EQUAL rectangular panels. Every panel is exactly the "
-        "same size — each one-third of the image width and one-third of the height. Do NOT "
-        "resize, merge, span, crop, or rearrange panels; do NOT make any panel larger than "
-        "the others. Separate the panels with thin black gutters. Panel labels "
-        "[KF# | shot_type | duration] appear small in the top-left margin of each panel.\n\n"
+        f"CRITICAL OUTPUT FORMAT: Generate a single image containing a {rows}×{cols} grid "
+        f"({rows} row{'s' if rows > 1 else ''} × {cols} column{'s' if cols > 1 else ''}) "
+        f"of {total_cells} cinematic panels. Each panel must be clearly "
+        f"separated. Panel labels [KF# | shot_type | duration] must appear in the "
+        f"top-left margin of each panel, small and non-intrusive.\n\n"
     )
 
     if real_panel_count < total_cells:
         full_prompt += (
-            f"IMPORTANT: Panels {real_panel_count + 1} through 9 are EMPTY — fill each of "
-            f"those cells with SOLID BLACK and no content, while keeping the 3×3 cell grid "
-            f"perfectly even (do not enlarge the remaining panels to fill the space). Only "
-            f"panels 1 through {real_panel_count} contain scene imagery.\n\n"
+            f"IMPORTANT: Panels {real_panel_count + 1} through {total_cells} must be SOLID "
+            f"BLACK with no content. Only panels 1 through {real_panel_count} "
+            f"contain scene imagery.\n\n"
         )
 
     # Conditioning image set: the cast (one cast sheet, or each approved

@@ -87,6 +87,27 @@ async def send_reset_email(email: str, token: str, expiry_hours: int = 1) -> boo
     )
 
 
+async def send_verification_email(email: str, display_name: str, token: str) -> bool:
+    """Send the 'confirm your email' link. Returns False if the send fails so the
+    caller can tell the user to retry / resend."""
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    verify_url = f"{frontend_url}/verify-email?token={token}"
+    safe_name = html_lib.escape(display_name or "there")
+    return await send_email(
+        to=email,
+        subject="Confirm your email for StoryEngine",
+        html=(
+            f"<h2>Welcome to StoryEngine, {safe_name}!</h2>"
+            f"<p>Confirm your email to start creating videos.</p>"
+            f'<p><a href="{verify_url}" style="display:inline-block;padding:10px 18px;'
+            f'background:#00D4AA;color:#0b0b0b;border-radius:8px;text-decoration:none;'
+            f'font-weight:600">Confirm my email</a></p>'
+            f'<p>Or paste this link into your browser:<br>{verify_url}</p>'
+            f"<p>This link expires in 24 hours. If you didn't sign up, ignore this email.</p>"
+        ),
+    )
+
+
 async def send_billing_receipt(email: str, plan: str, amount_display: str) -> bool:
     """Send billing receipt after successful checkout."""
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")

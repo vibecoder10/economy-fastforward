@@ -7,7 +7,6 @@ import { motion } from "framer-motion";
 import {
   Zap,
   Crown,
-  Building2,
   CheckCircle2,
   X,
   ArrowRight,
@@ -31,63 +30,43 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 
+// Two plans. Keys map to Stripe prices via the backend (STRIPE_PRICE_STARTER =
+// $50, STRIPE_PRICE_PRO = $100) and to tiers in AuthenticatedShell: "pro"
+// unlocks the Pro-only routes (Autopilot, Learnings, Competitors, Discovery);
+// "starter" gets video generation and sees an upgrade prompt on those.
 const PLANS = [
   {
     key: "starter",
-    name: "Starter",
-    price: 25,
+    name: "Basic",
+    price: 50,
     icon: Zap,
-    tagline: "For solo creators getting started",
+    tagline: "Everything you need to make videos",
     features: [
       { text: "Full video pipeline (18 stages)", included: true },
-      { text: "1 channel", included: true },
-      { text: "4 videos per month", included: true },
-      { text: "Manual mode only", included: true },
-      { text: "1 visual style", included: true },
-      { text: "Basic settings", included: true },
-      { text: "Autopilot", included: false },
-      { text: "Analytics & Learnings", included: false },
-      { text: "Competitor scraping", included: false },
-      { text: "Team management", included: false },
+      { text: "12 videos per month", included: true },
+      { text: "All visual styles", included: true },
+      { text: "Review & edit every stage", included: true },
+      { text: "Autopilot mode", included: false },
+      { text: "Analytics & learnings", included: false },
+      { text: "Competitor analysis", included: false },
+      { text: "Discovery ideas", included: false },
     ],
   },
   {
     key: "pro",
     name: "Pro",
-    price: 40,
+    price: 100,
     icon: Crown,
-    tagline: "For creators who want AI-powered growth",
+    tagline: "The full AI engine, on autopilot",
     popular: true,
     features: [
-      { text: "Full video pipeline (18 stages)", included: true },
-      { text: "1 channel", included: true },
-      { text: "15 videos per month", included: true },
+      { text: "Everything in Basic", included: true },
+      { text: "30 videos per month", included: true },
       { text: "Autopilot mode", included: true },
-      { text: "3 visual styles", included: true },
       { text: "Analytics dashboard", included: true },
       { text: "Learnings & patterns", included: true },
       { text: "Competitor analysis", included: true },
       { text: "Discovery ideas", included: true },
-      { text: "Team management", included: false },
-    ],
-  },
-  {
-    key: "agency",
-    name: "Studio",
-    price: 75,
-    icon: Building2,
-    tagline: "For teams managing multiple channels",
-    features: [
-      { text: "Full video pipeline (18 stages)", included: true },
-      { text: "Multi-channel support", included: true },
-      { text: "50 videos per month", included: true },
-      { text: "Autopilot mode", included: true },
-      { text: "All visual styles", included: true },
-      { text: "Analytics dashboard", included: true },
-      { text: "Learnings & patterns", included: true },
-      { text: "Competitor analysis", included: true },
-      { text: "Discovery ideas", included: true },
-      { text: "Team (3 seats)", included: true },
     ],
   },
 ] as const;
@@ -348,7 +327,7 @@ export default function PricingPage() {
       {/* FAQ / CTA */}
       <div className="max-w-3xl mx-auto px-6 pb-20 text-center">
         <p className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>
-          All plans include a 14-day free trial. No credit card required.
+          Includes a 7-day free trial. No credit card required.
         </p>
         <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
           Questions?{" "}

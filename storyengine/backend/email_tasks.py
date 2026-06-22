@@ -5,15 +5,17 @@ from email_service import send_trial_warning, send_trial_expired
 
 
 async def check_trial_expired():
-    """Downgrade accounts with expired trials to Starter plan + send notice.
+    """Downgrade accounts with expired trials to the Free plan + send notice.
 
     Only targets accounts that:
     - Have a trial_ends_at in the past
     - Haven't been processed yet (trial_expired_handled IS NOT TRUE)
     - Don't have a paid Stripe subscription (otherwise they're on a paid plan already)
 
-    Sets plan='starter', marks trial_expired_handled=true, sends email.
-    Idempotent — rerunning is safe.
+    Sets plan='free', marks trial_expired_handled=true, sends email.
+    (Previously dropped to 'starter' — a PAID tier — giving expired trials full
+    paid access for free. Free tier = 2 videos/mo; they keep their data and can
+    upgrade anytime.) Idempotent — rerunning is safe.
     """
     rows = await fetch_all(
         """SELECT a.id, a.email, a.display_name, a.plan
@@ -29,7 +31,7 @@ async def check_trial_expired():
     for row in rows:
         await execute(
             """UPDATE accounts
-               SET plan = 'starter',
+               SET plan = 'free',
                    trial_expired_handled = TRUE,
                    updated_at = now()
                WHERE id = $1""",

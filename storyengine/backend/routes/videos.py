@@ -1224,7 +1224,7 @@ async def tag_dialogue(video_id: str, tenant_id=Depends(get_tenant_id)):
             result["voices"] = await cast_character_voices(video_id, tenant_id)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=humanize_error(e, context="We couldn't analyze the dialogue for this video"))
 
 
 @router.get("/{video_id}/dialogue-map")
@@ -1758,7 +1758,7 @@ async def push_script_to_drive(video_id: str, tenant_id: str = Depends(get_tenan
         doc_id, doc_url, modified = await asyncio.to_thread(_push)
     except Exception as e:  # noqa: BLE001
         logger.warning("push_script_to_drive failed for %s: %s", video_id, str(e)[:200])
-        raise HTTPException(502, f"Drive push failed: {str(e)[:200]}")
+        raise HTTPException(502, humanize_error(e, context="We couldn't sync your script to Drive"))
 
     await execute(
         "UPDATE videos SET drive_script_doc_id = $1, drive_script_synced_at = now(), "
@@ -1806,7 +1806,7 @@ async def sync_script_from_drive(
         modified, text = await asyncio.to_thread(_read)
     except Exception as e:  # noqa: BLE001
         logger.warning("sync_script_from_drive read failed for %s: %s", video_id, str(e)[:200])
-        raise HTTPException(502, f"Drive read failed: {str(e)[:200]}")
+        raise HTTPException(502, humanize_error(e, context="We couldn't read your script from Drive"))
     if text is None:
         raise HTTPException(502, "Couldn't read the Doc from Drive — try again shortly.")
 

@@ -237,6 +237,13 @@ async def _generate_images(pipeline) -> dict:
                         return False
 
                 except Exception as e:
+                    # A blocked / out-of-credit Kie account is terminal — abort
+                    # the whole run instead of burning every remaining image (and
+                    # then 3 retry rounds) against a key that can never succeed.
+                    # gather() propagates this and cancels the sibling tasks; the
+                    # stage fails with an actionable "fix your Kie key" message.
+                    if "KIE_ACCOUNT_BLOCKED" in str(e):
+                        raise
                     failed_count += 1
                     print(f"      ❌ Scene {scene_num}, Image {index} → Error: {e}")
                     import traceback

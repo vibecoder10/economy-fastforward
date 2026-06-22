@@ -263,28 +263,10 @@ HAILUO_23_STANDARD = ModelProfile(
     max_concurrent=5,
 )
 
-SEEDANCE_2_FAST = ModelProfile(
-    model_id="seedance-2-fast",
-    display_name="Seedance 2.0 (Cinematic)",
-    provider="kie.ai",
-    durations=[6, 10],
-    preferred_max=10,
-    allow_max_override=False,
-    cost_per_clip={6: 0.30, 10: 0.50},
-    resolution="720p",
-    supports_image_input=True,
-    supports_first_last_frame=True,
-    supports_camera_control=True,
-    camera_control_type="prompt",
-    avg_generation_time_seconds=90,
-    max_concurrent=3,
-)
-
 # --- Model Registry ---
 
 MODEL_REGISTRY: dict[str, ModelProfile] = {
     "grok-imagine": GROK_IMAGINE,
-    "seedance-2-fast": SEEDANCE_2_FAST,
     "veo-3.1-fast": VEO_31_FAST,
     "veo-3.1-quality": VEO_31_QUALITY,
     "kling-3.0-pro": KLING_30_PRO,
