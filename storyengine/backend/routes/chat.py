@@ -410,6 +410,8 @@ def _creator_brief(state: dict) -> str:
     comps = state.get("competitors") or []
     if comps:
         bits.append("Channels they model: " + ", ".join(str(c) for c in comps[:3]) + ".")
+    if state.get("niche_angle"):
+        bits.append(f"Their chosen niche/angle: {state['niche_angle']}.")
     if not bits:
         return ""
     tailor = ""
@@ -420,32 +422,27 @@ def _creator_brief(state: dict) -> str:
     return "WHO YOU'RE TALKING TO (from their setup — remember this): " + " ".join(bits) + tailor
 
 
-async def _generate_competitor_ideas(tenant_id, state) -> Optional[list[dict[str, Any]]]:
-    """Up to 3 data-backed ideas from the competitors' PAST-WEEK top videos.
-
-    Waits for the background scrape to land, queries the last week's best
-    performers across the added channels, and asks Claude (the tenant's DIRECT
-    key — NOT the Kie gateway, which may be down) to propose 3 ideas to model,
-    each with a 'why' grounded in the real title + view count + recency.
-    Returns None only when there's genuinely no recent competitor data.
-    """
+async def _wait_for_scrape(state) -> None:
+    """Bounded wait (~40s) for the background competitor scrape to finish."""
     import asyncio
-
     job_id = state.get("competitor_job")
-    if job_id:
-        try:
-            from routes.onboarding import _analyze_jobs
-            for _ in range(20):  # up to ~40s for the scrape to finish
-                st = (_analyze_jobs.get(job_id) or {}).get("status")
-                if st and st != "processing":
-                    break
-                await asyncio.sleep(2)
-        except Exception:  # noqa: BLE001
-            pass
+    if not job_id:
+        return
+    try:
+        from routes.onboarding import _analyze_jobs
+        for _ in range(20):
+            st = (_analyze_jobs.get(job_id) or {}).get("status")
+            if st and st != "processing":
+                break
+            await asyncio.sleep(2)
+    except Exception:  # noqa: BLE001
+        pass
 
-    # Past week (~10 days slack) top performers across the added competitor channels.
+
+async def _recent_competitor_rows(tenant_id) -> list[dict[str, Any]]:
+    """The competitors' best PAST-WEEK videos (falls back to newest if none recent)."""
     rows = await fetch_all(
-        """SELECT title, channel, views, vph, hours_old, published_date
+        """SELECT title, channel, views, vph, hours_old
              FROM competitor_videos
             WHERE tenant_id = $1 AND title IS NOT NULL
               AND hours_old IS NOT NULL AND hours_old <= 240
@@ -453,46 +450,106 @@ async def _generate_competitor_ideas(tenant_id, state) -> Optional[list[dict[str
             LIMIT 12""",
         tenant_id,
     )
-    if not rows:  # nothing tagged recent — fall back to the newest we have
+    if not rows:
         rows = await fetch_all(
-            """SELECT title, channel, views, vph, hours_old, published_date
+            """SELECT title, channel, views, vph, hours_old
                  FROM competitor_videos
                 WHERE tenant_id = $1 AND title IS NOT NULL
                 ORDER BY published_date DESC NULLS LAST, views DESC NULLS LAST
                 LIMIT 12""",
             tenant_id,
         )
-    if not rows:
-        return None
+    return rows or []
 
-    api_key = await get_secret("anthropic_api_key", tenant_id)
-    if not api_key:
-        return None
 
-    lines = []
+def _video_lines(rows) -> list[str]:
+    out = []
     for r in rows[:10]:
         v = int(r.get("views") or 0)
         hrs = r.get("hours_old")
         when = f", {round(hrs / 24, 1)}d ago" if hrs else ""
-        lines.append(f'- "{r.get("title")}" ({r.get("channel") or "competitor"}) — {v:,} views{when}')
+        out.append(f'- "{r.get("title")}" ({r.get("channel") or "competitor"}) — {v:,} views{when}')
+    return out
+
+
+def _claude_json(api_key: str, prompt: str, max_tokens: int = 1400) -> dict:
+    """One direct-Anthropic JSON call (sync; invoke via asyncio.to_thread)."""
+    import anthropic
+    from producer_prompt import ANTHROPIC_DIRECT_BASE_URL, MODEL, _extract_json
+    client = anthropic.Anthropic(api_key=api_key, base_url=ANTHROPIC_DIRECT_BASE_URL)
+    resp = client.messages.create(
+        model=MODEL, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
+    )
+    text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
+    return json.loads(_extract_json(text))
+
+
+async def _propose_modeling_angles(tenant_id, state) -> Optional[dict[str, Any]]:
+    """Summarize the competitors' winning format + propose 4 concrete ways the
+    creator could make it their OWN niche (so a beginner has real directions)."""
+    import asyncio
+    await _wait_for_scrape(state)
+    rows = await _recent_competitor_rows(tenant_id)
+    if not rows:
+        return None
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        return None
     prompt = (
-        "These are the top videos from this creator's competitor channels over the PAST WEEK:\n"
-        + "\n".join(lines)
-        + "\n\nPick the 3 strongest and propose 3 video ideas this creator should make now, each MODELED "
-        "on one of the above. Respond with ONE JSON object and nothing else:\n"
-        '{"ideas":[{"title":"<catchy title>","reasoning":"<why it will work — cite the specific source '
-        'video, its view count, and how recent it is>","source_title":"<the competitor video>",'
-        '"script_structure":"<one line>"}]}\nExactly 3 ideas. Ground every reasoning in the real numbers above.'
+        "A creator wants to model this competitor channel. Their recent top videos:\n"
+        + "\n".join(_video_lines(rows))
+        + "\n\nIn ONE short line, summarize the winning FORMAT (what makes these work). Then propose 4 DISTINCT, "
+        "concrete ways this creator could make that format their OWN niche — each an ownable angle a beginner could "
+        "run with (e.g. swap the language, swap the theme/scenario, swap the audience, narrow the focus). "
+        'Return ONE JSON object: {"format_summary":"...","angles":[{"label":"<short ownable niche>",'
+        '"description":"<one line>"}]}. Exactly 4 angles.'
     )
     try:
-        import anthropic
-        from producer_prompt import ANTHROPIC_DIRECT_BASE_URL, MODEL, _extract_json
-        client = anthropic.Anthropic(api_key=api_key, base_url=ANTHROPIC_DIRECT_BASE_URL)
-        resp = client.messages.create(
-            model=MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}]
+        data = await asyncio.to_thread(_claude_json, api_key, prompt, 1200)
+        if isinstance(data, dict) and isinstance(data.get("angles"), list) and data["angles"]:
+            return {"format_summary": data.get("format_summary", ""), "angles": data["angles"][:4]}
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("onboarding: modeling angles failed: %s", e)
+        return None
+
+
+async def _generate_competitor_ideas(tenant_id, state, niche: Optional[str] = None) -> Optional[list[dict[str, Any]]]:
+    """3 data-backed ideas modeled on the competitors' PAST-WEEK winners. When
+    `niche` is set, the ideas target the creator's chosen niche while modeling the
+    winning format; otherwise they model the competitors directly. Direct key.
+    Returns None only when there's genuinely no recent competitor data."""
+    import asyncio
+    await _wait_for_scrape(state)
+    rows = await _recent_competitor_rows(tenant_id)
+    if not rows:
+        return None
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        return None
+    if niche:
+        ask = (
+            f"The creator wants to make videos in THIS niche/angle: {niche}.\n"
+            "Propose 3 video ideas FOR THE CREATOR'S NICHE that MODEL the winning format above (hooks, structure, "
+            "packaging) — adapted to their niche, NOT copies of the competitor's exact topic. Each reasoning must "
+            "cite the specific competitor video + its view count + how recent it is, AND say how the idea adapts the "
+            "format to the creator's niche."
         )
-        text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
-        data = json.loads(_extract_json(text))
+    else:
+        ask = (
+            "Pick the 3 strongest and propose 3 video ideas this creator should make now, each MODELED on one of the "
+            "above. Each reasoning must cite the specific source video + its view count + how recent it is."
+        )
+    prompt = (
+        "These are the top videos from this creator's competitor channels over the PAST WEEK:\n"
+        + "\n".join(_video_lines(rows))
+        + "\n\n" + ask
+        + '\n\nReturn ONE JSON object and nothing else: {"ideas":[{"title":"...","reasoning":"...",'
+        '"source_title":"<the competitor video>","script_structure":"<one line>"}]}. Exactly 3 ideas. '
+        "Ground every reasoning in the real numbers above."
+    )
+    try:
+        data = await asyncio.to_thread(_claude_json, api_key, prompt, 1500)
         ideas = data.get("ideas") if isinstance(data, dict) else None
         return (ideas or [])[:3] or None
     except Exception as e:  # noqa: BLE001
@@ -526,43 +583,64 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     )
 
 
+async def _present_ideas_turn(conversation_id, tenant_id, transcript, state, ideas):
+    """Render 3 data-backed ideas as tappable cards; move to the 'ideas' step."""
+    state["pitched_ideas"] = ideas
+    state["mode"] = "onboarding"
+    state["onboarding_step"] = "ideas"
+    lines, opts = [], []
+    for i, idea in enumerate(ideas):
+        why = (idea.get("reasoning") or "").strip()
+        src1 = idea.get("source_title") or (idea.get("source_titles") or [None])[0]
+        srcline = f"  ↳ modeled on: “{src1}”" if src1 else ""
+        lines.append(f"**{i + 1}. {idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}")
+        opts.append({"value": str(i), "label": (idea.get("title") or "Idea")[:70], "hint": why[:140]})
+    niche = state.get("niche_angle")
+    intro = (f"Here are **3 ideas for “{niche}”**, modeled on what's winning:\n\n" if niche
+             else "Here are **3 ideas I'd model**, and why:\n\n")
+    text = intro + "\n\n".join(lines) + "\n\nTap one and I'll start building it — or just type your own idea below."
+    card = {"id": "idea_choice", "label": "Pick one to build", "type": "single", "options": opts}
+    return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
+
+
 async def _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks):
-    """Mark onboarding done, then PROACTIVELY pitch 3 data-backed ideas from the
-    analyzed competitors (with the 'why'). Falls back gracefully if the data isn't
-    ready, handing off to the producer either way."""
+    """Mark onboarding done, then help the creator MODEL their competitors: summarize
+    the winning format and propose concrete ways to make it their OWN niche. They
+    pick a direction (the 'modeling' step) -> we pitch 3 ideas in that niche. Falls
+    back gracefully if there's no recent competitor data yet."""
     try:
         from routes.onboarding import complete_onboarding
         await complete_onboarding(tenant_id=tenant_id)
     except Exception as e:  # noqa: BLE001
         logger.warning("onboarding: complete failed: %s", e)
 
-    ideas = await _generate_competitor_ideas(tenant_id, state)
-    if ideas:
-        state["pitched_ideas"] = ideas
+    angles = await _propose_modeling_angles(tenant_id, state)
+    if angles and angles.get("angles"):
+        state["modeling"] = angles
         state["mode"] = "onboarding"
-        state["onboarding_step"] = "ideas"
-        lines, opts = [], []
-        for i, idea in enumerate(ideas):
-            why = (idea.get("reasoning") or "").strip()
-            src1 = idea.get("source_title") or (idea.get("source_titles") or [None])[0]
-            srcline = f"  ↳ modeled on: “{src1}”" if src1 else ""
-            lines.append(f"**{i + 1}. {idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}")
-            opts.append({"value": str(i), "label": (idea.get("title") or "Idea")[:70], "hint": why[:140]})
+        state["onboarding_step"] = "modeling"
+        a = angles["angles"]
+        lines = [f"**{i + 1}. {x.get('label')}** — {x.get('description', '')}" for i, x in enumerate(a)]
         text = (
-            "You're all set! 🎉 I studied your competitors' best recent videos — here are "
-            "**3 ideas I'd model**, and why:\n\n" + "\n\n".join(lines) +
-            "\n\nTap one and I'll start building it — or just type your own idea below."
+            "You're all set! 🎉 Here's what's working on your competitors: "
+            + (angles.get("format_summary") or "strong, repeatable hooks")
+            + "\n\nThere are a few ways to make this **your own** — pick a direction (or just type the niche "
+            "you want to own):\n\n" + "\n".join(lines)
         )
-        card = {"id": "idea_choice", "label": "Pick one to build", "type": "single", "options": opts}
+        opts = [
+            {"value": str(i), "label": (x.get("label") or "Angle")[:60], "hint": (x.get("description") or "")[:140]}
+            for i, x in enumerate(a)
+        ]
+        card = {"id": "modeling_angle", "label": "How do you want to model it?", "type": "single", "options": opts}
         return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
 
-    # Genuinely no recent competitor data — hand off honestly (never "ask me").
+    # No recent competitor data yet — hand off honestly (never "ask me").
     state["mode"] = "producer"
     state["onboarding_step"] = "done"
     text = (
         "You're all set! 🎉 I pulled your competitor channel(s), but couldn't find enough of their "
-        "recent videos to model ideas from yet — they may still be importing. Paste another channel "
-        "under Competitors, or just tell me what you'd like to make and I'll run with it."
+        "recent videos to model from yet — they may still be importing. Paste another channel under "
+        "Competitors, or just tell me what you'd like to make and I'll run with it."
     )
     fresh = [_assistant_turn({"assistant_text": text, "phase": "asking"})]
     await _persist(conversation_id, tenant_id, fresh, state, "asking")
@@ -660,6 +738,37 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
                 cards=[{"id": "upsell", "label": "", "type": "single",
                         "options": [{"value": "carry_on", "label": "Got it — let's create"}]}])
         return await _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks)
+
+    if step == "modeling":
+        angles = (state.get("modeling") or {}).get("angles") or []
+        choice = sel.get("modeling_angle")
+        niche = None
+        if choice is not None and angles:
+            try:
+                a = angles[int(choice)]
+                niche = a.get("label") or ""
+                if a.get("description"):
+                    niche = f"{a.get('label')} — {a.get('description')}"
+            except (ValueError, IndexError, TypeError):
+                niche = None
+        elif msg:
+            niche = msg  # they typed their own niche
+        if not niche:
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                "Pick a direction above, or just type the niche you want to own.")
+        state["niche_angle"] = niche
+        ideas = await _generate_competitor_ideas(tenant_id, state, niche=niche)
+        if ideas:
+            return await _present_ideas_turn(conversation_id, tenant_id, transcript, state, ideas)
+        state["mode"] = "producer"
+        state["onboarding_step"] = "done"
+        text = (
+            f"Love it — {niche}. I couldn't pull enough recent competitor data to pitch exact ideas right now, "
+            "but tell me a rough topic and I'll build it in that lane."
+        )
+        fresh = [_assistant_turn({"assistant_text": text, "phase": "asking"})]
+        await _persist(conversation_id, tenant_id, fresh, state, "asking")
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
 
     if step == "ideas":
         ideas = state.get("pitched_ideas") or []
