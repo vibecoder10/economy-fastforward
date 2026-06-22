@@ -377,6 +377,7 @@ def _parse_urls(msg: str) -> list[str]:
 async def _ob_reply(conversation_id, tenant_id, transcript, state, text,
                     *, cards=None, phase="onboarding", video_id=None):
     transcript.append(_assistant_turn({"assistant_text": text, "phase": phase, "cards": cards}))
+    await _save_creator_brief(tenant_id, state)  # mirror durable facts as they're collected
     await _persist(conversation_id, tenant_id, transcript, state, phase, video_id=video_id)
     return ChatTurnResponse(
         conversation_id=conversation_id, assistant_text=text,
@@ -420,6 +421,47 @@ def _creator_brief(state: dict) -> str:
     elif goals and "full_video" not in goals and "all" not in goals:
         tailor = f" Default the workflow to match what they asked for ({', '.join(goals)}), not a full video, unless they say otherwise."
     return "WHO YOU'RE TALKING TO (from their setup — remember this): " + " ".join(bits) + tailor
+
+
+# The durable subset of conversation `state` that defines a creator across sessions.
+_BRIEF_KEYS = ("intent", "goals", "niche_angle", "channel", "competitors")
+
+
+async def _save_creator_brief(tenant_id, state) -> None:
+    """Persist the durable creator facts onto channel_profiles so the producer
+    remembers them in FUTURE conversations (each page load starts a fresh one).
+    Upsert + JSONB-merge — the row may not exist yet for a brand-new tenant, and we
+    never want to clobber facts captured in an earlier step. Fail-soft."""
+    brief = {k: state[k] for k in _BRIEF_KEYS if state.get(k)}
+    if not brief:
+        return
+    try:
+        await execute(
+            """INSERT INTO channel_profiles (tenant_id, creator_brief)
+               VALUES ($1, $2::jsonb)
+               ON CONFLICT (tenant_id)
+               DO UPDATE SET creator_brief = COALESCE(channel_profiles.creator_brief, '{}'::jsonb) || $2::jsonb,
+                             updated_at = now()""",
+            tenant_id, json.dumps(brief),
+        )
+    except Exception as e:  # noqa: BLE001 — memory is best-effort, never block a turn
+        logger.warning("chat: save creator_brief failed: %s", e)
+
+
+async def _hydrate_creator_brief(tenant_id, state) -> None:
+    """Fill empty conversation `state` from the durable brief so a fresh conversation
+    still knows the channel/goals/niche. Only fills MISSING keys (this conversation's
+    own choices win). Fail-soft."""
+    try:
+        row = await fetch_one(
+            "SELECT creator_brief FROM channel_profiles WHERE tenant_id = $1", tenant_id
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: hydrate creator_brief failed: %s", e)
+        return
+    for k, v in _as_dict((row or {}).get("creator_brief")).items():
+        if v and not state.get(k):
+            state[k] = v
 
 
 async def _wait_for_scrape(state) -> None:
@@ -757,6 +799,7 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
             return await _ob_reply(conversation_id, tenant_id, transcript, state,
                 "Pick a direction above, or just type the niche you want to own.")
         state["niche_angle"] = niche
+        await _save_creator_brief(tenant_id, state)  # persist niche before any producer handoff
         ideas = await _generate_competitor_ideas(tenant_id, state, niche=niche)
         if ideas:
             return await _present_ideas_turn(conversation_id, tenant_id, transcript, state, ideas)
@@ -816,6 +859,12 @@ async def chat_turn(
     transcript = _as_list(conv.get("transcript"))
     state = _as_dict(conv.get("state"))
     video_id = str(conv["video_id"]) if conv.get("video_id") else None
+
+    # Hydrate durable creator facts (intent/goals/niche/channel/competitors) from a
+    # past onboarding so a fresh conversation's producer stays channel-aware. Skip
+    # during onboarding — it's actively (re)building the brief.
+    if not (body.start_onboarding or state.get("mode") == "onboarding"):
+        await _hydrate_creator_brief(tenant_id, state)
 
     # 1.5 Onboarding ("Start Here") — runs before producer intake. Triggered by the
     # explicit launch button or once a conversation is already in onboarding mode.

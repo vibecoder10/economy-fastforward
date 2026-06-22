@@ -626,6 +626,11 @@ CREATE TABLE channel_profiles (
   onboarding_completed_at TIMESTAMPTZ,
   style_description TEXT,
 
+  -- Durable creator brief from chat onboarding (migration 061):
+  -- {intent, goals, niche_angle, channel, competitors} — hydrated into every new
+  -- chat conversation so the producer stays channel-aware across sessions.
+  creator_brief JSONB DEFAULT '{}'::jsonb,
+
   -- YouTube connection (migration 035)
   youtube_channel_id TEXT,
   youtube_channel_name TEXT,

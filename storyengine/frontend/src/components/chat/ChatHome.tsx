@@ -17,6 +17,7 @@ import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { visualPresetById } from "@/lib/visual-presets";
 import {
   sendChatTurn,
+  getOnboardingStatus,
   type ChatCard,
   type ChatTurnRequest,
   type ProductionPlan,
@@ -80,7 +81,9 @@ export function ChatHome() {
   const [sending, setSending] = useState(false);
   const [createdVideoId, setCreatedVideoId] = useState<string | null>(null);
   const [picks, setPicks] = useState<Record<string, string | string[]>>({});
+  const [checking, setChecking] = useState(true); // first-load onboarding-status check
   const endRef = useRef<HTMLDivElement>(null);
+  const autoTriedRef = useRef(false);
 
   const started = messages.length > 0;
   const last = messages[messages.length - 1];
@@ -113,6 +116,33 @@ export function ChatHome() {
       setSending(false);
     }
   }
+
+  // Auto-start the guided setup for genuinely brand-new users (no channel, no
+  // videos, onboarding not completed). Established tenants get the normal welcome
+  // and are never re-onboarded. Runs once; any failure falls back to the welcome.
+  useEffect(() => {
+    if (autoTriedRef.current) return;
+    autoTriedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await getOnboardingStatus();
+        const brandNew =
+          !s.completed && !s.steps?.first_video_created && !s.steps?.channel_configured;
+        if (!cancelled && brandNew) {
+          await turn({ start_onboarding: true }, "Help me get set up");
+          return; // keep `checking` until the first turn renders (no welcome flash)
+        }
+      } catch {
+        // status check failed — just show the normal welcome
+      }
+      if (!cancelled) setChecking(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function submitInput() {
     const text = input.trim();
@@ -164,6 +194,15 @@ export function ChatHome() {
       const v = picks[c.id];
       return Array.isArray(v) ? v.length > 0 : !!v;
     });
+
+  // --- first-load: checking whether to auto-start setup (avoids a welcome flash) ---
+  if (!started && checking) {
+    return (
+      <div className="max-w-3xl mx-auto flex flex-col items-center justify-center pt-32">
+        <Loader2 className="animate-spin" size={28} style={{ color: "var(--turquoise)" }} />
+      </div>
+    );
+  }
 
   // --- welcome screen (no conversation yet) ---
   if (!started) {
