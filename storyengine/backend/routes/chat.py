@@ -22,7 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_tenant_id
-from database import execute, fetch_one
+from database import execute, fetch_all, fetch_one
 from models import CreateVideoRequest
 from producer_prompt import build_system_prompt, call_producer
 from vault import get_secret
