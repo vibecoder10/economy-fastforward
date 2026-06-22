@@ -21,11 +21,17 @@ proof, O4 piece 3 (surface channel/competitors/intel in the visual pages), and
 Phases 4-5 (deeper channel intelligence + follow-up edits).
 
 - **Branch:** `feat/chat-first-producer`
-- **HEAD == origin/main == `488b2c0b`** (Phase 5; my work is chat.py-only on top of
-  the other session's live YouTube-ruleset commit `004b7400`). NOTE: another session
-  is actively committing+deploying to main in parallel (YouTube ruleset, image
-  clients, pipeline_executor, production tabs) - always `git fetch` + check the
-  `<vps-head>..<your-push>` range before deploying, and commit only your own files.
+- **origin/main == `5c166691`** (O4 piece 3). My chat-first work now lives interleaved
+  on main with another session's parallel work (YouTube ruleset, GPT Image 2 character
+  consistency, image clients, pipeline_executor, production tabs). That session is still
+  actively committing+deploying to main AND leaves uncommitted WIP in the shared working
+  tree. DEPLOY DISCIPLINE that worked: (1) `git fetch` + check the `<vps-head>..<your-push>`
+  commit range before any VPS pull; (2) commit ONLY your own files (never `git add -A`);
+  (3) when your push isn't a fast-forward and the shared tree is dirty with their WIP,
+  do NOT rebase/stash/reset in it - instead `git worktree add --detach /tmp/se-deploy
+  origin/main`, `git -C /tmp/se-deploy cherry-pick <your-commit>`, push from there,
+  `git worktree remove`. That lands your commit cleanly on top of theirs without
+  touching their work.
 - **Prod-HEAD reality:** prod (VPS `~/projects/economy-fastforward`) was at
   `f1d44ddb`, NOT the `3def6c72` the prior handoff claimed - that commit was a
   docs-only GOAL.md change never deployed. The O4 pull (f1d44ddb -> e1af585d) added
@@ -156,8 +162,13 @@ gracefully in the tracker - intake + script work regardless.)
      niche-set point) and hydrated into every new conversation (`_hydrate_creator_brief`
      in `chat_turn`, non-onboarding path, fills only missing keys). `_creator_brief`
      unchanged downstream.
-   - [LEFT - piece 3] Surface the intelligence report + connected channel/competitors
-     in the existing visual pages (Competitors, Visual Styles) as the workspace layer.
+   - [DONE 2026-06-22, HEAD 5c166691] Piece 3: surfaced the chat-onboarding setup +
+     intelligence report on /competitors (two cards: "Your setup" from creator_brief +
+     an "Intelligence report" panel reading the previously-unshown intelligence_reports
+     row). Backend exposed creator_brief + youtube_channel_name on /api/onboarding/status;
+     frontend getCreatorSetup + getIntelligenceReport (coerces JSONB-string report fields).
+     Skipped Visual Styles (independent visual_styles assets, nothing onboarding maps to it).
+     Owed: an authed view of /competitors to confirm the cards render.
    - [LEFT] Authenticated brand-new-user click-through: confirm the auto-trigger fires
      for a fresh tenant and the niche/goals survive into a brand-new conversation.
 2. **Phase 4 - deeper channel intelligence in the producer** (overlaps O4; the
