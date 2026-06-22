@@ -169,13 +169,8 @@ def test_set_task_status_humanizes_failure_errors():
             def __init__(self, *a, **kw): pass
         pe.PipelineExecutor = _Stub
         _sys.modules["pipeline_executor"] = pe
-    if "status_map" not in _sys.modules:
-        sm = types.ModuleType("status_map")
-        sm.to_supabase = lambda *a, **kw: None
-        sm.to_pipeline = lambda *a, **kw: None
-        sm.get_next_status_supabase = lambda *a, **kw: None
-        sm.is_at_or_past_stage = lambda *a, **kw: False
-        _sys.modules["status_map"] = sm
+    # status_map is pure (stdlib only) — let routes.pipeline import the real one.
+    # The old incomplete stub broke that import and poisoned other tests.
 
     from routes import pipeline as pipeline_mod
 

@@ -1,0 +1,19 @@
+[Unit]
+Description=StoryEngine arq worker (pipeline stage jobs)
+# Needs Redis up first. Without this worker running, pipeline stages silently
+# fall back to running inside the single web process (main.py:pipeline dispatch),
+# which makes the API unresponsive under concurrent multi-tenant load.
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=clawd
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+ExecStart=/home/clawd/projects/economy-fastforward/storyengine/backend/venv/bin/arq worker.WorkerSettings
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/clawd/projects/economy-fastforward/storyengine/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -391,6 +391,7 @@ class Models:
 
     # Video generation (Kie.ai)
     ANIMATION_GROK = "grok-imagine/image-to-video"
+    ANIMATION_SEEDANCE = "bytedance/seedance-2-fast"
     VEO_FAST = "veo3_fast"
     VEO_QUALITY = "veo3"
 

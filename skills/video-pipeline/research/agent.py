@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 def _load_title_patterns() -> dict:
     """Load the title pattern library from title_patterns.json."""
-    patterns_path = Path(__file__).parent / "title_patterns.json"
+    patterns_path = Path(__file__).resolve().parent.parent / "title_patterns.json"
     if not patterns_path.exists():
         raise FileNotFoundError(f"title_patterns.json not found at {patterns_path}")
     with open(patterns_path) as f:

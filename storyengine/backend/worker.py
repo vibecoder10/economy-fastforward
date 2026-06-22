@@ -10,10 +10,17 @@ from urllib.parse import urlparse as _urlparse
 from arq.connections import RedisSettings
 from arq.worker import func
 from job_queue import make_job_id
+from error_utils import is_kie_block, humanize_error
 
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+
+def _terminal_failure(error_msg: str) -> bool:
+    """A failure that retrying can't fix — skip arq retries (and the wasted
+    upstream spend). Today that's a blocked / out-of-credit Kie key."""
+    return is_kie_block(error_msg)
 
 
 # -- shared startup/shutdown ---------------------------------------------------
@@ -75,6 +82,15 @@ async def _run_stage(
             return result
         if status == "failed":
             error_msg = result.get("error", "Stage returned failed status")
+            if _terminal_failure(error_msg):
+                # A blocked / out-of-credit Kie key can't be fixed by retrying —
+                # persist an actionable message and stop (no arq retry, no budget burn).
+                await db_persist_task(
+                    tenant_id, video_id, stage, "failed",
+                    error=humanize_error(error_msg), job_id=job_id, attempt=attempt,
+                )
+                logger.warning("[%s] terminal failure (no retry) video=%s: %s", stage, video_id, error_msg)
+                return result
             await db_persist_task(
                 tenant_id, video_id, stage, "failed",
                 error=error_msg, job_id=job_id, attempt=attempt,
@@ -92,6 +108,13 @@ async def _run_stage(
     except Exception as exc:
         error_msg = str(exc)
         logger.exception("[%s] failed video=%s: %s", stage, video_id, error_msg)
+        if _terminal_failure(error_msg):
+            # Terminal (blocked Kie key) — persist actionable copy, don't retry.
+            await db_persist_task(
+                tenant_id, video_id, stage, "failed",
+                error=humanize_error(error_msg), job_id=job_id, attempt=attempt,
+            )
+            return {"status": "failed", "error": humanize_error(error_msg)}
         await db_persist_task(
             tenant_id, video_id, stage, "failed",
             error=error_msg, job_id=job_id, attempt=attempt,

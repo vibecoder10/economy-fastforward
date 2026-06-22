@@ -112,15 +112,30 @@ async def stripe_webhook(request: Request):
     except s.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    # Idempotency: Stripe delivers at-least-once. Record the event id first;
+    # if we've already processed it, skip (prevents duplicate receipt emails
+    # and double-applied side effects on retried/redelivered events).
+    seen = await fetch_one(
+        """INSERT INTO stripe_events (event_id, event_type)
+           VALUES ($1, $2)
+           ON CONFLICT (event_id) DO NOTHING
+           RETURNING event_id""",
+        event["id"], event["type"],
+    )
+    if not seen:
+        return {"received": True, "duplicate": True}
+
     event_type = event["type"]
     data = event["data"]["object"]
 
     if event_type == "checkout.session.completed":
         await _handle_checkout_completed(data)
-    elif event_type == "customer.subscription.updated":
+    elif event_type in ("customer.subscription.updated", "customer.subscription.created"):
         await _handle_subscription_updated(data)
     elif event_type == "customer.subscription.deleted":
         await _handle_subscription_deleted(data)
+    elif event_type == "invoice.payment_failed":
+        await _handle_payment_failed(data)
 
     return {"received": True}
 
@@ -188,19 +203,55 @@ async def _handle_subscription_updated(subscription: dict):
     if not account:
         return
 
-    if plan:
-        effective_plan = plan if sub_status == "active" else "free"
+    if sub_status != "active":
+        # Fail CLOSED: any non-active state (past_due, canceled, unpaid,
+        # incomplete) loses paid access — regardless of whether the price
+        # mapped to a known plan. Previously an unmapped price left `plan`
+        # untouched, so an unpaid customer kept full access (fail-open).
         await execute(
             """UPDATE accounts
-               SET stripe_plan = $1, stripe_status = $2, plan = $3, updated_at = now()
-               WHERE id = $4""",
-            plan, sub_status, effective_plan, account["id"],
+               SET stripe_plan = COALESCE($1, stripe_plan), stripe_status = $2,
+                   plan = 'free', updated_at = now()
+               WHERE id = $3""",
+            plan, sub_status, account["id"],
+        )
+    elif plan:
+        await execute(
+            """UPDATE accounts
+               SET stripe_plan = $1, stripe_status = 'active', plan = $1, updated_at = now()
+               WHERE id = $2""",
+            plan, account["id"],
         )
     else:
+        # Active but the price doesn't map to a known plan — a config error,
+        # not a reason to revoke an active payer. Record status only.
         await execute(
-            "UPDATE accounts SET stripe_status = $1, updated_at = now() WHERE id = $2",
-            sub_status, account["id"],
+            "UPDATE accounts SET stripe_status = 'active', updated_at = now() WHERE id = $1",
+            account["id"],
         )
+
+
+async def _handle_payment_failed(invoice: dict):
+    """A renewal payment failed — revoke paid access (fail closed).
+
+    Stripe also transitions the subscription to past_due and fires
+    subscription.updated, but handling the invoice event directly means we
+    don't depend on that ordering.
+    """
+    customer_id = invoice.get("customer")
+    if not customer_id:
+        return
+    account = await fetch_one(
+        "SELECT id FROM accounts WHERE stripe_customer_id = $1", customer_id
+    )
+    if not account:
+        return
+    await execute(
+        """UPDATE accounts
+           SET stripe_status = 'past_due', plan = 'free', updated_at = now()
+           WHERE id = $1""",
+        account["id"],
+    )
 
 
 async def _handle_subscription_deleted(subscription: dict):
@@ -298,8 +349,11 @@ async def create_portal(
 
 PLAN_LIMITS = {
     "free": {"videos_per_month": 2, "render_minutes": 10, "concurrent_jobs": 1},
-    "starter": {"videos_per_month": 4, "render_minutes": 30, "concurrent_jobs": 1},
-    "pro": {"videos_per_month": 15, "render_minutes": 120, "concurrent_jobs": 3},
+    # $50 Basic — video generation, no Autopilot/Analytics/Competitor (gated by
+    # PRO_PATHS in the frontend; starter is below the 'pro' tier).
+    "starter": {"videos_per_month": 12, "render_minutes": 60, "concurrent_jobs": 1},
+    # $100 Pro — everything, including Autopilot.
+    "pro": {"videos_per_month": 30, "render_minutes": 180, "concurrent_jobs": 3},
     "agency": {"videos_per_month": 50, "render_minutes": 500, "concurrent_jobs": 5},
 }
 
@@ -361,8 +415,65 @@ async def increment_usage(tenant_id, field: str, amount: int = 1):
     )
 
 
+# Tier ladder for feature gating. Higher rank = more access. Trial users resolve
+# to 'pro' via _get_tenant_plan, so an active trial passes a require_plan("pro") gate.
+_PLAN_RANK = {"free": 0, "starter": 1, "pro": 2, "agency": 3, "studio": 3}
+
+
+def require_plan(min_tier: str):
+    """FastAPI dependency: 402 unless the tenant's plan is >= min_tier.
+
+    Use on routes that sell a premium feature server-side (autopilot, analytics,
+    competitor scraping) so the tier isn't UI-only/bypassable. Returns tenant_id
+    so the route can keep using it. NOTE: only attach to routes whose frontend
+    surfaces a clean upgrade prompt on 402 — don't gate endpoints a shared
+    dashboard polls for everyone, or free users get a broken page.
+    """
+    async def _dep(tenant_id=Depends(get_tenant_id)):
+        plan = await _get_tenant_plan(tenant_id)
+        if _PLAN_RANK.get(plan, 0) < _PLAN_RANK.get(min_tier, 99):
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "plan_required",
+                    "message": f"This feature requires the {min_tier.title()} plan or higher.",
+                    "plan": plan,
+                    "required": min_tier,
+                    "upgrade_url": "/pricing",
+                },
+            )
+        return tenant_id
+    return _dep
+
+
+async def _is_email_verified(tenant_id) -> bool:
+    """Whether the tenant's account has confirmed its email. Defaults True on a
+    lookup miss so a transient query issue never locks a tenant out."""
+    row = await fetch_one(
+        """SELECT a.email_verified FROM accounts a
+           JOIN memberships m ON m.user_id = a.id
+           WHERE m.tenant_id = $1 LIMIT 1""",
+        tenant_id,
+    )
+    return True if not row else bool(row.get("email_verified"))
+
+
 async def check_plan_limits(tenant_id, action: str = "video"):
     """Check if tenant is within plan limits. Raises 402 if over limit."""
+    # Email-verification gate. Only enforced when EMAIL_VERIFY_REQUIRED=true —
+    # kept OFF until the email sending domain is verified, so we never lock out
+    # new users who can't yet receive the link. Existing accounts are
+    # grandfathered verified (migration 059); Google signups are verified on
+    # create. This is the single chokepoint every generate/render path calls.
+    if os.getenv("EMAIL_VERIFY_REQUIRED", "false").lower() == "true":
+        if not await _is_email_verified(tenant_id):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "email_not_verified",
+                    "message": "Confirm your email to start generating — check your inbox for the link.",
+                },
+            )
     plan = await _get_tenant_plan(tenant_id)
     limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
     usage = await _get_or_create_usage(tenant_id)

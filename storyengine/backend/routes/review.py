@@ -136,8 +136,8 @@ async def approve_storyboard(script_id: str, tenant_id: str = Depends(get_tenant
         raise HTTPException(status_code=404, detail="Script not found")
 
     await execute(
-        "UPDATE scripts SET storyboard_status = 'approved', updated_at = now() WHERE id = $1",
-        script_id,
+        "UPDATE scripts SET storyboard_status = 'approved', updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        script_id, tenant_id,
     )
     return {"status": "approved", "script_id": script_id}
 
@@ -165,8 +165,8 @@ async def reject_storyboard(
              storyboard_4_url = NULL,
              storyboard_5_url = NULL,
              updated_at = now()
-           WHERE id = $1""",
-        script_id,
+           WHERE id = $1 AND tenant_id = $2""",
+        script_id, tenant_id,
     )
     return {"status": "rejected", "script_id": script_id}
 
@@ -185,8 +185,8 @@ async def approve_all_storyboards(
         )
         if row:
             await execute(
-                "UPDATE scripts SET storyboard_status = 'approved', updated_at = now() WHERE id = $1",
-                script_id,
+                "UPDATE scripts SET storyboard_status = 'approved', updated_at = now() WHERE id = $1 AND tenant_id = $2",
+                script_id, tenant_id,
             )
             approved.append(script_id)
     return {"status": "approved", "approved_count": len(approved), "script_ids": approved}

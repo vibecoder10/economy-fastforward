@@ -87,6 +87,7 @@ export interface AuthUser {
   plan: string;
   tenant_id?: string | null;
   created_at?: string | null;
+  email_verified?: boolean;
 }
 
 export const googleLogin = (credential: string) =>
@@ -108,6 +109,17 @@ export const loginUser = (email: string, password: string) =>
   });
 
 export const getMe = () => fetchApi<AuthUser>("/api/auth/me");
+
+export const verifyEmail = (token: string) =>
+  fetchApi<{ verified: boolean }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+
+export const resendVerification = () =>
+  fetchApi<{ sent: boolean; already_verified?: boolean }>("/api/auth/resend-verification", {
+    method: "POST",
+  });
 
 export const forgotPassword = (email: string) =>
   fetchApi<{ status: string; message: string }>("/api/auth/forgot-password", {
@@ -2156,3 +2168,44 @@ export const getAutopilotRecommendations = () =>
   fetchApi<{ status: string; recommendations: IntelligenceRecommendations | null }>(
     "/api/autopilot/recommendations"
   );
+
+// --- Chat (chat-first creative producer) ---
+
+export interface ChatCardOption {
+  value: string;
+  label: string;
+  hint?: string;
+}
+export interface ChatCard {
+  id: string;
+  label: string;
+  type: "single" | "multi";
+  options: ChatCardOption[];
+}
+export interface ProductionPlan {
+  story_concept?: string;
+  recommended_titles?: string[];
+  thumbnail_concepts?: string[];
+  spec?: Record<string, unknown>;
+}
+export interface ChatTurnRequest {
+  conversation_id?: string | null;
+  message?: string | null;
+  selections?: Record<string, unknown> | null;
+  approve?: boolean;
+}
+export interface ChatTurnResponse {
+  conversation_id: string;
+  assistant_text: string;
+  cards?: ChatCard[] | null;
+  plan?: ProductionPlan | null;
+  ready_to_create: boolean;
+  video_id?: string | null;
+  phase: string; // asking | plan | created
+}
+
+export const sendChatTurn = (body: ChatTurnRequest) =>
+  fetchApi<ChatTurnResponse>("/api/chat", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });

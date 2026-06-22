@@ -153,6 +153,11 @@ _SAFE_EXPR_NAMES = {
     # literal SQL fragment locals built from hardcoded strings in-function
     # (we still spot-check these in the per-pattern allowlist below).
     "where", "cols",
+    # tw = SupabaseAdapter._tw() tenant-isolation predicate. Always a constant
+    # fragment " AND <alias>.tenant_id = %s" where alias is a hardcoded literal
+    # ("", "v", "s") and the tenant value is parameterized (%s) — no user input
+    # can reach it. Same category as `where`/`cols` above.
+    "tw",
     # fragments joined from already-validated pieces
     "sets", "updates", "set_parts", "conditions",
 }
@@ -176,6 +181,10 @@ _VERIFIED_SAFE = [
     ("routes/billing.py", "SET {field} = {field}"),
     # col = f"storyboard_{beat}_url" with 1 <= beat <= 5 validated above
     ("routes/videos.py", "SET {col} = $1"),
+    # clear_storyboard_slot: col = f"storyboard_{beat}_url", beat bounded 1-5
+    # (raise 400 otherwise) before either of these two statements.
+    ("routes/videos.py", "SELECT id, {col} AS url FROM scripts"),
+    ("routes/videos.py", 'f"""UPDATE scripts'),
     # updates built from f"{col} = ${idx}" where col is f"storyboard_{beat}_url"
     ("pipeline_executor.py", "SET {', '.join(updates)}"),
     # where built from hardcoded "category = %s" / "active = true" strings

@@ -10,6 +10,27 @@ from typing import Optional
 import asyncio
 from orchestrator.pipeline_constants import Endpoints, Models
 
+# Kie is the single upstream for text+image+video+voice. A blocked or
+# credit-exhausted key is TERMINAL — polling/retrying again can never recover
+# it, it just burns the whole retry budget while the user sees "still pending".
+# Detect it once and propagate a marked error so the stage stops and the UI can
+# tell the customer to fix their key (see backend/error_utils.humanize_error).
+KIE_BLOCK_MARKER = "KIE_ACCOUNT_BLOCKED"
+_KIE_BLOCK_SIGNALS = (
+    "用户已被封禁", "已被封禁", "封禁", "余额不足",
+    "insufficient credit", "insufficient balance", "out of credit",
+    "account banned", "account is banned", "account suspended",
+    KIE_BLOCK_MARKER.lower(),
+)
+
+
+def _is_kie_block(text) -> bool:
+    """True if an error message/code signals a banned or out-of-credit Kie key."""
+    if not text:
+        return False
+    low = str(text).lower()
+    return any(sig in low or sig in str(text) for sig in _KIE_BLOCK_SIGNALS)
+
 
 def _get_profile():
     """Return the active visual profile, or None."""
@@ -308,6 +329,8 @@ class ImageClient:
             try:
                 status = await self.get_task_status(task_id)
             except Exception as e:
+                if _is_kie_block(e):
+                    raise  # terminal — don't keep polling a blocked account
                 print(f"      ⚠️ Poll error: {e}")
                 await asyncio.sleep(poll_interval)
                 continue
@@ -342,6 +365,12 @@ class ImageClient:
                     print(f"         Error code: {error_code}")
                 # Log the full response data for debugging hard-to-diagnose failures
                 print(f"         Full response data: {data}")
+                # A banned / out-of-credit account is terminal — raise a marked
+                # error so the stage stops and the user gets an actionable
+                # "fix your Kie key" message, instead of a silent None that the
+                # caller retries until the budget is gone.
+                if _is_kie_block(error_msg) or _is_kie_block(error_code):
+                    raise RuntimeError(f"{KIE_BLOCK_MARKER}: {error_msg}")
                 return None
 
             result_json = data.get("resultJson")
@@ -904,7 +933,62 @@ class ImageClient:
                 
         print("❌ All retry attempts failed.")
         return None
-    
+
+    async def generate_video_seedance(
+        self,
+        image_url: str,
+        prompt: str,
+        duration: int = 6,
+        extra_image_urls: Optional[list] = None,
+        aspect_ratio: str = "16:9",
+    ) -> Optional[str]:
+        """Animate one keyframe with Seedance 2.0 Fast — the pricier, smoother tier.
+        Same call shape as generate_video so the executor can swap them. image_url is
+        the first frame; extra_image_urls (the cast sheet) are references for
+        character consistency. Reuses the same createTask + poll path as Grok."""
+        refs = [u for u in (extra_image_urls or []) if u][:9]
+        payload = {
+            "model": Models.ANIMATION_SEEDANCE,
+            "input": {
+                "prompt": prompt,
+                "first_frame_url": image_url,
+                "reference_image_urls": refs,
+                "aspect_ratio": aspect_ratio,
+                "resolution": "720p",  # ponytail: 720p tier; bump to 1080p if needed
+                "duration": int(duration),
+                "generate_audio": True,
+            },
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        print(f"      🎬 Seedance 2.0 ({duration}s, {aspect_ratio}, refs {len(refs)})...")
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        self.CREATE_TASK_URL, headers=headers, json=payload, timeout=30.0)
+                    response.raise_for_status()
+                    task_data = response.json()
+                task_id = (task_data.get("data") or {}).get("taskId")
+                if not task_id:
+                    print(f"      ⚠️ Seedance createTask failed (attempt {attempt+1}): "
+                          f"{str(task_data.get('msg'))[:150]}")
+                    await asyncio.sleep(4 * (attempt + 1))
+                    continue
+                print(f"    🎬 Seedance task started: {task_id}")
+                await asyncio.sleep(10)
+                result_urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
+                if result_urls:
+                    return result_urls[0]
+                print(f"      ⚠️ Seedance attempt {attempt+1} poll failed. Retrying...")
+            except Exception as e:
+                print(f"❌ Seedance error (attempt {attempt+1}): {str(e)[:150]}")
+                await asyncio.sleep(5)
+        print("❌ Seedance: all attempts failed.")
+        return None
+
     async def download_image(self, image_url: str) -> bytes:
         """Download image from URL.
 

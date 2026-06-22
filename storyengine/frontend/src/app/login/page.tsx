@@ -20,7 +20,7 @@ export default function LoginPage() {
   async function redirectAfterAuth() {
     try {
       const status = await getOnboardingStatus();
-      router.replace(status.completed ? "/dashboard" : "/onboarding");
+      router.replace(status.completed ? "/" : "/onboarding"); // chat is the home screen
     } catch {
       // Default to onboarding when status check fails (e.g. missing DB columns)
       // A new user needs onboarding; a returning user will be redirected to dashboard

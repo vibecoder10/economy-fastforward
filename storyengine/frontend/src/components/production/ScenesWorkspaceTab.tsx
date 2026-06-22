@@ -45,6 +45,7 @@ import { StopGenerationButton } from "@/components/production/StopGenerationButt
 /** Models with a live generation path (the registry rejects the rest). */
 const WIRED_MODELS: { id: string; label: string }[] = [
   { id: "grok-imagine", label: "Grok Imagine — $0.10/clip" },
+  { id: "seedance-2-fast", label: "Seedance 2.0 Cinematic — $0.30/clip" },
   { id: "veo-3.1-fast", label: "Veo 3.1 Fast — $0.30/clip" },
   { id: "veo-3.1-quality", label: "Veo 3.1 Quality — $1.25/clip" },
 ];

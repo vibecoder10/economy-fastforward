@@ -23,7 +23,6 @@ import {
   Upload,
   Zap,
   Crown,
-  Building2,
   CheckCircle2,
   X,
   Clock,
@@ -51,6 +50,7 @@ import {
 import { PIPELINE_STAGES, COMPLETED_STATUSES, getStageLabel } from "@/lib/constants";
 import { formatCost, timeAgo } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { ChatHome } from "@/components/chat/ChatHome";
 
 const container = {
   hidden: { opacity: 0 },
@@ -109,8 +109,9 @@ export default function HomePage() {
     return <LandingPage />;
   }
 
-  // Authenticated: show production dashboard
-  return <Dashboard />;
+  // Authenticated: the chat-first creative producer is now the home screen.
+  // The full dashboard lives at /dashboard (and in the sidebar).
+  return <ChatHome />;
 }
 
 /* ─── Landing Page (unauthenticated) ─── */
@@ -157,28 +158,20 @@ const STATS = [
 const PRICING_TIERS = [
   {
     key: "starter",
-    name: "Starter",
-    price: 25,
+    name: "Basic",
+    price: 50,
     icon: Zap,
-    tagline: "For solo creators getting started",
-    features: ["Full 18-stage pipeline", "1 channel", "4 videos/month", "1 visual style", "Manual mode"],
+    tagline: "Everything you need to make videos",
+    features: ["Full 18-stage pipeline", "12 videos/month", "All visual styles", "Review & edit every stage"],
   },
   {
-    key: "creator",
-    name: "Creator",
-    price: 40,
+    key: "pro",
+    name: "Pro",
+    price: 100,
     icon: Crown,
-    tagline: "For creators who want AI-powered growth",
+    tagline: "The full AI engine, on autopilot",
     popular: true,
-    features: ["Everything in Starter", "15 videos/month", "Autopilot mode", "Analytics & learnings", "Competitor analysis", "3 visual styles"],
-  },
-  {
-    key: "studio",
-    name: "Studio",
-    price: 75,
-    icon: Building2,
-    tagline: "For teams managing multiple channels",
-    features: ["Everything in Creator", "Unlimited videos", "Multi-channel", "Team management", "Priority rendering", "Custom styles"],
+    features: ["Everything in Basic", "30 videos/month", "Autopilot mode", "Analytics & learnings", "Competitor analysis", "Discovery ideas"],
   },
 ];
 
@@ -300,7 +293,7 @@ function LandingPage() {
           className="text-xs mt-4"
           style={{ color: "var(--text-tertiary)" }}
         >
-          14-day free trial. No credit card required. BYOK — bring your own API keys.
+          7-day free trial. No credit card required. BYOK — bring your own API keys.
         </motion.p>
       </motion.div>
       </section>
@@ -570,7 +563,7 @@ function LandingPage() {
               Ready to produce smarter?
             </h2>
             <p className="text-base mb-6" style={{ color: "var(--text-secondary)" }}>
-              Start your 14-day free trial. Full Pro features, no credit card.
+              Start your 7-day free trial. Full features, no credit card.
             </p>
             <Link
               href="/login"
@@ -605,7 +598,11 @@ function LandingPage() {
 
 /* ─── Dashboard (authenticated) ─── */
 
-function Dashboard() {
+// The legacy "Production Overview" dashboard. Superseded as the home screen by
+// ChatHome (/) and as the primary dashboard by the richer /dashboard route.
+// Kept (exported, so no unused-symbol error) pending removal — see cleanup task.
+// ponytail: don't delete 460 lines + untangle shared imports mid-pivot.
+export function Dashboard() {
   const router = useRouter();
 
   const { data: summary, isLoading: summaryLoading, error: summaryError } = useQuery({

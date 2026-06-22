@@ -22,7 +22,7 @@ from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
 from error_utils import humanize_error, USER_FACING_PREFIX
 from pipeline_executor import PipelineExecutor
-from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage, stage_enabled_in_plan
+from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage, stage_enabled_in_plan, friendly_state
 from job_queue import enqueue_stage
 from task_store import db_persist_task
 
@@ -166,6 +166,38 @@ async def recover_stale_tasks() -> int:
         )
         # asyncpg returns "UPDATE N" string
         count = int(result.split()[-1]) if result else 0
+        return count
+    except Exception:
+        return 0
+
+
+# Stale threshold (minutes) for the periodic reaper. Must exceed the longest
+# arq job timeout (7200s = 2h for images/render) — a live job is killed by arq
+# at 2h, so anything still 'running'/'pending' past 3h is a true zombie left by
+# a dead worker process, which would otherwise block a 1-job-plan tenant forever.
+STALE_TASK_THRESHOLD_MIN = 180
+
+
+async def reap_stale_running_tasks(max_age_minutes: int = STALE_TASK_THRESHOLD_MIN) -> int:
+    """Fail tasks stuck 'running'/'pending' past the threshold (periodic).
+
+    recover_stale_tasks() only runs at API startup; if a WORKER process dies
+    mid-stage, its background_tasks row stays 'running' and — on free/starter
+    plans (concurrent_jobs=1) — blocks ALL further generation for that tenant
+    until the API restarts. This runs on a timer so the tenant auto-unblocks.
+    """
+    try:
+        result = await execute(
+            "UPDATE background_tasks SET status = 'failed', "
+            "error_message = 'Timed out — the worker didn''t finish this stage. Run it again.', "
+            "completed_at = now() "
+            "WHERE status IN ('running', 'pending') "
+            "  AND started_at < now() - make_interval(mins => $1)",
+            max_age_minutes,
+        )
+        count = int(result.split()[-1]) if result else 0
+        if count:
+            logger.warning("[reaper] failed %d stale task(s) older than %dmin", count, max_age_minutes)
         return count
     except Exception:
         return 0
@@ -1892,6 +1924,7 @@ async def pipeline_stream(
                     "video_id": str(t["video_id"]) if t.get("video_id") else None,
                     "video_title": t.get("video_title"),
                     "current_status": t.get("current_status"),
+                    "friendly": friendly_state(t.get("current_status") or t.get("to_status") or ""),
                     "from_status": t.get("from_status"),
                     "to_status": t.get("to_status"),
                     "triggered_by": t.get("triggered_by"),

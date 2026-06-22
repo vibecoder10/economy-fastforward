@@ -29,11 +29,17 @@ import {
   Lock,
   X,
   BookOpen,
+  MessageSquare,
 } from "lucide-react";
 import { isPlanAtLeast, PRO_PATHS } from "@/components/auth/AuthenticatedShell";
 
-const navItems = [
-  { href: "/", icon: LayoutGrid, label: "Dashboard" },
+// Chat is the primary surface; Dashboard is now secondary. Everything else lives
+// under "Advanced" so the chat-first experience stays uncluttered.
+const primaryNav = [
+  { href: "/", icon: MessageSquare, label: "Chat" },
+  { href: "/dashboard", icon: LayoutGrid, label: "Dashboard" },
+];
+const advancedNav = [
   { href: "/pipeline", icon: List, label: "Videos" },
   { href: "/review", icon: CheckSquare, label: "Review" },
   { href: "/autopilot", icon: Bot, label: "Autopilot" },
@@ -81,6 +87,44 @@ export function Sidebar() {
     router.replace("/login");
   };
 
+  const renderNavItem = ({ href, icon: Icon, label }: { href: string; icon: typeof LayoutGrid; label: string }) => {
+    const isActive =
+      href === "/" ? pathname === "/" : pathname.startsWith(href.split("?")[0]);
+    const showBadge = href === "/review" && pendingCount > 0;
+    const isLocked = PRO_PATHS.some((p) => href.startsWith(p)) && !isPlanAtLeast(user?.plan, "pro");
+
+    return (
+      <Link
+        key={href}
+        href={href}
+        onClick={() => setMobileOpen(false)}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+          collapsed ? "justify-center" : ""
+        }`}
+        style={{
+          background: isActive ? "var(--turquoise-dim)" : "transparent",
+          color: isActive ? "var(--turquoise)" : isLocked ? "var(--text-tertiary)" : "var(--text-secondary)",
+          opacity: isLocked ? 0.6 : 1,
+        }}
+        title={collapsed ? label : undefined}
+      >
+        <div className="relative shrink-0">
+          <Icon size={20} />
+          {showBadge && (
+            <span
+              className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+            >
+              {pendingCount > 9 ? "9+" : pendingCount}
+            </span>
+          )}
+        </div>
+        {!collapsed && <span className="text-sm font-medium font-body flex-1">{label}</span>}
+        {!collapsed && isLocked && <Lock size={12} style={{ color: "var(--gold)" }} />}
+      </Link>
+    );
+  };
+
   const sidebarContent = (
     <>
       {/* Logo */}
@@ -102,51 +146,20 @@ export function Sidebar() {
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 py-4 px-2 space-y-1">
-        {navItems.map(({ href, icon: Icon, label }) => {
-          const isActive =
-            href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(href.split("?")[0]);
+      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+        {primaryNav.map(renderNavItem)}
 
-          const showBadge = href === "/review" && pendingCount > 0;
-          const isLocked = PRO_PATHS.some((p) => href.startsWith(p)) && !isPlanAtLeast(user?.plan, "pro");
+        {!collapsed && (
+          <div
+            className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            Advanced
+          </div>
+        )}
+        {collapsed && <div className="my-2 mx-3 h-px" style={{ background: "var(--border-subtle)" }} />}
 
-          return (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => setMobileOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
-                collapsed ? "justify-center" : ""
-              }`}
-              style={{
-                background: isActive ? "var(--turquoise-dim)" : "transparent",
-                color: isActive ? "var(--turquoise)" : isLocked ? "var(--text-tertiary)" : "var(--text-secondary)",
-                opacity: isLocked ? 0.6 : 1,
-              }}
-              title={collapsed ? label : undefined}
-            >
-              <div className="relative shrink-0">
-                <Icon size={20} />
-                {showBadge && (
-                  <span
-                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
-                    style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-                  >
-                    {pendingCount > 9 ? "9+" : pendingCount}
-                  </span>
-                )}
-              </div>
-              {!collapsed && (
-                <span className="text-sm font-medium font-body flex-1">{label}</span>
-              )}
-              {!collapsed && isLocked && (
-                <Lock size={12} style={{ color: "var(--gold)" }} />
-              )}
-            </Link>
-          );
-        })}
+        {advancedNav.map(renderNavItem)}
       </nav>
 
       {/* Trial badge */}

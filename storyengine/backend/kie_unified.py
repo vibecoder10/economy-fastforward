@@ -16,6 +16,8 @@ from typing import Any, Optional
 
 import httpx
 
+from error_utils import is_kie_block as _kie_block, KIE_BLOCK_MARKER as _KIE_BLOCK_MARKER
+
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +165,12 @@ class KieClaudeClient:
             try:
                 response = await self.create_message_async(**kwargs)
             except httpx.HTTPError as exc:
-                last_debug = f"{type(exc).__name__}: {exc}"
+                body = getattr(getattr(exc, "response", None), "text", "") or ""
+                last_debug = f"{type(exc).__name__}: {exc} {body}"
+                # A banned / out-of-credit Kie account is terminal — stop
+                # retrying and surface an actionable, marked error.
+                if _kie_block(last_debug):
+                    raise RuntimeError(f"{_KIE_BLOCK_MARKER}: Kie.ai account blocked or out of credit")
                 logger.warning("Kie.ai Claude request failed on attempt %d: %s", index, last_debug)
                 await asyncio.sleep(0.9 * index)
                 continue
@@ -173,6 +180,8 @@ class KieClaudeClient:
                     logger.info("Kie.ai Claude returned content after retry %d", index)
                 return text
             last_debug = _response_debug(response)
+            if _kie_block(last_debug):
+                raise RuntimeError(f"{_KIE_BLOCK_MARKER}: Kie.ai account blocked or out of credit")
             logger.warning("Kie.ai Claude returned empty content on attempt %d: %s", index, last_debug)
             await asyncio.sleep(0.7 * index)
 

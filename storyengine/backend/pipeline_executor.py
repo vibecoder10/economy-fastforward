@@ -1484,7 +1484,7 @@ no stage directions, no labels, no headings."""
             profile = MODEL_REGISTRY.get(model_id)
             # Only models with a live generation path are selectable — the
             # old dropdown silently ignored the choice and always ran Grok.
-            wired = {"grok-imagine", "veo-3.1-fast", "veo-3.1-quality"}
+            wired = {"grok-imagine", "seedance-2-fast", "veo-3.1-fast", "veo-3.1-quality"}
             if not profile or model_id not in wired:
                 return {"status": "failed", "error": user_facing(
                     f"'{model_id}' isn't available yet — pick Grok Imagine or Veo 3.1 under Advanced.")}
@@ -1532,6 +1532,17 @@ no stage directions, no labels, no headings."""
                                        download_voice, mux_voice, DIALOGUE_VOICE_LEAD_SECONDS)
             client = self._pipeline.image_client
             durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
+
+            # Seedance is a drop-in animator with the same call shape as Grok
+            # (img, prompt, duration, extra_image_urls). Veo keeps its own branch below.
+            if model_id.startswith("seedance"):
+                _vaspect = (video.get("aspect_ratio") or "16:9")
+                def animate(img, prompt, duration=6, extra_image_urls=None):
+                    return client.generate_video_seedance(
+                        img, prompt, duration=duration,
+                        extra_image_urls=extra_image_urls, aspect_ratio=_vaspect)
+            else:
+                animate = client.generate_video
 
             # Grok takes up to 7 reference images (@image1, @image2... in the
             # prompt): @image1 = the panel, @image2 = the labeled cast sheet.
@@ -1632,7 +1643,7 @@ no stage directions, no labels, no headings."""
                         clip_dur = (max(durations)
                                     if need > min(durations) - 0.5 and len(durations) > 1
                                     else durations[0])
-                        clip_url = await _gen(client.generate_video(
+                        clip_url = await _gen(animate(
                             img, prompt, duration=clip_dur,
                             extra_image_urls=[_proxy_url(sheet)] if sheet else None))
                         clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
@@ -1660,7 +1671,7 @@ no stage directions, no labels, no headings."""
                             clip_url = await _gen(client.generate_video_veo(prompt, image_url=img, model=veo_model))
                             clip_dur = profile.durations[0]
                         else:
-                            clip_url = await _gen(client.generate_video(
+                            clip_url = await _gen(animate(
                                 img, _decorate(prompt), duration=clip_dur,
                                 extra_image_urls=[_proxy_url(sheet)] if sheet else None))
                         clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
@@ -3345,12 +3356,8 @@ no stage directions, no labels, no headings."""
         await self._update_video_status(video_id, to_supabase("rendered"))
         await self._log_transition(video_id, current_status, to_supabase("rendered"), "api")
 
-        try:
-            from routes.billing import increment_usage
-            duration_min = max(1, round(result.get("duration_seconds", 0) / 60))
-            await increment_usage(self.tenant_id, "render_minutes", duration_min)
-        except Exception:
-            pass
+        duration_min = max(1, round(result.get("duration_seconds", 0) / 60))
+        await self._charge_render_minutes(video_id, duration_min)
 
         await self._log_activity(
             bot_name, video_id, "completed",
@@ -3368,6 +3375,29 @@ no stage directions, no labels, no headings."""
             "orientation": result.get("orientation"),
             "method": result["method"],
         }
+
+    async def _charge_render_minutes(self, video_id: str, minutes) -> None:
+        """Charge render minutes idempotently — only the delta above what this
+        video was already charged. Re-renders (edit/retry) of one deliverable
+        don't keep eating the customer's monthly allowance. Best-effort:
+        billing must never block delivery of a finished render."""
+        try:
+            from routes.billing import increment_usage
+            minutes = max(1, int(round(float(minutes or 0))))
+            row = await fetch_one(
+                """UPDATE videos AS v
+                   SET render_minutes_charged = GREATEST(COALESCE(v.render_minutes_charged, 0), $2)
+                   FROM (SELECT COALESCE(render_minutes_charged, 0) AS prev
+                         FROM videos WHERE id = $1 AND tenant_id = $3) old
+                   WHERE v.id = $1 AND v.tenant_id = $3
+                   RETURNING GREATEST(COALESCE(v.render_minutes_charged, 0), $2) - old.prev AS delta""",
+                video_id, minutes, self.tenant_id,
+            )
+            delta = float(row["delta"]) if row and row.get("delta") is not None else 0
+            if delta > 0:
+                await increment_usage(self.tenant_id, "render_minutes", delta)
+        except Exception:
+            pass
 
     async def run_render(self, video_id: str, orientation: str = "auto") -> dict:
         """Render final video."""
@@ -3414,12 +3444,8 @@ no stage directions, no labels, no headings."""
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
             await self._log_activity(bot_name, video_id, "completed", "Video rendered")
 
-            try:
-                from routes.billing import increment_usage
-                duration = video.get("video_length_minutes") or 10
-                await increment_usage(self.tenant_id, "render_minutes", duration)
-            except Exception:
-                pass
+            duration = video.get("video_length_minutes") or 10
+            await self._charge_render_minutes(video_id, duration)
 
             return {"status": to_supabase(new_status), "video_id": video_id}
 

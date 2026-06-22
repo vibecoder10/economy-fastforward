@@ -1,0 +1,37 @@
+# StoryEngine reverse proxy — terminates TLS (auto Let's Encrypt) and routes
+# /api/* to the FastAPI backend (8001) and everything else to Next.js (3001).
+# Domain: storyengine.dev (app + API on the same origin).
+#
+# Setup on the VPS:
+#   1. DNS: A record  storyengine.dev      -> 76.13.119.181
+#           A record  www.storyengine.dev  -> 76.13.119.181   (for the redirect below)
+#   2. sudo apt install caddy   (or the official Caddy install)
+#   3. Put this at /etc/caddy/Caddyfile, then: sudo systemctl reload caddy
+#   4. In storyengine/.env set (then rebuild the frontend + restart both services):
+#        FRONTEND_URL=https://storyengine.dev
+#        ALLOWED_ORIGINS=https://storyengine.dev
+#        NEXT_PUBLIC_API_URL=https://storyengine.dev   (baked in at `next build`)
+#
+# Caddy provisions and renews the HTTPS cert automatically — no certbot needed.
+
+storyengine.dev {
+	encode gzip
+
+	# Backend API (FastAPI on :8001) — keeps the /api prefix.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8001
+	}
+
+	# Everything else → Next.js frontend (:3001).
+	handle {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	# HSTS once the cert is live (Caddy already redirects http→https).
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+# Send www → apex so there's one canonical origin (keeps CORS/cookies simple).
+www.storyengine.dev {
+	redir https://storyengine.dev{uri} permanent
+}

@@ -8,26 +8,30 @@ All methods create an account + tenant on first signup and return a session JWT.
 """
 
 import os
+import time
 import uuid
 import hashlib
 import hmac
 import secrets
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
 import httpx
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from auth import verify_token, AuthUser
 from database import fetch_one, execute
-from email_service import send_welcome_email, send_reset_email
+from email_service import send_welcome_email, send_reset_email, send_verification_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 SESSION_SECRET_ENV = "SESSION_SECRET"
 GOOGLE_CLIENT_ID_ENV = "GOOGLE_OAUTH_CLIENT_ID"
 SESSION_EXPIRY_DAYS = 30
+TRIAL_DAYS = 7  # free trial length; expires to Free tier (see email_tasks.check_trial_expired)
+EMAIL_VERIFY_EXPIRY_HOURS = 24  # how long a verification link stays valid
 
 
 class RegisterRequest(BaseModel):
@@ -133,33 +137,99 @@ async def _send_welcome_email(email_addr: str, display_name: str):
     await send_welcome_email(email_addr, display_name)
 
 
+# PBKDF2-HMAC-SHA256 work factor. 600k is the OWASP 2023 floor for this KDF.
+# (bcrypt/argon2 would be stronger but need a new dependency; PBKDF2 is stdlib
+# and ships now. The self-describing hash format lets this rise later and old
+# hashes upgrade transparently on the next successful login.)
+PBKDF2_ITERATIONS = 600_000
+_LEGACY_ITERATIONS = 100_000
+
+
 def _hash_password(password: str) -> str:
-    """Hash password with PBKDF2-SHA256 (no external deps needed)."""
+    """Hash a password with PBKDF2-HMAC-SHA256 (stdlib, no external deps).
+
+    Self-describing format so the work factor can rise over time:
+    'pbkdf2_sha256$<iterations>$<salt_hex>$<key_hex>'.
+    """
     salt = os.urandom(32)
-    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
-    return salt.hex() + ":" + key.hex()
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt.hex()}${key.hex()}"
 
 
 def _verify_password(password: str, stored_hash: str) -> bool:
-    """Verify password against stored PBKDF2 hash."""
+    """Verify against the new self-describing format OR the legacy 'salt:key'
+    format (fixed 100k iterations). Constant-time compare on both paths."""
     try:
-        salt_hex, key_hex = stored_hash.split(":")
+        if stored_hash.startswith("pbkdf2_sha256$"):
+            _, iter_s, salt_hex, key_hex = stored_hash.split("$")
+            iterations = int(iter_s)
+        else:
+            salt_hex, key_hex = stored_hash.split(":")
+            iterations = _LEGACY_ITERATIONS
         salt = bytes.fromhex(salt_hex)
         expected_key = bytes.fromhex(key_hex)
-        actual_key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+        actual_key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
         return hmac.compare_digest(actual_key, expected_key)
     except (ValueError, AttributeError):
         return False
 
 
+def _password_needs_upgrade(stored_hash: str) -> bool:
+    """True if the stored hash is the legacy format or uses fewer iterations
+    than the current target — re-hash on the next successful login."""
+    try:
+        if not stored_hash.startswith("pbkdf2_sha256$"):
+            return True
+        return int(stored_hash.split("$")[1]) < PBKDF2_ITERATIONS
+    except (ValueError, AttributeError, IndexError):
+        return False
+
+
+# ── Brute-force guard for unauthenticated auth endpoints ─────────────────────
+# The global RateLimitMiddleware skips /api/auth and keys on tenant_id (none
+# exists pre-login), so login/register/forgot would otherwise be unthrottled.
+# Sliding-window per-IP + per-email. In-memory (per-process) — fine for the
+# single-worker deployment; move to Redis if/when we scale to multiple workers.
+# ponytail: keys accumulate until restart; negligible at launch scale.
+_AUTH_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
+_AUTH_WINDOW = 300.0   # 5 minutes
+_AUTH_MAX = 10         # attempts per identity per window
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _auth_rate_limit(request: Request, email: str = "") -> None:
+    """Record an attempt and raise 429 if this IP or email is over the cap."""
+    now = time.time()
+    keys = [f"ip:{_client_ip(request)}"]
+    if email:
+        keys.append(f"email:{email}")
+    for k in keys:
+        bucket = [t for t in _AUTH_ATTEMPTS[k] if t > now - _AUTH_WINDOW]
+        if len(bucket) >= _AUTH_MAX:
+            _AUTH_ATTEMPTS[k] = bucket
+            raise HTTPException(
+                status_code=429,
+                detail="Too many attempts. Please wait a few minutes and try again.",
+            )
+        bucket.append(now)
+        _AUTH_ATTEMPTS[k] = bucket
+
+
 @router.post("/register", response_model=AuthResponse)
-async def register(body: RegisterRequest):
+async def register(body: RegisterRequest, request: Request):
     """Register a new account with email and password.
 
     Creates account + tenant + membership on signup.
     Returns session JWT on success.
     """
     email = body.email.strip().lower()
+    _auth_rate_limit(request, email)
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Valid email required")
     if len(body.password) < 8:
@@ -175,17 +245,23 @@ async def register(body: RegisterRequest):
     display_name = body.display_name.strip() or email.split("@")[0]
     password_hash = _hash_password(body.password)
 
-    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14)
+    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
+    # Email verification: password signups start unverified and must confirm via
+    # the emailed link before they can generate (gated in billing.check_plan_limits).
+    verify_token = secrets.token_urlsafe(32)
+    verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRY_HOURS)
     await execute(
-        """INSERT INTO accounts (id, email, display_name, password_hash, plan, trial_ends_at)
-           VALUES ($1, $2, $3, $4, 'free', $5)""",
+        """INSERT INTO accounts (id, email, display_name, password_hash, plan, trial_ends_at,
+               email_verified, email_verification_token, email_verification_expires)
+           VALUES ($1, $2, $3, $4, 'free', $5, false, $6, $7)""",
         account_id, email, display_name, password_hash, trial_ends_at,
+        verify_token, verify_expires,
     )
 
     # Create tenant + membership
     tenant_id = await _create_tenant_for_account(account_id, display_name, email)
 
-    await _send_welcome_email(email, display_name)
+    await send_verification_email(email, display_name, verify_token)
 
     token = _create_session_jwt(account_id, email, tenant_id)
     return AuthResponse(
@@ -196,14 +272,16 @@ async def register(body: RegisterRequest):
             "display_name": display_name,
             "avatar_url": None,
             "plan": "free",
+            "email_verified": False,
         },
     )
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, request: Request):
     """Login with email and password. Returns session JWT."""
     email = body.email.strip().lower()
+    _auth_rate_limit(request, email)
 
     account = await fetch_one(
         "SELECT id, email, display_name, password_hash, avatar_url, plan FROM accounts WHERE email = $1",
@@ -216,6 +294,17 @@ async def login(body: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     account_id = str(account["id"])
+
+    # Transparent hash upgrade: legacy/low-iteration hashes get re-hashed at the
+    # current work factor on a successful login. Best-effort — never block login.
+    if _password_needs_upgrade(account["password_hash"]):
+        try:
+            await execute(
+                "UPDATE accounts SET password_hash = $1, updated_at = now() WHERE id = $2",
+                _hash_password(body.password), account_id,
+            )
+        except Exception:
+            pass
     membership = await fetch_one(
         "SELECT tenant_id FROM memberships WHERE user_id = $1 LIMIT 1",
         account_id,
@@ -322,10 +411,11 @@ async def google_login(body: GoogleAuthRequest):
 
     # Brand new user — create account + tenant + membership
     account_id = str(uuid.uuid4())
-    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14)
+    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
     await execute(
-        """INSERT INTO accounts (id, email, display_name, google_id, avatar_url, plan, trial_ends_at)
-           VALUES ($1, $2, $3, $4, $5, 'free', $6)""",
+        """INSERT INTO accounts (id, email, display_name, google_id, avatar_url, plan,
+               trial_ends_at, email_verified)
+           VALUES ($1, $2, $3, $4, $5, 'free', $6, true)""",
         account_id, email, name, google_id, picture, trial_ends_at,
     )
     tenant_id = await _create_tenant_for_account(account_id, name)
@@ -352,7 +442,7 @@ async def get_me(user: AuthUser = Depends(verify_token)):
         account_id = "00000000-0000-0000-0000-000000000001"
 
     account = await fetch_one(
-        "SELECT id, email, display_name, avatar_url, plan, created_at FROM accounts WHERE id = $1",
+        "SELECT id, email, display_name, avatar_url, plan, created_at, email_verified FROM accounts WHERE id = $1",
         account_id,
     )
     if not account:
@@ -371,7 +461,69 @@ async def get_me(user: AuthUser = Depends(verify_token)):
         "plan": account.get("plan") or "free",
         "tenant_id": str(membership["tenant_id"]) if membership else None,
         "created_at": str(account["created_at"]) if account.get("created_at") else None,
+        "email_verified": bool(account.get("email_verified")),
     }
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+@router.post("/verify-email")
+async def verify_email(body: VerifyEmailRequest):
+    """Confirm an email via the token from the verification link. Public — the
+    token IS the credential. Marks the account verified and clears the token."""
+    token = (body.token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing verification token")
+
+    account = await fetch_one(
+        """SELECT id, email_verified, email_verification_expires
+           FROM accounts WHERE email_verification_token = $1""",
+        token,
+    )
+    if not account:
+        # Already-verified accounts have a cleared token; treat as success so a
+        # double-click on the link doesn't show a scary error.
+        raise HTTPException(status_code=400, detail="This link is invalid or already used. Try logging in.")
+
+    expires = account.get("email_verification_expires")
+    if expires and expires < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="This link has expired. Request a new one from the app.")
+
+    await execute(
+        """UPDATE accounts
+           SET email_verified = true, email_verification_token = NULL,
+               email_verification_expires = NULL, updated_at = now()
+           WHERE id = $1""",
+        account["id"],
+    )
+    return {"verified": True}
+
+
+@router.post("/resend-verification")
+async def resend_verification(request: Request, user: AuthUser = Depends(verify_token)):
+    """Re-send the verification email for the logged-in account."""
+    account_id = user.id
+    _auth_rate_limit(request, account_id)
+    account = await fetch_one(
+        "SELECT id, email, display_name, email_verified FROM accounts WHERE id = $1",
+        account_id,
+    )
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if account.get("email_verified"):
+        return {"sent": False, "already_verified": True}
+
+    new_token = secrets.token_urlsafe(32)
+    new_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRY_HOURS)
+    await execute(
+        """UPDATE accounts SET email_verification_token = $1,
+               email_verification_expires = $2, updated_at = now() WHERE id = $3""",
+        new_token, new_expires, account["id"],
+    )
+    ok = await send_verification_email(account["email"], account.get("display_name") or "", new_token)
+    return {"sent": bool(ok)}
 
 
 # =============================================
@@ -387,12 +539,13 @@ async def _send_reset_email(email_addr: str, token: str):
 
 
 @router.post("/forgot-password")
-async def forgot_password(body: ForgotPasswordRequest):
+async def forgot_password(body: ForgotPasswordRequest, request: Request):
     """Request a password reset email.
 
     Always returns 200 (even if email not found) to prevent email enumeration.
     """
     email = body.email.strip().lower()
+    _auth_rate_limit(request, email)
 
     account = await fetch_one(
         "SELECT id, email FROM accounts WHERE email = $1", email

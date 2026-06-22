@@ -60,6 +60,7 @@ export const CLIP_COST_PER_MODEL: Record<string, number> = {
   "grok-imagine": 0.10,
   "veo-3.1-fast": 0.30,
   "veo-3.1-quality": 1.25,
+  "seedance-2-fast": 0.30,
 };
 
 export function clipCost(model: string | null | undefined, count: number): number {

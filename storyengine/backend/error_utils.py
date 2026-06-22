@@ -37,6 +37,28 @@ def user_facing(message: str) -> str:
     return USER_FACING_PREFIX + message
 
 
+# Kie is the single upstream for text+image+video+voice; a banned / out-of-credit
+# key is terminal (retrying can't recover it). These signals identify it across
+# the opaque forms Kie returns it in (a Chinese "user banned" string, an
+# insufficient-credit/balance message, or our own marker once raised).
+KIE_BLOCK_MARKER = "KIE_ACCOUNT_BLOCKED"
+_KIE_BLOCK_SIGNALS = (
+    "用户已被封禁", "已被封禁", "封禁", "余额不足",
+    "insufficient credit", "insufficient balance", "out of credit",
+    "account banned", "account is banned", "account suspended",
+    KIE_BLOCK_MARKER.lower(),
+)
+
+
+def is_kie_block(text) -> bool:
+    """True if an error string/code signals a banned or out-of-credit Kie key."""
+    if not text:
+        return False
+    raw = str(text)
+    low = raw.lower()
+    return any(sig in low or sig in raw for sig in _KIE_BLOCK_SIGNALS)
+
+
 def humanize_error(
     err: Union[Exception, str, None],
     context: Optional[str] = None,
@@ -69,6 +91,15 @@ def humanize_error(
         return f"{context}. Please try again."
 
     lowered = raw.lower()
+
+    # Kie.ai account blocked / out of credit. Kie is the single upstream for
+    # text+image+video+voice, so a banned or credit-exhausted key kills every
+    # generation — and the raw signal is opaque. Map it to one actionable
+    # message so the customer fixes their key instead of staring at a stuck
+    # pipeline. Checked BEFORE the generic auth/401 branch.
+    if is_kie_block(raw):
+        return ("Your Kie.ai key looks blocked or out of credit, so generation "
+                "can't run. Add or update it in Settings → API Keys.")
 
     if (
         "connection refused" in lowered

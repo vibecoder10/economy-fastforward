@@ -9,6 +9,8 @@ export interface SSEStageChangeEvent {
   video_id: string;
   video_title: string | null;
   current_status: string;
+  /** Plain-English progress state (one of the 5 chat-UI states). */
+  friendly?: string | null;
   from_status: string;
   to_status: string;
   triggered_by: string | null;

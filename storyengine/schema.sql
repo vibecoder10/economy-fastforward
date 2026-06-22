@@ -112,6 +112,10 @@ CREATE TABLE videos (
   -- Video config
   video_length_minutes NUMERIC,
   clip_duration_seconds NUMERIC,
+  -- Idempotent render billing (migration 057): high-water mark of render
+  -- minutes already charged for THIS video. A re-render (edit/retry) only
+  -- charges the delta above this, so one deliverable isn't billed repeatedly.
+  render_minutes_charged NUMERIC(10,2) NOT NULL DEFAULT 0,
   -- Output shape, chosen at creation, flows through image/clip gen + render.
   aspect_ratio TEXT NOT NULL DEFAULT '16:9' CHECK (aspect_ratio IN ('16:9', '9:16')),
   -- Creation-time pipeline toggles (migrations 052, 054). skip_voice drops the
@@ -654,6 +658,11 @@ CREATE TABLE accounts (
   trial_ends_at TIMESTAMPTZ,
   trial_warning_sent BOOLEAN DEFAULT FALSE,
   trial_expired_handled BOOLEAN DEFAULT FALSE,
+  -- Email verification (migration 059). New password signups must confirm before
+  -- generating; existing accounts grandfathered true; Google signups set true in code.
+  email_verified BOOLEAN NOT NULL DEFAULT false,
+  email_verification_token TEXT,
+  email_verification_expires TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -763,6 +772,11 @@ CREATE INDEX idx_scripts_airtable ON scripts(airtable_record_id);
 CREATE INDEX idx_assets_video ON assets(video_id);
 CREATE INDEX idx_assets_tenant ON assets(tenant_id);
 CREATE INDEX idx_assets_airtable ON assets(airtable_record_id);
+-- Composite hot-path indexes (migration 058) — pipeline filters assets by
+-- (video_id, status) and (video_id, scene, image_index), scripts by (video_id, tenant_id).
+CREATE INDEX idx_assets_video_status ON assets(video_id, status);
+CREATE INDEX idx_assets_video_scene ON assets(video_id, scene, image_index);
+CREATE INDEX idx_scripts_video_tenant ON scripts(video_id, tenant_id);
 CREATE INDEX idx_competitor_channels_tenant ON competitor_channels(tenant_id);
 CREATE INDEX idx_competitor_videos_tenant ON competitor_videos(tenant_id);
 CREATE INDEX idx_competitor_videos_airtable ON competitor_videos(airtable_record_id);
@@ -799,6 +813,13 @@ CREATE TABLE tenant_usage (
 );
 
 CREATE INDEX idx_tenant_usage_tenant_period ON tenant_usage(tenant_id, period_start);
+
+-- Stripe webhook idempotency (migration 056). Dedup record per delivered event.
+CREATE TABLE stripe_events (
+  event_id     TEXT PRIMARY KEY,
+  event_type   TEXT,
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- =============================================
 -- PASSWORD RESET TOKENS
@@ -1085,3 +1106,34 @@ CREATE POLICY video_environments_tenant_isolation ON video_environments
   );
 -- videos.environments_approved_at TIMESTAMPTZ added by migration 051
 -- assets.location_id TEXT (structured per-panel location) added by migration 051
+
+
+-- =============================================
+-- CHAT CONVERSATIONS (chat-first creative producer — migration 060)
+-- One row per conversation; the whole transcript lives in a JSONB array
+-- (no second table, no joins). state.last_spec holds the approval-pending
+-- production spec; video_id is set once the conversation creates a video.
+-- =============================================
+CREATE TABLE chat_conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+  project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+  video_id UUID REFERENCES videos(id) ON DELETE SET NULL,
+  transcript JSONB NOT NULL DEFAULT '[]'::jsonb,
+  state JSONB NOT NULL DEFAULT '{}'::jsonb,
+  phase TEXT NOT NULL DEFAULT 'asking',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_chat_conversations_tenant ON chat_conversations(tenant_id);
+
+ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY chat_conversations_tenant_isolation ON chat_conversations
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+    OR tenant_id = current_setting('app.tenant_id', true)::uuid
+  );

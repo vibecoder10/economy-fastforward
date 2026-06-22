@@ -105,7 +105,7 @@ function OnboardingContent() {
     getOnboardingStatus()
       .then((status) => {
         if (status.completed) {
-          router.replace("/dashboard");
+          router.replace("/"); // chat is the home screen
           return;
         }
         if (status.display_name) setDisplayName(status.display_name);
@@ -322,7 +322,7 @@ function OnboardingContent() {
   function handleNext() {
     const nextStep = step + 1;
     if (nextStep >= STEPS.length) {
-      router.replace("/dashboard");
+      router.replace("/"); // chat is the home screen
       return;
     }
 

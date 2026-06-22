@@ -189,17 +189,16 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         )
     channel_configured = bool(cp and cp.get("channel_name"))
 
-    # Step 2: count configured API keys. Keep this list in sync with
-    # `PIPELINE_REQUIRED_KEYS` in routes/pipeline.py — removing a key here
-    # without removing it there (or vice versa) will drift the onboarding
-    # gate from the readiness gate. `openai_api_key` is intentionally NOT
-    # here: Whisper powers captions, which are opt-in rather than core.
-    required_keys = [
-        "anthropic_api_key",
-        "elevenlabs_api_key",
-        "elevenlabs_voice_id",
-        "kie_ai_api_key",
-    ]
+    # Step 2: count configured API keys. SINGLE SOURCE OF TRUTH — derive the
+    # required set from PIPELINE_REQUIRED_KEYS (the same gate the pipeline's
+    # /readiness check uses) so onboarding can't drift from what actually runs.
+    # Before this, onboarding demanded 4 keys (anthropic, elevenlabs,
+    # elevenlabs_voice_id, kie) while the pipeline needs only kie — so a
+    # correctly-set-up Kie-only user was marked "incomplete" forever and nagged
+    # to add keys the pipeline routes through Kie anyway. (Whisper's
+    # openai_api_key stays optional — captions are opt-in.)
+    from routes.pipeline import PIPELINE_REQUIRED_KEYS
+    required_keys = [k["key"] for k in PIPELINE_REQUIRED_KEYS]
     configured_count = 0
     for key_name in required_keys:
         status = await get_secret_status(key_name, tenant_id)

@@ -380,3 +380,51 @@ def stage_enabled_in_plan(stage: str, plan_value) -> bool:
     if not plan:
         return True
     return stage in plan
+
+
+# ---------------------------------------------------------------------------
+# Friendly progress states (chat-first UI)
+# ---------------------------------------------------------------------------
+#
+# The chat experience hides the technical status chain behind 5 plain-English
+# states. A status reads as the work it represents being DONE or about to start:
+# e.g. ready_for_scripting still reads "Story Approved" (the script hasn't been
+# written yet); the video flips to "Script Ready" once it reaches ready_for_voice
+# / ready_for_image_prompts (script done, moving on). Keeps the label honest.
+FRIENDLY_STATE: dict[str, str] = {
+    "idea_logged":                     "Story Approved",
+    "approved":                        "Story Approved",
+    "ready_for_scripting":             "Story Approved",
+    "ready_for_voice":                 "Script Ready",
+    "ready_for_image_prompts":         "Script Ready",
+    "ready_for_storyboards":           "Visuals Creating",
+    "ready_for_storyboard_images":     "Visuals Creating",
+    "ready_for_storyboard_extraction": "Visuals Creating",
+    "ready_for_images":                "Visuals Creating",
+    "ready_for_sound_design":          "Visuals Creating",
+    "ready_for_sound_effects":         "Visuals Creating",
+    "ready_for_video_scripts":         "Video Rendering",
+    "ready_for_video_generation":      "Video Rendering",
+    "ready_for_thumbnail":             "Video Rendering",
+    "ready_to_render":                 "Video Rendering",
+    "rendered":                        "Ready for Review",
+    "uploaded_draft":                  "Ready for Review",
+    "done":                            "Ready for Review",
+}
+
+# The 5 states in order — for rendering a progress tracker.
+FRIENDLY_STATE_ORDER: list[str] = [
+    "Story Approved",
+    "Script Ready",
+    "Visuals Creating",
+    "Video Rendering",
+    "Ready for Review",
+]
+
+
+def friendly_state(supabase_status: str) -> str:
+    """Map a technical Supabase status to one of the 5 chat-UI states.
+
+    Unknown statuses fall back to 'Story Approved' (the start of the journey).
+    """
+    return FRIENDLY_STATE.get(supabase_status, "Story Approved")

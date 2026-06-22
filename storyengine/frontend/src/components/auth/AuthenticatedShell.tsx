@@ -3,16 +3,16 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Lock, Sparkles, X, AlertTriangle } from "lucide-react";
+import { Lock, Sparkles, X, AlertTriangle, Mail } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import { useQuery } from "@tanstack/react-query";
-import { getSubscription } from "@/lib/api";
+import { getSubscription, resendVerification } from "@/lib/api";
 import { Sidebar } from "@/components/nav/sidebar";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { PipelineNotificationProvider } from "@/components/notifications/PipelineNotificationProvider";
 
-const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password", "/terms", "/privacy", "/demo"];
+const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password", "/verify-email", "/terms", "/privacy", "/demo"];
 
 // Routes that require Pro plan or above
 const PRO_PATHS = ["/autopilot", "/learnings", "/competitors", "/discovery"];
@@ -69,6 +69,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen relative z-10">
         <Sidebar />
         <main className="flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden">
+          <VerifyEmailBanner />
           <TrialBanner />
           <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 md:px-12 md:py-10">
             {hasAccess ? children : <UpgradePrompt />}
@@ -77,6 +78,48 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
         <BottomTabs />
       </div>
     </PipelineNotificationProvider>
+  );
+}
+
+function VerifyEmailBanner() {
+  const { user } = useAuth();
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+
+  // Only show for accounts that exist but haven't confirmed their email.
+  // (email_verified is undefined on older sessions — only banner on explicit false.)
+  if (!user || user.email_verified !== false) return null;
+
+  async function resend() {
+    setState("sending");
+    try {
+      await resendVerification();
+      setState("sent");
+    } catch {
+      setState("idle");
+    }
+  }
+
+  return (
+    <div
+      className="px-4 py-3 flex items-center justify-between gap-3"
+      style={{
+        background: "rgba(0, 212, 170, 0.08)",
+        borderBottom: "1px solid rgba(0, 212, 170, 0.2)",
+      }}
+    >
+      <div className="flex items-center gap-2 text-sm font-body" style={{ color: "var(--text-primary)" }}>
+        <Mail size={16} style={{ color: "var(--accent)" }} />
+        <span>Confirm your email to start creating videos. Check your inbox for the link.</span>
+      </div>
+      <button
+        onClick={resend}
+        disabled={state !== "idle"}
+        className="shrink-0 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+        style={{ background: "var(--accent)", color: "#0A0A0B", opacity: state === "idle" ? 1 : 0.7 }}
+      >
+        {state === "sent" ? "Sent — check your inbox" : state === "sending" ? "Sending…" : "Resend email"}
+      </button>
+    </div>
   );
 }
 

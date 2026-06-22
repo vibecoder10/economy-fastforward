@@ -8,7 +8,7 @@ Wire-up has 7 links:
   1. Migration 041 adds trial_expired_handled column on accounts
   2. Migration 041 adds partial index on (trial_ends_at) for the cron query
   3. email_tasks.check_trial_expired() selects expired+unhandled+no-sub
-  4. email_tasks.check_trial_expired() flips plan to 'starter' + sets handled
+  4. email_tasks.check_trial_expired() flips plan to 'free' + sets handled
   5. email_service.send_trial_expired() email function exists
   6. main._auto_check_trial_expired() lifespan loop exists with 6h sleep
   7. Lifespan startup creates the task; shutdown cancels it
@@ -84,15 +84,22 @@ def test_check_trial_expired_query_safe():
 
 def test_check_trial_expired_flips_plan_and_marks_handled():
     src = _repo_read("backend/email_tasks.py")
-    # UPDATE must flip plan to 'starter' AND mark handled in same statement (atomic)
+    # UPDATE must flip plan to 'free' (NOT a paid tier) AND mark handled in one
+    # statement (atomic). Dropping to 'starter' (a paid plan) would give expired
+    # trials full paid access for free — the revenue leak this guards.
     assert re.search(
-        r"UPDATE\s+accounts[\s\S]{0,300}?plan\s*=\s*'starter'[\s\S]{0,200}?trial_expired_handled\s*=\s*TRUE",
+        r"UPDATE\s+accounts[\s\S]{0,300}?plan\s*=\s*'free'[\s\S]{0,200}?trial_expired_handled\s*=\s*TRUE",
         src,
         re.IGNORECASE,
     ), (
-        "UPDATE in check_trial_expired must set plan='starter' AND "
-        "trial_expired_handled=TRUE in one statement. Splitting them risks "
-        "emailing without downgrading, or vice versa."
+        "UPDATE in check_trial_expired must set plan='free' AND "
+        "trial_expired_handled=TRUE in one statement. It must NOT drop to a "
+        "paid tier (starter/pro/agency) — that hands out paid access for free."
+    )
+    # Belt-and-suspenders: explicitly forbid downgrading to a paid tier.
+    assert not re.search(r"plan\s*=\s*'(starter|pro|agency)'", src), (
+        "check_trial_expired downgrades to a PAID tier — revenue leak. "
+        "Expired trials must land on 'free'."
     )
     print("✅ test_check_trial_expired_flips_plan_and_marks_handled")
 
