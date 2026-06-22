@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Filter, Plus, Loader2, RefreshCw, X, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, StopCircle } from "lucide-react";
+import { Filter, Plus, Loader2, RefreshCw, X, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, StopCircle, Sparkles } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -26,9 +26,13 @@ import {
   cancelScrape,
   searchIntelligence,
   distillFromURL,
+  getCreatorSetup,
+  getIntelligenceReport,
   type NicheVideo,
   type IntelligenceSearchResult,
   type DistillURLResult,
+  type CreatorSetup,
+  type IntelligenceReportResponse,
 } from "@/lib/api";
 import { formatNumber, timeAgo } from "@/lib/utils";
 import { humanizeError } from "@/lib/errors";
@@ -122,6 +126,138 @@ function ScrapeErrorLog({ error, lastRun }: { error: string; lastRun: string | n
   );
 }
 
+const GOAL_LABELS: Record<string, string> = {
+  ideas: "video ideas",
+  scripts: "scripts",
+  voiceover: "voiceovers",
+  thumbnails: "thumbnails",
+  full_video: "whole videos",
+  all: "the full pipeline",
+};
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-wide mb-0.5" style={{ color: "var(--text-secondary)" }}>
+        {label}
+      </p>
+      <p className="text-sm font-body" style={{ color: "var(--text-primary)" }}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// "Your setup" — the channel/niche/goals captured during chat onboarding. Renders
+// nothing if there's no meaningful setup yet (don't clutter the page).
+function SetupCard({ setup }: { setup?: CreatorSetup }) {
+  if (!setup) return null;
+  const brief = setup.creator_brief || {};
+  const channel = setup.youtube_channel_name || brief.channel || setup.channel_name || "";
+  const niche = brief.niche_angle || setup.niche || "";
+  const goals = (brief.goals || []).map((g) => GOAL_LABELS[g] || g);
+  if (!channel && !niche && goals.length === 0) return null;
+  return (
+    <motion.div variants={item}>
+      <GlassCard className="!p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles size={16} style={{ color: "var(--turquoise)" }} />
+          <h2 className="text-sm font-display" style={{ color: "var(--text-primary)" }}>Your setup</h2>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {channel && <Fact label="Channel" value={channel} />}
+          {niche && <Fact label="Niche / angle" value={niche} />}
+          {goals.length > 0 && <Fact label="You asked me to handle" value={goals.join(", ")} />}
+        </div>
+      </GlassCard>
+    </motion.div>
+  );
+}
+
+// The onboarding intelligence report — written by the chat setup, surfaced here for
+// the first time. Empty state points back to chat to generate it.
+function IntelligenceReportCard({ data }: { data?: IntelligenceReportResponse }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!data || data.status !== "ok" || !data.report) {
+    return (
+      <motion.div variants={item}>
+        <GlassCard className="!p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={16} style={{ color: "var(--turquoise)" }} />
+            <h2 className="text-sm font-display" style={{ color: "var(--text-primary)" }}>Intelligence report</h2>
+          </div>
+          <p className="text-sm font-body" style={{ color: "var(--text-secondary)" }}>
+            No report yet. Finish setup in <a href="/" style={{ color: "var(--turquoise)" }}>chat</a> and I&apos;ll
+            turn your competitors into title ideas, hooks, and a plan.
+          </p>
+        </GlassCard>
+      </motion.div>
+    );
+  }
+  const r = data.report;
+  const ca = r.channel_analysis;
+  const cg = r.creation_guidance;
+  const titles = r.title_ideas || [];
+  const shownTitles = expanded ? titles : titles.slice(0, 3);
+  return (
+    <motion.div variants={item}>
+      <GlassCard className="!p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} style={{ color: "var(--turquoise)" }} />
+            <h2 className="text-sm font-display" style={{ color: "var(--text-primary)" }}>Intelligence report</h2>
+          </div>
+          {(data.competitors_analyzed || data.videos_analyzed) ? (
+            <span className="text-xs font-body" style={{ color: "var(--text-secondary)" }}>
+              {data.competitors_analyzed || 0} channels &middot; {data.videos_analyzed || 0} videos
+            </span>
+          ) : null}
+        </div>
+
+        {ca && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {ca.best_pattern && <Fact label="What's working" value={ca.best_pattern} />}
+            {ca.quick_win && <Fact label="Quick win" value={ca.quick_win} />}
+            {ca.opportunity && <Fact label="Opportunity" value={ca.opportunity} />}
+            {ca.weakest_area && <Fact label="Gap to avoid" value={ca.weakest_area} />}
+          </div>
+        )}
+
+        {titles.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Title ideas</p>
+            {shownTitles.map((t, i) => (
+              <div key={i} className="rounded-lg p-3" style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}>
+                <p className="text-sm font-body" style={{ color: "var(--text-primary)" }}>{t.title}</p>
+                {t.reasoning && (
+                  <p className="text-xs mt-1 font-body" style={{ color: "var(--text-secondary)" }}>{t.reasoning}</p>
+                )}
+              </div>
+            ))}
+            {titles.length > 3 && (
+              <button onClick={() => setExpanded((v) => !v)} className="text-xs font-medium" style={{ color: "var(--turquoise)" }}>
+                {expanded ? "Show less" : `Show ${titles.length - 3} more`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {cg && (cg.modeling_next_step || cg.script_plan || cg.visual_plan || cg.thumbnail_plan) && (
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Your plan</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {cg.modeling_next_step && <Fact label="Next step" value={cg.modeling_next_step} />}
+              {cg.script_plan && <Fact label="Script" value={cg.script_plan} />}
+              {cg.visual_plan && <Fact label="Visuals" value={cg.visual_plan} />}
+              {cg.thumbnail_plan && <Fact label="Thumbnail" value={cg.thumbnail_plan} />}
+            </div>
+          </div>
+        )}
+      </GlassCard>
+    </motion.div>
+  );
+}
+
 export default function CompetitorsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -159,6 +295,17 @@ export default function CompetitorsPage() {
   const { data: channels } = useQuery({
     queryKey: ["niche-channels"],
     queryFn: getNicheChannels,
+  });
+
+  // Chat-onboarding workspace layer: the creator's setup + the intelligence report.
+  const { data: creatorSetup } = useQuery({
+    queryKey: ["creator-setup"],
+    queryFn: getCreatorSetup,
+  });
+
+  const { data: intelReport } = useQuery({
+    queryKey: ["intelligence-report"],
+    queryFn: getIntelligenceReport,
   });
 
   // Server-side paginated + filtered + sorted videos
@@ -307,7 +454,15 @@ export default function CompetitorsPage() {
   };
 
   if (!nicheConfigured && nicheConfig) {
-    return <NicheSetup onComplete={() => queryClient.invalidateQueries({ queryKey: ["niche-config"] })} />;
+    // Still surface the chat-onboarding setup + intelligence report above the niche
+    // prompt, so onboarded users see their workspace even before configuring autopilot.
+    return (
+      <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
+        <SetupCard setup={creatorSetup} />
+        <IntelligenceReportCard data={intelReport} />
+        <NicheSetup onComplete={() => queryClient.invalidateQueries({ queryKey: ["niche-config"] })} />
+      </motion.div>
+    );
   }
 
   if (isLoading && !videosData) {
@@ -358,6 +513,10 @@ export default function CompetitorsPage() {
           </ActionButton>
         </div>
       </motion.div>
+
+      {/* Chat-onboarding workspace layer: setup summary + intelligence report */}
+      <SetupCard setup={creatorSetup} />
+      <IntelligenceReportCard data={intelReport} />
 
       {/* Per-channel scrape progress */}
       {scrapeRunning && scrapeStatus && scrapeStatus.channels_total > 0 && (
