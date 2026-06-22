@@ -172,6 +172,41 @@ def _make_run_step(tenant_id, video_id: str, *, user_intent: Optional[str] = Non
     return _run
 
 
+def _make_stage_step(tenant_id, video_id: str, methods: list[str], *,
+                     start_msg: str = "On it…"):
+    """Like _make_run_step, but re-runs SPECIFIC executor stage methods in order
+    (e.g. ['run_prompts','run_images']) instead of the status-driven next step —
+    used by follow-up edits, which target a chosen stage. Reports via the same
+    task-status channel so the chat's live tracker updates. Stops on first error."""
+    from pipeline_executor import PipelineExecutor
+    from routes.pipeline import _clear_task_status, _set_task_status
+
+    async def _run():
+        _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result: dict = {}
+            for name in methods:
+                method = getattr(executor, name, None)
+                if method is None:
+                    result = {"status": "failed", "error": f"Unknown stage '{name}'"}
+                    break
+                result = await method(video_id) or {}
+                if result.get("error"):
+                    break
+            _set_task_status(
+                video_id, result.get("status", "completed"),
+                result.get("error") or result.get("message"), tenant_id=tenant_id,
+            )
+        except Exception as e:  # noqa: BLE001 — surface as a failed task, not a 500
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    return _run
+
+
 # --- spec -> create-video mapping -------------------------------------------
 
 def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
@@ -276,21 +311,133 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
     )
 
 
+# --- follow-up edits (Phase 5): a message after the video exists -------------
+#
+# The creator iterates in plain English ("make it shorter", "redo the thumbnail",
+# "make the thumbnail more aggressive"). One Claude call classifies the request into a
+# target stage + the change to apply; we write that change onto the stage's guidance
+# column and re-run just that stage, reporting back in plain English. Reuses the proven
+# direct-Anthropic JSON call (_claude_json) + the tenant's Vault key. Unclear requests
+# get a clarifying ask; "keep going" advances the pipeline (the old behavior).
+
+# stage -> (executor methods to re-run in order, the column free-text guidance is
+# appended to). Columns are a fixed whitelist, safe to inline in SQL.
+FOLLOWUP_STAGES: dict[str, dict[str, Any]] = {
+    "script":    {"methods": ["run_script"],                "column": "writer_guidance",      "doing": "rewriting the script"},
+    "images":    {"methods": ["run_prompts", "run_images"], "column": "image_style_override", "doing": "remaking the visuals"},
+    "thumbnail": {"methods": ["run_thumbnail"],             "column": "thumbnail_prompt",     "doing": "redoing the thumbnail"},
+    "render":    {"methods": ["run_render"],                "column": None,                   "doing": "re-rendering the video"},
+}
+FOLLOWUP_CONFIDENCE = 0.55  # below this, ask the creator to clarify instead of guessing
+
+
+def _classify_followup(api_key: str, message: str, video: dict) -> dict:
+    """One direct-Anthropic call mapping a free-text edit request onto a target stage +
+    the concrete change to apply. Sync — call via asyncio.to_thread."""
+    try:
+        minutes = int(float(video.get("video_length_minutes") or 0)) or "unknown"
+    except (TypeError, ValueError):
+        minutes = "unknown"
+    prompt = (
+        "A creator is iterating on an existing video through chat. Decide how to honor their request.\n\n"
+        f"Video title: {video.get('video_title') or 'Untitled'}\n"
+        f"Current stage/status: {video.get('status') or 'unknown'}\n"
+        f"Current length: {minutes} min\n\n"
+        f'The creator said: "{message}"\n\n'
+        "Pick the ONE production stage to re-run, and the change to apply:\n"
+        "- script: rewrite/restructure the script, or change LENGTH, tone, pacing, or content.\n"
+        "- images: change the visual look/style of the scene images.\n"
+        "- thumbnail: change the thumbnail (bolder, more aggressive, different text/expression).\n"
+        "- render: just re-stitch the final video, no content change.\n"
+        "- advance: they're happy and want to keep moving to the next step.\n"
+        "- none: unclear, off-topic, or not an edit — ask them to clarify.\n\n"
+        "Return ONE JSON object and nothing else:\n"
+        '{"stage":"script|images|thumbnail|render|advance|none",'
+        '"intent_summary":"<short>",'
+        '"video_length_minutes":<int if they changed length else null>,'
+        '"guidance_append":"<a concrete instruction to append to that stage\'s guidance so the re-run honors '
+        'the request; empty for render/advance/none>",'
+        '"confidence":<0.0-1.0>,'
+        '"reply":"<one friendly sentence telling them what you\'re doing now, or your clarifying question>"}'
+    )
+    try:
+        return _claude_json(api_key, prompt, 700)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("followup: classify failed: %s", e)
+        return {}
+
+
+async def _apply_followup_edit(tenant_id, video_id, stage: str, edit: dict) -> None:
+    """Write the requested change onto the video's stage-guidance column(s) before the
+    re-run. Length is structured (video_length_minutes); everything else is appended as
+    free-text guidance the stage already reads."""
+    cfg = FOLLOWUP_STAGES.get(stage)
+    if not cfg:
+        return
+    mins = edit.get("video_length_minutes")
+    if stage == "script" and isinstance(mins, (int, float)) and int(mins) > 0:
+        await execute(
+            "UPDATE videos SET video_length_minutes = $1, updated_at = now() "
+            "WHERE id = $2 AND tenant_id = $3",
+            int(mins), video_id, tenant_id,
+        )
+    col = cfg.get("column")
+    note = (edit.get("guidance_append") or "").strip()
+    if col and note:
+        # col comes from FOLLOWUP_STAGES (our own whitelist), so inlining is safe.
+        await execute(
+            f"UPDATE videos SET {col} = "
+            f"trim(both E'\\n' from coalesce({col}, '') || E'\\n' || $1), updated_at = now() "
+            f"WHERE id = $2 AND tenant_id = $3",
+            note, video_id, tenant_id,
+        )
+
+
 async def _handle_followup(body, conversation_id, tenant_id, transcript, state, video_id, background_tasks):
-    """A message after the video exists -> drive the pipeline (Phase 5 makes this
-    smarter via the orchestrator; for now it advances/re-runs with the user's
-    intent)."""
+    """A message after the video exists -> a conversational edit. Classify the request,
+    apply the change to the right stage, re-run just that stage, and report in plain
+    English. Unclear requests get a clarifying ask, not a blind pipeline advance."""
     msg = (body.message or "").strip()
     if msg:
         transcript.append({"role": "user", "content": msg})
-    background_tasks.add_task(_make_run_step(tenant_id, video_id, user_intent=msg or None, start_msg="On it…"))
-    assistant_text = "On it — I'll take care of that and update you here."
-    transcript.append(_assistant_turn({"assistant_text": assistant_text, "phase": "created"}))
-    await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
-    return ChatTurnResponse(
-        conversation_id=conversation_id, assistant_text=assistant_text,
-        video_id=video_id, phase="created",
+
+    async def _reply(text):
+        transcript.append(_assistant_turn({"assistant_text": text, "phase": "created"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text,
+                                video_id=video_id, phase="created")
+
+    if not msg:
+        return await _reply("Tell me what to change — e.g. “make it shorter”, “redo the thumbnail”, or “keep going”.")
+
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    video = await fetch_one(
+        "SELECT video_title, status, video_length_minutes FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
     )
+    if not api_key or not video:
+        # No key (or the video vanished) — fall back to the old blind advance so a
+        # "keep going" still moves the pipeline.
+        background_tasks.add_task(_make_run_step(tenant_id, video_id, user_intent=msg, start_msg="On it…"))
+        return await _reply("On it — I'll take care of that and update you here.")
+
+    edit = await asyncio.to_thread(_classify_followup, api_key, msg, dict(video))
+    stage = (edit.get("stage") or "none").strip()
+    reply = (edit.get("reply") or "").strip()
+
+    # "keep going" -> advance the pipeline one step.
+    if stage == "advance":
+        background_tasks.add_task(_make_run_step(tenant_id, video_id, start_msg="Moving to the next step…"))
+        return await _reply(reply or "Great — moving on to the next step. I'll keep you posted here.")
+
+    # Unclear / not an edit / low confidence -> ask, don't guess.
+    if stage not in FOLLOWUP_STAGES or float(edit.get("confidence") or 0) < FOLLOWUP_CONFIDENCE:
+        return await _reply(reply or "Happy to tweak it — want a different script, visuals, thumbnail, or a re-render?")
+
+    await _apply_followup_edit(tenant_id, video_id, stage, edit)
+    cfg = FOLLOWUP_STAGES[stage]
+    background_tasks.add_task(_make_stage_step(tenant_id, video_id, cfg["methods"], start_msg=f"On it — {cfg['doing']}…"))
+    return await _reply(reply or f"On it — {cfg['doing']} now. I'll update you right here.")
 
 
 # --- onboarding ("Start Here") step-machine ---------------------------------
