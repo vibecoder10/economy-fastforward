@@ -21,9 +21,11 @@ proof, O4 piece 3 (surface channel/competitors/intel in the visual pages), and
 Phases 4-5 (deeper channel intelligence + follow-up edits).
 
 - **Branch:** `feat/chat-first-producer`
-- **HEAD == origin/main == `e1af585d`** (O4 core; fully pushed, tree clean except
-  the separate coverage/Seedance track + a concurrent engine_templates.py edit from
-  another session - see "Do not touch" below).
+- **HEAD == origin/main == `488b2c0b`** (Phase 5; my work is chat.py-only on top of
+  the other session's live YouTube-ruleset commit `004b7400`). NOTE: another session
+  is actively committing+deploying to main in parallel (YouTube ruleset, image
+  clients, pipeline_executor, production tabs) - always `git fetch` + check the
+  `<vps-head>..<your-push>` range before deploying, and commit only your own files.
 - **Prod-HEAD reality:** prod (VPS `~/projects/economy-fastforward`) was at
   `f1d44ddb`, NOT the `3def6c72` the prior handoff claimed - that commit was a
   docs-only GOAL.md change never deployed. The O4 pull (f1d44ddb -> e1af585d) added
@@ -161,8 +163,13 @@ gracefully in the tracker - intake + script work regardless.)
 2. **Phase 4 - deeper channel intelligence in the producer** (overlaps O4; the
    intelligence report already feeds ideas - extend so the producer's
    titles/hooks/thumbnail directions reflect proven channel patterns).
-3. **Phase 5 - conversational follow-up edits** ("make it shorter", "redo the
-   thumbnail") routed through the existing `claude_orchestrator` (~20-line seed fix).
+3. **Phase 5 - conversational follow-up edits** [DONE 2026-06-22, layer 1+2, HEAD
+   488b2c0b]. A dedicated handler in chat.py (`_classify_followup` -> `_apply_followup_edit`
+   -> `_make_stage_step`), NOT the orchestrator (it can't apply params + uses the 404
+   model + is flag-gated off; registry actually works). "make it shorter" / "redo the
+   thumbnail" / "change the look" / "keep going" all route correctly; unclear -> ask.
+   LIVE-PROOF owed: an authed follow-up on a real video (Kie-independent "make it
+   shorter" is the clean test).
 4. **Phase 6 - full finished-video proof** the moment Kie.ai is restored.
 5. **Track B (output quality / visual chain)** - parallel, Kie-blocked. Lives in the
    `skills/video-pipeline/storyboard/coverage.py` work (see GOAL.md Track B). This is
