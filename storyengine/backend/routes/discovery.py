@@ -517,6 +517,18 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             print(f"[Discovery] Error loading channel profile: {e}")
 
         prompt = _build_discovery_prompt(comp_list, learnings_context, channel_name, channel_niche)
+        # Slop-proofing: force new titles to diverge from THIS channel's own
+        # recent videos (a different formula/structure, not just a different
+        # topic), so it never ships look-alike titles — a key mass-produced
+        # signal YouTube demonetizes. Invisible, defensive. See originality.py.
+        try:
+            import originality
+            recent_fps = await originality.load_recent_fingerprints(tenant_id)
+            extra = originality.build_generation_guardrails("title", recent_fps)
+            if extra:
+                prompt = prompt + "\n\n" + extra
+        except Exception as e:
+            print(f"[Discovery] originality guardrails skipped: {e}")
         try:
             text = await text_client.generate(
                 prompt,

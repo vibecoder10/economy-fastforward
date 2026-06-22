@@ -658,6 +658,55 @@ class PipelineExecutor:
             resolved = resolve_prompt(per_video, tenant, prompt_key, self._identity)
             setattr(self._pipeline, pipeline_attr, resolved)
 
+        # Slop-proofing (anti-demonetization), baked into the prompts:
+        #   - SCRIPT: Wall 1 (a real point of view) + Wall 2 (a genuinely NEW
+        #     PLOT vs this channel's recent videos), so every video tells a
+        #     different story by construction.
+        #   - THUMBNAIL: keep the channel's STYLE consistent (that is brand), but
+        #     never reuse a TEMPLATE — force a new composition vs recent thumbs.
+        # The look/format/title style may repeat; the plot and the thumbnail
+        # composition may not. History-aware, invisible to the creator, never a
+        # gate. Applies on top of whatever was resolved above (custom override OR
+        # neutral template). Fully defensive: any failure leaves prompts as-is,
+        # and the always-on mandates (point of view, anti-template) still land
+        # even if the history read fails. See backend/originality.py.
+        try:
+            import originality
+            try:
+                recent_fps = await originality.load_recent_fingerprints(
+                    self.tenant_id,
+                    exclude_video_id=str(video["id"]) if video.get("id") else None,
+                )
+            except Exception as e:
+                _logger.warning("recent fingerprints unavailable: %s", e)
+                recent_fps = []
+            # Hand the recent PLOTS to the skill side (Phase 2 silent re-roll in
+            # script/brief_translator) over the same env-var seam used for
+            # VISUAL_STYLE_DESCRIPTION. Always set (even "[]") so a previous
+            # video's plots never leak into this run.
+            try:
+                import json as _json
+                _slim = [
+                    {"title": f.get("title", ""),
+                     "plot": f.get("script_excerpt") or f.get("hook") or ""}
+                    for f in recent_fps
+                ]
+                os.environ["RECENT_PLOTS_JSON"] = _json.dumps(_slim)
+            except Exception:
+                os.environ["RECENT_PLOTS_JSON"] = "[]"
+            for kind, attr in (
+                ("script", "script_system_prompt"),
+                ("thumbnail", "thumbnail_system_prompt"),
+            ):
+                base = getattr(self._pipeline, attr, None)
+                if not base:
+                    continue
+                extra = originality.build_generation_guardrails(kind, recent_fps)
+                if extra:
+                    setattr(self._pipeline, attr, base + "\n\n" + extra)
+        except Exception as e:
+            _logger.warning("originality guardrails skipped: %s", e)
+
     async def _install_cancel_support(self, video_id: str):
         """Arm cooperative cancellation for a paid generation run.
 

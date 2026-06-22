@@ -216,6 +216,37 @@ class BriefTranslator:
             act_count = script_result["validation"]["act_count"]
             logger.info(f"Script generated: {word_count} words, {act_count} acts")
 
+            # === STEP 2b: Silent originality re-roll (anti-demonetization) ===
+            # If this draft recycles a plot the channel already made, quietly
+            # regenerate with a "completely different plot" nudge BEFORE we save,
+            # show, or split it. Invisible to the creator, capped, fails open. The
+            # backend passes recent plots via RECENT_PLOTS_JSON; the guard uses a
+            # direct Sonnet call so it survives a Kie outage. See
+            # shared/originality_guard.py.
+            try:
+                from shared.originality_guard import maybe_reroll_for_plot
+
+                async def _regen(spo):
+                    return await generate_script(
+                        self.anthropic, brief, model=self.script_model,
+                        config=self.video_config, profile=self.profile,
+                        system_prompt_override=spo,
+                    )
+
+                script, script_result = await maybe_reroll_for_plot(
+                    title=brief.get("video_title") or brief.get("headline") or "",
+                    script=script,
+                    script_result=script_result,
+                    regenerate=_regen,
+                    base_system_prompt=self.script_system_prompt_override or "",
+                )
+                result["script"] = script
+                result["script_validation"] = script_result["validation"]
+                word_count = script_result["validation"]["word_count"]
+                act_count = script_result["validation"]["act_count"]
+            except Exception as e:
+                logger.warning(f"originality re-roll skipped: {e}")
+
             # === PROGRESSIVE WRITE: Save script immediately (never lose work) ===
             # Write to Airtable FIRST — fast, always available
             self._save_script_to_ideas(idea_record_id, script)
