@@ -164,6 +164,97 @@ export const completeOnboarding = () =>
     method: "POST",
   });
 
+// --- Creator setup + intelligence report (chat-onboarding workspace layer) ---
+
+// The durable brief captured during chat onboarding.
+export interface CreatorBrief {
+  intent?: string;
+  goals?: string[];
+  niche_angle?: string;
+  channel?: string;
+  competitors?: string[];
+}
+
+// Subset of /api/onboarding/status we render in the Competitors "Your setup" card.
+export interface CreatorSetup {
+  channel_name: string;
+  youtube_channel_name: string;
+  niche: string;
+  creator_brief: CreatorBrief;
+}
+
+export const getCreatorSetup = () =>
+  fetchApi<CreatorSetup>("/api/onboarding/status");
+
+// The onboarding intelligence report (written by onboarding, previously unshown).
+export interface IntelTitleIdea {
+  title: string;
+  pattern?: string;
+  reasoning?: string;
+  hook_direction?: string;
+  source_titles?: string[];
+}
+export interface IntelInsight {
+  pattern?: string;
+  strategy?: string;
+  reasoning?: string;
+}
+export interface IntelChannelAnalysis {
+  best_pattern?: string;
+  weakest_area?: string;
+  quick_win?: string;
+  opportunity?: string;
+}
+export interface IntelCreationGuidance {
+  research_plan?: string;
+  script_plan?: string;
+  visual_plan?: string;
+  thumbnail_plan?: string;
+  modeling_next_step?: string;
+}
+export interface IntelligenceReport {
+  title_ideas: IntelTitleIdea[];
+  thumbnail_insights: IntelInsight[];
+  hook_ideas: IntelInsight[];
+  channel_analysis: IntelChannelAnalysis | null;
+  creation_guidance: IntelCreationGuidance | null;
+}
+export interface IntelligenceReportResponse {
+  status: "ok" | "not_generated";
+  report: IntelligenceReport | null;
+  competitors_analyzed?: number;
+  videos_analyzed?: number;
+  created_at?: string | null;
+}
+
+// The backend stores these report fields as JSONB; without a pool codec asyncpg
+// hands them back as JSON strings, so normalize string-or-parsed into real values.
+function parseMaybe<T>(v: unknown, fallback: T): T {
+  if (v == null) return fallback;
+  if (typeof v === "string") {
+    try {
+      return JSON.parse(v) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return v as T;
+}
+
+export async function getIntelligenceReport(): Promise<IntelligenceReportResponse> {
+  const res = await fetchApi<IntelligenceReportResponse>("/api/onboarding/intelligence-report");
+  if (res.report) {
+    res.report = {
+      title_ideas: parseMaybe(res.report.title_ideas, [] as IntelTitleIdea[]),
+      thumbnail_insights: parseMaybe(res.report.thumbnail_insights, [] as IntelInsight[]),
+      hook_ideas: parseMaybe(res.report.hook_ideas, [] as IntelInsight[]),
+      channel_analysis: parseMaybe(res.report.channel_analysis, null as IntelChannelAnalysis | null),
+      creation_guidance: parseMaybe(res.report.creation_guidance, null as IntelCreationGuidance | null),
+    };
+  }
+  return res;
+}
+
 // Calendar
 export type CalendarVideo = {
   id: string;

@@ -75,7 +75,7 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         """SELECT channel_name, niche, target_audience, style_description,
                   youtube_channel_id, youtube_channel_name, youtube_refresh_token,
                   competitors_added, intelligence_generated, tutorial_completed,
-                  onboarding_completed_at
+                  onboarding_completed_at, creator_brief
            FROM channel_profiles WHERE tenant_id = $1""",
         tenant_id,
     )
@@ -176,6 +176,16 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         steps_done += 1
     percent = round(steps_done / 5 * 100)
 
+    # Durable creator brief from chat onboarding (intent/goals/niche_angle/...).
+    # asyncpg may hand JSONB back as a str or an already-parsed dict.
+    brief_raw = cp.get("creator_brief") if cp else None
+    if isinstance(brief_raw, str):
+        try:
+            brief_raw = json.loads(brief_raw)
+        except (json.JSONDecodeError, ValueError):
+            brief_raw = {}
+    creator_brief = brief_raw if isinstance(brief_raw, dict) else {}
+
     return {
         "completed": completed,
         "steps": {
@@ -195,7 +205,9 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
         "percent_complete": percent,
         "display_name": display_name,
         "channel_name": (cp.get("channel_name") or "") if cp else "",
+        "youtube_channel_name": (cp.get("youtube_channel_name") or "") if cp else "",
         "niche": (cp.get("niche") or "") if cp else "",
+        "creator_brief": creator_brief,
     }
 
 
