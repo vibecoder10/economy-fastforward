@@ -1,5 +1,25 @@
 # Task Tracking
 
+## Handoff — 2026-06-22 (chat-first creative producer)
+
+Shipped the chat-first pivot: StoryEngine now opens to a ChatGPT-style producer
+chat (at `/`) that turns one sentence into questions → selector cards → a
+production plan → an approved video, then runs the pipeline. Full plan + status:
+`storyengine/GOAL.md` (Phases 1-3 done; 4 = channel intelligence, 5 = follow-up
+edits still to build).
+
+- New: `backend/routes/chat.py` (intake + spec→create_video + pipeline kickoff),
+  `backend/producer_prompt.py` (producer brain, direct Anthropic via tenant Vault
+  key), `migration 060_chat_conversations`, `frontend/.../chat/ChatHome.tsx`.
+- Changed: `status_map.py` (5 friendly states + SSE `friendly` field), sidebar
+  (Chat / Dashboard / Advanced), login+onboarding land on chat.
+- Deploy: this commit MERGED the prod working-tree snapshot (branch
+  `vps-live-20260622`) with the chat work — zero conflicts. Migration 060
+  auto-applies on backend restart. The chat producer needs each tenant to have a
+  direct `anthropic_api_key` in their profile/Vault.
+- TODO next: rotate the GitHub PAT in the VPS git remote URL (plaintext); build
+  Phases 4-5; the deterministic panel-aspect backstop below still stands.
+
 ## ★ NEW SESSION BUILD PLAN — next-up work (queued, not started)
 
 Forward work for a fresh session. Each = what + where. Priority order.
