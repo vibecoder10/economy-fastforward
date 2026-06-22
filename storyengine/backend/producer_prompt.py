@@ -93,7 +93,7 @@ Include "cards" ONLY when you're offering choices. Include "plan" ONLY when phas
 
 CARD GUIDANCE:
 - LOOK: when the visual style isn't already decided, offer a card with "id":"style", "type":"single", and ALL SIX of these options, using these EXACT `value`s (the UI shows a preview image per value, so it must match): {"value":"pixar_3d","label":"Disney / Pixar 3D"}, {"value":"flat_2d","label":"2D flat"}, {"value":"realistic","label":"Realistic"}, {"value":"anime","label":"Anime"}, {"value":"watercolor","label":"Storybook (watercolor)"}, {"value":"comic","label":"Comic"}. Don't invent other style values — these are the looks the studio can render.
-- LENGTH: offer 30 seconds, 1 minute, 3 minutes, 8 minutes, 15 minutes. Map the choice to spec.video_length_minutes (round up; 30 seconds -> 1).
+- LENGTH: offer a card with "id":"length" and "type":"slider" (no options array needed — the UI shows a slider from 5 seconds to 30 minutes, in 5-second steps). The creator's chosen length is captured by the slider; just reflect it naturally in the plan. Default video_length_minutes to 1 in the spec when unsure.
 - WORKFLOW ("how far should I take it"): offer cards using the values above.
 - Only show a card for something you still need. If you already know it, skip it. You may show several cards in one turn.
 

@@ -46,6 +46,21 @@ const EXAMPLES = [
   "A cinematic short about a lighthouse keeper who talks to the sea",
 ];
 
+// Length is a slider: 5 seconds → 30 minutes, in 5-second steps.
+const LENGTH_MIN = 5;
+const LENGTH_MAX = 1800;
+const LENGTH_STEP = 5;
+const LENGTH_DEFAULT = 60;
+
+const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string }).type === "slider";
+
+function formatLength(secs: number): string {
+  if (secs < 60) return `${secs} sec`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return s === 0 ? `${m} min` : `${m}m ${s}s`;
+}
+
 export function ChatHome() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -105,20 +120,35 @@ export function ChatHome() {
     });
   }
 
-  function submitPicks() {
-    if (!activeCards || sending) return;
-    // Friendly summary bubble of what they chose.
-    const labelFor = (cardId: string, val: string) =>
-      activeCards.find((c) => c.id === cardId)?.options.find((o) => o.value === val)?.label ?? val;
-    const summary = Object.entries(picks)
-      .map(([cid, v]) => (Array.isArray(v) ? v.map((x) => labelFor(cid, x)).join(", ") : labelFor(cid, v)))
-      .filter(Boolean)
-      .join(" · ");
-    turn({ selections: picks }, summary || "Sounds good");
+  function setPickValue(cardId: string, value: string) {
+    setPicks((prev) => ({ ...prev, [cardId]: value }));
   }
 
+  function submitPicks() {
+    if (!activeCards || sending) return;
+    // Slider cards default to LENGTH_DEFAULT if the creator never touched them.
+    const sel: Record<string, string | string[]> = { ...picks };
+    for (const c of activeCards) {
+      if (isSliderCard(c) && sel[c.id] === undefined) sel[c.id] = String(LENGTH_DEFAULT);
+    }
+    const labelFor = (cardId: string, val: string) =>
+      activeCards.find((c) => c.id === cardId)?.options?.find((o) => o.value === val)?.label ?? val;
+    const summary = activeCards
+      .map((c) => {
+        const v = sel[c.id];
+        if (v === undefined) return "";
+        if (isSliderCard(c)) return formatLength(Number(v));
+        return Array.isArray(v) ? v.map((x) => labelFor(c.id, x)).join(", ") : labelFor(c.id, v);
+      })
+      .filter(Boolean)
+      .join(" · ");
+    turn({ selections: sel }, summary || "Sounds good");
+  }
+
+  // Slider cards always count as answered (they carry a default).
   const allCardsAnswered =
     !!activeCards && activeCards.every((c) => {
+      if (isSliderCard(c)) return true;
       const v = picks[c.id];
       return Array.isArray(v) ? v.length > 0 : !!v;
     });
@@ -208,7 +238,7 @@ export function ChatHome() {
 
       {/* Active zone: cards, plan, or created confirmation */}
       {activeCards && !sending && (
-        <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSubmit={submitPicks} canSubmit={allCardsAnswered} />
+        <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSetValue={setPickValue} onSubmit={submitPicks} canSubmit={allCardsAnswered} />
       )}
       {activePlan && !sending && (
         <ProductionPlanCard plan={activePlan} onApprove={() => turn({ approve: true }, "Make it ✨")} />
@@ -285,12 +315,14 @@ function SelectorCards({
   cards,
   picks,
   onToggle,
+  onSetValue,
   onSubmit,
   canSubmit,
 }: {
   cards: ChatCard[];
   picks: Record<string, string | string[]>;
   onToggle: (card: ChatCard, value: string) => void;
+  onSetValue: (cardId: string, value: string) => void;
   onSubmit: () => void;
   canSubmit: boolean;
 }) {
@@ -302,11 +334,36 @@ function SelectorCards({
     <GlassCard className="flex flex-col gap-5">
       {cards.map((card) => (
         <div key={card.id}>
-          <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--text-tertiary)" }}>
-            {card.label}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>
+              {card.label}
+            </span>
+            {isSliderCard(card) && (
+              <span className="text-sm font-semibold" style={{ color: "var(--turquoise)" }}>
+                {formatLength(Number(picks[card.id] ?? LENGTH_DEFAULT))}
+              </span>
+            )}
           </div>
+          {isSliderCard(card) ? (
+            <div className="px-1">
+              <input
+                type="range"
+                min={LENGTH_MIN}
+                max={LENGTH_MAX}
+                step={LENGTH_STEP}
+                value={Number(picks[card.id] ?? LENGTH_DEFAULT)}
+                onChange={(e) => onSetValue(card.id, e.target.value)}
+                className="w-full cursor-pointer"
+                style={{ accentColor: "var(--turquoise)" }}
+              />
+              <div className="flex justify-between text-[10px] mt-1" style={{ color: "var(--text-tertiary)" }}>
+                <span>5 sec</span>
+                <span>30 min</span>
+              </div>
+            </div>
+          ) : (
           <div className="flex flex-wrap gap-2">
-            {card.options.map((opt) => {
+            {(card.options ?? []).map((opt) => {
               const sel = isSelected(card, opt.value);
               // Style options render the same preview image as the New Video flow.
               const preset = visualPresetById(opt.value);
@@ -354,6 +411,7 @@ function SelectorCards({
               );
             })}
           </div>
+          )}
         </div>
       ))}
       <div className="flex justify-end">

@@ -48,6 +48,16 @@ _GREETING = (
     "his best friend, and they go on an adventure.”"
 )
 
+# The length slider's floor (matches the frontend: 5s..30min in 5s steps).
+LENGTH_MIN_SECONDS = 5
+
+
+def _format_runtime(secs: int) -> str:
+    if secs < 60:
+        return f"{secs} seconds"
+    m, s = divmod(secs, 60)
+    return f"{m} min" if s == 0 else f"{m} min {s} sec"
+
 
 # --- request / response -----------------------------------------------------
 
@@ -221,6 +231,17 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
     selections = state.get("selections") or {}
     if selections.get("style"):
         spec = {**spec, "visual_style": selections["style"]}
+    # Length slider sends SECONDS (5s..1800s). The pipeline length is int minutes,
+    # so round (min 1) and keep the exact target in writer_guidance so short
+    # videos aren't silently treated as a full minute.
+    if selections.get("length"):
+        try:
+            secs = max(LENGTH_MIN_SECONDS, int(float(selections["length"])))
+            spec = {**spec, "video_length_minutes": max(1, round(secs / 60))}
+            wg = (spec.get("writer_guidance") or "").strip()
+            spec["writer_guidance"] = f"{wg}\nTarget runtime: ~{_format_runtime(secs)} ({secs}s total).".strip()
+        except (TypeError, ValueError):
+            pass
 
     req = _spec_to_create_request(spec)
     try:
