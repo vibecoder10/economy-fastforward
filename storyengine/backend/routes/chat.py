@@ -66,6 +66,7 @@ class ChatTurnRequest(BaseModel):
     message: Optional[str] = None
     selections: Optional[dict[str, Any]] = None
     approve: bool = False
+    start_onboarding: bool = False  # launch the "Start Here" setup flow
 
 
 class ChatTurnResponse(BaseModel):
@@ -292,6 +293,231 @@ async def _handle_followup(body, conversation_id, tenant_id, transcript, state, 
     )
 
 
+# --- onboarding ("Start Here") step-machine ---------------------------------
+#
+# A deterministic conversational flow that sets up a new creator: intent (tell
+# stories vs automate a channel) -> what to automate -> connect channel (paste
+# URL) -> add 1-3 competitors -> a soft pitch for the Advanced tier -> done, then
+# the producer takes over. State lives in the conversation row's `state` JSONB
+# (mode + onboarding_step + collected intent/goals/channel). Reliability matters
+# here, so it's a step-machine, not a free LLM agent — it reuses the dormant
+# routes/onboarding.py functions for the real work.
+
+ONBOARDING_INTENT_CARD = {
+    "id": "intent", "label": "What brings you here?", "type": "single",
+    "options": [
+        {"value": "automate", "label": "Automate my channel", "hint": "Ideas, scripts, voiceovers, thumbnails, whole videos"},
+        {"value": "stories", "label": "Tell stories", "hint": "Narrative videos, shorts, films"},
+    ],
+}
+ONBOARDING_GOALS_CARD = {
+    "id": "goals", "label": "What should I handle for you?", "type": "multi",
+    "options": [
+        {"value": "ideas", "label": "Video ideas"},
+        {"value": "scripts", "label": "Scripts"},
+        {"value": "voiceover", "label": "Voiceovers"},
+        {"value": "thumbnails", "label": "Thumbnails"},
+        {"value": "full_video", "label": "Whole videos"},
+        {"value": "all", "label": "All of the above"},
+    ],
+}
+ONBOARDING_UPSELL_CARD = {
+    "id": "upsell", "label": "", "type": "single",
+    "options": [
+        {"value": "tell_more", "label": "Tell me more"},
+        {"value": "carry_on", "label": "Let's keep rolling"},
+    ],
+}
+_UPSELL_TEXT = (
+    "One last thing 👀 — our **Advanced tier** adds two things that really move the "
+    "needle: **Smart Analytics** watches what's working on your channel (and your "
+    "competitors') and tells you *why* your winners win, and the **Autopilot engine** "
+    "can research, script, and queue videos for you on a schedule — hands-off. No "
+    "pressure at all: everything here works great without it, and you can switch it "
+    "on anytime from Billing. Want the 30-second version, or shall we keep rolling?"
+)
+_UPSELL_DETAIL = (
+    "Quick pitch: with Advanced on, StoryEngine studies your real performance — CTR, "
+    "retention, what your audience rewards — and feeds those lessons into every script, "
+    "title, and thumbnail, so the engine gets smarter the more you publish. Autopilot "
+    "then runs the whole loop: finds ideas from your niche + competitors, writes and "
+    "queues videos, and keeps your channel fed without you lifting a finger. It's the "
+    "difference between *making videos* and *growing a channel*. Flip it on anytime in "
+    "Billing — for now, let's make something. 🚀"
+)
+
+_SKIP_WORDS = {"skip", "no", "none", "n/a", "nope", "later"}
+
+
+def _guess_intent(msg: str) -> Optional[str]:
+    m = (msg or "").lower()
+    if any(w in m for w in ("stor", "narrativ", "film", "fiction", "short film")):
+        return "stories"
+    if any(w in m for w in ("automat", "channel", "youtube", "faceless", "grow")):
+        return "automate"
+    return None
+
+
+def _parse_urls(msg: str) -> list[str]:
+    """Pull channel URLs / @handles out of a free-text reply (space/comma/newline sep)."""
+    import re
+    if not msg:
+        return []
+    tokens = re.split(r"[\s,]+", msg.strip())
+    out = []
+    for t in tokens:
+        t = t.strip()
+        if not t:
+            continue
+        if "youtube.com" in t or "youtu.be" in t or t.startswith("@") or t.startswith("http"):
+            out.append(t)
+    return out
+
+
+async def _ob_reply(conversation_id, tenant_id, transcript, state, text,
+                    *, cards=None, phase="onboarding", video_id=None):
+    transcript.append(_assistant_turn({"assistant_text": text, "phase": phase, "cards": cards}))
+    await _persist(conversation_id, tenant_id, transcript, state, phase, video_id=video_id)
+    return ChatTurnResponse(
+        conversation_id=conversation_id, assistant_text=text,
+        cards=cards, phase=phase, video_id=video_id,
+    )
+
+
+async def _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks):
+    """Mark onboarding done, kick off the intelligence report, hand off to the producer."""
+    try:
+        from routes.onboarding import complete_onboarding, generate_intelligence_report
+        if state.get("competitor_job"):
+            try:
+                await generate_intelligence_report(tenant_id=tenant_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("onboarding: intelligence report kickoff failed: %s", e)
+        await complete_onboarding(tenant_id=tenant_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("onboarding: complete failed: %s", e)
+
+    # Hand off to the producer: exit onboarding mode and start its transcript fresh
+    # (so the producer isn't replaying onboarding card JSON), keeping the outcome
+    # in state for tailoring.
+    state["mode"] = "producer"
+    state["onboarding_step"] = "done"
+    goals = state.get("goals") or []
+    intent = state.get("intent")
+    if intent == "stories":
+        nudge = "what story do you want to tell first?"
+    elif "thumbnails" in goals and len(goals) == 1:
+        nudge = "what video do you want a thumbnail for first?"
+    else:
+        nudge = "what should we make first?"
+    text = (
+        "You're all set! 🎉 I've got your setup"
+        + (f" — and I'm studying {state.get('channel')} + your competitors in the background "
+           "(peek anytime under Competitors). " if state.get("channel") or state.get("competitor_job") else ". ")
+        + f"So — {nudge}"
+    )
+    fresh = [_assistant_turn({"assistant_text": text, "phase": "asking"})]
+    await _persist(conversation_id, tenant_id, fresh, state, "asking")
+    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+
+
+async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state, background_tasks):
+    sel = body.selections or {}
+    msg = (body.message or "").strip()
+    entering = state.get("mode") != "onboarding"
+    state["mode"] = "onboarding"
+    step = state.get("onboarding_step") or "intent"
+
+    # Record the user's input for context.
+    if msg:
+        transcript.append({"role": "user", "content": msg})
+    elif sel:
+        transcript.append({"role": "user", "content": _selections_to_text(sel)})
+
+    # Entry / re-entry: greet + ask intent.
+    if entering or (step == "intent" and not sel.get("intent") and not msg):
+        state["onboarding_step"] = "intent"
+        return await _ob_reply(
+            conversation_id, tenant_id, transcript, state,
+            "Welcome — let's get you set up in under a minute. First, what brings you here?",
+            cards=[ONBOARDING_INTENT_CARD],
+        )
+
+    if step == "intent":
+        intent = sel.get("intent") or _guess_intent(msg)
+        if not intent:
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                "No worries — just pick one so I can tailor things:", cards=[ONBOARDING_INTENT_CARD])
+        state["intent"] = intent
+        if intent == "stories":
+            state["onboarding_step"] = "channel"
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                "A storyteller — love it. If you have a channel, paste its URL so I can match its vibe "
+                "(or say “skip” and we'll start fresh).")
+        state["onboarding_step"] = "goals"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            "Nice — let's put your channel on autopilot. What should I handle for you?",
+            cards=[ONBOARDING_GOALS_CARD])
+
+    if step == "goals":
+        goals = sel.get("goals")
+        if isinstance(goals, str):
+            goals = [goals]
+        state["goals"] = goals or ["all"]
+        state["onboarding_step"] = "channel"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            "Got it. Now connect your channel — paste your YouTube channel URL so I can learn what "
+            "works for your audience (or say “skip”).")
+
+    if step == "channel":
+        if msg and msg.lower() not in _SKIP_WORDS:
+            try:
+                from routes.onboarding import YouTubeConnect, connect_youtube
+                res = await connect_youtube(YouTubeConnect(channel_url=msg), tenant_id=tenant_id)
+                state["channel"] = (res or {}).get("channel_name") or msg
+                ack = f"Connected **{state['channel']}** — I'll study it in the background. "
+            except Exception as e:  # noqa: BLE001
+                logger.warning("onboarding: connect_youtube failed: %s", e)
+                ack = "I couldn't read that channel just now, but no worries — we can add it later. "
+        else:
+            ack = "No problem, skipping that. "
+        state["onboarding_step"] = "competitors"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            ack + "Now paste 1-3 channels you compete with or admire (URLs or @handles) — I'll pull "
+            "winning ideas from them. Or say “skip”.")
+
+    if step == "competitors":
+        urls = _parse_urls(msg) if msg.lower() not in _SKIP_WORDS else []
+        if urls:
+            try:
+                from routes.onboarding import CompetitorAnalyze, analyze_competitors
+                res = await analyze_competitors(CompetitorAnalyze(channel_urls=urls[:3]), tenant_id=tenant_id)
+                state["competitor_job"] = (res or {}).get("job_id")
+                ack = f"On it — analyzing {len(urls[:3])} channel(s) in the background. "
+            except Exception as e:  # noqa: BLE001
+                logger.warning("onboarding: analyze_competitors failed: %s", e)
+                ack = "I'll line those up. "
+        else:
+            ack = "No competitors for now — you can add them anytime. "
+        state["onboarding_step"] = "upsell"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            ack + "\n\n" + _UPSELL_TEXT, cards=[ONBOARDING_UPSELL_CARD])
+
+    if step == "upsell":
+        choice = sel.get("upsell") or ("tell_more" if "more" in msg.lower() else "carry_on")
+        if choice == "tell_more" and not state.get("upsell_expanded"):
+            state["upsell_expanded"] = True
+            return await _ob_reply(conversation_id, tenant_id, transcript, state, _UPSELL_DETAIL,
+                cards=[{"id": "upsell", "label": "", "type": "single",
+                        "options": [{"value": "carry_on", "label": "Got it — let's create"}]}])
+        return await _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks)
+
+    # Unknown step — recover by handing off to the producer.
+    state["mode"] = "producer"
+    return await _ob_reply(conversation_id, tenant_id, transcript, state,
+        "All set — what should we make first?", phase="asking")
+
+
 # --- the endpoint ------------------------------------------------------------
 
 @router.post("", response_model=ChatTurnResponse)
@@ -312,6 +538,13 @@ async def chat_turn(
     transcript = _as_list(conv.get("transcript"))
     state = _as_dict(conv.get("state"))
     video_id = str(conv["video_id"]) if conv.get("video_id") else None
+
+    # 1.5 Onboarding ("Start Here") — runs before producer intake. Triggered by the
+    # explicit launch button or once a conversation is already in onboarding mode.
+    if not video_id and (body.start_onboarding or state.get("mode") == "onboarding"):
+        return await _handle_onboarding(
+            body, conversation_id, tenant_id, transcript, state, background_tasks
+        )
 
     # 2. Video already exists -> follow-up edit.
     if video_id:

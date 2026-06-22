@@ -176,6 +176,15 @@ export function ChatHome() {
           sending={sending}
           autoFocus
         />
+
+        <button
+          onClick={() => turn({ start_onboarding: true }, "Help me get set up")}
+          className="mt-4 inline-flex items-center gap-2 text-sm font-medium transition-colors hover:brightness-125"
+          style={{ color: "var(--turquoise)" }}
+        >
+          <Sparkles size={14} /> New here? Start here — I'll set up your channel
+        </button>
+
         <div className="mt-6 flex flex-col gap-2 w-full">
           {EXAMPLES.map((ex) => (
             <button

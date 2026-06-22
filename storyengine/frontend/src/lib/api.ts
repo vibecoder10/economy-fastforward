@@ -2193,6 +2193,7 @@ export interface ChatTurnRequest {
   message?: string | null;
   selections?: Record<string, unknown> | null;
   approve?: boolean;
+  start_onboarding?: boolean;
 }
 export interface ChatTurnResponse {
   conversation_id: string;
