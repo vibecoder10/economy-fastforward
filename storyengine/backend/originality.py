@@ -8,29 +8,31 @@ impossible to *produce*, so the creator never has to think about it.
 
 This module does two jobs, both meant to run INSIDE generation:
 
-  1. Diversity input — ``summarize_recent_for_prompt`` turns a channel's recent
-     videos into a compact "do not repeat these" block that gets fed into the
-     title / hook / script / thumbnail generators. Each new video is then forced
-     to diverge from its channel's history by construction, not checked after.
+  1. Diversity input — ``build_generation_guardrails`` /
+     ``summarize_recent_for_prompt`` turn a channel's recent videos into a
+     compact "do not repeat these plots" block (plus a point-of-view mandate and
+     an anti-template rule) that gets appended to the title / script / thumbnail
+     generators' system prompts. Each new video is then forced to diverge from
+     its channel's history by construction, not checked after. This is the active
+     slop defense; the generation that consumes it routes through the tenant's
+     own Claude client, so it protects every tenant.
 
-  2. Silent self-check — ``assess_draft`` runs one Claude Sonnet call to judge a
-     fresh draft against the channel's recent work: does it genuinely differ,
-     and does it carry a real point of view (YouTube's "significant original
-     value")? A generation step uses the verdict to decide whether to quietly
-     re-roll. The verdict is internal only — never surfaced to the creator.
+  2. Retention grade — ``grade_script`` / ``grade_script_with_client`` run one
+     Claude call to score a freshly generated script against YouTube retention
+     rules (hook speed, but/therefore causality, escalating stakes, payoff,
+     specificity) and tell the pipeline whether to quietly revise it. Internal
+     only — never surfaced to the creator.
 
-Two walls and one label (see ../MONETIZATION-SAFETY-PLAN.md):
-  - Wall 1 (per-video originality): ``has_point_of_view``.
-  - Wall 2 (a genuinely new plot every time): ``distinct_plot``. The channel's
-    look, format, and title style MAY stay consistent — that is its brand and is
-    fine. Only the PLOT (story, events, arc) must be completely different from
-    recent videos.
-  - The label (AI disclosure) is handled separately, at the upload stage.
+The two walls (see ../MONETIZATION-SAFETY-PLAN.md) are enforced by the guardrails
+in job 1: Wall 1 = a real point of view per video; Wall 2 = a genuinely new PLOT
+every time (the channel's look, format, and title style MAY stay consistent —
+that is its brand; only the plot must differ). AI disclosure (the label) is
+handled separately, at the upload stage.
 
-Model: claude-sonnet-4-6 via a direct Anthropic cloud call (the same pattern as
-claude_orchestrator.py — ``anthropic.Anthropic()`` reads ANTHROPIC_API_KEY).
-This path deliberately does NOT route through the Kie.ai gateway, so it keeps
-working even when a tenant's Kie account is unavailable.
+Model: claude-sonnet-4-6. ``grade_script_with_client`` routes through the
+pipeline's AnthropicClient, so it works for direct-key AND Kie-gateway tenants;
+the bare ``grade_script`` / ``_client`` path hits Anthropic directly and is used
+for standalone/self-test only.
 """
 
 from __future__ import annotations
@@ -251,91 +253,8 @@ def build_generation_guardrails(
 
 
 # ---------------------------------------------------------------------------
-# Silent self-check — the internal re-roll signal (never user-facing).
+# Shared LLM helpers (used by the retention grade below).
 # ---------------------------------------------------------------------------
-
-class OriginalityVerdict(BaseModel):
-    """Internal-only assessment of a fresh draft against channel history.
-
-    ``verdict`` is the single dial a generation step reads: ``red`` means the
-    draft is a near-duplicate, generic, or has no point of view — quietly
-    re-roll it (feeding ``divergence_suggestion`` back in). ``yellow`` is
-    borderline (ship it, optionally log). ``green`` ships. NONE of this is shown
-    to the creator.
-    """
-
-    distinct_plot: bool = True          # Wall 2 — a genuinely new plot vs recent
-    has_point_of_view: bool = True      # Wall 1 — carries a real angle/insight
-    is_generic: bool = False            # reads as templated AI slop
-    verdict: str = "green"              # green | yellow | red  (internal only)
-    reasons: List[str] = Field(default_factory=list)
-    divergence_suggestion: str = ""     # how to make a re-roll genuinely differ
-
-    @property
-    def needs_reroll(self) -> bool:
-        return (self.verdict or "").strip().lower() == "red"
-
-
-_JUDGE_SYSTEM = (
-    "You are an internal originality check inside an AI video engine. Your output "
-    "is consumed by code, never shown to a human. Your job is to protect the "
-    "channel from YouTube's inauthentic-content demonetization policy, which "
-    "punishes channels that recycle the same PLOT across uploads, or that add no "
-    "genuine human point of view.\n"
-    "\n"
-    "IMPORTANT: a consistent LOOK, FORMAT, and TITLE STYLE across a channel's "
-    "videos is normal branding and is completely fine — do NOT penalize it. The "
-    "ONLY cross-video thing that matters is the PLOT: the story, the events, the "
-    "arc. Two videos that look identical but tell genuinely different stories are "
-    "good. Two videos that look different but tell the same story (the same plot "
-    "with the nouns swapped, or the same template — e.g. a 'facts about X' "
-    "listicle redone for a new X) are the problem.\n"
-    "\n"
-    "Judge the NEW DRAFT on two things:\n"
-    "1. distinct_plot — Is its PLOT completely different from every recent video "
-    "below? A new topic poured into the same story template is NOT a distinct "
-    "plot. A genuinely new story is.\n"
-    "2. has_point_of_view — Does it carry a genuine angle, opinion, or insight (a "
-    "real human perspective), not flat encyclopedia narration any template could "
-    "produce?\n"
-    "Also set is_generic = true if the draft reads like mass-produced AI slop "
-    "regardless of the channel history.\n"
-    "\n"
-    "Decide verdict:\n"
-    "- red: the plot reuses/recycles a recent plot or a repeated template, OR the "
-    "draft is generic slop, OR it has no real point of view. Must be re-rolled.\n"
-    "- yellow: borderline — ships, but the plot is noticeably close to a recent "
-    "one.\n"
-    "- green: a genuinely new plot AND a real point of view (a consistent look or "
-    "title style does NOT lower this).\n"
-    "\n"
-    "If verdict is red or yellow, write divergence_suggestion: one or two concrete "
-    "sentences proposing a genuinely DIFFERENT plot/story for the next attempt — "
-    "never just 'change the topic', and never about the look or title format.\n"
-    "\n"
-    "Return ONLY a JSON object with these keys, no markdown, no prose:\n"
-    "{\"distinct_plot\": bool, \"has_point_of_view\": bool, "
-    "\"is_generic\": bool, \"verdict\": \"green|yellow|red\", "
-    "\"reasons\": [string, ...], \"divergence_suggestion\": string}"
-)
-
-
-def _build_judge_user_prompt(
-    kind: str,
-    draft: Dict[str, Any],
-    recent: List[Dict[str, Any]],
-) -> str:
-    recent_block = summarize_recent_for_prompt(recent) or (
-        "(No recent videos — this is among the channel's first. Judge only on "
-        "whether the draft is generic slop and whether it has a point of view.)"
-    )
-    draft_lines = [f"NEW DRAFT (kind: {kind}):"]
-    for key in ("title", "hook", "script", "script_excerpt", "thumbnail"):
-        val = draft.get(key)
-        if val:
-            draft_lines.append(f"- {key}: {_truncate(val, 1500)}")
-    return f"{recent_block}\n\n" + "\n".join(draft_lines)
-
 
 def _extract_json(text: str) -> str:
     """Pull a JSON object out of a model response (handles ``` fences)."""
@@ -358,54 +277,14 @@ def _client():
     return anthropic.Anthropic()
 
 
-def assess_draft(
-    kind: str,
-    draft: Dict[str, Any],
-    recent: List[Dict[str, Any]],
-    *,
-    model: str = MODEL,
-    max_tokens: int = 900,
-) -> OriginalityVerdict:
-    """Assess a fresh draft against the channel's recent work (one Sonnet call).
-
-    ``kind`` is a label like "title", "hook", "script", or "thumbnail".
-    ``draft`` is a dict of the relevant fields (e.g. {"title", "hook", "script"}).
-    ``recent`` is a list of fingerprints from ``load_recent_fingerprints``.
-
-    Fails OPEN: on any error this returns a green verdict so a transient model or
-    network problem never blocks generation. (Prevention via diversity-forced
-    prompts is the primary defense; this check is the backstop.)
-    """
-    try:
-        client = _client()
-        resp = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=_JUDGE_SYSTEM,
-            messages=[
-                {"role": "user", "content": _build_judge_user_prompt(kind, draft, recent)}
-            ],
-        )
-        text = "".join(
-            getattr(block, "text", "") for block in resp.content
-            if getattr(block, "type", "") == "text"
-        )
-        data = json.loads(_extract_json(text))
-        return OriginalityVerdict(**data)
-    except Exception:
-        return OriginalityVerdict(
-            verdict="green",
-            reasons=["originality check unavailable — failed open"],
-        )
-
-
 # ---------------------------------------------------------------------------
 # Retention grade (Phase 2) — the script quality gate.
 #
-# assess_draft above protects ORIGINALITY (is this a new plot with a point of
-# view). grade_script protects RETENTION (does the script actually hold a
-# viewer): hook speed, but/therefore causality, escalating stakes, a delivered
-# payoff, and specificity. It runs right after a script is generated; a "revise"
+# The guardrails above protect ORIGINALITY (a genuinely new plot with a point of
+# view, injected into the generation prompt). grade_script protects RETENTION
+# (does the script actually hold a viewer): hook speed, but/therefore causality,
+# escalating stakes, a delivered payoff, and specificity. It runs right after a
+# script is generated; a "revise"
 # verdict tells the pipeline to feed rewrite_guidance back to the writer and
 # regenerate once. Like the rest of this module: internal only, fails open, and
 # is niche-safe (a how-to is graded as a how-to, not punished for lacking a
@@ -641,35 +520,9 @@ def _selftest() -> None:
     ]
     recent_fps = [build_fingerprint(v) for v in recent]
 
-    # SAME look + SAME title style, but RECYCLES recent #1's plot. Expect RED.
-    bad = {
-        "title": "The Day the Beacon Failed",
-        "script": "A lighthouse keeper on a remote island finds the lamp has gone "
-                  "out during a terrible storm and rows out to warn a boat headed "
-                  "straight for the rocks.",
-    }
-    # SAME look + SAME title style, a COMPLETELY NEW plot + a real POV. Expect GREEN.
-    good = {
-        "title": "The Day the River Took the Bridge",
-        "script": "When the floodwater rises faster than anyone planned for, a "
-                  "twelve-year-old everyone treats as too small to matter is the "
-                  "only one who remembers the old footpath — and I think the whole "
-                  "town owes her an apology it will never quite say out loud.",
-    }
-
     print(f"Model: {MODEL}\n")
     print("--- plot-divergence block fed into generators (look stays consistent) ---")
     print(summarize_recent_for_prompt(recent_fps)[:600], "...\n")
-
-    print("--- same look + title style, RECYCLED plot (expect RED) ---")
-    v1 = assess_draft("title+script", bad, recent_fps)
-    print(json.dumps(v1.model_dump() if hasattr(v1, "model_dump") else v1.dict(), indent=2))
-    print(f"needs_reroll = {v1.needs_reroll}\n")
-
-    print("--- same look + title style, NEW plot + a real POV (expect GREEN) ---")
-    v2 = assess_draft("title+script", good, recent_fps)
-    print(json.dumps(v2.model_dump() if hasattr(v2, "model_dump") else v2.dict(), indent=2))
-    print(f"needs_reroll = {v2.needs_reroll}")
 
     # --- Phase 2: retention grade discrimination ---------------------------
     # A flat "and then" list with a slow open (expect revise/regenerate).
