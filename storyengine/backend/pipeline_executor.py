@@ -1076,6 +1076,71 @@ class PipelineExecutor:
         except Exception as e:
             print(f"[Script] Error injecting learnings: {e}")
 
+    async def _grade_and_maybe_revise_script(self, video_id: str) -> None:
+        """Phase 2 retention gate: grade the freshly generated script against the
+        YouTube retention rules (hook speed, but/therefore causality, escalating
+        stakes, a delivered payoff, specificity). On a 'revise'/'regenerate'
+        verdict, append the grader's concrete guidance to writer_guidance and
+        regenerate the script ONCE.
+
+        Mirrors originality.py's philosophy: no user-facing gate, just a silent
+        quality nudge. Fail-open and best-effort - any error here leaves the
+        already-generated script in place and never blocks the pipeline.
+        """
+        try:
+            import asyncio
+            from originality import grade_script
+
+            video = await self._get_video(video_id)
+            script = (video or {}).get("script") or ""
+            if not script.strip():
+                return
+
+            # Niche keeps grading niche-appropriate (a how-to is not punished for
+            # lacking a story arc). Resolved defensively; falls back to neutral.
+            niche = ""
+            try:
+                identity = await build_identity_context(self.tenant_id, video)
+                niche = identity.niche
+            except Exception:
+                niche = ""
+
+            draft = {
+                "niche": niche,
+                "title": video.get("video_title"),
+                "hook": video.get("executive_hook") or video.get("hook_script"),
+                "script": script,
+            }
+            # Sync Anthropic client -> run off the event loop.
+            grade = await asyncio.to_thread(grade_script, draft)
+            print(f"[Script] retention grade {video_id[:8]}: {grade.verdict} "
+                  f"(score {grade.score}) gates={grade.failing_gates}", flush=True)
+
+            if not grade.needs_revision or not (grade.rewrite_guidance or "").strip():
+                return
+
+            # Append the grader's guidance and regenerate exactly once.
+            # writer_guidance is the same column run_brief_translator already
+            # reads (see _inject_learnings_into_writer_guidance), so the re-run
+            # picks it up.
+            existing = (video.get("writer_guidance") or "")
+            block = (
+                "\n\n--- RETENTION REVISION (auto, internal) ---\n"
+                + grade.rewrite_guidance.strip()
+                + "\n--- END RETENTION REVISION ---"
+            )
+            await execute(
+                "UPDATE videos SET writer_guidance = $1 WHERE id = $2",
+                existing + block, video_id,
+            )
+            self._load_idea_from_video(video_id)
+            await self._pipeline.run_brief_translator()
+            print(f"[Script] regenerated {video_id[:8]} once after retention grade", flush=True)
+            # ponytail: one re-roll only. If the rewrite is still weak it ships -
+            # a silent nudge, not a hard gate; looping would risk stalling a run.
+        except Exception as e:
+            print(f"[Script] retention grade skipped for {video_id[:8]}: {str(e)[:200]}", flush=True)
+
     @staticmethod
     def _parse_modeled_scenes(raw: str) -> list:
         """Parse modeled-script model output into [{"scene", "text"}].
@@ -1281,6 +1346,10 @@ no stage directions, no labels, no headings."""
 
             if result.get("error"):
                 raise Exception(result["error"])
+
+            # Phase 2: silent retention grade + at most one auto-revise.
+            # Best-effort; never blocks the stage.
+            await self._grade_and_maybe_revise_script(video_id)
 
             new_status = result.get("new_status", "ready_for_voice")
             eff_status = self._skip_disabled_next(video, to_supabase(new_status))

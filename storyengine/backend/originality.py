@@ -400,6 +400,152 @@ def assess_draft(
 
 
 # ---------------------------------------------------------------------------
+# Retention grade (Phase 2) — the script quality gate.
+#
+# assess_draft above protects ORIGINALITY (is this a new plot with a point of
+# view). grade_script protects RETENTION (does the script actually hold a
+# viewer): hook speed, but/therefore causality, escalating stakes, a delivered
+# payoff, and specificity. It runs right after a script is generated; a "revise"
+# verdict tells the pipeline to feed rewrite_guidance back to the writer and
+# regenerate once. Like the rest of this module: internal only, fails open, and
+# is niche-safe (a how-to is graded as a how-to, not punished for lacking a
+# story arc).
+# ---------------------------------------------------------------------------
+
+class ScriptGrade(BaseModel):
+    """Internal-only retention grade of a freshly generated script.
+
+    ``verdict`` is the dial the pipeline reads: ``revise`` (the common case for a
+    weak script) or ``regenerate`` both mean "append rewrite_guidance to
+    writer_guidance and run the writer once more"; ``pass`` ships as-is. Never
+    surfaced to the creator.
+    """
+
+    verdict: str = "pass"                 # pass | revise | regenerate (internal)
+    score: int = 100                      # 0-100 overall retention score
+    failing_gates: List[str] = Field(default_factory=list)
+    rewrite_guidance: str = ""            # concrete, actionable fixes for a re-roll
+
+    @property
+    def needs_revision(self) -> bool:
+        return (self.verdict or "").strip().lower() in ("revise", "regenerate")
+
+
+_SCRIPT_JUDGE_SYSTEM = (
+    "You are an internal retention check inside an AI video engine. Your output "
+    "is consumed by code, never shown to a human. You grade a freshly written "
+    "video SCRIPT against the rules that decide whether a YouTube video holds its "
+    "audience. Be strict but fair.\n"
+    "\n"
+    "This channel may be ANY niche: a story channel, a how-to, an explainer, a "
+    "cooking or language channel. Adapt every rule to the niche. Do NOT punish a "
+    "how-to for lacking a story arc, or an explainer for lacking a named "
+    "protagonist. The gates below are universal craft; apply them in the form the "
+    "niche calls for.\n"
+    "\n"
+    "Grade these gates:\n"
+    "1. HOOK SPEED: the opening gives a concrete, specific reason to keep watching "
+    "within the first ~15 seconds (a stake, a question, a surprising fact, a "
+    "promise). FAIL if it opens with a greeting ('hey', 'welcome back'), a channel "
+    "intro, 'in this video / today we'll talk about', or buries the point under "
+    "backstory.\n"
+    "2. CAUSALITY: beats connect with 'but' (a complication) or 'therefore' (a "
+    "consequence), driving momentum. FAIL if it is a flat list strung together "
+    "with 'and then' / 'also' / 'next' with no causal pull. For a how-to, each "
+    "step should unlock or depend on the last, not just be a sequence.\n"
+    "3. ESCALATION: the value, tension, or stakes RISE across the script; it does "
+    "not plateau or sag in the middle.\n"
+    "4. PAYOFF: one clear through-line is set up at the open and delivered at the "
+    "end. FAIL if the opening promise is never paid off, or the ending just "
+    "stops.\n"
+    "5. SPECIFICITY: concrete details (names, numbers, exact examples) over generic "
+    "filler ('significant', 'a lot', 'various', 'a person'). FAIL if it reads as "
+    "generic, templated AI narration.\n"
+    "\n"
+    "Score 0-100, weighted roughly: hook 25, causality 25, escalation 20, payoff "
+    "20, specificity 10.\n"
+    "\n"
+    "Decide verdict:\n"
+    "- pass: clears the gates well enough to ship. Minor weaknesses are fine. Use "
+    "pass for score 70+.\n"
+    "- revise: one or more gates clearly fail but a targeted rewrite fixes it. The "
+    "common case for a weak script. Use for score 50-69.\n"
+    "- regenerate: broadly weak across multiple gates, needs a fresh pass. Use for "
+    "score under 50.\n"
+    "\n"
+    "If verdict is revise or regenerate, write rewrite_guidance: 2 to 5 concrete, "
+    "specific instructions the writer can act on. Name the exact problem and the "
+    "fix; quote the weak opening if relevant. Never vague ('make it better'); "
+    "always actionable (e.g. 'the script opens with 30 seconds of background "
+    "before any stake. Open instead on the flooded bridge already in paragraph 4, "
+    "and state what is at risk in the first sentence.').\n"
+    "\n"
+    "Return ONLY a JSON object, no markdown, no prose:\n"
+    "{\"verdict\": \"pass|revise|regenerate\", \"score\": int, "
+    "\"failing_gates\": [string, ...], \"rewrite_guidance\": string}"
+)
+
+
+def _build_script_judge_user_prompt(draft: Dict[str, Any]) -> str:
+    """Assemble the grader's user message. Long scripts are sent head + tail so
+    the ending (which carries the payoff) survives truncation while the prompt
+    stays cheap."""
+    niche = _truncate(draft.get("niche"), 80) or "(unspecified)"
+    title = _truncate(draft.get("title"), _TITLE_TRUNC) or "(untitled)"
+    hook = _truncate(draft.get("hook"), _HOOK_TRUNC)
+    script = " ".join(str(draft.get("script") or "").split())
+    if len(script) > 6000:
+        script = script[:5000].rstrip() + " […] " + script[-1000:].lstrip()
+
+    lines = [
+        f"NICHE: {niche}",
+        f"TITLE: {title}",
+    ]
+    if hook:
+        lines.append(f"HOOK: {hook}")
+    lines.append("")
+    lines.append("SCRIPT:")
+    lines.append(script)
+    return "\n".join(lines)
+
+
+def grade_script(
+    draft: Dict[str, Any],
+    *,
+    model: str = MODEL,
+    max_tokens: int = 700,
+) -> ScriptGrade:
+    """Grade a freshly generated script for retention (one Sonnet call).
+
+    ``draft`` is a dict with at least ``script``, optionally ``title``, ``hook``,
+    and ``niche`` (the niche keeps grading niche-appropriate).
+
+    Fails OPEN: on any error this returns a ``pass`` verdict so a transient model
+    or network problem never blocks the pipeline. The already-generated script
+    stands.
+    """
+    if not str(draft.get("script") or "").strip():
+        return ScriptGrade(verdict="pass", failing_gates=[], rewrite_guidance="")
+    try:
+        client = _client()
+        resp = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=_SCRIPT_JUDGE_SYSTEM,
+            messages=[
+                {"role": "user", "content": _build_script_judge_user_prompt(draft)}
+            ],
+        )
+        text = "".join(
+            getattr(block, "text", "") for block in resp.content
+            if getattr(block, "type", "") == "text"
+        )
+        return ScriptGrade(**json.loads(_extract_json(text)))
+    except Exception:
+        return ScriptGrade(verdict="pass", failing_gates=["grade unavailable - failed open"])
+
+
+# ---------------------------------------------------------------------------
 # Self-test — proves the live Sonnet cloud call + the judge's discrimination.
 #   python3 originality.py            (loads ANTHROPIC_API_KEY from ../../.env)
 # ---------------------------------------------------------------------------
@@ -479,6 +625,45 @@ def _selftest() -> None:
     v2 = assess_draft("title+script", good, recent_fps)
     print(json.dumps(v2.model_dump() if hasattr(v2, "model_dump") else v2.dict(), indent=2))
     print(f"needs_reroll = {v2.needs_reroll}")
+
+    # --- Phase 2: retention grade discrimination ---------------------------
+    # A flat "and then" list with a slow open (expect revise/regenerate).
+    weak = {
+        "niche": "history",
+        "title": "The Story of the Bridge",
+        "script": "Hey everyone, welcome back to the channel. Today we're going to "
+                  "talk about a bridge. The bridge was built a long time ago. And "
+                  "then people used it for many years. And then it got old. And then "
+                  "one day it was significant that some repairs happened. A lot of "
+                  "things changed over time. Thanks for watching.",
+    }
+    # A fast hook with causal momentum, escalation, and a delivered payoff (expect pass).
+    strong = {
+        "niche": "history",
+        "title": "The Night the Bridge Nearly Fell",
+        "script": "At 2:14 a.m. a night watchman felt the deck under his boots drop "
+                  "two inches, and he had eleven minutes to stop the 3:00 freight. "
+                  "But the telegraph line to the next station was already dead, "
+                  "therefore his only option was the warning lamp - which had no "
+                  "oil. He sprinted back for the spare can, but the storm had jammed "
+                  "the shed door, so he broke the window with his own lantern, and "
+                  "in the dark he finally swung the red light just as the engine's "
+                  "headlamp rounded the bend. The brakes caught forty feet from the "
+                  "cracked span. By morning the town that never knew his name was "
+                  "still standing because of him.",
+    }
+    print("\n--- weak script: slow open + 'and then' list (expect revise/regenerate) ---")
+    g1 = grade_script(weak)
+    print(json.dumps(g1.model_dump() if hasattr(g1, "model_dump") else g1.dict(), indent=2))
+    print(f"needs_revision = {g1.needs_revision}")
+    assert g1.needs_revision, "weak script should not pass the retention grade"
+
+    print("\n--- strong script: fast hook + but/therefore + payoff (expect pass) ---")
+    g2 = grade_script(strong)
+    print(json.dumps(g2.model_dump() if hasattr(g2, "model_dump") else g2.dict(), indent=2))
+    print(f"needs_revision = {g2.needs_revision}")
+    assert not g2.needs_revision, "strong script should pass the retention grade"
+    print("\nretention-grade self-test OK")
 
 
 if __name__ == "__main__":

@@ -593,10 +593,75 @@ async def _generate_competitor_ideas(tenant_id, state, niche: Optional[str] = No
     try:
         data = await asyncio.to_thread(_claude_json, api_key, prompt, 1500)
         ideas = data.get("ideas") if isinstance(data, dict) else None
-        return (ideas or [])[:3] or None
+        ideas = (ideas or [])[:3] or None
+        if ideas:
+            # Phase 3: score the ideas against the YouTube idea gates + rubric,
+            # rank best-first, drop rejects. Fail-open inside the helper.
+            ideas = await _score_and_rank_ideas(api_key, ideas, rows, niche)
+        return ideas
     except Exception as e:  # noqa: BLE001
         logger.warning("onboarding: idea generation failed: %s", e)
         return None
+
+
+async def _score_and_rank_ideas(api_key, ideas, rows, niche) -> list[dict[str, Any]]:
+    """Phase 3 idea scorer: judge the generated ideas against the YouTube idea
+    gates + rubric, rank them best-first, and drop weak ones.
+
+    The idea sets the video's ceiling, so this is the highest-leverage gate. It
+    runs one direct-Anthropic call (same pattern as the generator), attaches a
+    `_score`/`_verdict` to each idea, sorts best-first, and drops 'reject'-verdict
+    ideas - but only while at least 2 remain, so the creator always sees a couple
+    of options. Fail-open: on any error the original ideas are returned unchanged
+    (a scoring hiccup must never leave the creator with no ideas).
+    """
+    import asyncio
+    if not ideas:
+        return ideas
+    try:
+        listed = "\n".join(
+            f'{i}. title: "{idea.get("title")}" | structure: '
+            f'{idea.get("script_structure") or ""} | rationale: {idea.get("reasoning") or ""}'
+            for i, idea in enumerate(ideas)
+        )
+        prompt = (
+            "You are a ruthless YouTube head of programming. Score these video IDEAS for a "
+            f"{niche or 'this creator'} channel against what actually wins on YouTube. The idea "
+            "sets the ceiling, so be strict.\n\n"
+            "Proven competitor winners (real recent data):\n" + "\n".join(_video_lines(rows)) + "\n\n"
+            "IDEAS TO SCORE (by index):\n" + listed + "\n\n"
+            "For each idea, run the GATES, then score the RUBRIC.\n"
+            "GATES (any fail => verdict 'reject'): proven_analog (a real winner above proves this "
+            "format is wanted); packageable (you could write a <=65-char curiosity title AND a "
+            "<=3-element thumbnail with one clear visual moment); not_copy (a viewer who saw the "
+            "source would still get something genuinely NEW).\n"
+            "RUBRIC, 0-100 each: outlier_proof, click_potential, curiosity_gap, visual_moment, "
+            "broad_appeal, novelty, differentiation.\n"
+            "verdict: 'strong' (overall 75+), 'ok' (55-74), 'reject' (under 55 or any gate fails).\n"
+            'Return ONE JSON object and nothing else: {"scores":[{"index":int,'
+            '"verdict":"strong|ok|reject","score":int}]}. Exactly one entry per idea index.'
+        )
+        data = await asyncio.to_thread(_claude_json, api_key, prompt, 900)
+        raw = data.get("scores") if isinstance(data, dict) else None
+        by_index = {
+            int(s["index"]): s for s in (raw or [])
+            if isinstance(s, dict) and isinstance(s.get("index"), int)
+        }
+        if not by_index:
+            return ideas
+        ranked = [
+            {**idea,
+             "_score": int(by_index.get(i, {}).get("score") or 0),
+             "_verdict": str(by_index.get(i, {}).get("verdict") or "ok").lower()}
+            for i, idea in enumerate(ideas)
+        ]
+        ranked.sort(key=lambda x: x.get("_score", 0), reverse=True)
+        # Drop rejects, but keep at least 2 so the creator always has a choice.
+        kept = [x for x in ranked if x.get("_verdict") != "reject"]
+        return kept if len(kept) >= 2 else ranked
+    except Exception as e:  # noqa: BLE001
+        logger.warning("onboarding: idea scoring failed (fail-open): %s", e)
+        return ideas
 
 
 async def _seed_producer(conversation_id, tenant_id, state, seed_text):
@@ -635,11 +700,13 @@ async def _present_ideas_turn(conversation_id, tenant_id, transcript, state, ide
         why = (idea.get("reasoning") or "").strip()
         src1 = idea.get("source_title") or (idea.get("source_titles") or [None])[0]
         srcline = f"  ↳ modeled on: “{src1}”" if src1 else ""
-        lines.append(f"**{i + 1}. {idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}")
+        badge = "🔥 " if idea.get("_verdict") == "strong" else ""
+        lines.append(f"**{i + 1}. {badge}{idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}")
         opts.append({"value": str(i), "label": (idea.get("title") or "Idea")[:70], "hint": why[:140]})
     niche = state.get("niche_angle")
-    intro = (f"Here are **3 ideas for “{niche}”**, modeled on what's winning:\n\n" if niche
-             else "Here are **3 ideas I'd model**, and why:\n\n")
+    n = len(ideas)
+    intro = (f"Here are **{n} ideas for “{niche}”**, modeled on what's winning:\n\n" if niche
+             else f"Here are **{n} ideas I'd model**, and why:\n\n")
     text = intro + "\n\n".join(lines) + "\n\nTap one and I'll start building it — or just type your own idea below."
     card = {"id": "idea_choice", "label": "Pick one to build", "type": "single", "options": opts}
     return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
