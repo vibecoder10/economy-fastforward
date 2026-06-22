@@ -13,10 +13,18 @@ gentle "say that again" without crashing the conversation.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
-# Match claude_orchestrator's model for consistency across the chat surface.
-MODEL = "claude-sonnet-4-20250514"
+logger = logging.getLogger(__name__)
+
+# The proven current Sonnet id (what originality.py uses in prod). The
+# orchestrator's dated id was never actually exercised and 404s on the live API.
+MODEL = "claude-sonnet-4-6"
+
+# Always hit Anthropic directly — never inherit a Kie gateway base_url that a
+# prior pipeline_executor run may have left in the process env.
+ANTHROPIC_DIRECT_BASE_URL = "https://api.anthropic.com"
 
 PRODUCER_SYSTEM_PROMPT = """You are the creative producer inside a YouTube video studio called StoryEngine. You talk to a creator like a warm, sharp producer — never like software. The creator describes a video they want to make; your job is to get them to a production plan they're excited to approve, asking as little as possible.
 
@@ -114,9 +122,12 @@ def _client(api_key: str | None = None):
 
     # The tenant's direct Anthropic key (from Vault) is passed in. ponytail: we
     # don't route intake through the Kie gateway — Kie is the banned single point
-    # of failure, and a direct key is the supported path. Env fallback for the
-    # self-test / local dev when no explicit key is given.
-    return anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+    # of failure, and a direct key is the supported path. Force the direct base
+    # URL so a leaked ANTHROPIC_BASE_URL in the process env can't redirect us.
+    # Env fallback for the self-test / local dev when no explicit key is given.
+    if api_key:
+        return anthropic.Anthropic(api_key=api_key, base_url=ANTHROPIC_DIRECT_BASE_URL)
+    return anthropic.Anthropic()
 
 
 _FALLBACK = {
@@ -156,9 +167,12 @@ def call_producer(
         )
         data = json.loads(_extract_json(text))
         if not isinstance(data, dict) or not data.get("assistant_text"):
+            logger.warning("producer returned unusable JSON, using fallback: %.300s", text)
             return dict(_FALLBACK)
         return data
-    except Exception:
+    except Exception as e:
+        # Never crash the conversation — but DO log why (silent swallow bit us once).
+        logger.warning("producer turn failed (%s), using fallback: %s", type(e).__name__, e)
         return dict(_FALLBACK)
 
 
