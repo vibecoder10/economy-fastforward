@@ -384,37 +384,103 @@ async def _ob_reply(conversation_id, tenant_id, transcript, state, text,
     )
 
 
-async def _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks):
-    """Mark onboarding done, kick off the intelligence report, hand off to the producer."""
+async def _generate_competitor_ideas(tenant_id, state) -> Optional[list[dict[str, Any]]]:
+    """Up to 3 data-backed ideas (title + reasoning + source videos) from the
+    intelligence report. Waits briefly for the background competitor scrape to
+    land. Returns None if there isn't enough data yet (caller degrades gracefully).
+    """
+    import asyncio
+    job_id = state.get("competitor_job")
+    if job_id:
+        try:
+            from routes.onboarding import _analyze_jobs
+            for _ in range(7):  # up to ~14s for the scrape to finish
+                st = (_analyze_jobs.get(job_id) or {}).get("status")
+                if st and st != "processing":
+                    break
+                await asyncio.sleep(2)
+        except Exception:  # noqa: BLE001
+            pass
     try:
-        from routes.onboarding import complete_onboarding, generate_intelligence_report
-        if state.get("competitor_job"):
-            try:
-                await generate_intelligence_report(tenant_id=tenant_id)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("onboarding: intelligence report kickoff failed: %s", e)
+        from routes.onboarding import _build_intelligence_report
+        report = await _build_intelligence_report(tenant_id)
+        ideas = (report or {}).get("title_ideas") or []
+        return ideas[:3] or None
+    except Exception as e:  # noqa: BLE001 — not enough data / provider issue
+        logger.info("onboarding: competitor ideas not ready: %s", e)
+        return None
+
+
+async def _seed_producer(conversation_id, tenant_id, state, seed_text):
+    """Hand off into the producer seeded with a chosen/typed idea: start a fresh
+    producer transcript and run one intake turn."""
+    state["mode"] = "producer"
+    state["onboarding_step"] = "done"
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    transcript = [{"role": "user", "content": seed_text}]
+    if not api_key:
+        msg = "I just need an Anthropic API key to draft this — add one under Profile → API Keys."
+        transcript.append(_assistant_turn({"assistant_text": msg, "phase": "asking"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "asking")
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
+    data = call_producer(transcript, build_system_prompt(""), api_key=api_key)
+    transcript.append(_assistant_turn(data))
+    plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
+    if plan and isinstance(plan.get("spec"), dict):
+        state["last_spec"] = plan["spec"]
+    phase = "plan" if plan else "asking"
+    await _persist(conversation_id, tenant_id, transcript, state, phase)
+    return ChatTurnResponse(
+        conversation_id=conversation_id, assistant_text=data.get("assistant_text", ""),
+        cards=data.get("cards") if isinstance(data.get("cards"), list) else None,
+        plan=plan, ready_to_create=bool(plan), phase=phase,
+    )
+
+
+async def _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks):
+    """Mark onboarding done, then PROACTIVELY pitch 3 data-backed ideas from the
+    analyzed competitors (with the 'why'). Falls back gracefully if the data isn't
+    ready, handing off to the producer either way."""
+    try:
+        from routes.onboarding import complete_onboarding
         await complete_onboarding(tenant_id=tenant_id)
     except Exception as e:  # noqa: BLE001
         logger.warning("onboarding: complete failed: %s", e)
 
-    # Hand off to the producer: exit onboarding mode and start its transcript fresh
-    # (so the producer isn't replaying onboarding card JSON), keeping the outcome
-    # in state for tailoring.
+    ideas = await _generate_competitor_ideas(tenant_id, state)
+    if ideas:
+        state["pitched_ideas"] = ideas
+        state["mode"] = "onboarding"
+        state["onboarding_step"] = "ideas"
+        lines, opts = [], []
+        for i, idea in enumerate(ideas):
+            why = (idea.get("reasoning") or "").strip()
+            src = idea.get("source_titles") or []
+            srcline = f"  ↳ modeled on: “{src[0]}”" if src else ""
+            lines.append(f"**{i + 1}. {idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}")
+            opts.append({"value": str(i), "label": (idea.get("title") or "Idea")[:70], "hint": why[:140]})
+        text = (
+            "You're all set! 🎉 I studied your competitors' best recent videos — here are "
+            "**3 ideas I'd model**, and why:\n\n" + "\n\n".join(lines) +
+            "\n\nTap one and I'll start building it — or just type your own idea below."
+        )
+        card = {"id": "idea_choice", "label": "Pick one to build", "type": "single", "options": opts}
+        return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
+
+    # No data-backed ideas yet — hand off to the producer with a graceful note.
     state["mode"] = "producer"
     state["onboarding_step"] = "done"
-    goals = state.get("goals") or []
     intent = state.get("intent")
+    goals = state.get("goals") or []
     if intent == "stories":
         nudge = "what story do you want to tell first?"
-    elif "thumbnails" in goals and len(goals) == 1:
+    elif goals == ["thumbnails"]:
         nudge = "what video do you want a thumbnail for first?"
     else:
         nudge = "what should we make first?"
     text = (
-        "You're all set! 🎉 I've got your setup"
-        + (f" — and I'm studying {state.get('channel')} + your competitors in the background "
-           "(peek anytime under Competitors). " if state.get("channel") or state.get("competitor_job") else ". ")
-        + f"So — {nudge}"
+        "You're all set! 🎉 I'm still studying your competitors in the background (peek anytime "
+        f"under Competitors) — ask me for ideas in a sec. For now, {nudge}"
     )
     fresh = [_assistant_turn({"assistant_text": text, "phase": "asking"})]
     await _persist(conversation_id, tenant_id, fresh, state, "asking")
@@ -511,6 +577,26 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
                 cards=[{"id": "upsell", "label": "", "type": "single",
                         "options": [{"value": "carry_on", "label": "Got it — let's create"}]}])
         return await _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks)
+
+    if step == "ideas":
+        ideas = state.get("pitched_ideas") or []
+        choice = sel.get("idea_choice")
+        if choice is not None and ideas:
+            try:
+                idea = ideas[int(choice)]
+            except (ValueError, IndexError, TypeError):
+                idea = None
+            if idea:
+                seed = (
+                    f"Make this video: \"{idea.get('title')}\". "
+                    f"Angle: {(idea.get('reasoning') or '').strip()} "
+                    f"Suggested structure: {(idea.get('script_structure') or '').strip()}"
+                ).strip()
+                return await _seed_producer(conversation_id, tenant_id, state, seed)
+        if msg:  # typed their own idea instead of picking one
+            return await _seed_producer(conversation_id, tenant_id, state, msg)
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            "Tap one of the ideas above, or just type your own idea and I'll build it.")
 
     # Unknown step — recover by handing off to the producer.
     state["mode"] = "producer"
