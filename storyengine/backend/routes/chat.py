@@ -384,6 +384,42 @@ async def _ob_reply(conversation_id, tenant_id, transcript, state, text,
     )
 
 
+_GOAL_LABELS = {
+    "ideas": "video ideas", "scripts": "scripts", "voiceover": "voiceovers",
+    "thumbnails": "thumbnails", "full_video": "whole videos",
+}
+
+
+def _creator_brief(state: dict) -> str:
+    """A compact 'who you're talking to' note injected into EVERY producer turn so
+    it remembers the onboarding (intent, goals, channel, competitors) across the
+    handoff — and tailors itself (e.g. thumbnails-only -> thumbnail workflow)."""
+    bits: list[str] = []
+    intent = state.get("intent")
+    if intent == "stories":
+        bits.append("They're here to tell stories (narrative / film).")
+    elif intent == "automate":
+        bits.append("They're here to automate their channel.")
+    goals = state.get("goals") or []
+    if "all" in goals:
+        bits.append("They want the full pipeline (ideas → script → visuals → video).")
+    elif goals:
+        bits.append("They want help with: " + ", ".join(_GOAL_LABELS.get(g, g) for g in goals) + ".")
+    if state.get("channel"):
+        bits.append(f"Their channel: {state['channel']}.")
+    comps = state.get("competitors") or []
+    if comps:
+        bits.append("Channels they model: " + ", ".join(str(c) for c in comps[:3]) + ".")
+    if not bits:
+        return ""
+    tailor = ""
+    if goals == ["thumbnails"]:
+        tailor = " They mainly want THUMBNAILS — default to the thumbnail-only workflow and keep questions minimal."
+    elif goals and "full_video" not in goals and "all" not in goals:
+        tailor = f" Default the workflow to match what they asked for ({', '.join(goals)}), not a full video, unless they say otherwise."
+    return "WHO YOU'RE TALKING TO (from their setup — remember this): " + " ".join(bits) + tailor
+
+
 async def _generate_competitor_ideas(tenant_id, state) -> Optional[list[dict[str, Any]]]:
     """Up to 3 data-backed ideas from the competitors' PAST-WEEK top videos.
 
@@ -476,7 +512,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         transcript.append(_assistant_turn({"assistant_text": msg, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
-    data = call_producer(transcript, build_system_prompt(""), api_key=api_key)
+    data = call_producer(transcript, build_system_prompt(_creator_brief(state)), api_key=api_key)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
@@ -601,6 +637,7 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
     if step == "competitors":
         urls = _parse_urls(msg) if msg.lower() not in _SKIP_WORDS else []
         if urls:
+            state["competitors"] = urls[:3]
             try:
                 from routes.onboarding import CompetitorAnalyze, analyze_competitors
                 res = await analyze_competitors(CompetitorAnalyze(channel_urls=urls[:3]), background_tasks, tenant_id=tenant_id)
@@ -722,7 +759,7 @@ async def chat_turn(
         return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
 
     # Channel intelligence brief is injected in Phase 4; empty for now.
-    system_prompt = build_system_prompt("")
+    system_prompt = build_system_prompt(_creator_brief(state))
     data = call_producer(transcript, system_prompt, api_key=api_key)
     transcript.append(_assistant_turn(data))
 
