@@ -39,7 +39,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Ryan's call: Claude Sonnet, direct cloud. Exact ID, no date suffix.
 MODEL = "claude-sonnet-4-6"
@@ -426,6 +426,16 @@ class ScriptGrade(BaseModel):
     failing_gates: List[str] = Field(default_factory=list)
     rewrite_guidance: str = ""            # concrete, actionable fixes for a re-roll
 
+    @field_validator("rewrite_guidance", mode="before")
+    @classmethod
+    def _coerce_guidance(cls, v):
+        # The judge sometimes returns guidance as a JSON array (one item per
+        # failing gate) instead of one string - join it rather than fail the
+        # whole grade (a strict str field would reject the list and fall open).
+        if isinstance(v, list):
+            return "\n".join(str(x).strip() for x in v if str(x).strip())
+        return "" if v is None else v
+
     @property
     def needs_revision(self) -> bool:
         return (self.verdict or "").strip().lower() in ("revise", "regenerate")
@@ -539,6 +549,41 @@ def grade_script(
         text = "".join(
             getattr(block, "text", "") for block in resp.content
             if getattr(block, "type", "") == "text"
+        )
+        return ScriptGrade(**json.loads(_extract_json(text)))
+    except Exception:
+        return ScriptGrade(verdict="pass", failing_gates=["grade unavailable - failed open"])
+
+
+async def grade_script_with_client(
+    draft: Dict[str, Any],
+    anthropic_client: Any,
+    *,
+    max_tokens: int = 700,
+) -> ScriptGrade:
+    """Async grade that routes the call through the pipeline's AnthropicClient.
+
+    This is what lets the gate protect EVERY tenant, not just those with a direct
+    Anthropic key. The plain ``grade_script`` above builds a bare
+    ``anthropic.Anthropic()`` (direct api.anthropic.com, x-api-key auth); for a
+    Kie-only tenant that hits the Kie gateway URL with the wrong auth header and
+    silently falls open. ``AnthropicClient`` already handles the gateway (Bearer
+    auth, model aliasing, streaming), so passing it here makes grading work the
+    same way script generation already does for that tenant.
+
+    ``anthropic_client`` is any object with an async
+    ``generate(prompt, system_prompt, max_tokens, temperature) -> str`` method
+    (so originality.py stays decoupled from the skills package). Fails OPEN: a
+    missing client, empty script, or any error returns a ``pass`` verdict.
+    """
+    if anthropic_client is None or not str(draft.get("script") or "").strip():
+        return ScriptGrade()
+    try:
+        text = await anthropic_client.generate(
+            prompt=_build_script_judge_user_prompt(draft),
+            system_prompt=_SCRIPT_JUDGE_SYSTEM,
+            max_tokens=max_tokens,
+            temperature=0.3,  # low, for stable gate decisions
         )
         return ScriptGrade(**json.loads(_extract_json(text)))
     except Exception:

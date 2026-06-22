@@ -1089,7 +1089,7 @@ class PipelineExecutor:
         """
         try:
             import asyncio
-            from originality import grade_script
+            from originality import grade_script, grade_script_with_client
 
             video = await self._get_video(video_id)
             script = (video or {}).get("script") or ""
@@ -1111,8 +1111,15 @@ class PipelineExecutor:
                 "hook": video.get("executive_hook") or video.get("hook_script"),
                 "script": script,
             }
-            # Sync Anthropic client -> run off the event loop.
-            grade = await asyncio.to_thread(grade_script, draft)
+            # Route through the tenant's AnthropicClient so grading works for
+            # EVERY tenant - direct-key tenants AND Kie-gateway tenants (Bearer
+            # auth + model aliasing). Fall back to the bare direct client only if
+            # the pipeline has no client (edge case).
+            client = getattr(self._pipeline, "anthropic", None)
+            if client is not None:
+                grade = await grade_script_with_client(draft, client)
+            else:
+                grade = await asyncio.to_thread(grade_script, draft)
             print(f"[Script] retention grade {video_id[:8]}: {grade.verdict} "
                   f"(score {grade.score}) gates={grade.failing_gates}", flush=True)
 
