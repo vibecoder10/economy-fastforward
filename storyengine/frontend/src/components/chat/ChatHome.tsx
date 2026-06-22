@@ -61,6 +61,18 @@ function formatLength(secs: number): string {
   return s === 0 ? `${m} min` : `${m}m ${s}s`;
 }
 
+// Minimal markdown for chat bubbles: **bold** -> <strong>; newlines are handled
+// by CSS (whitespace-pre-wrap). ponytail: no markdown dependency for one feature.
+function renderRich(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : (
+      part
+    )
+  );
+}
+
 export function ChatHome() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -227,7 +239,7 @@ export function ChatHome() {
                   : { background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }
               }
             >
-              {m.text}
+              {m.role === "user" ? m.text : renderRich(m.text)}
             </div>
           </motion.div>
         ))}
