@@ -18,7 +18,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check, Loader2, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
-  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, Type, MapPin,
+  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, Type, MapPin, Volume2,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -49,7 +49,6 @@ const WIRED_MODELS: { id: string; label: string }[] = [
   { id: "veo-3.1-fast", label: "Veo 3.1 Fast — $0.30/clip" },
   { id: "veo-3.1-quality", label: "Veo 3.1 Quality — $1.25/clip" },
 ];
-const COMING_SOON_MODELS = ["Kling 3.0 Pro", "Runway Gen-4 Turbo", "Hailuo 2.3"];
 
 /** Loose containment match for the 💬 badge — mirrors backend match_lines. */
 function norm(s: string): string {
@@ -237,7 +236,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const [clearingSlot, setClearingSlot] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showMotionPrompt, setShowMotionPrompt] = useState(false);
-  const [imageModel, setImageModel] = useState(video.image_model_override || "nano-banana-2");
+  const [imageModel, setImageModel] = useState(video.image_model_override || "gpt-image-2");
   const [savingModel, setSavingModel] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [locking, setLocking] = useState(false);
@@ -336,7 +335,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   }, [video.id]);
 
   useEffect(() => {
-    setImageModel(video.image_model_override || "nano-banana-2");
+    setImageModel(video.image_model_override || "gpt-image-2");
   }, [video.image_model_override]);
 
   // ── Derived counts ──
@@ -451,9 +450,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const handleGenerateScene = useCallback(async (sceneNumber: number) => {
     if (!requireEnvironments()) return;
     try {
-      chainRef.current = { queue: [{ stage: "storyboard-images", scene: sceneNumber }] };
+      // Coverage plans + draws in one stage, so go straight to storyboard-images
+      // (no separate standard "storyboards" prompt step).
+      chainRef.current = null;
       setGeneratingScene(sceneNumber);
-      await runStageWith409Retry("storyboards", { scene: sceneNumber });
+      await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
     } catch (err) {
       chainRef.current = null;
       setGeneratingScene(null);
@@ -471,11 +472,10 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     if (!window.confirm(
       `Generate ${work.length} scene${work.length === 1 ? "" : "s"}? We plan each scene, then draw its pictures (≈ $0.08 each board). You can Stop anytime.`,
     )) return;
-    const steps: Array<{ stage: string; scene: number }> = [];
-    for (const s of work) {
-      steps.push({ stage: "storyboards", scene: s.sceneNumber });
-      steps.push({ stage: "storyboard-images", scene: s.sceneNumber });
-    }
+    // Coverage plans + draws in one stage — one storyboard-images step per scene.
+    const steps: Array<{ stage: string; scene: number }> = work.map((s) => ({
+      stage: "storyboard-images", scene: s.sceneNumber,
+    }));
     const [first, ...rest] = steps;
     try {
       chainRef.current = { queue: rest };
@@ -608,7 +608,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     } catch (err) {
       toast.error(`Failed to update image model: ${(err as Error).message}`);
-      setImageModel(video.image_model_override || "nano-banana-2");
+      setImageModel(video.image_model_override || "gpt-image-2");
     } finally {
       setSavingModel(false);
     }
@@ -843,6 +843,50 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           )}
         </div>
       )}
+      {/* Model controls — always visible at the top (no longer buried in the Advanced menu). */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <ImageIcon size={13} style={{ color: "var(--text-tertiary)" }} />
+          <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Pictures</span>
+          <select value={imageModel} onChange={(e) => handleImageModelChange(e.target.value)} disabled={savingModel}
+            className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+            <option value="nano-banana-2">Nano Banana 2</option>
+            <option value="gpt-image-2">GPT Image 2</option>
+            <option value="z-image">Z Image</option>
+          </select>
+        </div>
+        {videoStageEnabled && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <Film size={13} style={{ color: "var(--text-tertiary)" }} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Clips</span>
+            <select value={model} onChange={(e) => handleClipModelChange(e.target.value)}
+              className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+              {WIRED_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+        )}
+        {videoStageEnabled && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <Volume2 size={13} style={{ color: "var(--text-tertiary)" }} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Voice</span>
+            <select value={video.dialogue_audio || "voice_over"}
+              onChange={async (e) => {
+                try {
+                  await updateVideo(video.id, { dialogue_audio: e.target.value });
+                  queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+                } catch (err) { toast.error((err as Error).message); }
+              }}
+              className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+              <option value="voice_over">Character voice-over</option>
+              <option value="grok_native">Grok native</option>
+            </select>
+          </div>
+        )}
+      </div>
+
       {/* One quiet status line; the page banner stays the only big CTA. */}
       <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
         style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
@@ -935,15 +979,6 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                 <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>
                   Pictures
                 </p>
-                <div className="flex items-center justify-between px-3 py-2">
-                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Picture model</span>
-                  <select value={imageModel} onChange={(e) => handleImageModelChange(e.target.value)} disabled={savingModel}
-                    className="bg-transparent text-xs border rounded px-1.5 py-1 cursor-pointer"
-                    style={{ color: "var(--text-secondary)", borderColor: "rgba(255,255,255,0.15)" }}>
-                    <option value="nano-banana-2">Nano Banana 2</option>
-                    <option value="z-image">Z Image</option>
-                  </select>
-                </div>
                 {extractedCount > 0 && needsUpscale && (
                   <button onClick={() => { setShowAdvanced(false); handleUpscalePanels(); }} disabled={running}
                     className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
@@ -963,46 +998,6 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                 <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>
                   Clips
                 </p>
-                {WIRED_MODELS.map((m) => (
-                  <button key={m.id}
-                    onClick={() => { handleClipModelChange(m.id); setShowAdvanced(false); }}
-                    className="w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 flex items-center gap-2"
-                    style={{ color: model === m.id ? "var(--turquoise)" : "var(--text-secondary)" }}>
-                    {model === m.id ? <Check size={12} /> : <span className="w-3" />}
-                    {m.label}
-                  </button>
-                ))}
-                {COMING_SOON_MODELS.map((label) => (
-                  <div key={label} className="px-3 py-1.5 text-xs flex items-center gap-2 opacity-40 cursor-not-allowed"
-                    style={{ color: "var(--text-tertiary)" }}>
-                    <span className="w-3" />{label} — coming soon
-                  </div>
-                ))}
-                <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>
-                  Speaking voices
-                </p>
-                {[
-                  { id: "grok_native", label: "Grok native — speaks the script itself" },
-                  { id: "voice_over", label: "Character voice-over (ElevenLabs)" },
-                ].map((opt) => (
-                  <button key={opt.id}
-                    onClick={async () => {
-                      setShowAdvanced(false);
-                      try {
-                        await updateVideo(video.id, { dialogue_audio: opt.id });
-                        queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-                        toast.info(`Speaking voices: ${opt.id === "grok_native" ? "Grok native" : "character voice-over"}. New clips use this; Redo a card to apply it.`);
-                      } catch (e) {
-                        toast.error((e as Error).message);
-                      }
-                    }}
-                    className="w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 flex items-center gap-2"
-                    style={{ color: (video.dialogue_audio || "voice_over") === opt.id ? "var(--turquoise)" : "var(--text-secondary)" }}>
-                    {(video.dialogue_audio || "voice_over") === opt.id ? <Check size={12} /> : <span className="w-3" />}
-                    {opt.label}
-                  </button>
-                ))}
-                <div className="border-t my-1" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
                 <button
                   onClick={() => {
                     setShowAdvanced(false);

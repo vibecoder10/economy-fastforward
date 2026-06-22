@@ -826,9 +826,11 @@ async def run_storyboard_images(
 
     async def _run():
         try:
-            executor = PipelineExecutor(tenant_id)
-            result = await executor.run_storyboard_images(
-                video_id, scene=scene, progress_callback=progress_callback
+            # Coverage flow (burger storyboard, GPT Image 2, locked-cast anchored) — the new
+            # default. Runs in-process; stores frames as assets + renders the storyboard board.
+            from scripts.coverage_to_app import generate_coverage_for_video
+            result = await generate_coverage_for_video(
+                video_id, tenant_id, scene=scene, progress=progress_callback
             )
             _set_task_status(
                 video_id,
@@ -845,7 +847,7 @@ async def run_storyboard_images(
 
     background_tasks.add_task(_run)
 
-    return PipelineResponse(video_id=video_id, status="running", message=f"Storyboard image generation started{scene_label}")
+    return PipelineResponse(video_id=video_id, status="running", message=f"Coverage generation started{scene_label}")
 
 
 @router.post("/storyboard-extract/{video_id}", response_model=PipelineResponse)

@@ -58,14 +58,18 @@ def _thumbnail_model_from_profile() -> str:
 
 
 def _valid_scene_models_from_profile() -> dict:
-    """Get valid scene models from active profile or hardcoded default."""
+    """Get valid scene models from active profile or hardcoded default. GPT Image 2 is ALWAYS
+    included (it holds the cast's identity best) regardless of the profile's configured list."""
     profile = _get_profile()
     if profile and profile.raw.get("valid_scene_models"):
-        return profile.raw["valid_scene_models"]
-    return {
-        "nano-banana-2": "Nano Banana 2 (default — reference support, $0.025/img)",
-        "z-image": "Z Image ($0.004/img)",
-    }
+        models = dict(profile.raw["valid_scene_models"])
+    else:
+        models = {
+            "nano-banana-2": "Nano Banana 2 (default — reference support, $0.025/img)",
+            "z-image": "Z Image ($0.004/img)",
+        }
+    models.setdefault("gpt-image-2", "GPT Image 2 (best character lock from the cast sheet)")
+    return models
 
 
 def _kie_fetchable_url(url: str) -> str:
@@ -786,6 +790,48 @@ class ImageClient:
                 return None
         except Exception as e:
             print(f"      ❌ GPT Image 2 error: {e}")
+            return None
+
+    async def generate_scene_image_gpt(
+        self,
+        prompt: str,
+        reference_image_url=None,
+        aspect_ratio: str = "16:9",
+    ) -> Optional[dict]:
+        """Scene image via GPT Image 2 — holds the cast's character identity far better than
+        nano-banana (see generate_thumbnail_gpt2). With a reference it's image-to-image; without
+        one it falls back to gpt-image-2 text-to-image. Returns {'url': ...} or None."""
+        if reference_image_url:
+            return await self.generate_thumbnail_gpt2(prompt, reference_image_url, aspect_ratio)
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": "gpt-image-2-text-to-image",
+            "input": {"prompt": prompt, "aspect_ratio": aspect_ratio, "resolution": "2K"},
+        }
+        print("      🎨 Generating scene (gpt-image-2 text-to-image)...")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.CREATE_TASK_URL, headers=headers, json=payload, timeout=60.0,
+                )
+                if response.status_code != 200:
+                    print(f"      ❌ API error: {response.status_code} - {response.text}")
+                    return None
+                task_data = response.json()
+                if task_data.get("code") != 200:
+                    print(f"      ❌ API error: {task_data.get('msg')}")
+                    return None
+                task_id = task_data.get("data", {}).get("taskId")
+                if not task_id:
+                    print("      ❌ No task ID returned")
+                    return None
+                await asyncio.sleep(5)
+                result_urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
+                if result_urls:
+                    return {"url": result_urls[0]}
+                return None
+        except Exception as e:
+            print(f"      ❌ GPT Image 2 (scene) error: {e}")
             return None
 
     async def generate_talking_video(

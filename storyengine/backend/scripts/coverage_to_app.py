@@ -1,0 +1,593 @@
+"""Generate COVERAGE frames for a video and store them IN THE APP (additive).
+
+Runs the coverage generator (skills/video-pipeline/storyboard/coverage.py) for one or all
+scenes of a video using the tenant's own Claude + Kie keys, uploads each frame to the app's
+storage (Drive), and INSERTs it as a new `assets` row tagged generation_method='coverage'.
+
+Purely additive + idempotent: coverage frames go in at a high image_index (existing panels
+use 1-9), and a re-run first deletes only this scene's prior coverage rows — original panels
+are never touched.
+
+  python3 scripts/coverage_to_app.py --video <id-prefix|title> [--scene N] [--moments 3] [--dry-run]
+
+--dry-run: resolve the video + print the plan and cost estimate, generate/write NOTHING.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import html as _html
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+import uuid
+from io import BytesIO
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_BACKEND = os.path.dirname(_HERE)
+_REPO = os.path.dirname(os.path.dirname(_BACKEND))
+_SKILLS = os.path.join(_REPO, "skills", "video-pipeline")
+sys.path.insert(0, _BACKEND)            # backend: database, storage, vault, kie_unified
+sys.path.insert(0, _SKILLS)             # skills: storyboard.coverage, shared.*, orchestrator.*
+
+# main.py loads .env for the server; this standalone script must do it itself, BEFORE
+# importing database/storage (they read DATABASE_URL / storage creds from env).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(_BACKEND, ".env"))
+except Exception:
+    pass
+
+# The backend process has no Google OAuth creds (it fetches Drive via the public media
+# proxy), so a standalone script cannot upload to Drive. Supabase Storage uses the
+# service-role key (present in .env) and works headless — default to it. Must be set
+# BEFORE importing storage (it reads STORAGE_BACKEND at import).
+os.environ.setdefault("STORAGE_BACKEND", "supabase")
+
+from database import fetch_one, fetch_all, execute            # noqa: E402  (asyncpg helpers)
+from storage import upload_bytes                              # noqa: E402
+from vault import get_secret                                  # noqa: E402
+from kie_unified import get_text_client_for_tenant            # noqa: E402
+from storyboard.coverage import run_coverage, resolve_cast_url  # noqa: E402
+from shared.clients.image_client import ImageClient           # noqa: E402
+from shared.channel_profile import load_profile               # noqa: E402
+from orchestrator.pipeline_constants import Models            # noqa: E402
+
+COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
+PER_FRAME_USD = 0.05
+
+
+async def resolve_video(ident: str):
+    return await fetch_one(
+        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio, '16:9') AS aspect "
+        "FROM videos WHERE (id::text LIKE $1 OR video_title ILIKE $2) AND deleted_at IS NULL "
+        "ORDER BY created_at DESC LIMIT 1",
+        ident + "%", "%" + ident + "%",
+    )
+
+
+async def build_cast_prompt(claude, script_text: str, model=None) -> str:
+    """Ask the tenant's Claude for ONE photoreal cast-sheet prompt covering the whole script."""
+    system = (
+        "You write prompts for a PHOTOREAL cinematic video. Given a script, output ONE image "
+        "prompt for a character/cast reference sheet: a clean sheet on a neutral grey background "
+        "showing each named character (and any key creature or vehicle) full-body, labeled with "
+        "its name, with identical lighting and a PHOTOREAL live-action / 3D-CG style across all of "
+        "them. Restate each character's exact look (wardrobe with colors, hair, age, build). "
+        "Output ONLY the prompt, no preamble.")
+    kwargs = dict(prompt=f"Script:\n{script_text[:6000]}\n\nWrite the photoreal cast sheet prompt.",
+                  system_prompt=system, max_tokens=600, temperature=0.5)
+    if model:
+        kwargs["model"] = model
+    text = await claude.generate(**kwargs)
+    return (text or "").strip()
+
+
+async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment) -> int:
+    """Delete this scene's prior coverage rows, then insert the new frames. Returns count."""
+    await execute(
+        "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+        "AND generation_method='coverage'", vid, tenant, scene)
+    idx = COVERAGE_INDEX_BASE
+    for summary, frames in frames_by_moment:
+        for fr in frames:
+            fpath = fr.get("_path")
+            if not fpath or not os.path.exists(fpath):
+                continue
+            with open(fpath, "rb") as f:
+                data = f.read()
+            url = await upload_bytes(data, f"{vid}/coverage/S{scene}_i{idx}.png", "image/png", tenant)
+            await execute(
+                "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
+                "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
+                "image_url, drive_image_url, hero_shot, generation_method) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage')",
+                str(uuid.uuid4()), tenant, vid, scene, idx, idx,
+                summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
+                title, aspect, url, url, fr.get("role") == "master",
+            )
+            idx += 1
+    return idx - COVERAGE_INDEX_BASE
+
+
+def load_existing(outdir):
+    """Reuse already-generated frames: read coverage.json + the PNGs on disk so we can
+    upload+insert without regenerating (and re-spending). Returns moments or None."""
+    p = os.path.join(outdir, "coverage.json")
+    if not os.path.exists(p):
+        return None
+    moments = (json.load(open(p)) or {}).get("moments") or []
+    for m in moments:
+        for fr in m.get("frames", []):
+            fr["_path"] = os.path.join(outdir, fr["file"]) if fr.get("file") else None
+    return moments or None
+
+
+async def load_character_bible(vid, tenant):
+    """Build a BINDING visual bible from the locked cast so the writer uses the SAME character
+    appearance in every shot. The cast-sheet image alone does not lock the writer's words — the
+    image model paints whatever the description says, so the description must be locked too."""
+    rows = await fetch_all(
+        "SELECT name, description FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
+        "AND description IS NOT NULL ORDER BY sort", vid, tenant)
+    chars = [{"id": r["name"], "costume": r["description"], "scenes_present": []} for r in rows]
+    return {"characters": chars} if chars else None
+
+
+def compose_grid(paths, cols=4):
+    """Compose coverage frames into one contact-sheet grid (bytes) for the storyboard
+    'Board' slot. Fills left-to-right, ~16:9 cells. Returns None if no frames."""
+    from PIL import Image
+    imgs = [Image.open(p).convert("RGB") for p in paths if p and os.path.exists(p)]
+    if not imgs:
+        return None
+    cw, ch, pad = 640, 360, 8
+    rows = (len(imgs) + cols - 1) // cols
+    W, H = cols * cw + (cols + 1) * pad, rows * ch + (rows + 1) * pad
+    canvas = Image.new("RGB", (W, H), (16, 16, 20))
+    for i, im in enumerate(imgs):
+        r, c = divmod(i, cols)
+        canvas.paste(im.resize((cw, ch)), (pad + c * (cw + pad), pad + r * (ch + pad)))
+    buf = BytesIO()
+    canvas.save(buf, "PNG")
+    return buf.getvalue()
+
+
+async def extract_characters(claude, script_text, model=None):
+    """Ask Claude for the distinct on-screen characters: NAME :: description :: portrait prompt."""
+    system = (
+        "From the script, list the distinct on-screen characters and key creatures (max 4). "
+        "Output one line per character, EXACTLY in the form: NAME :: one-line visual description "
+        ":: a photoreal portrait prompt. No preamble, no numbering, one character per line.")
+    kwargs = dict(prompt=f"Script:\n{script_text[:6000]}", system_prompt=system,
+                  max_tokens=700, temperature=0.4)
+    if model:
+        kwargs["model"] = model
+    text = await claude.generate(**kwargs)
+    chars = []
+    for line in (text or "").splitlines():
+        if "::" not in line:
+            continue
+        parts = [p.strip() for p in line.split("::")]
+        if len(parts) >= 3 and parts[0]:
+            name = parts[0].lstrip("-*0123456789. ").strip()
+            if name:
+                chars.append({"name": name[:80], "description": parts[1][:500], "portrait": parts[2]})
+    return chars[:4]
+
+
+async def _stable_url(maybe_url, dest_path, tenant):
+    """Re-host a (possibly temporary) image URL into Supabase so the app has a permanent URL."""
+    if not maybe_url:
+        return None
+    try:
+        req = urllib.request.Request(maybe_url, headers={"User-Agent": "Mozilla/5.0"})
+        data = urllib.request.urlopen(req, timeout=120).read()
+        return await upload_bytes(data, dest_path, "image/png", tenant)
+    except Exception:
+        return maybe_url
+
+
+async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, script_text):
+    """Write video_characters rows (the Characters tab) from the cast. Skips if any exist.
+    Generates a photoreal portrait per character anchored on the on-disk cast sheet."""
+    existing = await fetch_one(
+        "SELECT count(*) AS n FROM video_characters WHERE video_id=$1 AND tenant_id=$2", vid, tenant)
+    if existing and existing["n"]:
+        print(f"  characters: {existing['n']} already present — skipping")
+        return existing["n"]
+    cast_local = os.path.join(base_dir, "0_cast_sheet.png")
+    cast_url = None
+    if os.path.exists(cast_local):
+        with open(cast_local, "rb") as f:
+            cast_url = await upload_bytes(f.read(), f"{vid}/characters/_cast.png", "image/png", tenant)
+    chars = await extract_characters(claude, script_text, model=claude_model)
+    n = 0
+    for i, ch in enumerate(chars):
+        ref = None
+        if cast_url:
+            prompt = (ch["portrait"] + " Photoreal and realistic, matching the attached cast "
+                      "reference's exact look and rendering style; never 2D illustration or cartoon.")
+            res = await ic.generate_thumbnail_gpt2(prompt, [cast_url], "16:9")  # GPT Image 2
+            ref = await _stable_url(res.get("url") if isinstance(res, dict) else res,
+                                    f"{vid}/characters/{i}_{ch['name'].replace(' ', '_')}.png", tenant)
+        await execute(
+            "INSERT INTO video_characters (tenant_id, video_id, name, description, reference_url, "
+            "status, source, sort) VALUES ($1,$2,$3,$4,$5,'approved','generated',$6)",
+            tenant, vid, ch["name"], ch["description"], ref, i)
+        n += 1
+        print(f"  character: {ch['name']}")
+    return n
+
+
+# Shot-on-screen seconds by shot type → drives the storyboard timecodes (content-engine pacing).
+_CUT = {"WS": 3.5, "ELS": 3.5, "WIDE": 3.5, "MS": 2.5, "MCU": 2.5, "MEDIUM": 2.5,
+        "CU": 2.0, "OTS": 2.0, "INSERT": 1.5, "ECU": 1.5}
+_BOARD_CSS = (
+    "body{margin:0;background:#0d0d10;font-family:'DejaVu Sans',sans-serif;padding:26px}"
+    ".card{background:#f3f1ec;border-radius:18px;padding:24px}"
+    "h1{font-size:19px;margin:0 0 2px;color:#1a1a1a}.sub{color:#7a756c;font-size:12px;margin-bottom:18px}"
+    ".grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}"
+    ".panel{background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)}"
+    ".iw{position:relative;aspect-ratio:16/9;background:#222}.iw img{width:100%;height:100%;object-fit:cover;display:block}"
+    ".num{position:absolute;top:7px;left:7px;background:rgba(15,15,18,.85);color:#fff;font-weight:700;font-size:12px;padding:3px 9px;border-radius:6px}"
+    ".tc{position:absolute;top:7px;right:7px;background:rgba(15,15,18,.7);color:#fff;font-size:11px;padding:3px 8px;border-radius:6px}"
+    ".cap{padding:10px 12px 13px}.lbl{font-size:10px;font-weight:700;letter-spacing:.5px;color:#b06a2c;text-transform:uppercase;margin-bottom:5px}"
+    ".desc{font-size:12px;line-height:1.42;color:#33312e}")
+
+
+def render_burger_board(moments, title, scene, workdir=None):
+    """Render the burger-style storyboard (numbered, timecoded, captioned) to a PNG via headless
+    chromium. Frames are embedded as base64 (snap chromium can't read /tmp) and the HTML + output
+    live under $HOME (the only tree the snap's home interface allows). Returns PNG bytes or None."""
+    import base64
+    from PIL import Image
+
+    def tc(s):
+        return f"{int(s) // 60}:{int(s) % 60:02d}"
+
+    cells, t, n = [], 0.0, 0
+    for m in moments:
+        for fr in m["frames"]:
+            p = fr.get("_path")
+            if not p or not os.path.exists(p):
+                continue
+            try:
+                im = Image.open(p).convert("RGB")
+                im = im.resize((720, int(im.height * 720 / im.width)))
+                buf = BytesIO()
+                im.save(buf, "JPEG", quality=85)
+                uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+            except Exception:
+                continue
+            n += 1
+            st = (fr.get("shot_type") or "").split()[0].upper()
+            lbl = _html.escape((fr.get("shot_type") or "").upper()) + f" &middot; Moment {m['moment_number']}"
+            desc = _html.escape((fr.get("description") or "")[:180])
+            cells.append(
+                f'<div class="panel"><div class="iw"><img src="{uri}">'
+                f'<span class="num">{n}</span><span class="tc">{tc(t)}</span></div>'
+                f'<div class="cap"><div class="lbl">{lbl}</div><div class="desc">{desc}</div></div></div>')
+            t += _CUT.get(st, 2.0)
+    if not cells:
+        return None
+    rows = (n + 3) // 4
+    body = (f'<div class="card"><h1>{_html.escape(title)} — Scene {scene}</h1>'
+            f'<div class="sub">Cinematic shot list &middot; {n} shots &middot; coverage built in '
+            f'(master + matched angles per moment)</div><div class="grid">{"".join(cells)}</div></div>')
+    html_str = (f'<!doctype html><html><head><meta charset="utf-8"><style>{_BOARD_CSS}</style></head>'
+                f'<body>{body}</body></html>')
+
+    rdir = os.path.expanduser("~/coverage_render")
+    os.makedirs(rdir, exist_ok=True)
+    hp, pp = os.path.join(rdir, f"board_s{scene}.html"), os.path.join(rdir, f"board_s{scene}.png")
+    with open(hp, "w") as f:
+        f.write(html_str)
+    if os.path.exists(pp):
+        os.remove(pp)
+    height = 180 + rows * 360
+    for binname in ("chromium-browser", "chromium", "google-chrome"):
+        try:
+            subprocess.run(
+                [binname, "--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+                 f"--screenshot={pp}", f"--window-size=1640,{height}",
+                 "--force-device-scale-factor=2", f"file://{hp}"],
+                check=True, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if os.path.exists(pp) and os.path.getsize(pp) > 2000:
+                with open(pp, "rb") as f:
+                    return f.read()
+        except Exception:
+            continue
+    return None
+
+
+# Canonical CHARACTER-CREATION prompt (Ryan's locked 4-view reference-sheet template). Each
+# character gets a clean photoreal 4-view sheet — the strongest consistency anchor (far better
+# than one combined cast image). See ~/Desktop/character-creation-prompt.md.
+CHARACTER_SHEET_STYLE = (
+    "PHOTOREALISTIC — a real PHOTOGRAPH / live-action film still of a real subject. Real skin pores, "
+    "real metal, real fabric, real scale/fur texture, true cinematic lighting, shot on a cinema camera, "
+    "ultra-detailed, indistinguishable from live action. It is NOT a painting, drawing, illustration, "
+    "concept art, sketch, render-that-looks-painted, or anime — a real photograph only.")
+CHARACTER_SHEET_TEMPLATE = (
+    "Professional character reference sheet. {style}\n\n"
+    "Character: {desc}\n\n"
+    "Layout: the SAME character in four views on a plain neutral grey studio background — "
+    "Full Body Front (slight three-quarter front, head to toe); Full Body Back (straight rear, full "
+    "body); Front Portrait (head-and-shoulders front, facial features + hair + upper clothing); "
+    "Side Portrait (head-and-shoulders left profile, 90-degree side view).\n\n"
+    "Keep the same face, body proportions, hairstyle, outfit, colours and accessories across all four "
+    "views; preserve exact costume details and identity in every angle; clean balanced studio "
+    "lighting, soft shadows, realistic material textures; sharp high detail. Neutral grey background "
+    "only; no text, labels, logos, watermarks, props, or extra characters; symmetrical layout with "
+    "equal spacing between the views.")
+
+
+async def redo_characters(vid, tenant, claude, claude_model, ic, script_text, only=None):
+    """Rebuild each character as a precise, PHOTOREAL 4-VIEW reference sheet (the locked
+    character-creation prompt), and tighten its description so the writer-bible matches. Generated
+    FRESH text-to-image (no anchor) so a prior painterly sheet can't leak back in. Updates
+    video_characters.description + reference_url. Does NOT touch scenes. `only` = one name."""
+    rows = await fetch_all("SELECT id, name, description FROM video_characters "
+                           "WHERE video_id=$1 AND tenant_id=$2 ORDER BY sort", vid, tenant)
+    rows = [r for r in rows if not only or r["name"].lower() == only.lower()]
+    if not rows:
+        print("No characters to redo."); return 0
+    n = 0
+    for r in rows:
+        desc = (r["description"] or "").strip()
+        # tighten only if it isn't already a precise locked description
+        if len(desc) < 200:
+            sys_p = ("Expand the character into a precise PHOTOREAL visual description for a reference "
+                     "sheet, 60-90 words. Specify age, build, face, hair (style + colour), exact "
+                     "wardrobe/armour WITH COLOURS and accessories; for a creature give scale colour, "
+                     "horns, wings, eyes and size. Concrete and specific so an image model renders the "
+                     "SAME character every time. Output ONLY the description, no preamble.")
+            kw = dict(prompt=f"{r['name']}: {desc}\n\nStory context:\n{script_text[:2500]}",
+                      system_prompt=sys_p, max_tokens=400, temperature=0.4)
+            if claude_model:
+                kw["model"] = claude_model
+            desc = ((await claude.generate(**kw)) or "").strip() or r["description"]
+        prompt = CHARACTER_SHEET_TEMPLATE.format(style=CHARACTER_SHEET_STYLE, desc=desc)
+        r = await ic.generate_scene_image_gpt(prompt, None, "16:9")  # GPT Image 2 text-to-image
+        url = r.get("url") if isinstance(r, dict) else r
+        if not url:
+            print(f"  {r['name']}: 4-view sheet generation FAILED — keeping old"); continue
+        stable = await _stable_url(url, f"{vid}/characters/{r['name'].replace(' ', '_')}_sheet.png", tenant)
+        await execute("UPDATE video_characters SET description=$1, reference_url=$2, updated_at=now() "
+                      "WHERE id=$3", desc, stable, r["id"])
+        n += 1
+        print(f"  {r['name']}: PHOTOREAL 4-view sheet set")
+    return n
+
+
+async def set_scene_board(vid, tenant, scene, outdir, title="Storyboard"):
+    """Render the scene's coverage frames into the burger-style storyboard board and set the
+    board slot. Falls back to a plain grid if chromium rendering fails."""
+    moments = load_existing(outdir)
+    if not moments:
+        return False
+    png = render_burger_board(moments, title, scene, outdir)
+    if not png:
+        print(f"    (chromium render failed for scene {scene} — falling back to plain grid)")
+        paths = [fr["_path"] for m in moments for fr in m["frames"] if fr.get("_path")]
+        png = compose_grid(paths, cols=4)
+    if not png:
+        return False
+    srow = await fetch_one("SELECT id FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
+                           vid, tenant, scene)
+    if not srow:
+        return False
+    url = await upload_bytes(png, f"{vid}/storyboard/S{scene}-B1.png", "image/png", tenant)
+    await execute("UPDATE scripts SET storyboard_1_url=$1, updated_at=now() WHERE id=$2", url, srow["id"])
+    return True
+
+
+async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=None):
+    """Backend stage entry point: generate the burger-style COVERAGE for a video's scene(s) and
+    store it in the app (frames as assets + the storyboard board), anchored on the LOCKED character
+    sheets, drawn with GPT Image 2. Called by the pipeline route so the UI 'Generate' button runs
+    coverage. Returns {status, message}. `progress(msg)` streams status to the task poller."""
+    def _p(msg):
+        if progress:
+            try:
+                progress(msg)
+            except Exception:
+                pass
+
+    v = await fetch_one(
+        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect "
+        "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
+    if not v:
+        return {"status": "failed", "error": "video not found"}
+    vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
+
+    scenes = await fetch_all(
+        "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+        "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
+    targets = [s for s in scenes if scene is None or s["scene"] == scene]
+    if not targets:
+        return {"status": "failed", "error": "no scenes with text to cover"}
+
+    claude = await get_text_client_for_tenant(tenant)
+    claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+    kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+    ic = ImageClient(api_key=kie_key)
+    profile = load_profile({})
+    bible = await load_character_bible(vid, tenant)
+    base_dir = f"/tmp/coverage_app/{vid[:8]}"
+
+    # Anchor every frame on the LOCKED character 4-view sheets (best cast lock); fall back to an
+    # auto-built combined cast only if no characters are locked.
+    crows = await fetch_all(
+        "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
+        "AND reference_url IS NOT NULL ORDER BY sort", vid, tenant)
+    cast_refs = [r["reference_url"] for r in crows]
+    if not cast_refs:
+        cu = await resolve_cast_url(None, ic, story_bible=bible, profile=profile, aspect=aspect, outdir=base_dir)
+        cast_refs = [cu] if cu else []
+    if not cast_refs:
+        return {"status": "failed", "error": "no cast to anchor on — lock characters first"}
+
+    total = 0
+    for s in targets:
+        sc = s["scene"]
+        outdir = f"{base_dir}/scene{sc}"
+        _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
+        out = await run_coverage(
+            beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
+            video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
+            anthropic_client=claude, directive_model=claude_model, max_moments=3, aspect=aspect)
+        if out.get("error"):
+            _p(f"Scene {sc}: skipped ({out['error']})")
+            continue
+        for m in out["moments"]:
+            for fr in m["frames"]:
+                fr["_path"] = os.path.join(outdir, fr.get("file", "")) if fr.get("file") else None
+        frames_by_moment = [(m["summary"], m["frames"]) for m in out["moments"]]
+        n = await store_scene(vid, tenant, title, aspect, sc, frames_by_moment)
+        await set_scene_board(vid, tenant, sc, outdir, title=title)
+        total += n
+        _p(f"Scene {sc}: {n} coverage frames + board done")
+
+    return {"status": "completed", "message": f"Coverage done: {total} frames across {len(targets)} scene(s)"}
+
+
+async def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--video", required=True, help="video id prefix or title substring")
+    ap.add_argument("--scene", type=int, default=None, help="single scene number (default: all)")
+    ap.add_argument("--moments", type=int, default=3, help="max moments per scene")
+    ap.add_argument("--reuse", action="store_true",
+                    help="reuse frames already on disk (upload+insert only, no regeneration)")
+    ap.add_argument("--complete", action="store_true",
+                    help="populate the Characters tab + storyboard board from frames already on disk")
+    ap.add_argument("--redo-characters", action="store_true",
+                    help="rebuild each character as a photoreal 4-view reference sheet (no scenes)")
+    ap.add_argument("--character", default=None, help="with --redo-characters: only this character name")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    v = await resolve_video(args.video)
+    if not v:
+        print(f"No video matched '{args.video}'"); return
+    vid, tenant = str(v["id"]), str(v["tenant_id"])
+    title, aspect = v["video_title"], v["aspect"]
+    print(f"Video: {title}\n  id={vid} tenant={tenant} aspect={aspect}")
+
+    scenes = await fetch_all(
+        "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+        "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
+    targets = [s for s in scenes if args.scene is None or s["scene"] == args.scene]
+    if not targets:
+        print("No matching scenes with text."); return
+
+    est = len(targets) * args.moments * 4 + 1  # +1 cast sheet
+    print(f"Plan: {len(targets)} scene(s) {[s['scene'] for s in targets]}, "
+          f"~{args.moments} moments each → ~{est} image gens (~${est * PER_FRAME_USD:.2f})")
+    if args.dry_run:
+        print("DRY RUN — nothing generated or written."); return
+
+    base_dir = f"/tmp/coverage_app/{vid[:8]}"
+
+    # --complete: make the video read as a normal finished video — write the cast into the
+    # Characters tab and fill each scene's storyboard board from the coverage frames on disk.
+    if args.complete:
+        claude = await get_text_client_for_tenant(tenant)
+        claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+        kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+        ic = ImageClient(api_key=kie_key)
+        full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
+        nchar = await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script)
+        nboard = 0
+        for s in targets:
+            if await set_scene_board(vid, tenant, s["scene"], f"{base_dir}/scene{s['scene']}", title=title):
+                nboard += 1
+                print(f"  scene {s['scene']}: storyboard board set")
+        print(f"\nDONE — {nchar} characters + {nboard} storyboard board(s) set for '{title}'. "
+              f"Refresh the video in the app.")
+        return
+
+    # --redo-characters: rebuild each character as a photoreal 4-view reference sheet (the locked
+    # character-creation prompt) + tighten its description. The consistency foundation; no scenes.
+    if args.redo_characters:
+        claude = await get_text_client_for_tenant(tenant)
+        claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+        kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+        ic = ImageClient(api_key=kie_key)
+        full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
+        n = await redo_characters(vid, tenant, claude, claude_model, ic, full_script, only=args.character)
+        print(f"\nDONE — rebuilt {n} character 4-view reference sheet(s) for '{title}'. "
+              f"Refresh the Characters tab. Scenes NOT touched — regenerate them next, once you confirm the lock.")
+        return
+
+    # Generation needs Claude + Kie + a cast; reuse mode skips all of that and just
+    # uploads+inserts frames already on disk.
+    claude = ic = profile = cast_url = claude_model = bible = None
+    if not args.reuse:
+        claude = await get_text_client_for_tenant(tenant)
+        # A direct Anthropic client's built-in default model id can be stale (we hit a 404
+        # on it); pass a current one. The Kie-routed client uses its own market model (None).
+        claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+        kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+        ic = ImageClient(api_key=kie_key)
+        profile = load_profile({})
+        # ONE cast for the whole video so characters match ACROSS scenes: reuse the on-disk cast
+        # sheet a prior run made; only build it once. (A fresh cast per scene would drift the look.)
+        cast_local = os.path.join(base_dir, "0_cast_sheet.png")
+        if os.path.exists(cast_local):
+            with open(cast_local, "rb") as f:
+                cast_url = await upload_bytes(f.read(), f"{vid}/characters/_castsheet.png", "image/png", tenant)
+            print(f"Reusing existing cast sheet for cross-scene consistency: {cast_url}")
+        else:
+            full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
+            cast_prompt = await build_cast_prompt(claude, full_script, model=claude_model)
+            print(f"Cast prompt: {cast_prompt[:140]}...")
+            cast_url = await resolve_cast_url(None, ic, cast_prompt=cast_prompt, profile=profile,
+                                              aspect=aspect, outdir=base_dir)
+        if not cast_url:
+            print("Cast sheet failed — aborting."); return
+        print(f"cast_url: {cast_url}")
+        # Binding character bible — locks the writer's words to the cast so the look can't drift.
+        bible = await load_character_bible(vid, tenant)
+        if bible:
+            print(f"Character bible (binding): {', '.join(c['id'] for c in bible['characters'])}")
+
+    total = 0
+    for s in targets:
+        scene = s["scene"]
+        outdir = f"{base_dir}/scene{scene}"
+        if args.reuse:
+            moments = load_existing(outdir)
+            if not moments:
+                print(f"  scene {scene}: no frames on disk to reuse — run without --reuse first"); continue
+            frames_by_moment = [(m["summary"], m["frames"]) for m in moments]
+            print(f"  scene {scene}: reusing {sum(len(m['frames']) for m in moments)} frames on disk")
+        else:
+            out = await run_coverage(
+                beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_url,
+                video_title=title, profile=profile, beat_scenes=[scene], story_bible=bible,
+                anthropic_client=claude, directive_model=claude_model,
+                max_moments=args.moments, aspect=aspect)
+            if out.get("error"):
+                print(f"  scene {scene}: SKIPPED ({out['error']})"); continue
+            frames_by_moment = []
+            for m in out["moments"]:
+                for fr in m["frames"]:
+                    fr["_path"] = os.path.join(outdir, fr.get("file", "")) if fr.get("file") else None
+                frames_by_moment.append((m["summary"], m["frames"]))
+        n = await store_scene(vid, tenant, title, aspect, scene, frames_by_moment)
+        total += n
+        print(f"  scene {scene}: {n} coverage frames stored")
+        if await set_scene_board(vid, tenant, scene, outdir, title=title):
+            print(f"  scene {scene}: storyboard board set")
+
+    print(f"\nDONE — {total} coverage frames added to '{title}'. "
+          f"Open the video in the app's images view to see them (grouped by scene, "
+          f"shot-type badges, master starred).")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
