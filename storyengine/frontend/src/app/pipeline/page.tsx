@@ -1,5 +1,6 @@
 "use client";
 import { Spinner } from "@/components/ui/spinner";
+import { VISUAL_PRESETS, type VisualPreset } from "@/lib/visual-presets";
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
@@ -170,25 +171,9 @@ const STAGE_REQUIRES: Record<string, string[]> = Object.fromEntries(
 );
 const ALL_STAGES_ON: Record<string, boolean> = Object.fromEntries(STAGE_KEYS.map((k) => [k, true]));
 
-// Visual style presets for the New Video form. Each preset carries the LOOK
-// (image_style_override) the generator front-loads. Icons live at
-// public/style-icons/<id>.png (may not exist yet — a plain <img> just shows
-// broken until the asset lands).
-type VisualPreset = { id: string; label: string; look: string; icon: string };
-const VISUAL_PRESETS: VisualPreset[] = [
-  { id: "pixar_3d",   label: "Pixar 3D",   icon: "/style-icons/pixar_3d.png",
-    look: "Soft 3D Pixar-style CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field" },
-  { id: "flat_2d",    label: "2D flat",    icon: "/style-icons/flat_2d.png",
-    look: "Clean 2D flat vector animation, bold flat colors, simple shapes, crisp outlines, minimal shading" },
-  { id: "realistic",  label: "Realistic",  icon: "/style-icons/realistic.png",
-    look: "Photorealistic cinematic photography, natural lighting, real textures, shallow depth of field" },
-  { id: "anime",      label: "Anime",      icon: "/style-icons/anime.png",
-    look: "Modern anime cel-shaded illustration, expressive faces, clean linework, soft gradient shading" },
-  { id: "watercolor", label: "Watercolor", icon: "/style-icons/watercolor.png",
-    look: "Warm hand-painted watercolor storybook art, soft edges, textured paper, gentle palette" },
-  { id: "comic",      label: "Comic",      icon: "/style-icons/comic.png",
-    look: "Bold graphic-novel illustration, inked outlines, halftone shading, dynamic high-contrast color" },
-];
+// Visual style presets now live in @/lib/visual-presets (shared with the
+// chat-first producer's LOOK card, so both pickers use the same styles + images).
+// VISUAL_PRESETS + the VisualPreset type are imported at the top.
 
 // Apply the prerequisite rules after a single switch is flipped.
 function applyStageToggle(prev: Record<string, boolean>, key: string): Record<string, boolean> {

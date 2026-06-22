@@ -183,13 +183,29 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
     if aspect not in ("16:9", "9:16"):
         aspect = "16:9"
 
+    # Resolve the chosen style preset (id -> the canonical LOOK sentence the
+    # generator front-loads). Falls back to a free-text look if the creator
+    # described their own style instead of picking a preset.
+    from producer_prompt import VISUAL_PRESETS
+    preset_id = (spec.get("visual_style") or "").strip()
+    preset = VISUAL_PRESETS.get(preset_id)
+    if preset:
+        visual_style = preset_id
+        visual_style_label = preset["label"]
+        image_style_override = preset["look"]
+    else:
+        visual_style = None
+        visual_style_label = spec.get("visual_style_label")
+        image_style_override = spec.get("image_style_override")
+
     return CreateVideoRequest(
         title=(spec.get("title") or "Untitled video").strip(),
         framework_angle=spec.get("framework_angle"),
         writer_guidance=spec.get("writer_guidance"),
         video_length_minutes=length,
-        image_style_override=spec.get("image_style_override"),
-        visual_style_label=spec.get("visual_style_label"),
+        visual_style=visual_style,
+        image_style_override=image_style_override,
+        visual_style_label=visual_style_label,
         lock_in_identity=bool(spec.get("lock_in_identity", False)),
         aspect_ratio=aspect,
         pipeline_stages=stages,
@@ -200,6 +216,11 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
 
 async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, background_tasks):
     from routes.videos import create_video
+
+    # The creator's actual card picks are authoritative over the LLM's spec.
+    selections = state.get("selections") or {}
+    if selections.get("style"):
+        spec = {**spec, "visual_style": selections["style"]}
 
     req = _spec_to_create_request(spec)
     try:

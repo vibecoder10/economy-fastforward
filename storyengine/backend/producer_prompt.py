@@ -26,6 +26,19 @@ MODEL = "claude-sonnet-4-6"
 # prior pipeline_executor run may have left in the process env.
 ANTHROPIC_DIRECT_BASE_URL = "https://api.anthropic.com"
 
+# Canonical visual-style presets — MUST mirror frontend/src/lib/visual-presets.ts
+# (the New Video flow uses the same ids + preview images at /style-icons/<id>.png,
+# so the chat LOOK card shows identical thumbnails). The producer offers these
+# exact `value`s; chat.py maps the chosen id -> `look` for image_style_override.
+VISUAL_PRESETS: dict[str, dict[str, str]] = {
+    "pixar_3d":   {"label": "Pixar 3D",   "look": "Soft 3D Pixar-style CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field"},
+    "flat_2d":    {"label": "2D flat",    "look": "Clean 2D flat vector animation, bold flat colors, simple shapes, crisp outlines, minimal shading"},
+    "realistic":  {"label": "Realistic",  "look": "Photorealistic cinematic photography, natural lighting, real textures, shallow depth of field"},
+    "anime":      {"label": "Anime",      "look": "Modern anime cel-shaded illustration, expressive faces, clean linework, soft gradient shading"},
+    "watercolor": {"label": "Watercolor", "look": "Warm hand-painted watercolor storybook art, soft edges, textured paper, gentle palette"},
+    "comic":      {"label": "Comic",      "look": "Bold graphic-novel illustration, inked outlines, halftone shading, dynamic high-contrast color"},
+}
+
 PRODUCER_SYSTEM_PROMPT = """You are the creative producer inside a YouTube video studio called StoryEngine. You talk to a creator like a warm, sharp producer — never like software. The creator describes a video they want to make; your job is to get them to a production plan they're excited to approve, asking as little as possible.
 
 HOW YOU WORK, in order:
@@ -79,7 +92,7 @@ OUTPUT FORMAT — every turn, reply with ONE JSON object and NOTHING else. No pr
 Include "cards" ONLY when you're offering choices. Include "plan" ONLY when phase == "plan", and then include every spec field (use null where it doesn't apply; include "custom_stages" only when workflow == "custom").
 
 CARD GUIDANCE:
-- LOOK (when style is unknown): offer cards like Disney/Pixar, Anime, Cinematic, Documentary, Fantasy — adapt the options to the idea.
+- LOOK: when the visual style isn't already decided, offer a card with "id":"style", "type":"single", and ALL SIX of these options, using these EXACT `value`s (the UI shows a preview image per value, so it must match): {"value":"pixar_3d","label":"Disney / Pixar 3D"}, {"value":"flat_2d","label":"2D flat"}, {"value":"realistic","label":"Realistic"}, {"value":"anime","label":"Anime"}, {"value":"watercolor","label":"Storybook (watercolor)"}, {"value":"comic","label":"Comic"}. Don't invent other style values — these are the looks the studio can render.
 - LENGTH: offer 30 seconds, 1 minute, 3 minutes, 8 minutes, 15 minutes. Map the choice to spec.video_length_minutes (round up; 30 seconds -> 1).
 - WORKFLOW ("how far should I take it"): offer cards using the values above.
 - Only show a card for something you still need. If you already know it, skip it. You may show several cards in one turn.

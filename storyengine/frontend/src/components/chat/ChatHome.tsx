@@ -14,6 +14,7 @@ import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertT
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
+import { visualPresetById } from "@/lib/visual-presets";
 import {
   sendChatTurn,
   type ChatCard,
@@ -307,6 +308,35 @@ function SelectorCards({
           <div className="flex flex-wrap gap-2">
             {card.options.map((opt) => {
               const sel = isSelected(card, opt.value);
+              // Style options render the same preview image as the New Video flow.
+              const preset = visualPresetById(opt.value);
+              if (preset) {
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => onToggle(card, opt.value)}
+                    title={opt.hint}
+                    className="flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all active:scale-[0.98]"
+                    style={{
+                      background: sel ? "rgba(0,212,170,0.1)" : "var(--bg-deep)",
+                      border: `1px solid ${sel ? "var(--turquoise)" : "var(--border-subtle)"}`,
+                    }}
+                  >
+                    <img
+                      src={preset.icon}
+                      alt={preset.label}
+                      className="w-20 h-20 rounded-lg object-cover"
+                      style={{ background: "var(--bg-surface)" }}
+                    />
+                    <span
+                      className="text-xs font-medium"
+                      style={{ color: sel ? "var(--turquoise)" : "var(--text-secondary)" }}
+                    >
+                      {opt.label}
+                    </span>
+                  </button>
+                );
+              }
               return (
                 <button
                   key={opt.value}
