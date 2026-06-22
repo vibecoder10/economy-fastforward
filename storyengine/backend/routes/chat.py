@@ -385,29 +385,82 @@ async def _ob_reply(conversation_id, tenant_id, transcript, state, text,
 
 
 async def _generate_competitor_ideas(tenant_id, state) -> Optional[list[dict[str, Any]]]:
-    """Up to 3 data-backed ideas (title + reasoning + source videos) from the
-    intelligence report. Waits briefly for the background competitor scrape to
-    land. Returns None if there isn't enough data yet (caller degrades gracefully).
+    """Up to 3 data-backed ideas from the competitors' PAST-WEEK top videos.
+
+    Waits for the background scrape to land, queries the last week's best
+    performers across the added channels, and asks Claude (the tenant's DIRECT
+    key — NOT the Kie gateway, which may be down) to propose 3 ideas to model,
+    each with a 'why' grounded in the real title + view count + recency.
+    Returns None only when there's genuinely no recent competitor data.
     """
     import asyncio
+
     job_id = state.get("competitor_job")
     if job_id:
         try:
             from routes.onboarding import _analyze_jobs
-            for _ in range(7):  # up to ~14s for the scrape to finish
+            for _ in range(20):  # up to ~40s for the scrape to finish
                 st = (_analyze_jobs.get(job_id) or {}).get("status")
                 if st and st != "processing":
                     break
                 await asyncio.sleep(2)
         except Exception:  # noqa: BLE001
             pass
+
+    # Past week (~10 days slack) top performers across the added competitor channels.
+    rows = await fetch_all(
+        """SELECT title, channel, views, vph, hours_old, published_date
+             FROM competitor_videos
+            WHERE tenant_id = $1 AND title IS NOT NULL
+              AND hours_old IS NOT NULL AND hours_old <= 240
+            ORDER BY vph DESC NULLS LAST, views DESC NULLS LAST
+            LIMIT 12""",
+        tenant_id,
+    )
+    if not rows:  # nothing tagged recent — fall back to the newest we have
+        rows = await fetch_all(
+            """SELECT title, channel, views, vph, hours_old, published_date
+                 FROM competitor_videos
+                WHERE tenant_id = $1 AND title IS NOT NULL
+                ORDER BY published_date DESC NULLS LAST, views DESC NULLS LAST
+                LIMIT 12""",
+            tenant_id,
+        )
+    if not rows:
+        return None
+
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        return None
+
+    lines = []
+    for r in rows[:10]:
+        v = int(r.get("views") or 0)
+        hrs = r.get("hours_old")
+        when = f", {round(hrs / 24, 1)}d ago" if hrs else ""
+        lines.append(f'- "{r.get("title")}" ({r.get("channel") or "competitor"}) — {v:,} views{when}')
+    prompt = (
+        "These are the top videos from this creator's competitor channels over the PAST WEEK:\n"
+        + "\n".join(lines)
+        + "\n\nPick the 3 strongest and propose 3 video ideas this creator should make now, each MODELED "
+        "on one of the above. Respond with ONE JSON object and nothing else:\n"
+        '{"ideas":[{"title":"<catchy title>","reasoning":"<why it will work — cite the specific source '
+        'video, its view count, and how recent it is>","source_title":"<the competitor video>",'
+        '"script_structure":"<one line>"}]}\nExactly 3 ideas. Ground every reasoning in the real numbers above.'
+    )
     try:
-        from routes.onboarding import _build_intelligence_report
-        report = await _build_intelligence_report(tenant_id)
-        ideas = (report or {}).get("title_ideas") or []
-        return ideas[:3] or None
-    except Exception as e:  # noqa: BLE001 — not enough data / provider issue
-        logger.info("onboarding: competitor ideas not ready: %s", e)
+        import anthropic
+        from producer_prompt import ANTHROPIC_DIRECT_BASE_URL, MODEL, _extract_json
+        client = anthropic.Anthropic(api_key=api_key, base_url=ANTHROPIC_DIRECT_BASE_URL)
+        resp = client.messages.create(
+            model=MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}]
+        )
+        text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
+        data = json.loads(_extract_json(text))
+        ideas = data.get("ideas") if isinstance(data, dict) else None
+        return (ideas or [])[:3] or None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("onboarding: idea generation failed: %s", e)
         return None
 
 
@@ -455,8 +508,8 @@ async def _finish_onboarding(conversation_id, tenant_id, transcript, state, back
         lines, opts = [], []
         for i, idea in enumerate(ideas):
             why = (idea.get("reasoning") or "").strip()
-            src = idea.get("source_titles") or []
-            srcline = f"  ↳ modeled on: “{src[0]}”" if src else ""
+            src1 = idea.get("source_title") or (idea.get("source_titles") or [None])[0]
+            srcline = f"  ↳ modeled on: “{src1}”" if src1 else ""
             lines.append(f"**{i + 1}. {idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}")
             opts.append({"value": str(i), "label": (idea.get("title") or "Idea")[:70], "hint": why[:140]})
         text = (
@@ -467,20 +520,13 @@ async def _finish_onboarding(conversation_id, tenant_id, transcript, state, back
         card = {"id": "idea_choice", "label": "Pick one to build", "type": "single", "options": opts}
         return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
 
-    # No data-backed ideas yet — hand off to the producer with a graceful note.
+    # Genuinely no recent competitor data — hand off honestly (never "ask me").
     state["mode"] = "producer"
     state["onboarding_step"] = "done"
-    intent = state.get("intent")
-    goals = state.get("goals") or []
-    if intent == "stories":
-        nudge = "what story do you want to tell first?"
-    elif goals == ["thumbnails"]:
-        nudge = "what video do you want a thumbnail for first?"
-    else:
-        nudge = "what should we make first?"
     text = (
-        "You're all set! 🎉 I'm still studying your competitors in the background (peek anytime "
-        f"under Competitors) — ask me for ideas in a sec. For now, {nudge}"
+        "You're all set! 🎉 I pulled your competitor channel(s), but couldn't find enough of their "
+        "recent videos to model ideas from yet — they may still be importing. Paste another channel "
+        "under Competitors, or just tell me what you'd like to make and I'll run with it."
     )
     fresh = [_assistant_turn({"assistant_text": text, "phase": "asking"})]
     await _persist(conversation_id, tenant_id, fresh, state, "asking")
@@ -539,7 +585,7 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         if msg and msg.lower() not in _SKIP_WORDS:
             try:
                 from routes.onboarding import YouTubeConnect, connect_youtube
-                res = await connect_youtube(YouTubeConnect(channel_url=msg), tenant_id=tenant_id)
+                res = await connect_youtube(YouTubeConnect(channel_url=msg), background_tasks, tenant_id=tenant_id)
                 state["channel"] = (res or {}).get("channel_name") or msg
                 ack = f"Connected **{state['channel']}** — I'll study it in the background. "
             except Exception as e:  # noqa: BLE001
@@ -557,7 +603,7 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         if urls:
             try:
                 from routes.onboarding import CompetitorAnalyze, analyze_competitors
-                res = await analyze_competitors(CompetitorAnalyze(channel_urls=urls[:3]), tenant_id=tenant_id)
+                res = await analyze_competitors(CompetitorAnalyze(channel_urls=urls[:3]), background_tasks, tenant_id=tenant_id)
                 state["competitor_job"] = (res or {}).get("job_id")
                 ack = f"On it — analyzing {len(urls[:3])} channel(s) in the background. "
             except Exception as e:  # noqa: BLE001
