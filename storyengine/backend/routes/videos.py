@@ -408,7 +408,10 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio"}
+    # aspect_ratio flows into image/video gen + render — reject anything unexpected.
+    if "aspect_ratio" in body and body["aspect_ratio"] not in {"16:9", "9:16", "1:1", "4:3", "3:4"}:
+        raise HTTPException(status_code=400, detail="Invalid aspect_ratio")
     updates = []
     params = []
     idx = 1
@@ -563,7 +566,7 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
         """SELECT id, video_id, scene, scene_text, voice_over_url, voice_status,
                   script_status, sources, storyboard_on_off, tone,
                   storyboard_1_url, storyboard_2_url, storyboard_3_url,
-                  storyboard_4_url, storyboard_5_url,
+                  storyboard_4_url, storyboard_5_url, scene_video_url,
                   storyboard_prompts, storyboard_beat_count, storyboard_status,
                   created_at::text, updated_at::text
            FROM scripts WHERE video_id = $1 AND tenant_id = $2

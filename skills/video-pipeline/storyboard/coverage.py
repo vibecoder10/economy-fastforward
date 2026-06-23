@@ -17,8 +17,11 @@ CLI below; pipeline wiring + route picker are Phase 4.
   coverage.py estimate <spec.json>
   coverage.py run <spec.json> <outdir>
 
-spec.json (see proof_spec.json): cast_url OR cast_prompt, beat_text OR directive_text,
-optional video_title / story_bible / max_moments / aspect.
+A locked cast (cast_url) wins; with none, a cast sheet is auto-built from the story bible
+(or an explicit cast_prompt) so coverage always has an anchor to lock characters to.
+
+spec.json (see proof_spec.json): cast_url OR cast_prompt OR story_bible; beat_text OR
+directive_text; optional video_title / beat_scenes / env_url / image_prompts / max_moments / aspect.
 """
 from __future__ import annotations
 
@@ -70,8 +73,12 @@ Lens: {profile.lens_profile.focal_range}
 1) NO INVENTED PEOPLE — only characters named in the VISUAL BIBLE may appear. Never add a guest, \
 extra, sibling, neighbour or crowd member, and never invent a name. If a moment names no one, \
 show the existing cast or the empty environment.
-2) The VISUAL BIBLE (if provided) is BINDING for character appearance and locations. Use the exact \
-wardrobe, face and setting. It overrides any other description of how a character or place looks.
+2) The VISUAL BIBLE (if provided) is BINDING and is the ONLY source of how each character looks. In \
+EVERY shot's description, restate that character's exact appearance VERBATIM from the bible — same \
+wardrobe and colors, same hair, same face, same creature scale-colour/wings/eyes. NEVER paraphrase, \
+swap, or add: do NOT turn plate armour into leather, do NOT add a helmet/cloak/accessory the bible \
+does not list, do NOT recolour or resize the creature. If the narration implies a different look, \
+the bible STILL wins. The goal is an identical character in every single panel.
 3) Within a moment every angle is the SAME instant — identical wardrobe, props, blocking, light. \
 Only framing/angle/lens changes. Angles must be genuinely DISTINCT (different shot size AND a \
 different visual focus: face vs hands vs object), never near-duplicate zooms of one framing.
@@ -107,19 +114,22 @@ def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, imag
 
 async def generate_coverage_directive(
     beat_text, video_title, profile, story_bible, beat_scenes, image_prompts,
-    max_moments=3, angles_min=2, angles_max=4, anthropic_client=None,
+    max_moments=3, angles_min=2, angles_max=4, anthropic_client=None, model=None,
 ) -> str:
-    """Run Claude to produce the coverage plan text. Returns the raw directive."""
+    """Run Claude to produce the coverage plan text. Returns the raw directive.
+    model: pass a valid model id for a DIRECT Anthropic client (its built-in default can be
+    stale); leave None to use the client's own default (e.g. the Kie-routed market model)."""
     if anthropic_client is None:
         from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
-    return await anthropic_client.generate(
+    kwargs = dict(
         prompt=_coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts),
         system_prompt=_coverage_system_prompt(profile, max_moments, angles_min, angles_max),
-        model=Models.CLAUDE_SONNET,
-        max_tokens=6000,
-        temperature=0.7,
+        max_tokens=6000, temperature=0.7,
     )
+    if model:
+        kwargs["model"] = model
+    return await anthropic_client.generate(**kwargs)
 
 
 # =============================================================================
@@ -127,8 +137,11 @@ async def generate_coverage_directive(
 # =============================================================================
 
 _MOMENT_RE = re.compile(r"\[MOMENT\s+(\d+)\s*\|\s*([^\]]*)\]", re.IGNORECASE)
+# Tolerant of how the LLM writes the shot line: "- MASTER [WS]:", "- MASTER WS:",
+# or multi-word "- ANGLE INSERT ECU:" (brackets optional, shot type 1+ words, colon required).
 _SHOT_RE = re.compile(
-    r"-\s*(MASTER|ANGLE)\s*\[([^\]]+)\]\s*:?\s*(.+?)(?=\n\s*-\s*(?:MASTER|ANGLE)\b|\n\s*\[MOMENT|\Z)",
+    r"-\s*\*{0,2}\s*(MASTER|ANGLE)\s*\[?\s*([A-Za-z][\w /-]*?)\s*\]?\s*\*{0,2}\s*:\s*(.+?)"
+    r"(?=\n\s*-\s*\*{0,2}\s*(?:MASTER|ANGLE)\b|\n\s*\*{0,2}\s*\[MOMENT|\Z)",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -161,25 +174,58 @@ def _url_of(result):
     return result.get("url") if isinstance(result, dict) else result
 
 
+# Anchoring an angle on the master frame makes the model preserve the master's
+# subject placement and, for tight recomposes onto a face, ADD a new foreground
+# person instead of moving the camera onto the existing one (seen live: a
+# medium close-up invented a second rider). This guard pins it to one subject.
+_SAME_SUBJECT = (
+    " This is the SAME moment from a different camera — match the lighting, wardrobe, staging and "
+    "setting of the attached reference exactly; only the camera angle and framing change. Keep the "
+    "EXACT same character(s) from the reference and add NO new people: if the reference shows one "
+    "rider, this frame shows that same single rider recomposed closer, never a second person.")
+
+# Without an explicit style lock, nano-banana holds the reference's style on wide shots but
+# drifts to 2D illustration/painting on tight recomposes (seen live: a photoreal MCU came out
+# cartoonish). Mirror the proven STYLE LOCK from the 3x3 grid path (generate_contact_sheet):
+# the cast sheet's rendering style is the single source of truth, so a photoreal cast → photoreal
+# frames; an animated cast → animated frames. Applied to EVERY frame, master and angles.
+_STYLE_LOCK = (
+    " STYLE LOCK: render in the EXACT same art style and rendering quality as the attached "
+    "reference image(s). If the reference is a photoreal / live-action / 3D-CG render, this frame "
+    "MUST be equally photoreal and realistic — never switch to 2D illustration, painting, cartoon "
+    "or anime, and never change the art style or rendering between frames.")
+
+
+async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
+    """Generate one frame via GPT Image 2 (gpt-image-2-image-to-image — our main model; holds the
+    cast's identity from the reference sheet far better than nano-banana), with a light retry.
+    ponytail: retry only covers transient None/502; a moderation 400 also returns None and may not
+    recover — that frame is then skipped (coverage degrades to fewer angles rather than failing)."""
+    for i in range(attempts):
+        url = _url_of(await image_client.generate_thumbnail_gpt2(prompt, refs, aspect))
+        if url:
+            return url
+        await asyncio.sleep(2 * (i + 1))
+    return None
+
+
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
                                    env_url=None, aspect="16:9", resolution="2K") -> list[dict] | None:
     """Master frame (anchored on cast) -> each angle (anchored on cast + master).
     Returns frames [{role, shot_type, description, url}] or None if the master fails."""
-    base = [cast_url] + ([env_url] if env_url else [])
+    # cast_url may be one URL or a LIST (e.g. the locked per-character 4-view sheets).
+    cast_refs = list(cast_url) if isinstance(cast_url, list) else [cast_url]
+    base = cast_refs + ([env_url] if env_url else [])
     m = moment["master"]
-    master_prompt = build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
-    master_url = _url_of(await image_client.generate_with_reference(
-        prompt=master_prompt, reference_image_url=base, aspect_ratio=aspect, resolution=resolution))
+    master_prompt = build_image_prompt_from_keyframe({"composition": m["description"]}, profile) + _STYLE_LOCK
+    master_url = await _gen_ref(image_client, master_prompt, base, aspect, resolution)
     if not master_url:
         return None
     frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"], "url": master_url}]
     for a in moment["angles"]:
-        ap = build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
-        ap += (" Match the lighting, wardrobe, staging and setting of the attached reference exactly; "
-               "this is the SAME moment from a different camera — only the angle and framing change.")
-        refs = [cast_url, master_url] + ([env_url] if env_url else [])
-        url = _url_of(await image_client.generate_with_reference(
-            prompt=ap, reference_image_url=refs, aspect_ratio=aspect, resolution=resolution))
+        ap = build_image_prompt_from_keyframe({"composition": a["description"]}, profile) + _SAME_SUBJECT + _STYLE_LOCK
+        refs = cast_refs + [master_url] + ([env_url] if env_url else [])
+        url = await _gen_ref(image_client, ap, refs, aspect, resolution)
         if url:
             frames.append({"role": "angle", "shot_type": a["shot_type"], "description": a["description"], "url": url})
     return frames
@@ -192,19 +238,71 @@ def _download(url, path):
     return path
 
 
-async def run_coverage(beat_text, cast_url, image_client, *, outdir, video_title="",
-                       profile=None, story_bible=None, beat_scenes=None, env_url=None,
-                       image_prompts=None, directive_text=None, anthropic_client=None,
+def cast_prompt_from_story_bible(story_bible, profile) -> str | None:
+    """Build a cast-sheet image prompt from the story bible's characters, so a video
+    with no locked cast can still anchor coverage. Returns None if there's nothing to
+    build from (caller then needs an explicit cast_url or cast_prompt)."""
+    if not story_bible:
+        return None
+    chars = story_bible.get("characters") or []
+    lines = []
+    for c in chars:
+        cid = (c.get("id") or "character").replace("_", " ")
+        look = c.get("costume") or c.get("description") or ""
+        if look:
+            lines.append(f"{cid.upper()}: {look}")
+    if not lines:
+        return None
+    return (f"Character reference cast sheet. {profile.visual_style_directive} "
+            f"A clean reference sheet on a neutral grey background showing each character "
+            f"full-body, labeled with their name, with identical lighting and art style "
+            f"across all of them: " + " | ".join(lines) +
+            ". No text other than the character name labels.")
+
+
+async def resolve_cast_url(cast_url, image_client, *, cast_prompt=None, story_bible=None,
+                           profile=None, aspect="16:9", outdir=None) -> str | None:
+    """A locked cast wins; otherwise auto-build a cast sheet (from cast_prompt, else the
+    story bible) so coverage always has an anchor. Returns the cast URL or None."""
+    if cast_url:
+        return cast_url
+    cp = cast_prompt or cast_prompt_from_story_bible(story_bible, profile or load_profile({}))
+    if not cp:
+        return None
+    print("No locked cast — auto-building a cast sheet (GPT Image 2) ...", flush=True)
+    r = await image_client.generate_scene_image_gpt(cp, None, aspect)  # gpt-image-2 text-to-image
+    url = r.get("url") if isinstance(r, dict) else r
+    if url and outdir:
+        try:
+            _download(url, os.path.join(outdir, "0_cast_sheet.png"))
+        except Exception:
+            pass
+    if url:
+        print(f"  cast sheet: {url}", flush=True)
+    return url
+
+
+async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_prompt=None,
+                       video_title="", profile=None, story_bible=None, beat_scenes=None,
+                       env_url=None, image_prompts=None, directive_text=None,
+                       anthropic_client=None, directive_model=None,
                        max_moments=3, aspect="16:9", resolution="2K") -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
+    A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
+    bible (or cast_prompt) so coverage always has something to lock characters to.
     Saves frames + coverage.json locally with angle/shot-type metadata. No DB writes
     (storing into Image records is Phase 2, where the animator consumes them)."""
     profile = profile or load_profile({})
     os.makedirs(outdir, exist_ok=True)
+    cast_url = await resolve_cast_url(cast_url, image_client, cast_prompt=cast_prompt,
+                                      story_bible=story_bible, profile=profile,
+                                      aspect=aspect, outdir=outdir)
+    if not cast_url:
+        return {"error": "no cast: provide cast_url, cast_prompt, or a story_bible with characters"}
     if directive_text is None:
         directive_text = await generate_coverage_directive(
             beat_text, video_title, profile, story_bible, beat_scenes, image_prompts or [],
-            max_moments=max_moments, anthropic_client=anthropic_client)
+            max_moments=max_moments, anthropic_client=anthropic_client, model=directive_model)
     with open(os.path.join(outdir, "directive.txt"), "w") as f:
         f.write(directive_text)
 
@@ -231,7 +329,7 @@ async def run_coverage(beat_text, cast_url, image_client, *, outdir, video_title
         print(f"  [moment {moment['moment_number']}] {len(frames)} frames "
               f"({', '.join(fr['shot_type'] for fr in frames)})", flush=True)
 
-    out = {"video_title": video_title, "moments": result_moments,
+    out = {"video_title": video_title, "cast_url": cast_url, "moments": result_moments,
            "moment_count": len(result_moments), "frame_count": frame_total}
     with open(os.path.join(outdir, "coverage.json"), "w") as f:
         json.dump(out, f, indent=2)
@@ -261,7 +359,7 @@ def _moments_estimate(spec) -> dict:
     mm = spec.get("max_moments", 3)
     per = 1 + 3  # master + ~3 angles
     frames = mm * per
-    seed = 1 if spec.get("cast_prompt") and not spec.get("cast_url") else 0
+    seed = 0 if spec.get("cast_url") else 1  # cast sheet auto-built when none is locked
     total = frames + seed
     return {"moments": mm, "frames_per_moment": per, "image_gens": total,
             "est_usd": round(total * 0.05, 2),
@@ -271,24 +369,9 @@ def _moments_estimate(spec) -> dict:
 async def _cmd_run(spec, outdir):
     _load_env()
     from shared.clients.image_client import ImageClient
-    ic = ImageClient()
-    cast_url = spec.get("cast_url")
-    if not cast_url and spec.get("cast_prompt"):
-        print("Generating cast sheet ...", flush=True)
-        res = await ic.generate_and_wait(prompt=spec["cast_prompt"],
-                                         aspect_ratio=spec.get("aspect", "16:9"),
-                                         model=Models.IMAGE_THUMBNAIL)
-        cast_url = res[0] if res else None
-        if not cast_url:
-            print("cast sheet generation failed"); sys.exit(1)
-        os.makedirs(outdir, exist_ok=True)
-        _download(cast_url, os.path.join(outdir, "0_cast_sheet.png"))
-        print(f"  cast sheet: {cast_url}", flush=True)
-    if not cast_url:
-        print("spec needs cast_url or cast_prompt"); sys.exit(1)
-
     out = await run_coverage(
-        beat_text=spec.get("beat_text", ""), cast_url=cast_url, image_client=ic, outdir=outdir,
+        beat_text=spec.get("beat_text", ""), image_client=ImageClient(), outdir=outdir,
+        cast_url=spec.get("cast_url"), cast_prompt=spec.get("cast_prompt"),
         video_title=spec.get("video_title", ""), story_bible=spec.get("story_bible"),
         beat_scenes=spec.get("beat_scenes"), env_url=spec.get("env_url"),
         image_prompts=spec.get("image_prompts"), directive_text=spec.get("directive_text"),

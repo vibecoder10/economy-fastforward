@@ -823,7 +823,7 @@ class PipelineExecutor:
         if "drive.google.com" in source_url or "supabase.co/storage" in source_url:
             return source_url
         try:
-            return await upload_from_url(source_url, storage_path)
+            return await upload_from_url(source_url, storage_path, tenant_id=self.tenant_id)
         except Exception as e:
             _logger.warning("Failed to persist %s: %s", storage_path, e)
             return source_url
@@ -1784,7 +1784,7 @@ no stage directions, no labels, no headings."""
                     except Exception as e:
                         print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
                     drive_url = await upload_bytes(
-                        clip_bytes, f"{video_id}/clips/S{sc:02d}-{idx:02d}.mp4", "video/mp4")
+                        clip_bytes, f"{video_id}/clips/S{sc:02d}-{idx:02d}.mp4", "video/mp4", tenant_id=self.tenant_id)
                     await execute(
                         "UPDATE assets SET video_clip_url = $1, video_duration = $2, "
                         "updated_at = now() WHERE id = $3",
@@ -1831,6 +1831,42 @@ no stage directions, no labels, no headings."""
                 if not (remaining or {}).get("n") and not is_at_or_past_stage(video.get("status"), "ready_for_thumbnail"):
                     await self._update_video_status(video_id, "ready_for_thumbnail")
                     await self._log_transition(video_id, video.get("status"), "ready_for_thumbnail", "api")
+
+            # Auto-stitch the scene(s) this run touched once they're FULLY animated,
+            # so the creator can watch the whole scene (and the final render concats
+            # these). A single re-animate re-stitches just its scene; a bulk run
+            # stitches every now-complete scene. Best-effort — never fails the clip task.
+            try:
+                if asset_id is not None:
+                    arow = await fetch_one("SELECT scene FROM assets WHERE id = $1", asset_id)
+                    consider = [arow["scene"]] if arow and arow.get("scene") is not None else []
+                elif scene is not None:
+                    consider = [scene]
+                else:
+                    srows = await fetch_all(
+                        "SELECT DISTINCT scene FROM assets WHERE video_id = $1 AND tenant_id = $2 "
+                        "AND scene IS NOT NULL", video_id, self.tenant_id)
+                    consider = [r["scene"] for r in srows]
+                if consider:
+                    from render_stitch import stitch_video
+                    for sc in consider:
+                        comp = await fetch_one(
+                            "SELECT COUNT(*) AS pics, COUNT(video_clip_url) AS clips FROM assets "
+                            "WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 "
+                            "AND (image_url IS NOT NULL OR drive_image_url IS NOT NULL)",
+                            video_id, self.tenant_id, sc)
+                        if comp and comp["pics"] > 0 and comp["clips"] == comp["pics"]:
+                            try:
+                                res = await stitch_video(video_id, self.tenant_id, scene=sc)
+                                await execute(
+                                    "UPDATE scripts SET scene_video_url = $1, updated_at = now() "
+                                    "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
+                                    res["final_video_url"], video_id, sc, self.tenant_id)
+                                print(f"[stitch] scene {sc} auto-stitched ({res['clip_count']} clips)", flush=True)
+                            except Exception as se:
+                                print(f"[stitch] scene {sc} auto-stitch skipped: {str(se)[:150]}", flush=True)
+            except Exception as e:
+                print(f"[stitch] auto-stitch scan failed: {str(e)[:150]}", flush=True)
 
             msg = (f"Animated {done} clip(s) (${cost:.2f})"
                    + (f" — {failed} failed, tap them to retry" if failed else ""))
@@ -2570,7 +2606,7 @@ no stage directions, no labels, no headings."""
                         )
                         if result and result.get("url"):
                             path = f"{video_id}/images/S{sc_num}-B{bt_num}-P{img_idx}_hd.png"
-                            upscaled_url = await upload_from_url(result["url"], path)
+                            upscaled_url = await upload_from_url(result["url"], path, tenant_id=self.tenant_id)
                             await execute(
                                 "UPDATE assets SET image_url = $1, updated_at = now() WHERE id = $2",
                                 upscaled_url, asset_id,
@@ -2833,7 +2869,7 @@ no stage directions, no labels, no headings."""
                     )
                     if result and result.get("url"):
                         path = f"{video_id}/images/S{panel['scene']}-I{panel['image_index']}_hd.png"
-                        upscaled_url = await upload_from_url(result["url"], path)
+                        upscaled_url = await upload_from_url(result["url"], path, tenant_id=self.tenant_id)
                         await execute(
                             "UPDATE assets SET image_url = $1, updated_at = now() WHERE id = $2",
                             upscaled_url, panel["id"],

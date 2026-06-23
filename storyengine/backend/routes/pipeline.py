@@ -826,9 +826,11 @@ async def run_storyboard_images(
 
     async def _run():
         try:
-            executor = PipelineExecutor(tenant_id)
-            result = await executor.run_storyboard_images(
-                video_id, scene=scene, progress_callback=progress_callback
+            # Storyboard = ONE GPT Image 2 image (the whole sheet) — a cheap, fast preview of the
+            # story direction. The real per-shot images come later (generate_coverage_for_video).
+            from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
+            result = await generate_storyboard_sheet_for_scene(
+                video_id, tenant_id, scene=scene, progress=progress_callback
             )
             _set_task_status(
                 video_id,
@@ -845,7 +847,159 @@ async def run_storyboard_images(
 
     background_tasks.add_task(_run)
 
-    return PipelineResponse(video_id=video_id, status="running", message=f"Storyboard image generation started{scene_label}")
+    return PipelineResponse(video_id=video_id, status="running", message=f"Coverage generation started{scene_label}")
+
+
+@router.post("/coverage-images/{video_id}", response_model=PipelineResponse)
+async def run_coverage_images(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    scene: Optional[int] = None,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate the REAL per-shot coverage images for a scene (master + matched angles),
+    anchored on the locked cast. This is the step AFTER the cheap one-image storyboard
+    preview: the storyboard answers 'do I like the direction?', this draws the actual pictures.
+
+    Args:
+        scene: If set, only generate coverage for this scene (per-scene mode).
+    """
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    # Per-scene generation bypasses the status gate (same relaxed rule as storyboard-images).
+    if scene is None and not is_at_or_past_stage(video["status"], "ready_for_image_prompts"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for scene images — voice must be generated first (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    scene_label = f" Scene {scene}" if scene else ""
+    _set_task_status(video_id, "running", f"Generating scene images{scene_label}...", tenant_id=tenant_id)
+
+    def progress_callback(msg: str):
+        _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            # The real per-shot coverage frames (master + matched angles), stored as scene assets.
+            from scripts.coverage_to_app import generate_coverage_for_video
+            result = await generate_coverage_for_video(
+                video_id, tenant_id, scene=scene, progress=progress_callback
+            )
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                result.get("error"),
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message=f"Scene image generation started{scene_label}")
+
+
+@router.post("/stitch-scene/{video_id}", response_model=PipelineResponse)
+async def run_stitch_scene(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    scene: int,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """FFmpeg-concat one scene's animated clips into a single video so the creator
+    can watch the whole scene. Stored on scripts.scene_video_url; re-stitch replaces
+    it in place. The final render concats these per-scene stitches."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", f"Stitching Scene {scene}...", tenant_id=tenant_id)
+
+    def progress_callback(msg: str):
+        _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            from render_stitch import stitch_video
+
+            async def _p(msg: str):
+                progress_callback(msg)
+
+            res = await stitch_video(video_id, tenant_id, scene=scene, on_progress=_p)
+            await execute(
+                "UPDATE scripts SET scene_video_url = $1, updated_at = now() "
+                "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
+                res["final_video_url"], video_id, scene, tenant_id,
+            )
+            _set_task_status(
+                video_id, "completed",
+                f"Scene {scene} stitched — {res['duration_seconds']}s, {res['clip_count']} clips",
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(15)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return PipelineResponse(video_id=video_id, status="running", message=f"Stitching Scene {scene}")
+
+
+@router.post("/redraw-image/{video_id}", response_model=PipelineResponse)
+async def run_redraw_image(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    asset_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Redraw ONE picture from its (edited) image_prompt, anchored on the locked cast
+    sheets. Clears the picture's stale clip. GPT Image 2."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Redrawing picture...", tenant_id=tenant_id)
+
+    def progress_callback(msg: str):
+        _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            from scripts.coverage_to_app import redraw_asset_image
+            result = await redraw_asset_image(video_id, tenant_id, asset_id, progress=progress_callback)
+            _set_task_status(
+                video_id, result.get("status", "unknown"),
+                result.get("message") or result.get("error"), result.get("error"),
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(15)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return PipelineResponse(video_id=video_id, status="running", message="Redrawing picture")
 
 
 @router.post("/storyboard-extract/{video_id}", response_model=PipelineResponse)

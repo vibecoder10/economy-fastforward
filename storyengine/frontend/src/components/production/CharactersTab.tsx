@@ -55,6 +55,7 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
   const [editDesc, setEditDesc] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const { data, isLoading } = useQuery({
@@ -263,12 +264,18 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
           {characters.map((c) => (
             <GlassCard key={c.id} className="p-4 flex flex-col gap-3">
               <div
-                className="w-full aspect-square rounded-lg overflow-hidden flex items-center justify-center"
+                className="w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center"
                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
               >
                 {c.reference_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={toDisplayImageUrl(c.reference_url)} alt={c.name} className="w-full h-full object-cover" />
+                  <img
+                    src={toDisplayImageUrl(c.reference_url)}
+                    alt={c.name}
+                    className="w-full h-full object-contain cursor-zoom-in"
+                    title="Click to expand"
+                    onClick={() => setLightbox(c.reference_url!)}
+                  />
                 ) : (
                   <Users size={32} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
                 )}
@@ -498,6 +505,22 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Lightbox — expand a character reference in-place (no new tab) */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-6 cursor-zoom-out"
+          style={{ background: "rgba(0,0,0,0.88)" }}
+          onClick={() => setLightbox(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={toDisplayImageUrl(lightbox)}
+            alt="character reference"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          />
         </div>
       )}
     </div>

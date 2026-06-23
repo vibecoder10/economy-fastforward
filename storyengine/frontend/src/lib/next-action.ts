@@ -52,6 +52,8 @@ export interface NextActionInputs {
   clipsDone?: number;
   /** Asset rows that can be animated (have a final picture) */
   clipsTotal?: number;
+  /** Distinct scenes that already have pictures (coverage flow: missing scenes have no rows) */
+  scenesWithPictures?: number;
 }
 
 /** Real per-clip price by model — the single source for every cost label.
@@ -176,6 +178,14 @@ export function getNextAction(i: NextActionInputs): NextAction {
   // taste-test scene 1 → animate the rest → done.
   const inClipsRegion = ["ready_for_storyboard_extraction", "ready_for_images", "ready_for_sound_design", "ready_for_video_scripts", "ready_for_video_generation"].includes(status);
   if (inClipsRegion) {
+    // Coverage flow: a scene with no pictures has NO asset rows, so a status that
+    // jumped ahead can look "done" while scenes are still empty. Before offering
+    // to animate, make sure every scene actually has its pictures.
+    if (i.totalScenes > 0 && (i.scenesWithPictures ?? i.totalScenes) < i.totalScenes) {
+      const left = i.totalScenes - (i.scenesWithPictures ?? 0);
+      return { key: "pictures", label: "Create your pictures", step: 7, tab: "scenes", kind: "run", stage: "coverage-images",
+        description: `${left} scene${left === 1 ? "" : "s"} still need${left === 1 ? "s" : ""} pictures — this draws the missing ones.`, cost: "≈ $0.08 per picture" };
+    }
     const clipsTotal = i.clipsTotal ?? 0;
     const clipsDone = i.clipsDone ?? 0;
     const perClip = clipCost(v.video_model, 1);

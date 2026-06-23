@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideo, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
+import { getVideo, getVideoAssets, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
+import { clipCost } from "@/lib/next-action";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -165,6 +166,22 @@ export default function VideoDetailPage() {
 
   const status = video?.status || "idea_logged";
   const defaultTab = useMemo(() => getDefaultTab(status), [status]);
+
+  // Live generation-cost estimate from what's actually been made (pictures + clips
+  // dominate). The backend never rolls up videos.total_cost, so the counter sat at
+  // $0.00 — compute it from the artifacts instead. Shares the cached assets query.
+  // ponytail: an estimate from counts, not a per-API-call ledger.
+  const { data: costAssets } = useQuery({
+    queryKey: ["video-assets", videoId],
+    queryFn: () => getVideoAssets(videoId),
+    refetchInterval: () => (status && !TERMINAL_STATUSES.has(status) ? 5000 : false),
+  });
+  const estimatedCost = useMemo(() => {
+    const a = costAssets ?? [];
+    const pictures = a.filter((x) => x.image_url).length;
+    const clips = a.filter((x) => x.video_clip_url).length;
+    return pictures * 0.08 + clipCost(video?.video_model, clips);
+  }, [costAssets, video?.video_model]);
 
   // Per-video plan: hide the tabs for steps the creator switched off. No plan
   // (full pipeline / every existing video) → all tabs show, unchanged.
@@ -384,7 +401,7 @@ export default function VideoDetailPage() {
               Est. Cost
             </p>
             <p className="text-lg font-mono font-semibold" style={{ color: "var(--gold)" }}>
-              ${(video.total_cost || 0).toFixed(2)}
+              ${Math.max(video.total_cost || 0, estimatedCost).toFixed(2)}
             </p>
           </div>
 
@@ -524,8 +541,12 @@ export default function VideoDetailPage() {
         );
       })()}
 
-      {/* Guided next step — the one big button that always knows what's next */}
-      <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} />
+      {/* Guided next step — the one big button that always knows what's next.
+          Hidden on the Scenes tab: the workspace's own green command bar (status +
+          "Animate everything") is the single banner there, so they don't stack. */}
+      {currentTab !== "scenes" && (
+        <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} />
+      )}
 
       {/* Tab navigation */}
       <motion.div variants={item}>

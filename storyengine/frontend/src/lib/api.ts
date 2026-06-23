@@ -427,6 +427,18 @@ export const approveAsset = (id: string) =>
 export const rejectAsset = (id: string) =>
   fetchApi<{ status: string }>(`/api/assets/${id}/reject`, { method: "PATCH" });
 
+export const updateVideoPrompt = (id: string, video_prompt: string) =>
+  fetchApi<{ status: string }>(`/api/assets/${id}/video-prompt`, {
+    method: "PATCH",
+    body: JSON.stringify({ video_prompt }),
+  });
+
+export const updateImagePrompt = (id: string, image_prompt: string) =>
+  fetchApi<{ status: string }>(`/api/assets/${id}/image-prompt`, {
+    method: "PATCH",
+    body: JSON.stringify({ image_prompt }),
+  });
+
 export const batchApproveAssets = (assetIds: string[], status: "approved" | "rejected") =>
   fetchApi<{ updated: number }>("/api/assets/batch-approve", {
     method: "POST",
@@ -1323,6 +1335,7 @@ export interface VideoDetail extends VideoSummary {
   characters_approved_at?: string | null;
   story_locked_at?: string | null;
   dialogue_audio?: string | null;
+  aspect_ratio?: string | null;
   // Per-video pipeline plan: enabled stages (null = full pipeline). The video
   // page hides the tabs for stages that aren't in this list.
   pipeline_stages?: string[] | null;
@@ -1471,6 +1484,7 @@ export interface ScriptScene {
   scene: number | null;
   scene_text: string | null;
   voice_over_url: string | null;
+  scene_video_url: string | null;
   voice_status: string | null;
   script_status: string | null;
   sources: string | null;

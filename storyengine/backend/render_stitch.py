@@ -113,18 +113,27 @@ async def _probe_duration(path: str) -> float:
         return 0.0
 
 
-async def _gather_clips(video_id: str) -> list[dict]:
+async def _gather_clips(video_id: str, scene: Optional[int] = None) -> list[dict]:
     """Ordered (scene, image_index) clip rows that actually have a clip.
 
     video_id is a globally-unique UUID, so scoping by it alone is safe; the
-    caller has already authorized the video against the tenant.
+    caller has already authorized the video against the tenant. Pass `scene` to
+    stitch a single scene (ordered by image_index within it).
     """
-    rows = await fetch_all(
-        "SELECT scene, image_index, video_clip_url, video_duration "
-        "FROM assets WHERE video_id = $1 AND video_clip_url IS NOT NULL "
-        "ORDER BY scene, image_index",
-        video_id,
-    )
+    if scene is None:
+        rows = await fetch_all(
+            "SELECT scene, image_index, video_clip_url, video_duration "
+            "FROM assets WHERE video_id = $1 AND video_clip_url IS NOT NULL "
+            "ORDER BY scene, image_index",
+            video_id,
+        )
+    else:
+        rows = await fetch_all(
+            "SELECT scene, image_index, video_clip_url, video_duration "
+            "FROM assets WHERE video_id = $1 AND scene = $2 AND video_clip_url IS NOT NULL "
+            "ORDER BY image_index",
+            video_id, scene,
+        )
     return [dict(r) for r in rows]
 
 
@@ -301,18 +310,23 @@ async def stitch_video(
     *,
     title: str = "",
     orientation: str = "auto",
+    scene: Optional[int] = None,
     on_progress: ProgressCb = None,
 ) -> dict:
     """Stitch a video's existing clips into one uploaded mp4.
 
+    Pass `scene` to stitch just that scene (stored under scenes/, for the
+    per-scene preview); omit it to stitch the whole video (the final render).
     orientation: 'auto' (follow the majority of clips), 'portrait', or
     'landscape'. Returns {final_video_url, duration_seconds, clip_count, method,
     resolution, orientation}. Raises ValueError if there are no clips,
     RuntimeError on ffmpeg failure.
     """
-    clips = await _gather_clips(video_id)
+    clips = await _gather_clips(video_id, scene)
     if not clips:
-        raise ValueError("No clips to stitch — animate the scenes first.")
+        raise ValueError(
+            f"No clips in scene {scene} to stitch — animate it first." if scene is not None
+            else "No clips to stitch — animate the scenes first.")
 
     workdir = Path(tempfile.mkdtemp(prefix=f"stitch_{video_id[:8]}_"))
     try:
@@ -332,11 +346,12 @@ async def stitch_video(
         duration = await _probe_duration(str(out_path))
 
         data = out_path.read_bytes()
-        fname = _safe_filename(title, "render") + ".mp4"
-        await _emit(on_progress, f"Uploading final video ({len(data) // (1024*1024)}MB)…")
-        url = await upload_bytes(
-            data, f"{video_id}/final/{fname}", "video/mp4", tenant_id
-        )
+        # Per-scene stitches overwrite a stable path (so a re-stitch replaces it);
+        # the full render keeps a titled filename under final/.
+        storage_path = (f"{video_id}/scenes/S{scene:02d}.mp4" if scene is not None
+                        else f"{video_id}/final/{_safe_filename(title, 'render')}.mp4")
+        await _emit(on_progress, f"Uploading {'scene ' + str(scene) if scene is not None else 'final'} video ({len(data) // (1024*1024)}MB)…")
+        url = await upload_bytes(data, storage_path, "video/mp4", tenant_id)
 
         return {
             "final_video_url": url,

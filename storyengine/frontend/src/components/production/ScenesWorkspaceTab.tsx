@@ -18,7 +18,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check, Loader2, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
-  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, Type, MapPin,
+  MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, MapPin, Volume2, LayoutGrid, Download, Ratio,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -31,7 +31,7 @@ import {
   clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
-  deleteClip, recropAsset, fixTextAsset, getEnvironments,
+  deleteClip, recropAsset, getEnvironments, updateVideoPrompt, updateImagePrompt,
 } from "@/lib/api";
 import { clipCost } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
@@ -49,7 +49,6 @@ const WIRED_MODELS: { id: string; label: string }[] = [
   { id: "veo-3.1-fast", label: "Veo 3.1 Fast — $0.30/clip" },
   { id: "veo-3.1-quality", label: "Veo 3.1 Quality — $1.25/clip" },
 ];
-const COMING_SOON_MODELS = ["Kling 3.0 Pro", "Runway Gen-4 Turbo", "Hailuo 2.3"];
 
 /** Loose containment match for the 💬 badge — mirrors backend match_lines. */
 function norm(s: string): string {
@@ -81,6 +80,7 @@ interface SceneGroup {
   narrationText: string;
   duration: string;
   voiceOverUrl: string | null;
+  sceneVideoUrl: string | null;
   storyboardBeats: Array<{ beatNumber: number; prompt: string; gridUrl: string | null }>;
   storyboardStatus: string | null;
   storyboardBeatCount: number | null;
@@ -196,15 +196,21 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         scene.storyboard_4_url || null,
         scene.storyboard_5_url || null,
       ];
-      const storyboardBeats = parseStoryboardPromptBlocks(scene.storyboard_prompts).map((beat) => ({
+      const parsedBeats = parseStoryboardPromptBlocks(scene.storyboard_prompts).map((beat) => ({
         ...beat,
         gridUrl: gridUrls[beat.beatNumber - 1] || null,
       }));
+      // The cheap one-image storyboard writes only storyboard_N_url (no prompts → no
+      // parsed beats). Synthesize a board per filled slot so the sheet stays visible.
+      const storyboardBeats = parsedBeats.length > 0
+        ? parsedBeats
+        : gridUrls.flatMap((url, i) => (url ? [{ beatNumber: i + 1, prompt: "", gridUrl: url }] : []));
       return {
         sceneNumber: scene.scene || 0,
         narrationText: scene.scene_text || "",
         duration: `${Math.round((scene.scene_text || "").split(/\s+/).length / 2.5)}s`,
         voiceOverUrl: scene.voice_over_url || null,
+        sceneVideoUrl: scene.scene_video_url || null,
         storyboardBeats,
         storyboardStatus: scene.storyboard_status || null,
         storyboardBeatCount: scene.storyboard_beat_count ?? (storyboardBeats.length || null),
@@ -237,7 +243,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const [clearingSlot, setClearingSlot] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showMotionPrompt, setShowMotionPrompt] = useState(false);
-  const [imageModel, setImageModel] = useState(video.image_model_override || "nano-banana-2");
+  const [imageModel, setImageModel] = useState(video.image_model_override || "gpt-image-2");
   const [savingModel, setSavingModel] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [locking, setLocking] = useState(false);
@@ -336,7 +342,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   }, [video.id]);
 
   useEffect(() => {
-    setImageModel(video.image_model_override || "nano-banana-2");
+    setImageModel(video.image_model_override || "gpt-image-2");
   }, [video.image_model_override]);
 
   // ── Derived counts ──
@@ -352,9 +358,16 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const needsUpscale = extractedCount > 0 && extractedCount - upscaledCount > 2;
   const boardsDone = scenes.reduce((n, s) => n + s.storyboardGridCount, 0);
   const boardsTotal = scenes.reduce((n, s) => n + (s.storyboardBeatCount || 1), 0);
-  // Any scene still missing its plan or its drawn pictures → offer "Generate all".
-  const scenesNeedWork = scenes.some((s) => !s.hasStoryboardPrompt || s.storyboardGridCount === 0);
   const remainingCost = clipCost(model, clipsPending);
+  // ONE stage-aware bulk action: run the step the most scenes need next. Driven by
+  // the SAME lists the button acts on, so it can never show-but-no-op (the old bug).
+  const needStoryboard = scenes.filter((s) => s.storyboardGridCount === 0);
+  const needPictures = scenes.filter((s) => s.storyboardGridCount > 0 && !s.assets.some((a) => a.image_url));
+  const bulk: { kind: "gen"; stage: string; label: string; scenes: typeof scenes } | { kind: "animate"; label: string } | null =
+    needStoryboard.length ? { kind: "gen", stage: "storyboard-images", label: `Generate all storyboards (${needStoryboard.length})`, scenes: needStoryboard }
+    : needPictures.length ? { kind: "gen", stage: "coverage-images", label: `Generate all pictures (${needPictures.length})`, scenes: needPictures }
+    : (videoStageEnabled && clipsPending > 0) ? { kind: "animate", label: `Animate everything · $${remainingCost.toFixed(2)}` }
+    : null;
   const modelLabel = WIRED_MODELS.find((m) => m.id === model)?.label.split(" — ")[0] ?? model;
   const storyLocked = !!video.story_locked_at;
 
@@ -411,20 +424,20 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const handleRedoSceneFromScratch = useCallback(async (sceneNumber: number) => {
     if (!requireEnvironments()) return;
     const confirmed = window.confirm(
-      `Start Scene ${sceneNumber} over? We'll throw away its plan and pictures, write a fresh plan, and draw new pictures (≈ $0.08 each).\n\nTo redo just the pictures, use "Redo pictures". To remove one picture, hover it and click the X.`
+      `Redo Scene ${sceneNumber}'s pictures? We'll draw fresh per-shot pictures, replacing the current ones (≈ $0.08 each).\n\nTo remove just one picture, hover it and click the X.`
     );
     if (!confirmed) return;
     setClearingScene(sceneNumber);
     try {
       await clearSceneStoryboard(video.id, sceneNumber);
       queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
-      chainRef.current = { queue: [{ stage: "storyboard-images", scene: sceneNumber }] };
+      chainRef.current = null;
       setGeneratingScene(sceneNumber);
-      await runStageWith409Retry("storyboards", { scene: sceneNumber });
+      await runStageWith409Retry("coverage-images", { scene: sceneNumber });
     } catch (err) {
       chainRef.current = null;
       setGeneratingScene(null);
-      toast.error(`Couldn't restart Scene ${sceneNumber}: ${(err as Error).message}`);
+      toast.error(`Couldn't redo Scene ${sceneNumber}: ${(err as Error).message}`);
     } finally {
       setClearingScene(null);
     }
@@ -448,34 +461,60 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // from onComplete, after the plan task finishes — separate tasks so the draw
   // reads the freshly-written plan; an in-process plan+draw can't see its own
   // new prompts). Always plans first, so a draw never fires without a plan.
+  // Step 1 — the CHEAP one-image storyboard (a quick "do I like the direction?"
+  // preview). storyboard-images → generate_storyboard_sheet_for_scene.
   const handleGenerateScene = useCallback(async (sceneNumber: number) => {
     if (!requireEnvironments()) return;
     try {
-      chainRef.current = { queue: [{ stage: "storyboard-images", scene: sceneNumber }] };
+      chainRef.current = null;
       setGeneratingScene(sceneNumber);
-      await runStageWith409Retry("storyboards", { scene: sceneNumber });
+      await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
     } catch (err) {
       chainRef.current = null;
       setGeneratingScene(null);
-      toast.error(`Couldn't generate Scene ${sceneNumber}: ${(err as Error).message}`);
+      toast.error(`Couldn't generate Scene ${sceneNumber} storyboard: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry, toast, requireEnvironments]);
 
-  // Bulk: generate every scene that still needs pictures, one at a time. Each
-  // scene is PLAN then DRAW (two tasks); the onComplete chain runs the queue in
-  // order. Always plans first per scene — never fires a draw before its plan.
-  const handleGenerateAllScenes = useCallback(async () => {
+  // Step 2 — draw the REAL per-shot pictures (coverage), after the storyboard
+  // preview. coverage-images → generate_coverage_for_video; replaces any pictures.
+  const handleGenerateRealImages = useCallback(async (sceneNumber: number) => {
     if (!requireEnvironments()) return;
-    const work = scenes.filter((s) => s.storyboardGridCount === 0);
-    if (work.length === 0) return;
-    if (!window.confirm(
-      `Generate ${work.length} scene${work.length === 1 ? "" : "s"}? We plan each scene, then draw its pictures (≈ $0.08 each board). You can Stop anytime.`,
-    )) return;
-    const steps: Array<{ stage: string; scene: number }> = [];
-    for (const s of work) {
-      steps.push({ stage: "storyboards", scene: s.sceneNumber });
-      steps.push({ stage: "storyboard-images", scene: s.sceneNumber });
+    try {
+      chainRef.current = null;
+      setGeneratingScene(sceneNumber);
+      await runStageWith409Retry("coverage-images", { scene: sceneNumber });
+    } catch (err) {
+      chainRef.current = null;
+      setGeneratingScene(null);
+      toast.error(`Couldn't generate Scene ${sceneNumber} pictures: ${(err as Error).message}`);
     }
+  }, [runStageWith409Retry, toast, requireEnvironments]);
+
+  // Manual per-scene stitch — FFmpeg-concats the scene's clips into one video.
+  // Auto-stitch already covers the animate paths; this is the explicit button +
+  // re-stitch on demand (shown once every clip in the scene is animated).
+  const handleStitchScene = useCallback(async (sceneNumber: number) => {
+    setGeneratingScene(sceneNumber);
+    try {
+      await runStageWith409Retry("stitch-scene", { scene: sceneNumber });
+    } catch (err) {
+      setGeneratingScene(null);
+      toast.error(`Couldn't stitch Scene ${sceneNumber}: ${(err as Error).message}`);
+    }
+  }, [runStageWith409Retry, toast]);
+
+  // Bulk: run ONE stage for every scene in the list, one task at a time (the
+  // onComplete chain runs the queue in order). Used by the stage-aware header
+  // button — storyboards for all, or pictures for all, never both.
+  const handleBulkGen = useCallback(async (stage: string, list: typeof scenes) => {
+    if (!requireEnvironments()) return;
+    if (list.length === 0) return;
+    const what = stage === "coverage-images" ? "pictures" : "storyboards";
+    if (!window.confirm(
+      `Generate ${what} for ${list.length} scene${list.length === 1 ? "" : "s"} (≈ $0.08 each). You can Stop anytime.`,
+    )) return;
+    const steps = list.map((s) => ({ stage, scene: s.sceneNumber }));
     const [first, ...rest] = steps;
     try {
       chainRef.current = { queue: rest };
@@ -484,9 +523,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     } catch (err) {
       chainRef.current = null;
       setGeneratingScene(null);
-      toast.error(`Couldn't start generating all scenes: ${(err as Error).message}`);
+      toast.error(`Couldn't start generating all ${what}: ${(err as Error).message}`);
     }
-  }, [scenes, runStageWith409Retry, toast, requireEnvironments]);
+  }, [runStageWith409Retry, toast, requireEnvironments]);
 
   const handleClearAllStoryboards = useCallback(async () => {
     if (!window.confirm(
@@ -608,7 +647,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     } catch (err) {
       toast.error(`Failed to update image model: ${(err as Error).message}`);
-      setImageModel(video.image_model_override || "nano-banana-2");
+      setImageModel(video.image_model_override || "gpt-image-2");
     } finally {
       setSavingModel(false);
     }
@@ -742,19 +781,20 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [video.id, running, taskMessage, markStarted, toast]);
 
-  const fixTextOne = useCallback(async (asset: Asset) => {
+  const redrawOne = useCallback(async (asset: Asset) => {
     if (running) {
       toast.info(`Hang on — still working: ${taskMessage || "finishing the current step"}.`);
       return;
     }
+    setRecropping(asset.id);  // reuse the per-card "working" dim until onComplete clears it
     try {
-      await fixTextAsset(video.id, asset.id);
-      markStarted();
-      toast.info("Redrawing this card's text with GPT Image 2 (~$0.05). Re-animate it after to refresh its clip.");
+      await runStageWith409Retry("redraw-image", { asset_id: asset.id });
+      toast.info("Redrawing this picture from your prompt (~$0.08), anchored on the locked cast. Re-animate after.");
     } catch (err) {
-      toast.error((err as Error).message || "Couldn't start the text fix.");
+      setRecropping(null);
+      toast.error((err as Error).message || "Couldn't start the redraw.");
     }
-  }, [video.id, running, taskMessage, markStarted, toast]);
+  }, [running, taskMessage, toast, runStageWith409Retry]);
 
   /** Confirm-then-run for anything over $0.50; cheaper actions just go. */
   const confirmable = (key: string, dollars: number, run: () => void) => {
@@ -820,7 +860,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
 
   // ── Render ──
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {/* Environments gate: storyboards need locations locked (or skipped)
           first — guide the creator there instead of generating drifting
           backgrounds. The generation handlers are guarded too. */}
@@ -843,10 +883,72 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           )}
         </div>
       )}
-      {/* One quiet status line; the page banner stays the only big CTA. */}
-      <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
-        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+      {/* Model controls — always visible at the top (no longer buried in the Advanced menu). */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <ImageIcon size={13} style={{ color: "var(--text-tertiary)" }} />
+          <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Pictures</span>
+          <select value={imageModel} onChange={(e) => handleImageModelChange(e.target.value)} disabled={savingModel}
+            className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+            <option value="nano-banana-2">Nano Banana 2</option>
+            <option value="gpt-image-2">GPT Image 2</option>
+            <option value="z-image">Z Image</option>
+          </select>
+        </div>
+        {videoStageEnabled && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <Film size={13} style={{ color: "var(--text-tertiary)" }} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Clips</span>
+            <select value={model} onChange={(e) => handleClipModelChange(e.target.value)}
+              className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+              {WIRED_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+        )}
+        {videoStageEnabled && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <Volume2 size={13} style={{ color: "var(--text-tertiary)" }} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Voice</span>
+            <select value={video.dialogue_audio || "voice_over"}
+              onChange={async (e) => {
+                try {
+                  await updateVideo(video.id, { dialogue_audio: e.target.value });
+                  queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+                } catch (err) { toast.error((err as Error).message); }
+              }}
+              className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+              <option value="voice_over">Character voice-over</option>
+              <option value="grok_native">Grok native</option>
+            </select>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <Ratio size={13} style={{ color: "var(--text-tertiary)" }} />
+          <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Aspect</span>
+          <select value={video.aspect_ratio || "16:9"}
+            onChange={async (e) => {
+              try {
+                await updateVideo(video.id, { aspect_ratio: e.target.value });
+                queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+              } catch (err) { toast.error((err as Error).message); }
+            }}
+            className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+            <option value="16:9">16:9 wide</option>
+            <option value="9:16">9:16 tall</option>
+            <option value="1:1">1:1 square</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Prominent command bar — progress at a glance + the one big bulk action.
+          order-first floats it to the top of the workspace, above the model pickers. */}
+      <div className="order-first rounded-xl px-5 py-4 flex items-center gap-3 flex-wrap"
+        style={{ background: "rgba(0, 230, 138, 0.06)", border: "1px solid rgba(0, 230, 138, 0.22)" }}>
+        <p className="text-base font-medium" style={{ color: "var(--text-secondary)" }}>
           <strong style={{ color: "var(--text-primary)" }}>{scenes.length} scenes</strong>
           {" · "}
           <strong style={{ color: boardsDone >= boardsTotal ? "var(--green)" : "var(--text-primary)" }}>
@@ -888,23 +990,25 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           </span>
         )}
         <div className="flex-1" />
-        {!running && !storyLocked && scenesNeedWork && environmentsReady && (
-          <button
-            onClick={handleGenerateAllScenes}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
-            style={{ background: "var(--purple)", color: "var(--bg-void)" }}
-            title="Plan and draw every scene in one go">
-            <ImageIcon size={13} /> Generate all scenes
-          </button>
-        )}
-        {videoStageEnabled && clipsDone > 0 && clipsPending > 0 && (
-          <button
-            onClick={() => confirmable("all", remainingCost, animateAll)}
-            disabled={running}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 transition-all hover:brightness-110"
-            style={{ background: confirmKey === "all" ? "var(--gold)" : "var(--turquoise)", color: "var(--bg-void)" }}>
-            {confirmKey === "all" ? `Confirm — $${remainingCost.toFixed(2)}` : "Animate the rest"}
-          </button>
+        {/* ONE stage-aware bulk button: storyboards → pictures → animate everything. */}
+        {!running && !storyLocked && environmentsReady && bulk && (
+          bulk.kind === "animate" ? (
+            <button
+              onClick={() => confirmable("all", remainingCost, animateAll)}
+              disabled={running}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 transition-all hover:brightness-110"
+              style={{ background: confirmKey === "all" ? "var(--gold)" : "var(--green)", color: "var(--bg-void)" }}>
+              <Play size={16} /> {confirmKey === "all" ? `Confirm — $${remainingCost.toFixed(2)}` : bulk.label}
+            </button>
+          ) : (
+            <button
+              onClick={() => handleBulkGen(bulk.stage, bulk.scenes)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all hover:brightness-110"
+              style={{ background: bulk.stage === "coverage-images" ? "var(--orange)" : "var(--purple)", color: "var(--bg-void)" }}
+              title="Run this step for every scene that needs it">
+              <ImageIcon size={16} /> {bulk.label}
+            </button>
+          )
         )}
         {confirmKey === "all" && (
           <button onClick={() => setConfirmKey(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
@@ -935,15 +1039,6 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                 <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>
                   Pictures
                 </p>
-                <div className="flex items-center justify-between px-3 py-2">
-                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Picture model</span>
-                  <select value={imageModel} onChange={(e) => handleImageModelChange(e.target.value)} disabled={savingModel}
-                    className="bg-transparent text-xs border rounded px-1.5 py-1 cursor-pointer"
-                    style={{ color: "var(--text-secondary)", borderColor: "rgba(255,255,255,0.15)" }}>
-                    <option value="nano-banana-2">Nano Banana 2</option>
-                    <option value="z-image">Z Image</option>
-                  </select>
-                </div>
                 {extractedCount > 0 && needsUpscale && (
                   <button onClick={() => { setShowAdvanced(false); handleUpscalePanels(); }} disabled={running}
                     className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40"
@@ -963,46 +1058,6 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                 <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>
                   Clips
                 </p>
-                {WIRED_MODELS.map((m) => (
-                  <button key={m.id}
-                    onClick={() => { handleClipModelChange(m.id); setShowAdvanced(false); }}
-                    className="w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 flex items-center gap-2"
-                    style={{ color: model === m.id ? "var(--turquoise)" : "var(--text-secondary)" }}>
-                    {model === m.id ? <Check size={12} /> : <span className="w-3" />}
-                    {m.label}
-                  </button>
-                ))}
-                {COMING_SOON_MODELS.map((label) => (
-                  <div key={label} className="px-3 py-1.5 text-xs flex items-center gap-2 opacity-40 cursor-not-allowed"
-                    style={{ color: "var(--text-tertiary)" }}>
-                    <span className="w-3" />{label} — coming soon
-                  </div>
-                ))}
-                <p className="text-[10px] uppercase tracking-wider font-semibold px-3 pt-2 pb-1" style={{ color: "var(--text-tertiary)" }}>
-                  Speaking voices
-                </p>
-                {[
-                  { id: "grok_native", label: "Grok native — speaks the script itself" },
-                  { id: "voice_over", label: "Character voice-over (ElevenLabs)" },
-                ].map((opt) => (
-                  <button key={opt.id}
-                    onClick={async () => {
-                      setShowAdvanced(false);
-                      try {
-                        await updateVideo(video.id, { dialogue_audio: opt.id });
-                        queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-                        toast.info(`Speaking voices: ${opt.id === "grok_native" ? "Grok native" : "character voice-over"}. New clips use this; Redo a card to apply it.`);
-                      } catch (e) {
-                        toast.error((e as Error).message);
-                      }
-                    }}
-                    className="w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5 flex items-center gap-2"
-                    style={{ color: (video.dialogue_audio || "voice_over") === opt.id ? "var(--turquoise)" : "var(--text-secondary)" }}>
-                    {(video.dialogue_audio || "voice_over") === opt.id ? <Check size={12} /> : <span className="w-3" />}
-                    {opt.label}
-                  </button>
-                ))}
-                <div className="border-t my-1" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
                 <button
                   onClick={() => {
                     setShowAdvanced(false);
@@ -1091,42 +1146,61 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                   </span>
                 ) : (
                   <>
-                    {/* ONE clear action per scene: generate it (plan + draw,
-                        backend self-heals the plan), or regenerate if it's done. */}
-                    {scene.storyboardGridCount === 0 ? (
+                    {/* ONE big primary = this scene's next step. Stage colour:
+                        1 storyboard (purple) → 2 pictures (orange) → 3 animate (green).
+                        Redo is a small secondary once pictures exist. */}
+                    {sceneCards.length === 0 && scene.storyboardGridCount === 0 ? (
                       <button onClick={() => handleGenerateScene(scene.sceneNumber)}
                         disabled={running || storyLocked}
-                        title={storyLocked ? "Unlock the story first (top right)" : "Plan this scene and draw its pictures"}
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                        title={storyLocked ? "Unlock the story first (top right)" : "Write a quick one-image storyboard to preview the direction"}
+                        className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
                         style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
-                        <ImageIcon size={13} /> Generate scene
+                        <LayoutGrid size={15} /> Generate storyboard
+                      </button>
+                    ) : sceneCards.length === 0 ? (
+                      <button onClick={() => handleGenerateRealImages(scene.sceneNumber)}
+                        disabled={running || storyLocked}
+                        title={storyLocked ? "Unlock the story first (top right)" : "Draw the real per-shot pictures for this scene"}
+                        className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                        style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
+                        <ImageIcon size={15} /> Generate pictures
                       </button>
                     ) : (
-                      <button onClick={() => handleRedoSceneFromScratch(scene.sceneNumber)}
-                        disabled={running || storyLocked || clearingScene === scene.sceneNumber}
-                        title={storyLocked ? "Unlock the story first (top right)" : "Throw away this scene and make a fresh plan + new pictures"}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                        style={{ background: "rgba(168, 85, 247, 0.15)", color: "var(--purple)", border: "1px solid rgba(168, 85, 247, 0.4)" }}>
-                        {clearingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={13} />} Regenerate
-                      </button>
-                    )}
-                    {videoStageEnabled && scenePending.length > 0 && (
                       <>
-                        {confirmKey === sceneKey && (
-                          <button onClick={() => setConfirmKey(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                            Cancel
+                        {videoStageEnabled && scenePending.length > 0 && (
+                          <>
+                            {confirmKey === sceneKey && (
+                              <button onClick={() => setConfirmKey(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                                Cancel
+                              </button>
+                            )}
+                            <button
+                              onClick={() => confirmable(sceneKey, sceneCost, () => animateScene(scene.sceneNumber, scenePending.map((a) => a.id)))}
+                              disabled={running}
+                              className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all hover:brightness-110"
+                              style={confirmKey === sceneKey
+                                ? { background: "var(--gold)", color: "var(--bg-void)" }
+                                : { background: "var(--green)", color: "var(--bg-void)" }}>
+                              <Play size={15} />
+                              {confirmKey === sceneKey ? `Confirm — $${sceneCost.toFixed(2)}` : `Animate scene · $${sceneCost.toFixed(2)}`}
+                            </button>
+                          </>
+                        )}
+                        {videoStageEnabled && scenePending.length === 0 && (
+                          <button onClick={() => handleStitchScene(scene.sceneNumber)}
+                            disabled={running}
+                            title="Stitch this scene's clips into one video you can watch"
+                            className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+                            <Film size={15} /> {scene.sceneVideoUrl ? "Re-stitch scene" : "Stitch scene"}
                           </button>
                         )}
-                        <button
-                          onClick={() => confirmable(sceneKey, sceneCost, () => animateScene(scene.sceneNumber, scenePending.map((a) => a.id)))}
-                          disabled={running}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 transition-all hover:bg-white/5"
-                          style={confirmKey === sceneKey
-                            ? { background: "var(--gold)", color: "var(--bg-void)" }
-                            : { border: "1px solid rgba(255,255,255,0.15)", color: "var(--text-secondary)" }}>
-                          {confirmKey === sceneKey
-                            ? `Confirm — $${sceneCost.toFixed(2)}`
-                            : `Animate this scene · $${sceneCost.toFixed(2)}`}
+                        <button onClick={() => handleRedoSceneFromScratch(scene.sceneNumber)}
+                          disabled={running || storyLocked || clearingScene === scene.sceneNumber}
+                          title={storyLocked ? "Unlock the story first (top right)" : "Draw fresh pictures, replacing the current ones"}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-all hover:bg-white/5 disabled:opacity-40"
+                          style={{ color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.15)" }}>
+                          {clearingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={13} />} Redo
                         </button>
                       </>
                     )}
@@ -1135,10 +1209,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               </div>
             </div>
 
-            {/* Boards — the scene's plan made visible; drag in replacements */}
+            {/* Board + animatic side by side — equal halves, same line. */}
+            <div className="flex flex-col lg:flex-row gap-4 mb-3 lg:items-stretch">
             {(scene.storyboardBeats.length > 0 || scene.hasStoryboardData) && (
-              <div className="mb-3">
-                <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+              <div className="lg:flex-1 min-w-0">
+                <div className={`flex gap-4 pb-2 ${scene.storyboardBeats.length === 1 ? "" : "overflow-x-auto"}`} style={{ scrollbarWidth: "thin" }}>
                   {scene.storyboardBeats.map((beat) => {
                     const slotKey = `${scene.sceneNumber}-${beat.beatNumber}`;
                     // Boards update in place at the same URL — cache-bust by the
@@ -1150,11 +1225,14 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                       ? `${toDisplayImageUrl(beat.gridUrl)}${bust ? `?cb=${bust}` : ""}`
                       : undefined;
                     return (
-                      <div key={`grid-${slotKey}`} className="flex-shrink-0 relative group/board">
+                      <div key={`grid-${slotKey}`} className={`relative group/board ${scene.storyboardBeats.length === 1 ? "w-full" : "flex-shrink-0"}`}>
                         <div
                           className="relative rounded-lg overflow-hidden cursor-pointer transition-all hover:ring-2 hover:ring-[var(--purple)]"
                           style={{
-                            width: 300, height: 176, background: "var(--bg-elevated)",
+                            ...(scene.storyboardBeats.length === 1
+                              ? { width: "100%", aspectRatio: "16 / 9" }
+                              : { width: 300, height: 176 }),
+                            background: "var(--bg-elevated)",
                             border: dragOver === slotKey
                               ? "2px solid var(--green)"
                               : beat.gridUrl
@@ -1246,8 +1324,22 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               </div>
             )}
 
-            {/* Animatic: pictures + narration = the scene as a film, $0 */}
+            {/* Animatic (right half): pictures + narration = the scene as a film, $0 */}
+            <div className="lg:flex-1 min-w-0">
             {(() => {
+              // Real stitched scene video (FFmpeg concat of the clips) wins over the
+              // still-image animatic. Cache-bust by the scene's updated_at so a
+              // re-stitch shows the new cut.
+              if (scene.sceneVideoUrl) {
+                const v = `${scene.sceneVideoUrl}${scene.gridVersion ? `?cb=${scene.gridVersion}` : ""}`;
+                return (
+                  <>
+                    <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--turquoise)" }}>Watch this scene</p>
+                    <video key={v} src={v} controls playsInline className="w-full rounded-xl"
+                      style={{ aspectRatio: "16 / 9", background: "#000" }} />
+                  </>
+                );
+              }
               const panels = scene.assets
                 .filter((a) => a.image_url)
                 .map((a) => ({ url: toDisplayImageUrl(a.image_url)!, text: a.sentence_text || "" }));
@@ -1258,6 +1350,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                 ? <SecureAudioPlayer videoId={video.id} scene={scene.sceneNumber} />
                 : <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>;
             })()}
+            </div>
+            </div>
 
             {/* Narration text — collapsed */}
             <details className="mb-3">
@@ -1272,20 +1366,26 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               </p>
             </details>
 
-            {/* Beat prompts — collapsed */}
-            {scene.storyboardBeats.length > 0 && (
-              <details className="mb-3">
-                <summary className="text-[10px] cursor-pointer" style={{ color: "var(--text-tertiary)" }}>
-                  {scene.storyboardBeats.length} picture plan{scene.storyboardBeats.length !== 1 ? "s" : ""}
-                </summary>
-                <div className="space-y-2 mt-2">
-                  {scene.storyboardBeats.map((beat) => (
-                    <PromptExpander key={`prompt-${scene.sceneNumber}-${beat.beatNumber}`}
-                      prompt={beat.prompt} label={`Beat ${beat.beatNumber}`} previewLength={120} />
-                  ))}
-                </div>
-              </details>
-            )}
+            {/* Beat prompts — collapsed. Only for storyboards with a written plan;
+                the cheap one-image storyboard has no per-beat text (the plan is the
+                picture), so skip the empty accordion. */}
+            {(() => {
+              const planned = scene.storyboardBeats.filter((b) => b.prompt.trim());
+              if (planned.length === 0) return null;
+              return (
+                <details className="mb-3">
+                  <summary className="text-[10px] cursor-pointer" style={{ color: "var(--text-tertiary)" }}>
+                    {planned.length} picture plan{planned.length !== 1 ? "s" : ""}
+                  </summary>
+                  <div className="space-y-2 mt-2">
+                    {planned.map((beat) => (
+                      <PromptExpander key={`prompt-${scene.sceneNumber}-${beat.beatNumber}`}
+                        prompt={beat.prompt} label={`Beat ${beat.beatNumber}`} previewLength={120} />
+                    ))}
+                  </div>
+                </details>
+              );
+            })()}
 
             {/* ── Pictures + clips: one card per story segment ── */}
             {sceneCards.length > 0 && (
@@ -1310,7 +1410,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     onDeleteClip={() => removeClip(asset)}
                     onDeletePicture={() => handleClearExtractedPanel(asset.id)}
                     onRecrop={() => recropOne(asset)}
-                    onFixText={() => fixTextOne(asset)}
+                    onRedraw={() => redrawOne(asset)}
                   />
                 ))}
               </div>
@@ -1325,7 +1425,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
 /** One story segment: shows the clip when it exists (tap = play), else the
  * final picture (tap = animate, ~$0.10). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onFixText }: {
+function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
@@ -1340,12 +1440,18 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
   onDeleteClip: () => void;
   onDeletePicture: () => void;
   onRecrop: () => void;
-  onFixText: () => void;
+  onRedraw: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasClip = Boolean(asset.video_clip_url);
   const badCrop = (asset.extraction_flags?.length ?? 0) > 0;
   const label = `S-${String(asset.scene ?? 0).padStart(2, "0")}.${asset.image_index ?? 0}`;
+  // Per-clip motion prompt: edit before animating. Saved to assets.video_prompt,
+  // which the clip stage reads — so this override drives the next animate.
+  const [prompt, setPrompt] = useState(asset.video_prompt || "");
+  const [promptState, setPromptState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [imgPrompt, setImgPrompt] = useState(asset.image_prompt || "");
+  const [imgState, setImgState] = useState<"idle" | "saving" | "error">("idle");
 
   useEffect(() => {
     const v = videoRef.current;
@@ -1446,14 +1552,17 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
         {!isGenerating && !isRecropping && (
           <>
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={(e) => { e.stopPropagation(); onFixText(); }}
-                disabled={disabled}
-                title="Garbled text on a title/word card? Redraw it with clean, legible text via GPT Image 2 (~$0.05)."
-                className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:brightness-125 disabled:opacity-50"
-                style={{ background: "rgba(0,0,0,0.6)", color: "var(--text-secondary)" }}>
-                <Type size={13} />
-              </button>
+              {asset.image_url && (
+                <a
+                  href={`${asset.image_url}${asset.image_url.includes("?") ? "&" : "?"}download=${label}.png`}
+                  download={`${label}.png`}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Download this picture"
+                  className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:brightness-125"
+                  style={{ background: "rgba(0,0,0,0.6)", color: "var(--text-secondary)" }}>
+                  <Download size={13} />
+                </a>
+              )}
               {hasClip ? (
                 <>
                   <button
@@ -1498,6 +1607,61 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
         <p className="text-[11px] leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
           {asset.sentence_text || asset.video_prompt || "—"}
         </p>
+        {/* Image prompt — edit + redraw just this picture (anchored on the locked cast). */}
+        <details className="mt-2" onClick={(e) => e.stopPropagation()}>
+          <summary className="text-[10px] cursor-pointer select-none inline-flex items-center gap-1" style={{ color: "var(--text-tertiary)" }}>
+            <ImageIcon size={10} /> Image prompt — edit &amp; redraw
+          </summary>
+          <textarea
+            value={imgPrompt}
+            onChange={(e) => { setImgPrompt(e.target.value); setImgState("idle"); }}
+            onClick={(e) => e.stopPropagation()}
+            rows={4}
+            placeholder="Describe this picture. Redraw keeps your locked characters."
+            className="w-full mt-1.5 text-[11px] rounded-lg p-2 outline-none resize-y"
+            style={{ background: "var(--bg-void)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,0.12)" }}
+          />
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              setImgState("saving");
+              try { await updateImagePrompt(asset.id, imgPrompt); onRedraw(); setImgState("idle"); }
+              catch { setImgState("error"); }
+            }}
+            disabled={imgState === "saving"}
+            className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
+            style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
+            <RotateCcw size={11} /> {imgState === "saving" ? "Starting…" : imgState === "error" ? "Failed — retry" : "Redraw picture · ~$0.08"}
+          </button>
+        </details>
+        {/* Motion prompt — click to fine-tune how this shot moves before animating.
+            stopPropagation so editing never triggers the card's tap-to-animate. */}
+        <details className="mt-2" onClick={(e) => e.stopPropagation()}>
+          <summary className="text-[10px] cursor-pointer select-none inline-flex items-center gap-1" style={{ color: "var(--text-tertiary)" }}>
+            <Film size={10} /> Motion prompt{hasClip ? "" : " — edit before animating"}
+          </summary>
+          <textarea
+            value={prompt}
+            onChange={(e) => { setPrompt(e.target.value); setPromptState("idle"); }}
+            onClick={(e) => e.stopPropagation()}
+            rows={4}
+            placeholder="How should this shot move? Leave blank to auto-write it."
+            className="w-full mt-1.5 text-[11px] rounded-lg p-2 outline-none resize-y"
+            style={{ background: "var(--bg-void)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,0.12)" }}
+          />
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              setPromptState("saving");
+              try { await updateVideoPrompt(asset.id, prompt); setPromptState("saved"); }
+              catch { setPromptState("error"); }
+            }}
+            disabled={promptState === "saving"}
+            className="mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
+            style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
+            {promptState === "saving" ? "Saving…" : promptState === "saved" ? "Saved ✓" : promptState === "error" ? "Failed — retry" : "Save prompt"}
+          </button>
+        </details>
       </div>
     </GlassCard>
   );

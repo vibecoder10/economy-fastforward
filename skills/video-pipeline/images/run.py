@@ -160,6 +160,10 @@ async def _generate_images(pipeline) -> dict:
         model_override = ""
     if model_override:
         print(f"     🔄 Model override active: {model_override} ({ImageClient.VALID_SCENE_MODELS[model_override]})")
+    else:
+        # GPT Image 2 is our default scene model (best character lock from the cast sheet).
+        model_override = "gpt-image-2"
+        print("     🔄 No override — defaulting to GPT Image 2")
 
     use_reference = bool(pipeline.core_image_url) and model_override != Models.IMAGE_ZIMAGE
     if model_override == Models.IMAGE_ZIMAGE:
@@ -206,6 +210,8 @@ async def _generate_images(pipeline) -> dict:
                 try:
                     if model_override == Models.IMAGE_ZIMAGE:
                         result = await pipeline.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
+                    elif model_override == "gpt-image-2":
+                        result = await pipeline.image_client.generate_scene_image_gpt(prompt, pipeline.core_image_url if use_reference else None)
                     elif use_reference:
                         result = await pipeline.image_client.generate_scene_image(prompt, pipeline.core_image_url)
                     else:
@@ -304,6 +310,8 @@ async def _generate_images(pipeline) -> dict:
                 try:
                     if model_override == Models.IMAGE_ZIMAGE:
                         result = await pipeline.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
+                    elif model_override == "gpt-image-2":
+                        result = await pipeline.image_client.generate_scene_image_gpt(prompt, pipeline.core_image_url if use_reference else None)
                     elif use_reference:
                         result = await pipeline.image_client.generate_scene_image(prompt, pipeline.core_image_url)
                     else:

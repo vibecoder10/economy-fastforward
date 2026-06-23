@@ -88,6 +88,10 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
     totalSegments: assets.length,
     clipsDone: assets.filter((a) => a.video_clip_url).length,
     clipsTotal: assets.filter((a) => a.image_url).length,
+    // Distinct scenes that actually have pictures. In the coverage flow a scene
+    // with no pictures has NO asset rows, so asset counts alone can't tell it's
+    // missing — compare this against totalScenes to avoid a premature "Animate".
+    scenesWithPictures: new Set(assets.filter((a) => a.image_url).map((a) => a.scene)).size,
   });
 
   const refreshAll = () => {
