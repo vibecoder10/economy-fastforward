@@ -514,7 +514,8 @@ async def get_text_client_for_tenant(tenant_id: str) -> Any:
         return KieClaudeClient(kie_key)
 
     raise MissingGenerationKeyError(
-        "Kie.ai API key required. Add it in Settings > API Keys."
+        "Add your AI key to get started — the setup chat on the home page walks you "
+        "through it in about 2 minutes (or add it in Settings → API Keys)."
     )
 
 

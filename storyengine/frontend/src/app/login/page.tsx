@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Spinner } from "@/components/ui/spinner";
-import { getOnboardingStatus } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
 
 export default function LoginPage() {
@@ -17,21 +16,13 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function redirectAfterAuth() {
-    try {
-      const status = await getOnboardingStatus();
-      router.replace(status.completed ? "/" : "/onboarding"); // chat is the home screen
-    } catch {
-      // Default to onboarding when status check fails (e.g. missing DB columns)
-      // A new user needs onboarding; a returning user will be redirected to dashboard
-      // by the onboarding page itself once it detects completion.
-      router.replace("/onboarding");
-    }
-  }
-
+  // Chat is the home screen and runs onboarding itself — ChatHome auto-starts the
+  // guided setup (intent → API key → channel → …) for brand-new users and shows the
+  // normal welcome for returning ones. So everyone lands on "/"; we no longer split
+  // new users off to the legacy /onboarding wizard (which bypassed the key step).
   useEffect(() => {
     if (!isLoading && user) {
-      redirectAfterAuth();
+      router.replace("/");
     }
   }, [user, isLoading]);
 
