@@ -26,13 +26,15 @@ export default function YouTubeCallbackPage() {
         setStatus("success");
         setChannelName(data.channel_name || "");
 
-        // Redirect back to origin page (onboarding or settings)
+        // Redirect back to origin page (chat onboarding, old wizard, or settings)
         const origin = localStorage.getItem("youtube_oauth_origin");
         localStorage.removeItem("youtube_oauth_origin");
 
-        const redirectTo = origin === "/onboarding"
-          ? "/onboarding?yt_connected=true"
-          : "/settings";
+        const redirectTo = origin === "chat"
+          ? "/?connected=yt"
+          : origin === "/onboarding"
+            ? "/onboarding?yt_connected=true"
+            : "/settings";
 
         setTimeout(() => router.replace(redirectTo), 1500);
       })

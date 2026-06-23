@@ -45,8 +45,14 @@ export default function DriveCallbackPage() {
       })
       .then(() => {
         setStatus("success");
-        // Redirect back to settings after a brief success message
-        setTimeout(() => router.replace("/settings"), 1500);
+        // Return to chat onboarding if that's where the connect started, else settings.
+        let origin: string | null = null;
+        try {
+          origin = localStorage.getItem("drive_oauth_origin");
+          localStorage.removeItem("drive_oauth_origin");
+        } catch { /* private mode */ }
+        const redirectTo = origin === "chat" ? "/?connected=drive" : "/settings";
+        setTimeout(() => router.replace(redirectTo), 1500);
       })
       .catch((err) => {
         setStatus("error");

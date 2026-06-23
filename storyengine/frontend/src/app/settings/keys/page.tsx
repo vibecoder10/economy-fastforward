@@ -46,6 +46,22 @@ const KEY_LABELS: Record<string, { name: string; description: string; group?: st
   google_refresh_token: { name: "Google Drive", description: "Asset storage", group: "Google", required: false },
 };
 
+// Click-pay-copy-paste help for the two keys a new creator actually needs.
+// Kept tiny: a link to where they make the key + the literal steps, shown on the
+// card and inside the Configure modal so getting a key never needs a tutorial.
+const KEY_HELP: Record<string, { url: string; label: string; steps: string[] }> = {
+  kie_ai_api_key: {
+    url: "https://kie.ai/api-key",
+    label: "Get a Kie.ai key",
+    steps: ["Sign up at kie.ai", "Add a few dollars of credit", "Create an API key and copy it", "Paste it below"],
+  },
+  anthropic_api_key: {
+    url: "https://console.anthropic.com/settings/keys",
+    label: "Get a Claude key",
+    steps: ["Sign in at console.anthropic.com", "Add billing credit", "Create a key and copy it", "Paste it below"],
+  },
+};
+
 function IntegrationStatusDot({ status }: { status: "connected" | "not_configured" | "error" }) {
   const colors = {
     connected: "bg-[var(--success)]",
@@ -340,6 +356,24 @@ export default function ApiKeysPage() {
               {KEY_LABELS[editingKey || ""]?.description}
             </p>
 
+            {editingKey && KEY_HELP[editingKey] && (
+              <div className="rounded-lg bg-[var(--surface-elevated)] p-3 text-xs text-[var(--text-secondary)]">
+                <a
+                  href={KEY_HELP[editingKey].url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-[var(--accent)] hover:underline"
+                >
+                  {KEY_HELP[editingKey].label} →
+                </a>
+                <ol className="mt-1.5 list-decimal space-y-0.5 pl-4">
+                  {KEY_HELP[editingKey].steps.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
             {saveStatus === "error" && saveError && (
               <div className="flex items-center gap-2 rounded-lg bg-[var(--error)]/10 p-3 text-xs text-[var(--error)]">
                 <XCircle size={14} />
@@ -426,6 +460,16 @@ function ApiKeyCard({
               </span>
             </div>
             <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{description}</p>
+            {KEY_HELP[apiKey.name] && !apiKey.configured && (
+              <a
+                href={KEY_HELP[apiKey.name].url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] hover:underline"
+              >
+                {KEY_HELP[apiKey.name].label} →
+              </a>
+            )}
             <div className="mt-1.5">
               <IntegrationStatusDot status={integrationStatus} />
             </div>

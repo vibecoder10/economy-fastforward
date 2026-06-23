@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
@@ -18,10 +18,17 @@ import { visualPresetById } from "@/lib/visual-presets";
 import {
   sendChatTurn,
   getOnboardingStatus,
+  getYouTubeConnectUrl,
+  getDriveConnectUrl,
   type ChatCard,
   type ChatTurnRequest,
   type ProductionPlan,
 } from "@/lib/api";
+
+// localStorage keys for the OAuth round-trip during onboarding: the connect
+// button stashes the active conversation so ChatHome can resume it when Google
+// sends the user back to /?connected=yt|drive.
+const CHAT_CID_KEY = "se_chat_cid";
 
 // The 5 plain-English progress states, in order (mirrors status_map.FRIENDLY_STATE_ORDER).
 const FRIENDLY_ORDER = [
@@ -62,16 +69,41 @@ function formatLength(secs: number): string {
   return s === 0 ? `${m} min` : `${m}m ${s}s`;
 }
 
-// Minimal markdown for chat bubbles: **bold** -> <strong>; newlines are handled
-// by CSS (whitespace-pre-wrap). ponytail: no markdown dependency for one feature.
+// Minimal markdown for chat bubbles: **bold** -> <strong> and [text](url) ->
+// a new-tab link (used by the onboarding key step). Newlines are handled by CSS
+// (whitespace-pre-wrap). ponytail: no markdown dependency for two patterns.
 function renderRich(text: string) {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") ? (
-      <strong key={i}>{part.slice(2, -2)}</strong>
-    ) : (
-      part
-    )
-  );
+  return text.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g).map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(part);
+    if (link) {
+      return (
+        <a
+          key={i}
+          href={link[2]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold underline underline-offset-2"
+          style={{ color: "var(--turquoise)" }}
+        >
+          {link[1]}
+        </a>
+      );
+    }
+    return part;
+  });
+}
+
+// Hide a pasted API key in the transcript — it's a secret, so we don't leave it
+// readable on screen or in a screenshot. A key is one long token with no spaces.
+function maskSecret(text: string): string {
+  const t = text.trim();
+  if (/^(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{24,})$/.test(t)) {
+    return "•".repeat(8) + t.slice(-4);
+  }
+  return text;
 }
 
 export function ChatHome() {
@@ -102,6 +134,7 @@ export function ChatHome() {
     try {
       const res = await sendChatTurn({ ...req, conversation_id: conversationId ?? req.conversation_id ?? null });
       setConversationId(res.conversation_id);
+      try { localStorage.setItem(CHAT_CID_KEY, res.conversation_id); } catch { /* private mode */ }
       if (res.video_id) setCreatedVideoId(res.video_id);
       setMessages((m) => [
         ...m,
@@ -124,6 +157,23 @@ export function ChatHome() {
     if (autoTriedRef.current) return;
     autoTriedRef.current = true;
     let cancelled = false;
+
+    // Resume onboarding after an account-connect OAuth round-trip. Google sends
+    // the user back to /?connected=yt|drive; we reload the stashed conversation
+    // and tell the backend that step is done so it advances to the next one.
+    const connected = new URLSearchParams(window.location.search).get("connected");
+    if (connected === "yt" || connected === "drive") {
+      let cid: string | null = null;
+      try { cid = localStorage.getItem(CHAT_CID_KEY); } catch { /* private mode */ }
+      window.history.replaceState(null, "", window.location.pathname); // don't re-resume on refresh
+      const sel = connected === "yt" ? { connect_yt: "connected" } : { connect_drive: "connected" };
+      (async () => {
+        if (!cancelled) await turn({ conversation_id: cid, selections: sel });
+        if (!cancelled) setChecking(false);
+      })();
+      return () => { cancelled = true; };
+    }
+
     (async () => {
       try {
         const s = await getOnboardingStatus();
@@ -278,7 +328,7 @@ export function ChatHome() {
                   : { background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }
               }
             >
-              {m.role === "user" ? m.text : renderRich(m.text)}
+              {m.role === "user" ? maskSecret(m.text) : renderRich(m.text)}
             </div>
           </motion.div>
         ))}
@@ -369,6 +419,35 @@ function Composer({
   );
 }
 
+// --- account-connect button (YouTube analytics / Google Drive OAuth) ------
+// Stashes a "chat" origin so the existing callbacks return to /?connected=…,
+// then sends the user same-tab to Google. ChatHome resumes onboarding on return.
+function ConnectButton({ kind }: { kind: string }) {
+  const [opening, setOpening] = useState(false);
+  const isYt = kind === "connect_yt";
+  async function connect() {
+    setOpening(true);
+    try {
+      localStorage.setItem(isYt ? "youtube_oauth_origin" : "drive_oauth_origin", "chat");
+      const { auth_url } = isYt ? await getYouTubeConnectUrl() : await getDriveConnectUrl();
+      window.location.href = auth_url;
+    } catch {
+      setOpening(false); // surfaced as a no-op; the Skip option still advances
+    }
+  }
+  return (
+    <button
+      onClick={connect}
+      disabled={opening}
+      className="mb-3 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-50"
+      style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+    >
+      {opening ? <Loader2 size={16} className="animate-spin" /> : isYt ? <Youtube size={16} /> : <HardDrive size={16} />}
+      {opening ? "Opening Google…" : isYt ? "Connect YouTube" : "Connect Google Drive"}
+    </button>
+  );
+}
+
 // --- selector cards -------------------------------------------------------
 
 function SelectorCards({
@@ -404,6 +483,9 @@ function SelectorCards({
               </span>
             )}
           </div>
+          {(card.id === "connect_yt" || card.id === "connect_drive") && (
+            <ConnectButton kind={card.id} />
+          )}
           {isSliderCard(card) ? (
             <div className="px-1">
               <input

@@ -495,6 +495,95 @@ _UPSELL_DETAIL = (
 
 _SKIP_WORDS = {"skip", "no", "none", "n/a", "nope", "later"}
 
+# --- API-key onboarding step ------------------------------------------------
+# A brand-new tenant has NO generation key, and StoryEngine has no shared key
+# (get_text_client_for_tenant raises if neither anthropic_api_key nor
+# kie_ai_api_key is set). So before anything that needs Claude, we walk them
+# through pasting one — Kie.ai recommended (one key = text + images + video),
+# Anthropic accepted (auto-detected). The key arrives as composer text; we save
+# it to the Vault and validate it with the same test_api_key the Settings page
+# uses, so a bad paste is caught here instead of failing three steps later.
+_KEY_URL = "https://kie.ai/api-key"
+_KEY_PROMPT = (
+    "Quick bit of setup: StoryEngine runs on **your own AI key**, so your work stays "
+    "private and you only pay for what you make. I recommend **Kie.ai** — one key powers "
+    "scripts, voices, images, and video.\n\n"
+    "**Get your key in about 2 minutes:**\n"
+    f"1. [Open kie.ai to create your key →]({_KEY_URL}) — sign up and add a few dollars of credit\n"
+    "2. Click **Create API Key**, then copy it\n"
+    "3. Paste it right here in the chat 👇\n\n"
+    "Already have an Anthropic (Claude) key? Paste that instead — I'll detect it automatically."
+)
+
+
+def _pick_key(raw: str):
+    """Pull an API key out of a pasted message and route it to the right Vault slot.
+
+    Returns (slot, key) on success, or (None, friendly_error) when it's not a key
+    we accept. Keys have no spaces, so if they pasted a sentence we take the longest
+    token; surrounding quotes are stripped. Only Anthropic uses the `sk-ant-` prefix,
+    so detection is unambiguous; an `sk-` (OpenAI) key is the one common wrong paste
+    worth calling out."""
+    if not raw:
+        return None, None
+    token = max(raw.replace('"', " ").replace("'", " ").split(), key=len, default="")
+    if token.startswith("sk-ant-"):
+        return "anthropic_api_key", token
+    if token.startswith("sk-"):
+        return None, ("That looks like an OpenAI key. I need your **Kie.ai** key, or an "
+                      "Anthropic key that starts with `sk-ant-`.")
+    if len(token) >= 16:
+        return "kie_ai_api_key", token
+    return None, "Paste the whole key — it's a long string with no spaces."
+
+
+async def _has_generation_key(tenant_id) -> bool:
+    """True if this tenant already has a usable text/image key — so returning
+    users (and Ryan testing) aren't forced to re-paste during a manual restart."""
+    from vault import get_secret
+    for slot in ("anthropic_api_key", "kie_ai_api_key"):
+        try:
+            if await get_secret(slot, tenant_id):
+                return True
+        except Exception:  # noqa: BLE001 — a missing key is the common case, not an error
+            pass
+    return False
+
+
+# --- account-connect steps (YouTube analytics + Google Drive) ---------------
+# Two optional, skippable OAuth steps. The frontend renders a "Connect" button
+# (it owns the per-tenant auth_url via getYouTube/DriveConnectUrl), sends the
+# user same-tab to Google, and the existing callbacks return to "/?connected=…"
+# so ChatHome resumes onboarding. The OAuth callback persists the tokens, so the
+# chat step just records intent and advances — either choice moves on.
+ONBOARDING_CONNECT_YT_CARD = {
+    "id": "connect_yt", "label": "", "type": "single",
+    "options": [
+        {"value": "connected", "label": "I've connected it"},
+        {"value": "skip", "label": "Skip for now"},
+    ],
+}
+ONBOARDING_CONNECT_DRIVE_CARD = {
+    "id": "connect_drive", "label": "", "type": "single",
+    "options": [
+        {"value": "connected", "label": "I've connected it"},
+        {"value": "skip", "label": "Skip for now"},
+    ],
+}
+_CONNECT_YT_TEXT = (
+    "Now let's connect your **YouTube analytics** — this lets me learn what's already working "
+    "on your channel (your real views, retention, and winners) and post finished videos straight "
+    "to YouTube for you.\n\n"
+    "Tap **Connect YouTube** below, approve access in the Google window, and I'll bring you right "
+    "back here. (Optional — tap **Skip for now** to do it later.)"
+)
+_CONNECT_DRIVE_TEXT = (
+    "One more: **Google Drive**, so I can save your scripts, images, and finished videos straight "
+    "to your own Drive.\n\n"
+    "Tap **Connect Google Drive**, approve access, and I'll bring you back here. (Optional — you "
+    "can skip and add it later.)"
+)
+
 
 def _guess_intent(msg: str) -> Optional[str]:
     m = (msg or "").lower()
@@ -931,6 +1020,14 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
             return await _ob_reply(conversation_id, tenant_id, transcript, state,
                 "No worries — just pick one so I can tailor things:", cards=[ONBOARDING_INTENT_CARD])
         state["intent"] = intent
+        # New tenants need a generation key before any Claude step; existing
+        # ones (already keyed) skip straight to setup.
+        if not await _has_generation_key(tenant_id):
+            state["onboarding_step"] = "key"
+            lead = ("A storyteller — love it. " if intent == "stories"
+                    else "Nice — let's put your channel on autopilot. ")
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                lead + _KEY_PROMPT)
         if intent == "stories":
             state["onboarding_step"] = "channel"
             return await _ob_reply(conversation_id, tenant_id, transcript, state,
@@ -940,6 +1037,32 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         return await _ob_reply(conversation_id, tenant_id, transcript, state,
             "Nice — let's put your channel on autopilot. What should I handle for you?",
             cards=[ONBOARDING_GOALS_CARD])
+
+    if step == "key":
+        raw = (body.message or "").strip()
+        if not raw:
+            # They tapped the link but haven't pasted yet — re-show the ask.
+            return await _ob_reply(conversation_id, tenant_id, transcript, state, _KEY_PROMPT)
+        slot, val = _pick_key(raw)
+        if not slot:
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                (val or "Paste the whole key — it's a long string with no spaces.") + "\n\n" + _KEY_PROMPT)
+        from vault import set_secret, test_api_key
+        await set_secret(slot, val, tenant_id=tenant_id, description="Onboarding generation key")
+        result = await test_api_key(slot, tenant_id)
+        if not result.get("success"):
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                f"That key didn't go through — {result.get('message') or 'please double-check it'}. "
+                "Copy the whole key and paste it again 👇")
+        state["key_provider"] = "claude" if slot == "anthropic_api_key" else "kie"
+        ack = f"✅ You're powered up — {result.get('message')}. "
+        if state.get("intent") == "stories":
+            state["onboarding_step"] = "channel"
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                ack + "If you have a channel, paste its URL so I can match its vibe (or say “skip”).")
+        state["onboarding_step"] = "goals"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            ack + "Now — what should I handle for you?", cards=[ONBOARDING_GOALS_CARD])
 
     if step == "goals":
         goals = sel.get("goals")
@@ -982,9 +1105,24 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
                 ack = "I'll line those up. "
         else:
             ack = "No competitors for now — you can add them anytime. "
+        state["onboarding_step"] = "connect_yt"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            ack + "\n\n" + _CONNECT_YT_TEXT, cards=[ONBOARDING_CONNECT_YT_CARD])
+
+    if step == "connect_yt":
+        # Either choice advances — analytics is optional and the OAuth callback
+        # already stored the tokens if they connected. "connected" arrives via the
+        # resume turn ChatHome sends after Google returns to /?connected=yt.
+        state["youtube_oauth"] = sel.get("connect_yt") or "skip"
+        state["onboarding_step"] = "connect_drive"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            _CONNECT_DRIVE_TEXT, cards=[ONBOARDING_CONNECT_DRIVE_CARD])
+
+    if step == "connect_drive":
+        state["drive_oauth"] = sel.get("connect_drive") or "skip"
         state["onboarding_step"] = "upsell"
         return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            ack + "\n\n" + _UPSELL_TEXT, cards=[ONBOARDING_UPSELL_CARD])
+            _UPSELL_TEXT, cards=[ONBOARDING_UPSELL_CARD])
 
     if step == "upsell":
         choice = sel.get("upsell") or ("tell_more" if "more" in msg.lower() else "carry_on")
