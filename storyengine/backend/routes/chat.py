@@ -209,23 +209,36 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 if status in ("idea_logged", "approved"):
                     await _advance("ready_for_scripting")
                     continue
-                # Storyboards gate on environments AND characters being designed/approved
-                # (or skipped). For a hands-off build, auto-pass both so it reaches the
-                # pictures; the creator reviews the pictures (the checkpoint) and can refine
-                # characters/backgrounds there. COALESCE so we never clobber a real approval.
-                if status in ("ready_for_image_prompts", "ready_for_storyboards", "ready_for_storyboard_images"):
+                # IMAGE PHASE: draw the pictures via the COVERAGE flow — the same path the
+                # Scenes-page "pictures" button uses (generate_coverage_for_video), which
+                # auto-builds the cast from the Story Bible and saves real picture assets.
+                # The old status-map storyboard handlers no-op now, so we call coverage
+                # directly, then stop at the pictures-review checkpoint.
+                if status in ("ready_for_image_prompts", "ready_for_storyboards",
+                              "ready_for_storyboard_images", "ready_for_storyboard_extraction"):
+                    # Satisfy the storyboard gates (env skipped, characters approved) and
+                    # build the Story Bible the cast auto-builder anchors on.
                     await execute(
                         "UPDATE videos SET environments_approved_at = COALESCE(environments_approved_at, now()), "
                         "characters_approved_at = COALESCE(characters_approved_at, now()), "
                         "updated_at = now() WHERE id = $1 AND tenant_id = $2",
                         video_id, tenant_id)
-                # Storyboards also need a Story Bible (visual consistency doc, built from
-                # the script). It isn't a status step, so generate it on the way in.
-                if status == "ready_for_storyboards":
                     try:
                         await ex.run_story_bible(video_id)
-                    except Exception:  # noqa: BLE001 — best-effort; storyboards will report if still missing
+                    except Exception:  # noqa: BLE001
                         pass
+                    _set_task_status(video_id, "running", "Drawing the storyboard pictures…", tenant_id=tenant_id)
+
+                    def _cov_progress(m):
+                        _set_task_status(video_id, "running", m, tenant_id=tenant_id)
+
+                    from scripts.coverage_to_app import generate_coverage_for_video
+                    cov = await generate_coverage_for_video(video_id, tenant_id, progress=_cov_progress) or {}
+                    if cov.get("status") == "completed":
+                        await _advance("ready_for_images")
+                        continue  # next loop: ready_for_images is the stop point
+                    _set_task_status(video_id, "failed", cov.get("error") or "Couldn't draw the pictures.", tenant_id=tenant_id)
+                    return
                 _set_task_status(video_id, "running", "Working on it…", tenant_id=tenant_id)
                 result = await ex.run_next_step(video_id) or {}
                 rs = result.get("status")
