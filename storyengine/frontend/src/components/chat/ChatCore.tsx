@@ -62,8 +62,9 @@ const EXAMPLES = [
 const DOCK_HINT =
   "Ask about this video, or tell me what to do next — e.g. “animate scene 2”, “redo the thumbnail”, or “how much has this cost?”";
 
-// Length is a slider: 5 seconds → 30 minutes, in 5-second steps.
-const LENGTH_MIN = 5;
+// Length is a slider: 1 minute → 30 minutes, in 5-second steps. The engine's floor
+// is 1 minute, so the slider starts there (no offering lengths it can't build).
+const LENGTH_MIN = 60;
 const LENGTH_MAX = 1800;
 const LENGTH_STEP = 5;
 const LENGTH_DEFAULT = 60;
@@ -701,7 +702,7 @@ function SelectorCards({
                 style={{ accentColor: "var(--turquoise)" }}
               />
               <div className="flex justify-between text-[10px] mt-1" style={{ color: "var(--text-tertiary)" }}>
-                <span>5 sec</span>
+                <span>1 min</span>
                 <span>30 min</span>
               </div>
             </div>

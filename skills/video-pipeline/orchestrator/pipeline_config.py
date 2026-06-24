@@ -25,8 +25,8 @@ class VideoConfig:
 
     def __init__(self, video_length_minutes: int = 10, clip_duration_seconds: int = 10):
         # Input validation
-        if video_length_minutes < 3:
-            raise ValueError("Minimum video length is 3 minutes")
+        if video_length_minutes < 1:
+            raise ValueError("Minimum video length is 1 minute")
         if video_length_minutes > 30:
             raise ValueError("Maximum video length is 30 minutes")
         if clip_duration_seconds not in (6, 10):
@@ -46,8 +46,9 @@ class VideoConfig:
         self.script_min_words = self.total_script_words - 150
         self.script_max_words = self.total_script_words + 150
 
-        # Computed: structure
-        self.act_count = max(3, min(6, video_length_minutes // 2))
+        # Computed: structure. Short videos (1-2 min) get a single act; 3+ min keep
+        # the established 3-6 act structure (unchanged).
+        self.act_count = max(3, min(6, video_length_minutes // 2)) if video_length_minutes >= 3 else 1
         self.clips_per_act = self.total_clips // self.act_count
         self.scenes_per_act = max(2, self.clips_per_act // self._clips_per_scene())
 
@@ -128,6 +129,15 @@ class VideoConfig:
 
 # Act structure templates scaled by act count
 ACT_TEMPLATES = {
+    1: [
+        # Short videos (1-2 min): one tight beat. Generic/format-agnostic so it works
+        # for any topic, not just the legacy geopolitics structure below.
+        {"name": "The Whole Thing", "purpose": "Hook fast, deliver the idea clearly, land the payoff", "pct": 1.0},
+    ],
+    2: [
+        {"name": "Hook & Setup", "purpose": "Grab attention and set up the idea", "pct": 0.5},
+        {"name": "Payoff", "purpose": "Deliver the answer/idea and end strong", "pct": 0.5},
+    ],
     3: [
         {"name": "Setup & Event", "purpose": "Hook + what happened", "pct": 0.35},
         {"name": "Framework & Proof", "purpose": "Why it matters + historical parallel", "pct": 0.40},

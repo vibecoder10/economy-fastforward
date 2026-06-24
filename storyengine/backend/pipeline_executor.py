@@ -1214,11 +1214,15 @@ class PipelineExecutor:
                 original_dna = {}
         pack = (original_dna or {}).get("modeled_pack") or {}
         concepts = pack.get("scene_concepts") or []
+        minutes = int(video.get("video_length_minutes") or 10)
+        # Scene count + word target scale with length so a SHORT (1-2 min) video isn't
+        # forced into a long, over-segmented script. 3+ min keep their prior values.
+        default_scenes = max(2, min(8, round(minutes * 2.5)))
+        target_words = max(120, minutes * 145)
+        min_scenes = 3 if minutes >= 3 else 2
         concept_lines = "\n".join(
             f"{i}. {c.get('concept')}" for i, c in enumerate(concepts, start=1)
-        ) or "Structure the story into 8 natural scenes."
-        minutes = int(video.get("video_length_minutes") or 10)
-        target_words = max(300, minutes * 145)
+        ) or f"Structure the story into {default_scenes} natural scenes."
 
         research = video.get("research_payload")
         if isinstance(research, dict):
@@ -1262,12 +1266,12 @@ no stage directions, no labels, no headings."""
                 temperature=0.7 if attempt == 0 else 0.4,
             )
             scenes = self._parse_modeled_scenes(raw)
-            if len(scenes) >= 3:
+            if len(scenes) >= min_scenes:
                 break
             if attempt == 0:
                 await self._log_activity(bot_name, video_id, "started",
                                          "Reformatting script for clean scene breaks")
-        if len(scenes) < 3:
+        if len(scenes) < min_scenes:
             raise Exception("Modeled script came back with too few scenes")
 
         full_script = "\n\n".join(s["text"].strip() for s in scenes)
