@@ -401,10 +401,14 @@ story, or promise the whole script will pay off. Give the viewer a reason to \
 care immediately. End the section on an open loop that pulls them forward.
 
 MIDDLE SECTIONS:
-Each middle section must ESCALATE — raise the stakes, deepen the payoff, or \
-sharpen the question. Never plateau and never repeat. Ground every claim in \
-the source material. Deliver a payoff at least every ~90 seconds and end each \
-section on an open loop into the next. Specifics over vagueness, always.
+Each middle section must ADVANCE the story relative to the section before it — \
+add new information, a complication, a turn, or higher stakes. Never plateau and \
+never restate: do NOT restage the previous beat in a new setting (the same \
+character doing the same thing somewhere else, or the same point remade with \
+fresh examples). If a section would repeat the one before it, escalate or turn \
+instead. Ground every claim in the source material. Deliver a payoff at least \
+every ~90 seconds and end each section on an open loop into the next. Specifics \
+over vagueness, always.
 
 PAYOFF SECTION:
 Deliver the resolution, answer, or transformation the opening promised. This \

@@ -649,6 +649,28 @@ def _extract_topics_from_act(act_text: str) -> list[str]:
     return topics
 
 
+# Distinctive geopolitical clusters (countries / leaders / orgs). The 'energy' and 'finance'
+# clusters are excluded as the drift gate because their members ('oil', 'gas', 'dollar', 'euro')
+# are common words an ordinary narrative might use — they'd falsely mark a story as geopolitical.
+_DRIFT_GATE_CLUSTERS = {k: v for k, v in _GEOPOLITICAL_CLUSTERS.items() if k not in ("energy", "finance")}
+
+
+def _geopolitical_cluster_count(acts: dict[int, str]) -> int:
+    """How many distinct geopolitical clusters (countries/leaders/orgs) the script touches,
+    matched on WORD BOUNDARIES. The topic-drift check is built on these clusters; a narrative
+    story (characters, everyday settings) touches ~none, so its scene changes and
+    sentence-initial words ('Another', 'More') would be counted as false drift. Used to skip
+    the check when its premise doesn't hold."""
+    blob = " ".join(acts.values()).lower()
+    hits = set()
+    for name, members in _DRIFT_GATE_CLUSTERS.items():
+        for m in members:
+            if re.search(r"\b" + re.escape(m) + r"\b", blob):
+                hits.add(name)
+                break
+    return len(hits)
+
+
 def _check_act_coherence(
     acts: dict[int, str],
     max_topics_per_act: int = 3,
@@ -658,6 +680,12 @@ def _check_act_coherence(
     Returns (passed, drifting_acts, detail_string).
     drifting_acts maps act_num -> list of detected topic shifts
     """
+    # The drift detector is geopolitics-tuned (proper-noun / domain clusters). On a narrative
+    # script it just flags new characters and places as "topic shifts" — noise. Skip it when
+    # the script touches no geopolitical clusters at all (its premise doesn't hold).
+    if _geopolitical_cluster_count(acts) < 1:
+        return True, {}, "Narrative script — topic-drift check not applicable"
+
     drifting_acts = {}
 
     for act_num, act_text in acts.items():
