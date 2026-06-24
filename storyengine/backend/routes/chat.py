@@ -151,29 +151,98 @@ async def _persist(conversation_id, tenant_id, transcript, state, phase, video_i
     )
 
 
-# --- pipeline kickoff (mirrors routes/pipeline.run_next_step's _run) --------
+# --- pipeline kickoff: chain the build (reuses the task-status channel) ------
 
-def _make_run_step(tenant_id, video_id: str, *, user_intent: Optional[str] = None,
-                   start_msg: str = "Getting started…"):
-    """Return a coroutine that runs the next pipeline step in the background and
-    reports status the same way routes/pipeline.py does (so the existing SSE
-    stream + task polling pick it up)."""
+# Statuses BEFORE the pictures-review checkpoint — the auto-build keeps advancing
+# while the video is in one of these; it stops the moment it reaches
+# ready_for_images (pictures generated, awaiting review).
+_BUILD_TO_PICTURES = {
+    "idea_logged", "approved", "ready_for_scripting", "ready_for_voice",
+    "ready_for_image_prompts", "ready_for_storyboards",
+    "ready_for_storyboard_images", "ready_for_storyboard_extraction",
+}
+_DONE_STATUSES = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
+_PICTURES_READY_MSG = ("Your pictures are ready — review them, then say “animate it” or “finish it” "
+                       "and I'll take it the rest of the way.")
+
+
+def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                         start_msg: str = "Building your video…"):
+    """Chain the pipeline automatically instead of running one step. target='pictures'
+    runs research -> script -> (voice) -> storyboards -> pictures and STOPS at the
+    pictures-review checkpoint; target='finish' runs the rest (clips + render) to a
+    finished video, auto-passing the review gates. Robust: research failure is
+    non-fatal (skips to script), voice is best-effort (no key -> skipped), and the
+    loop is hard-capped + stops on no-progress so it can never run away."""
     from pipeline_executor import PipelineExecutor
     from routes.pipeline import _clear_task_status, _set_task_status
+    from status_map import get_next_status_supabase
+
+    async def _advance(to_status: str):
+        await execute("UPDATE videos SET status=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                      to_status, video_id, tenant_id)
 
     async def _run():
         _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
         try:
-            executor = PipelineExecutor(tenant_id)
-            result = await executor.run_next_step(video_id, user_intent=user_intent)
-            _set_task_status(
-                video_id, result.get("status", "completed"),
-                result.get("error") or result.get("message"), tenant_id=tenant_id,
-            )
-        except Exception as e:  # noqa: BLE001 — surface as a failed task, not a 500
+            ex = PipelineExecutor(tenant_id)
+            last = None
+            for _ in range(18):  # hard cap — the pipeline is ~14 stages deep
+                video = await ex._get_video(video_id)
+                if not video:
+                    _set_task_status(video_id, "failed", "Video not found", tenant_id=tenant_id)
+                    return
+                status = video.get("status")
+                if target == "pictures" and status not in _BUILD_TO_PICTURES:
+                    _set_task_status(video_id, "completed", _PICTURES_READY_MSG, tenant_id=tenant_id)
+                    return
+                if target == "finish" and status in _DONE_STATUSES:
+                    _set_task_status(video_id, "completed", "Your video is rendered — take a look!", tenant_id=tenant_id)
+                    return
+                if status == last:  # no progress — never loop forever
+                    _set_task_status(video_id, "completed", f"Paused at {status}.", tenant_id=tenant_id)
+                    return
+                last = status
+                # 'approved' just means research is done; move to the script (no re-research).
+                if status == "approved":
+                    await _advance("ready_for_scripting")
+                    continue
+                _set_task_status(video_id, "running", "Working on it…", tenant_id=tenant_id)
+                result = await ex.run_next_step(video_id) or {}
+                rs = result.get("status")
+                if rs == "needs_approval":
+                    if status == "ready_for_voice":
+                        try:
+                            await ex.run_voice(video_id)  # best-effort; no voice key -> skip
+                        except Exception:  # noqa: BLE001
+                            pass
+                        nxt = get_next_status_supabase(status)
+                        if nxt:
+                            await _advance(nxt)
+                        continue
+                    if target == "finish" and status in ("ready_for_images", "ready_for_thumbnail"):
+                        nxt = get_next_status_supabase(status)  # already reviewed -> pass the gate
+                        if nxt:
+                            await _advance(nxt)
+                        continue
+                    msg = _PICTURES_READY_MSG if status == "ready_for_images" else (result.get("message") or "Paused for your review.")
+                    _set_task_status(video_id, "completed", msg, tenant_id=tenant_id)
+                    return
+                if rs == "failed":
+                    if status in ("idea_logged", "approved"):  # research is optional — keep going
+                        await _advance("ready_for_scripting")
+                        continue
+                    _set_task_status(video_id, "failed", result.get("error") or "A step failed.", tenant_id=tenant_id)
+                    return
+                if rs == "idle":
+                    _set_task_status(video_id, "completed", f"Reached {status}.", tenant_id=tenant_id)
+                    return
+                # completed — the handler advanced the status; loop continues.
+            _set_task_status(video_id, "completed", "Build paused — say “keep going” to continue.", tenant_id=tenant_id)
+        except Exception as e:  # noqa: BLE001
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
-            await asyncio.sleep(30)
+            await asyncio.sleep(20)
             _clear_task_status(video_id, tenant_id)
 
     return _run
@@ -269,11 +338,15 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
         )
 
     video_id = summary.id
-    background_tasks.add_task(_make_run_step(tenant_id, video_id))
+    # Auto-build the whole thing up to the pictures (research -> script -> pictures),
+    # then it pauses for review — not a single step.
+    background_tasks.add_task(_make_autobuild_step(
+        tenant_id, video_id, target="pictures",
+        start_msg=f"Building “{spec.get('title') or 'your video'}” — research, script, then the pictures…"))
     title = spec.get("title") or "your video"
     assistant_text = (
-        f"Love it. I'm making “{title}” now — I'll keep you posted right "
-        "here as it comes together."
+        f"Love it. I'm building “{title}” now — I'll research it, write the script, and generate the "
+        "pictures, then pause so you can review them. Follow along right here."
     )
     transcript.append(_assistant_turn({"assistant_text": assistant_text, "phase": "created"}))
     await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
@@ -351,7 +424,7 @@ _PICTURE_COST = 0.08
 # a free-text change applied via _apply_followup_edit before the re-run.
 COPILOT_ACTIONS: dict[str, dict[str, Any]] = {
     "script":      {"calls": [("run_script", False)], "paid": True, "needs": None, "edit": True,
-                    "doing": "rewriting the script", "label": "Rewrite the script"},
+                    "doing": "writing the script", "label": "Write the script"},
     "storyboards": {"calls": [("run_storyboard_prompts", True), ("run_storyboard_images", True)], "paid": True,
                     "needs": "scenes", "doing": "drawing the storyboards", "label": "Generate storyboards"},
     "images":      {"calls": [("run_prompts", True), ("run_images", True)], "paid": True, "needs": "scenes", "edit": True,
@@ -366,9 +439,10 @@ COPILOT_ACTIONS: dict[str, dict[str, Any]] = {
                     "doing": "redoing the thumbnail", "label": "Redo the thumbnail"},
     "render":      {"calls": [("run_render", False)], "paid": True, "needs": "clips",
                     "doing": "rendering the final video", "label": "Render the final video"},
-    # meta verb: advance runs whatever the next pipeline step is (spends money).
-    "advance":     {"calls": None, "paid": True, "needs": None,
-                    "doing": "running the next step", "label": "Run the next step"},
+    # meta verb: build auto-runs the pipeline to the next checkpoint — to the pictures
+    # if we're before them, else all the way to a finished video. NOT one step.
+    "build":       {"calls": None, "paid": True, "needs": None,
+                    "doing": "building your video", "label": "Build the video"},
 }
 # Plain-English reason an action can't run yet (gate keyed by `needs`).
 _NEEDS_REASON = {
@@ -496,7 +570,15 @@ async def _estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], s
         cost = 0.02
     elif verb == "render":
         cost = 0.0
-    else:  # advance — next step is unknown; give a soft signal
+    elif verb == "build":
+        # Rough: pictures phase ~= scenes * ~6 shots * $0.08; finish phase ~= the
+        # clips. Scenes unknown on a fresh video -> assume ~5.
+        scenes = summary["scenes"] or 5
+        if summary["status"] in _BUILD_TO_PICTURES:
+            cost = scenes * 6 * _PICTURE_COST
+        else:
+            cost = (summary["pics"] or scenes * 6) * clip
+    else:
         cost = 0.0
     text = "no extra cost" if cost <= 0 else f"~${cost:.2f}"
     return round(cost, 2), text
@@ -519,8 +601,8 @@ def _confirm_card(verb: str, scene: Optional[int], cost_text: str) -> dict[str, 
 def _make_copilot_step(tenant_id, video_id: str, calls: list, *, scene: Optional[int] = None,
                        start_msg: str = "On it…"):
     """Run an action's executor methods in order, passing scene= to the ones that
-    accept it. Same task-status channel as _make_run_step so the page's trackers
-    light up. Stops on the first error."""
+    accept it. Same task-status channel as the rest so the page's trackers light
+    up. Stops on the first error."""
     from pipeline_executor import PipelineExecutor
     from routes.pipeline import _clear_task_status, _set_task_status
 
@@ -561,12 +643,16 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
             {"guidance_append": pending["change"], "video_length_minutes": pending.get("length_min")},
         )
     doing = cfg["doing"] + (f" for scene {scene}" if scene is not None else "")
-    if verb == "advance":
-        background_tasks.add_task(_make_run_step(tenant_id, video_id, start_msg="Moving to the next step…"))
-    else:
-        background_tasks.add_task(
-            _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…")
-        )
+    if verb == "build":
+        target = pending.get("target") or "pictures"
+        msg = ("On it — building your video. I'll run research, script and the pictures, then stop so "
+               "you can review them." if target == "pictures"
+               else "On it — finishing your video (animating the clips and rendering). I'll update you here.")
+        background_tasks.add_task(_make_autobuild_step(tenant_id, video_id, target=target, start_msg=msg))
+        return msg
+    background_tasks.add_task(
+        _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…")
+    )
     return f"On it — {doing} now. I'll update you right here."
 
 
@@ -660,7 +746,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
            + ".\n" if ui_context.get("scene") else "")
         + f'\nThe creator said: "{msg}"\n\n'
         "ACTIONS (kind=action, exact verb): script, storyboards, images, voice, animate, sound, thumbnail, "
-        "render, advance. Use these when they want to RUN/redo a step.\n"
+        "render — for RUNNING/redoing a SINGLE step. 'animate' is ONE scene (give the scene). "
+        "Use 'build' when they want the whole video built or moved forward — 'build it', 'make the video', "
+        "'do it', 'run it all', 'keep going', 'generate it', 'finish it', 'animate everything'. build runs "
+        "the pipeline automatically to the next checkpoint, NOT one step.\n"
         "PROMPT work (kind=prompt) when they talk about the PROMPT itself — 'rewrite/enhance the prompt', "
         "'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks off, rewrite its "
         "prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail | script), "
@@ -670,7 +759,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
         "Return ONE JSON object and nothing else:\n"
         '{"kind":"read|action|prompt",'
-        '"verb":"script|storyboards|images|voice|animate|sound|thumbnail|render|advance|none",'
+        '"verb":"script|storyboards|images|voice|animate|sound|thumbnail|render|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'
@@ -738,6 +827,9 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # dock holds it behind a one-tap confirm card.
     pending = {"verb": verb, "scene": scene, "change": (data.get("change") or "").strip(),
                "length_min": data.get("length_min")}
+    if verb == "build":
+        # To pictures if we're before them, else finish the rest.
+        pending["target"] = "pictures" if summary["status"] in _BUILD_TO_PICTURES else "finish"
     if not docked:
         line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
         return await _reply(line)
