@@ -203,8 +203,10 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     _set_task_status(video_id, "completed", f"Paused at {status}.", tenant_id=tenant_id)
                     return
                 last = status
-                # 'approved' just means research is done; move to the script (no re-research).
-                if status == "approved":
+                # Skip the optional research step — it's slow/flaky (web/YouTube blocks)
+                # and the script writes fine from the topic. Go straight to the script;
+                # the creator can run research on demand. This was the actual stall.
+                if status in ("idea_logged", "approved"):
                     await _advance("ready_for_scripting")
                     continue
                 _set_task_status(video_id, "running", "Working on it…", tenant_id=tenant_id)
