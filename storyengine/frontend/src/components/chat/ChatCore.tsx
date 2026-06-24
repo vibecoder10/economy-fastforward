@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
@@ -23,9 +23,12 @@ import {
   getYouTubeConnectUrl,
   getDriveConnectUrl,
   getChatConversation,
+  getSuggestedModels,
   type ChatCard,
   type ChatTurnRequest,
   type ProductionPlan,
+  type SuggestedModels,
+  type SuggestedModelVideo,
 } from "@/lib/api";
 
 // localStorage keys for the OAuth round-trip during onboarding: the connect
@@ -131,6 +134,7 @@ export function ChatCore({
   const [createdVideoId, setCreatedVideoId] = useState<string | null>(null);
   const [picks, setPicks] = useState<Record<string, string | string[]>>({});
   const [checking, setChecking] = useState(true); // first-load onboarding-status / hydrate
+  const [suggested, setSuggested] = useState<SuggestedModels | null>(null); // "worth modeling" (home)
   const endRef = useRef<HTMLDivElement>(null);
   const autoTriedRef = useRef(false);
 
@@ -149,6 +153,12 @@ export function ChatCore({
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending, createdVideoId]);
+
+  // Home only: load "worth modeling" suggestions from the creator's modeled channel.
+  useEffect(() => {
+    if (docked) return;
+    getSuggestedModels().then(setSuggested).catch(() => { /* none — fall back to examples */ });
+  }, [docked]);
 
   async function turn(req: ChatTurnRequest, userBubble?: string) {
     if (sending) return;
@@ -391,24 +401,36 @@ export function ChatCore({
           <Sparkles size={14} /> New here? Start here — I'll set up your channel
         </button>
 
-        <div className="mt-6 flex flex-col gap-2 w-full">
-          {EXAMPLES.map((ex) => (
-            <button
-              key={ex}
-              onClick={() => turn({ message: ex }, ex)}
-              className="text-left text-sm rounded-xl px-4 py-3 transition-all hover:brightness-110"
-              style={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border-subtle)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              <span style={{ color: "var(--turquoise)" }}>“</span>
-              {ex}
-              <span style={{ color: "var(--turquoise)" }}>”</span>
-            </button>
-          ))}
-        </div>
+        {suggested?.videos?.length ? (
+          <ModelSuggestions
+            data={suggested}
+            onPick={(v) =>
+              turn(
+                { message: `Make a video modeled on "${v.title}" from ${suggested.channel ?? "the channel I'm modeling"} — same hook and winning format, but my own spin.` },
+                `Make one like “${v.title}”`,
+              )
+            }
+          />
+        ) : (
+          <div className="mt-6 flex flex-col gap-2 w-full">
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                onClick={() => turn({ message: ex }, ex)}
+                className="text-left text-sm rounded-xl px-4 py-3 transition-all hover:brightness-110"
+                style={{
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <span style={{ color: "var(--turquoise)" }}>“</span>
+                {ex}
+                <span style={{ color: "var(--turquoise)" }}>”</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -473,6 +495,55 @@ function Thinking() {
       >
         <Loader2 size={16} className="animate-spin" style={{ color: "var(--turquoise)" }} />
         <span className="text-sm">Thinking…</span>
+      </div>
+    </div>
+  );
+}
+
+// --- "worth modeling" suggestions (home) ----------------------------------
+// Real top videos from the channel the creator is modeling, with metrics + an AI
+// "why model this". Clicking one starts a video modeled on that proven format.
+function fmtViews(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+  return String(n);
+}
+
+function ModelSuggestions({ data, onPick }: { data: SuggestedModels; onPick: (v: SuggestedModelVideo) => void }) {
+  return (
+    <div className="mt-6 w-full flex flex-col gap-3 text-left">
+      <div className="flex items-center gap-2">
+        <TrendingUp size={15} style={{ color: "var(--turquoise)" }} />
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>
+          Worth modeling{data.channel ? ` · ${data.channel}` : ""}
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {data.videos.map((v) => (
+          <button
+            key={v.video_id}
+            onClick={() => onPick(v)}
+            className="group flex gap-3 items-stretch text-left rounded-xl p-2 transition-all hover:brightness-110"
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+          >
+            <div className="shrink-0 w-28 aspect-video rounded-lg overflow-hidden" style={{ background: "var(--bg-deep)" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={v.thumbnail} alt="" className="w-full h-full object-cover" loading="lazy" />
+            </div>
+            <div className="flex-1 min-w-0 flex flex-col gap-1 py-0.5">
+              <div className="text-sm font-medium line-clamp-1" style={{ color: "var(--text-primary)" }}>{v.title}</div>
+              <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                <span className="inline-flex items-center gap-1"><Eye size={11} /> {fmtViews(v.views)}</span>
+                <span>{v.posted}</span>
+                <span style={{ color: "var(--turquoise)" }}>{v.vph.toLocaleString()}/hr</span>
+              </div>
+              <div className="text-xs line-clamp-2" style={{ color: "var(--text-secondary)" }}>{v.why}</div>
+              <div className="text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1" style={{ color: "var(--turquoise)" }}>
+                Make one like this <ArrowRight size={11} />
+              </div>
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );

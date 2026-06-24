@@ -1958,6 +1958,120 @@ async def chat_turn(
     )
 
 
+# --- "Worth modeling" suggestions (home page) ------------------------------
+#
+# Surface the real top videos from the channel the creator is modeling
+# (competitor_videos), ranked by views-per-hour (what's breaking out now), each
+# with its metrics + an AI "why model this" analysis cached on the row so the home
+# page stays fast. Only appears when the creator actually has competitor data.
+
+def _ago(hours_old) -> str:
+    h = float(hours_old or 0)
+    if h <= 0:
+        return "recently"
+    if h < 24:
+        return f"{int(round(h))}h ago"
+    d = h / 24
+    return f"{int(round(d))}d ago" if d < 14 else f"{int(round(d / 7))}w ago"
+
+
+def _metric_why(r: dict) -> str:
+    """Fallback 'why' from the numbers alone, if the AI analysis isn't ready."""
+    vph = float(r.get("vph") or 0)
+    views = int(r.get("views") or 0)
+    fresh = float(r.get("hours_old") or 0) < 72
+    lead = "Breaking out" if vph >= 500 else "Strong performer"
+    fresh_bit = " and still fresh" if fresh else ""
+    return f"{lead}: {views:,} views at ~{vph:.0f}/hr{fresh_bit} — a proven format to model."
+
+
+async def _model_rationales(tenant_id, rows: list) -> dict:
+    """One batched AI call: a punchy 'why model this' per video. Returns
+    {video_id: why}. Falls back to the metric line on any failure."""
+    fallback = {r["video_id"]: _metric_why(r) for r in rows}
+    try:
+        from kie_unified import get_text_client_for_tenant
+        client = await get_text_client_for_tenant(tenant_id)
+    except Exception:  # noqa: BLE001 — no key; metric line is fine
+        return fallback
+    niche = ""
+    try:
+        cb = await fetch_one("SELECT creator_brief FROM channel_profiles WHERE tenant_id = $1", tenant_id)
+        brief = _as_dict((cb or {}).get("creator_brief"))
+        niche = (brief.get("niche") or brief.get("modeling_niche") or brief.get("channel") or "").strip()
+    except Exception:  # noqa: BLE001
+        pass
+    lines = [
+        f'{i + 1}. "{r["title"]}" — {int(r["views"] or 0):,} views, {float(r["vph"] or 0):.0f} views/hr, '
+        f'{_ago(r.get("hours_old"))}'
+        for i, r in enumerate(rows)
+    ]
+    prompt = (
+        "These are the current top videos on a YouTube channel a creator is modeling"
+        + (f" (the creator's niche: {niche})" if niche else "") + ":\n"
+        + "\n".join(lines)
+        + "\n\nFor EACH video, write ONE punchy sentence on why it's worth modeling — cite the concrete "
+        "signal (breakout views/hour, freshness, or view count) AND the format/hook pattern that's working, "
+        "and how the creator could make it their own. Plain, no hype words.\n"
+        'Return ONE JSON object: {"whys": ["...", ...]} with exactly one string per video, in the SAME order.'
+    )
+    try:
+        from producer_prompt import _extract_json
+        model = "claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None
+        kw: dict[str, Any] = {"prompt": prompt, "max_tokens": 700, "temperature": 0.4}
+        if model:
+            kw["model"] = model
+        data = json.loads(_extract_json((await client.generate(**kw)) or ""))
+        whys = data.get("whys") if isinstance(data, dict) else None
+        if isinstance(whys, list) and whys:
+            return {r["video_id"]: (str(whys[i]).strip() if i < len(whys) and whys[i] else _metric_why(r))
+                    for i, r in enumerate(rows)}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("suggested-models: rationale gen failed: %s", e)
+    return fallback
+
+
+@router.get("/suggested-models")
+async def suggested_models(tenant_id=Depends(get_tenant_id)):
+    """Top videos worth modeling from the creator's modeled channel, with metrics +
+    a cached AI 'why'. Empty when they have no competitor data (the home page then
+    falls back to the generic example prompts)."""
+    rows = await fetch_all(
+        "SELECT video_id, title, url, channel, views, vph, hours_old, model_rationale "
+        "FROM competitor_videos WHERE tenant_id = $1 AND views > 0 "
+        "ORDER BY vph DESC NULLS LAST LIMIT 5",
+        tenant_id,
+    )
+    if not rows:
+        return {"channel": None, "videos": []}
+    rows = [dict(r) for r in rows]
+    # Generate + cache a rationale for any row that doesn't have one yet.
+    missing = [r for r in rows if not (r.get("model_rationale") or "").strip()]
+    if missing:
+        whys = await _model_rationales(tenant_id, missing)
+        for r in missing:
+            why = whys.get(r["video_id"])
+            r["model_rationale"] = why
+            if why:
+                await execute(
+                    "UPDATE competitor_videos SET model_rationale = $1, model_rationale_at = now() "
+                    "WHERE tenant_id = $2 AND video_id = $3",
+                    why, tenant_id, r["video_id"],
+                )
+    videos = [{
+        "video_id": r["video_id"],
+        "title": r["title"],
+        "url": r.get("url"),
+        "channel": r.get("channel"),
+        "views": int(r.get("views") or 0),
+        "vph": round(float(r.get("vph") or 0)),
+        "posted": _ago(r.get("hours_old")),
+        "thumbnail": f"https://i.ytimg.com/vi/{r['video_id']}/hqdefault.jpg",
+        "why": (r.get("model_rationale") or _metric_why(r)),
+    } for r in rows]
+    return {"channel": rows[0].get("channel"), "videos": videos}
+
+
 @router.get("/conversation")
 async def get_conversation_for_video(video_id: str, tenant_id=Depends(get_tenant_id)):
     """Hydrate the dock on open: the prior messages of this video's conversation,

@@ -2342,3 +2342,23 @@ export interface ChatConversation {
 // resumes the whole backstory. Empty (conversation_id null) when none exists yet.
 export const getChatConversation = (videoId: string) =>
   fetchApi<ChatConversation>(`/api/chat/conversation?video_id=${encodeURIComponent(videoId)}`);
+
+// "Worth modeling" — the real top videos from the channel the creator is modeling,
+// with metrics + an AI 'why model this'. Empty when they have no competitor data.
+export interface SuggestedModelVideo {
+  video_id: string;
+  title: string;
+  url?: string | null;
+  channel?: string | null;
+  views: number;
+  vph: number;
+  posted: string;
+  thumbnail: string;
+  why: string;
+}
+export interface SuggestedModels {
+  channel: string | null;
+  videos: SuggestedModelVideo[];
+}
+export const getSuggestedModels = () =>
+  fetchApi<SuggestedModels>("/api/chat/suggested-models");
