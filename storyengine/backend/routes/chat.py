@@ -219,6 +219,13 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         "characters_approved_at = COALESCE(characters_approved_at, now()), "
                         "updated_at = now() WHERE id = $1 AND tenant_id = $2",
                         video_id, tenant_id)
+                # Storyboards also need a Story Bible (visual consistency doc, built from
+                # the script). It isn't a status step, so generate it on the way in.
+                if status == "ready_for_storyboards":
+                    try:
+                        await ex.run_story_bible(video_id)
+                    except Exception:  # noqa: BLE001 — best-effort; storyboards will report if still missing
+                        pass
                 _set_task_status(video_id, "running", "Working on it…", tenant_id=tenant_id)
                 result = await ex.run_next_step(video_id) or {}
                 rs = result.get("status")
