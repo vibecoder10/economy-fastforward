@@ -355,6 +355,9 @@ PLAN_LIMITS = {
     # $100 Pro — everything, including Autopilot.
     "pro": {"videos_per_month": 30, "render_minutes": 180, "concurrent_jobs": 3},
     "agency": {"videos_per_month": 50, "render_minutes": 500, "concurrent_jobs": 5},
+    # Comped / owner tier — effectively no caps. Set an account here with
+    # accounts.plan='unlimited' (see also rate_limit.py's PLAN_* maps).
+    "unlimited": {"videos_per_month": 1_000_000, "render_minutes": 1_000_000, "concurrent_jobs": 50},
 }
 
 
@@ -417,7 +420,7 @@ async def increment_usage(tenant_id, field: str, amount: int = 1):
 
 # Tier ladder for feature gating. Higher rank = more access. Trial users resolve
 # to 'pro' via _get_tenant_plan, so an active trial passes a require_plan("pro") gate.
-_PLAN_RANK = {"free": 0, "starter": 1, "pro": 2, "agency": 3, "studio": 3}
+_PLAN_RANK = {"free": 0, "starter": 1, "pro": 2, "agency": 3, "studio": 3, "unlimited": 4}
 
 
 def require_plan(min_tier: str):

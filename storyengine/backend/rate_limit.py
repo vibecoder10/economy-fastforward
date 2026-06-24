@@ -26,6 +26,7 @@ PLAN_LIMITS: dict[str, int] = {
     "pro": 200,
     "studio": 400,
     "agency": 400,
+    "unlimited": 10_000,  # comped / owner tier — effectively no per-minute cap
 }
 
 # Concurrent pipeline job limits per plan
@@ -36,6 +37,7 @@ PLAN_JOB_LIMITS: dict[str, int] = {
     "pro": 3,
     "studio": 5,
     "agency": 5,
+    "unlimited": 50,
 }
 
 # Paths that skip rate limiting entirely
