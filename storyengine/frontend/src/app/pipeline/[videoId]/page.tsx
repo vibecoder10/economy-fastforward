@@ -726,7 +726,7 @@ export default function VideoDetailPage() {
               </button>
             </div>
             <div className="flex-1 min-h-0">
-              <ChatCore videoId={videoId} docked />
+              <ChatCore videoId={videoId} docked uiContext={{ tab: rawTab }} />
             </div>
           </div>
         )}

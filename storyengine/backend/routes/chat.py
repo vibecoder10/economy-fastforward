@@ -71,6 +71,9 @@ class ChatTurnRequest(BaseModel):
     # presence means "this is the co-pilot dock" — find-or-create one conversation
     # per video AND hold paid/destructive actions behind a confirm card.
     video_id: Optional[str] = None
+    # What the creator is looking at in the dock, so "this image" / "image 1"
+    # resolves without naming the scene: {"scene": int, "index": int, "tab": str}.
+    ui_context: Optional[dict[str, Any]] = None
 
 
 class ChatTurnResponse(BaseModel):
@@ -574,6 +577,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     docked = bool(getattr(body, "video_id", None))
     msg = (body.message or "").strip()
     sel = body.selections or {}
+    ui_context = getattr(body, "ui_context", None) or {}
 
     async def _reply(text, cards=None):
         transcript.append(_assistant_turn({"assistant_text": text, "cards": cards, "phase": "created"}))
@@ -589,6 +593,19 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
             line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
             return await _reply(line)
         return await _reply("No problem — left it as it is. Tell me what you'd like instead.")
+
+    # --- prompt studio: apply (or cancel) a proposed prompt rewrite ---
+    if "prompt_apply" in sel:
+        draft = state.get("prompt_draft")
+        state["prompt_draft"] = None
+        if sel["prompt_apply"] == "yes" and draft:
+            # The dock sends the (possibly hand-edited) prompt text — full edit access.
+            edited = (sel.get("prompt_text") or "").strip()
+            if edited:
+                draft = {**draft, "draft": edited}
+            line = await _apply_prompt_draft(tenant_id, video_id, draft, background_tasks)
+            return await _reply(line)
+        return await _reply("No problem — kept the original prompt. Tell me what else you'd like.")
 
     if msg:
         transcript.append({"role": "user", "content": msg})
@@ -616,31 +633,52 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # one (the Kie client keeps its own valid default). Mirrors coverage_to_app.py.
     copilot_model = "claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None
 
+    # While a proposed prompt is open, plain text REFINES it (no spend). Bail words
+    # drop the draft; otherwise feed the words back as more direction and redraft.
+    draft = state.get("prompt_draft")
+    if draft and msg and not sel:
+        low = msg.lower()
+        if any(w in low for w in ("cancel", "never mind", "nevermind", "forget it", "leave it", "no thanks")):
+            state["prompt_draft"] = None
+            return await _reply("No problem — kept the original. What else can I do?")
+        new = await _rewrite_prompt(client, copilot_model, draft["surface"], draft["draft"], msg, summary["model"])
+        if new:
+            draft["draft"] = new
+            state["prompt_draft"] = draft
+            return await _reply(
+                f"Updated the prompt for {draft['label']} — review and tweak it below, then apply "
+                "(or keep adjusting in words).", cards=[_prompt_apply_card(draft, new)])
+        return await _reply("I couldn't adjust that — try wording it a different way?")
+
     prompt = (
-        "You are the in-app co-pilot for ONE video. The creator can ask questions about it OR tell you to "
-        "run a production step. Decide which, from their message and the current state.\n\n"
-        + _summary_line(summary) + "\n\n"
-        f'The creator said: "{msg}"\n\n'
-        "ACTIONS you can trigger (use the exact verb):\n"
-        "- script: rewrite/restructure the script, or change length/tone/pacing/content.\n"
-        "- storyboards: draw the storyboard sheets for a scene (or all).\n"
-        "- images: generate/redo the scene pictures.\n"
-        "- voice: generate the voiceover.\n"
-        "- animate: turn the pictures into motion clips (supports one scene).\n"
-        "- sound: add sound design / effects.\n"
-        "- thumbnail: make/redo the YouTube thumbnail.\n"
-        "- render: stitch the final video.\n"
-        "- advance: they just want to keep moving to the next step.\n\n"
-        "If they are ASKING a question (cost, what's left, why something looks a certain way, status), "
-        'kind is "read" and you answer it directly from the state above.\n\n'
+        "You are the in-app co-pilot for ONE video. The creator can (a) ASK a question, (b) tell you to RUN a "
+        "production step, or (c) work on a generation PROMPT (view it, get suggestions, or rewrite/enhance it "
+        "for a specific shot). Decide which.\n\n"
+        + _summary_line(summary) + "\n"
+        + (f"They are currently viewing scene {ui_context.get('scene')}"
+           + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
+           + ".\n" if ui_context.get("scene") else "")
+        + f'\nThe creator said: "{msg}"\n\n'
+        "ACTIONS (kind=action, exact verb): script, storyboards, images, voice, animate, sound, thumbnail, "
+        "render, advance. Use these when they want to RUN/redo a step.\n"
+        "PROMPT work (kind=prompt) when they talk about the PROMPT itself — 'rewrite/enhance the prompt', "
+        "'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks off, rewrite its "
+        "prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail | script), "
+        "op (view=show current | suggest=ideas only, no change | rewrite=write a new one to apply), the "
+        "scene/index of the shot (use the 'currently viewing' one if they say 'this' and name no shot), and "
+        "the direction.\n"
+        "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
         "Return ONE JSON object and nothing else:\n"
-        '{"kind":"read|action",'
+        '{"kind":"read|action|prompt",'
         '"verb":"script|storyboards|images|voice|animate|sound|thumbnail|render|advance|none",'
-        '"scene":<int scene number if they named one, else null>,'
-        '"change":"<for script/images/thumbnail: a concrete instruction to honor; else empty>",'
-        '"length_min":<int if they changed the length, else null>,'
-        '"answer":"<for read: a friendly, specific 1-2 sentence answer using the numbers above>",'
-        '"reply":"<for action: one friendly sentence naming what you\'ll do; for none: a clarifying question>",'
+        '"surface":"image|motion|thumbnail|script|null",'
+        '"op":"view|suggest|rewrite|null",'
+        '"scene":<int or null>,"index":<int picture/shot number or null>,'
+        '"change":"<for action edits: a concrete instruction; else empty>",'
+        '"direction":"<for prompt rewrite: the enhancement instruction; else empty>",'
+        '"length_min":<int or null>,'
+        '"answer":"<for read: a friendly, specific 1-2 sentence answer using the numbers>",'
+        '"reply":"<for action: one friendly sentence; for none: a clarifying question>",'
         '"confidence":<0.0-1.0>}'
     )
     try:
@@ -659,6 +697,11 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     verb = (data.get("verb") or "none").strip()
     reply = (data.get("reply") or "").strip()
     conf = float(data.get("confidence") or 0)
+
+    # --- prompt studio: view / suggest / rewrite a generation prompt ---
+    if kind == "prompt":
+        return await _handle_prompt_op(client, copilot_model, tenant_id, video_id,
+                                       summary, data, ui_context, state, _reply)
 
     # --- read: answer immediately, no spend ---
     if kind == "read" or verb == "none":
@@ -703,6 +746,235 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     state["pending_action"] = pending
     intro = reply or f"I can {cfg['label'].lower()}{f' for scene {scene}' if scene is not None else ''}."
     return await _reply(intro + " Want me to?", cards=[_confirm_card(verb, scene, cost_text)])
+
+
+# --- prompt studio (full prompt-edit access) --------------------------------
+#
+# The co-pilot can READ, SUGGEST improvements to, or REWRITE any generation prompt
+# — the per-shot picture prompt (assets.image_prompt) and motion prompt
+# (assets.video_prompt), the thumbnail prompt (videos.thumbnail_prompt), and a
+# scene's script text (scripts.scene_text). A rewrite is model-aware (it knows the
+# image model and the chosen video model) and is PROPOSED, not applied: the creator
+# reviews the new prompt, keeps refining it in words, and only on approval does it
+# save + regenerate that one shot. Reuses the same one-shot routes the Scenes page
+# uses (redraw_asset_image / run_clip_generation(force) / run_thumbnail).
+
+_PROMPT_SURFACES = {"image", "motion", "thumbnail", "script"}
+_IMAGE_GUIDE = ("Target: GPT Image 2 drawing ONE cinematic 16:9 frame. Keep the locked characters' exact looks. "
+                "Be concrete and visual — subject, action, composition, lighting, lens, mood. One flowing prompt, no lists.")
+_THUMB_GUIDE = ("Target: a high-CTR YouTube thumbnail. Bold focal subject, strong emotion/expression, high contrast, "
+                "readable at small size, minimal text. One flowing image prompt.")
+_SCRIPT_GUIDE = ("Target: the spoken script for this scene. Keep the story beats and characters; sharpen the hook, "
+                 "clarity, pacing and voice. Return the rewritten scene text only.")
+# Motion guidance keyed by the chosen video model (self-contained — no import risk).
+_MOTION_MODEL_GUIDE = {
+    "grok-imagine":     "Target: Grok Imagine motion (~6-10s). You MAY name one simple camera move. Keep motion physical and clear.",
+    "seedance-2-fast":  "Target: Seedance 2.0 cinematic motion (6-10s). Camera control + first/last frame supported — you may specify a camera move and pacing.",
+    "veo-3.1-fast":     "Target: Veo 3.1 (8s). NO in-prompt camera control — describe the SUBJECT's motion and the action, not camera operation. Rich cinematic detail works.",
+    "veo-3.1-quality":  "Target: Veo 3.1 (8s). NO in-prompt camera control — describe the SUBJECT's motion and the action. Rich cinematic detail works.",
+}
+
+
+def _surface_guide(surface: str, video_model: str) -> str:
+    if surface == "image":
+        return _IMAGE_GUIDE
+    if surface == "thumbnail":
+        return _THUMB_GUIDE
+    if surface == "script":
+        return _SCRIPT_GUIDE
+    return _MOTION_MODEL_GUIDE.get(video_model, "Target: a short motion clip from the picture. Describe the motion and action clearly.")
+
+
+async def _resolve_prompt_target(tenant_id, video_id, surface, scene, index, ui_context, summary) -> dict[str, Any]:
+    """Point a prompt op at a concrete thing + read its current prompt. Falls back to
+    the scene/image the creator is viewing; returns {"error": <ask>} when ambiguous."""
+    ui = ui_context or {}
+    if surface in ("image", "motion"):
+        sc = scene if scene is not None else ui.get("scene")
+        if sc is None:
+            return {"error": "Which scene's shot do you mean? e.g. “image 1 in scene 2”."}
+        rows = await fetch_all(
+            "SELECT id, image_index, image_prompt, video_prompt, image_url "
+            "FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 ORDER BY image_index",
+            video_id, tenant_id, int(sc),
+        )
+        if not rows:
+            return {"error": f"Scene {sc} doesn't have pictures yet — want me to make them first?"}
+        idx = index if index is not None else ui.get("index")
+        if idx is None:
+            if len(rows) == 1:
+                row, idx = rows[0], 1
+            else:
+                return {"error": f"Scene {sc} has {len(rows)} pictures — which one? (e.g. “image 1”)."}
+        else:
+            n = int(idx)
+            if n < 1 or n > len(rows):
+                return {"error": f"Scene {sc} has {len(rows)} pictures — pick 1 to {len(rows)}."}
+            row, idx = rows[n - 1], n
+        if surface == "motion" and not row.get("image_url"):
+            return {"error": f"Scene {sc} image {idx} hasn't been drawn yet — make the picture first."}
+        cur = (row.get("image_prompt" if surface == "image" else "video_prompt") or "").strip()
+        cost = _PICTURE_COST if surface == "image" else _CLIP_COST.get(summary["model"], 0.10)
+        noun = "picture" if surface == "image" else "clip"
+        return {"surface": surface, "asset_id": str(row["id"]), "scene": int(sc), "index": int(idx),
+                "label": f"scene {sc} {noun} {idx}", "current": cur, "apply_cost": cost}
+    if surface == "thumbnail":
+        v = await fetch_one("SELECT thumbnail_prompt FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
+        return {"surface": "thumbnail", "label": "the thumbnail",
+                "current": ((v or {}).get("thumbnail_prompt") or "").strip(), "apply_cost": 0.10}
+    if surface == "script":
+        sc = scene if scene is not None else ui.get("scene")
+        if sc is None:
+            return {"error": "Which scene's script do you mean? e.g. “the script for scene 2”."}
+        r = await fetch_one(
+            "SELECT scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
+            video_id, tenant_id, int(sc),
+        )
+        if not r or not (r.get("scene_text") or "").strip():
+            return {"error": f"Scene {sc} doesn't have written text yet."}
+        return {"surface": "script", "scene": int(sc), "label": f"scene {sc}'s script",
+                "current": r["scene_text"].strip(), "apply_cost": 0.0}
+    return {"error": "I can work on the picture, motion, thumbnail, or script prompt — which one?"}
+
+
+async def _rewrite_prompt(client, model_for_call, surface, current, direction, video_model) -> str:
+    guide = _surface_guide(surface, video_model)
+    p = ("You are refining a generation prompt. Rewrite it to honor the creator's direction and optimize it for "
+         "the target. PRESERVE the original intent and any specific characters/objects — never invent new ones.\n\n"
+         f"{guide}\n\nCURRENT PROMPT:\n{current or '(empty — write a strong one from the direction)'}\n\n"
+         f"CREATOR'S DIRECTION: {direction or '(no specific direction — just make it noticeably stronger)'}\n\n"
+         "Return ONLY the rewritten prompt text, nothing else.")
+    kw: dict[str, Any] = {"prompt": p, "max_tokens": 900, "temperature": 0.5}
+    if model_for_call:
+        kw["model"] = model_for_call
+    try:
+        return ((await client.generate(**kw)) or "").strip()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("copilot: rewrite failed: %s", e)
+        return ""
+
+
+async def _suggest_prompt(client, model_for_call, surface, current, video_model) -> str:
+    guide = _surface_guide(surface, video_model)
+    p = ("Give the creator 3-5 short, concrete suggestions to improve this generation prompt for the target. "
+         "Don't rewrite it — just the bullet suggestions.\n\n"
+         f"{guide}\n\nCURRENT PROMPT:\n{current or '(empty)'}\n\nReturn a short friendly message with the bullets.")
+    kw: dict[str, Any] = {"prompt": p, "max_tokens": 600, "temperature": 0.4}
+    if model_for_call:
+        kw["model"] = model_for_call
+    try:
+        return ((await client.generate(**kw)) or "").strip()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("copilot: suggest failed: %s", e)
+        return ""
+
+
+def _prompt_apply_card(target: dict[str, Any], draft_text: str) -> dict[str, Any]:
+    """The proposed prompt as a one-tap card. `body` carries the full prompt so the
+    dock can show it in an EDITABLE field — Apply sends back whatever's in that box
+    (so the creator has full edit access), falling back to this draft if untouched."""
+    cost = float(target.get("apply_cost") or 0)
+    verb = {"image": "redraw", "motion": "re-animate", "thumbnail": "redo", "script": "save"}[target["surface"]]
+    do = "Save it" if target["surface"] == "script" else \
+        f"Apply & {verb} · {'no extra cost' if cost <= 0 else f'~${cost:.2f}'}"
+    return {"id": "prompt_apply", "label": f"Apply to {target['label']}?", "type": "single",
+            "body": draft_text,
+            "options": [{"value": "yes", "label": do}, {"value": "no", "label": "Cancel"}]}
+
+
+def _make_prompt_regen(tenant_id, video_id: str, surface: str, *, asset_id: Optional[str] = None,
+                       start_msg: str = "Applying your prompt…"):
+    """Regenerate just the one shot a prompt was applied to (or no-op for script),
+    on the same task-status channel the page already watches."""
+    from pipeline_executor import PipelineExecutor
+    from routes.pipeline import _clear_task_status, _set_task_status
+
+    async def _run():
+        _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
+        try:
+            if surface == "image":
+                from scripts.coverage_to_app import redraw_asset_image
+                result = await redraw_asset_image(video_id, tenant_id, asset_id) or {}
+            elif surface == "motion":
+                result = await PipelineExecutor(tenant_id).run_clip_generation(
+                    video_id, asset_id=asset_id, force=True) or {}
+            elif surface == "thumbnail":
+                result = await PipelineExecutor(tenant_id).run_thumbnail(video_id) or {}
+            else:
+                result = {"status": "completed"}
+            _set_task_status(video_id, result.get("status", "completed"),
+                             result.get("error") or result.get("message"), tenant_id=tenant_id)
+        except Exception as e:  # noqa: BLE001
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(20)
+            _clear_task_status(video_id, tenant_id)
+
+    return _run
+
+
+async def _apply_prompt_draft(tenant_id, video_id, draft: dict[str, Any], background_tasks) -> str:
+    """Save the approved prompt to the right column, then regenerate that one shot."""
+    surface, text, label = draft["surface"], draft["draft"], draft["label"]
+    if surface == "image":
+        await execute("UPDATE assets SET image_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                      text, draft["asset_id"], tenant_id)
+        background_tasks.add_task(_make_prompt_regen(tenant_id, video_id, "image", asset_id=draft["asset_id"],
+                                                     start_msg=f"Redrawing {label}…"))
+        return f"Saved and redrawing {label} now — I'll update you here."
+    if surface == "motion":
+        await execute("UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                      text, draft["asset_id"], tenant_id)
+        background_tasks.add_task(_make_prompt_regen(tenant_id, video_id, "motion", asset_id=draft["asset_id"],
+                                                     start_msg=f"Re-animating {label}…"))
+        return f"Saved and re-animating {label} now — I'll update you here."
+    if surface == "thumbnail":
+        await execute("UPDATE videos SET thumbnail_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                      text, video_id, tenant_id)
+        background_tasks.add_task(_make_prompt_regen(tenant_id, video_id, "thumbnail",
+                                                     start_msg="Redoing the thumbnail…"))
+        return "Saved and redoing the thumbnail now — I'll update you here."
+    # script: just save the new scene text; downstream art is regenerated separately.
+    await execute("UPDATE scripts SET scene_text=$1, updated_at=now() WHERE video_id=$2 AND scene=$3 AND tenant_id=$4",
+                  text, video_id, draft["scene"], tenant_id)
+    return (f"Done — I've updated {label}. If you've already storyboarded this scene, you may want to "
+            "redo its pictures so they match.")
+
+
+async def _handle_prompt_op(client, model_for_call, tenant_id, video_id, summary, data,
+                            ui_context, state, _reply):
+    """view / suggest / rewrite a generation prompt. Rewrite proposes a draft + a
+    one-tap apply card; refinement happens via free text on the next turns."""
+    surface = (data.get("surface") or "").strip()
+    op = (data.get("op") or "rewrite").strip()
+    scene = data.get("scene"); scene = int(scene) if isinstance(scene, (int, float)) else None
+    index = data.get("index"); index = int(index) if isinstance(index, (int, float)) else None
+    direction = (data.get("direction") or data.get("change") or "").strip()
+    if surface not in _PROMPT_SURFACES:
+        return await _reply("I can rewrite the picture, motion, thumbnail, or script prompt — which one, "
+                            "and for which shot?")
+    target = await _resolve_prompt_target(tenant_id, video_id, surface, scene, index, ui_context, summary)
+    if target.get("error"):
+        return await _reply(target["error"])
+
+    if op == "view":
+        cur = target["current"] or "(no prompt saved for this one yet)"
+        return await _reply(f"Here's the current prompt for {target['label']}:\n\n{cur}")
+    if op == "suggest":
+        s = await _suggest_prompt(client, model_for_call, surface, target["current"], summary["model"])
+        return await _reply(s or "I couldn't read that one — try again?")
+
+    # rewrite -> propose a draft, hold it for one-tap apply.
+    new = await _rewrite_prompt(client, model_for_call, surface, target["current"], direction, summary["model"])
+    if not new:
+        return await _reply("I couldn't draft that — want to try again with a little more direction?")
+    state["prompt_draft"] = {"surface": surface, "asset_id": target.get("asset_id"), "scene": target.get("scene"),
+                             "index": target.get("index"), "label": target["label"], "draft": new,
+                             "apply_cost": target.get("apply_cost", 0.0)}
+    return await _reply(
+        f"Here's a stronger prompt for {target['label']} — tweak it below if you like, then apply "
+        "(or just tell me how to adjust it in words).",
+        cards=[_prompt_apply_card(target, new)])
 
 
 # --- onboarding ("Start Here") step-machine ---------------------------------

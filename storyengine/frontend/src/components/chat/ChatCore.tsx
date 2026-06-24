@@ -69,7 +69,6 @@ const LENGTH_STEP = 5;
 const LENGTH_DEFAULT = 60;
 
 const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string }).type === "slider";
-const isConfirmCard = (c: ChatCard) => c.id === "confirm_action";
 
 function formatLength(secs: number): string {
   if (secs < 60) return `${secs} sec`;
@@ -115,7 +114,15 @@ function maskSecret(text: string): string {
   return text;
 }
 
-export function ChatCore({ videoId, docked = false }: { videoId?: string; docked?: boolean }) {
+export function ChatCore({
+  videoId,
+  docked = false,
+  uiContext,
+}: {
+  videoId?: string;
+  docked?: boolean;
+  uiContext?: { tab?: string; scene?: number; index?: number } | null;
+}) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -135,7 +142,8 @@ export function ChatCore({ videoId, docked = false }: { videoId?: string; docked
   const showActive = (docked || !createdVideoId) && last?.role === "assistant";
   const activeCards = showActive ? last.cards : null;
   const activePlan = showActive ? last.plan : null;
-  const confirmCard = activeCards?.find(isConfirmCard) ?? null;
+  // One-tap action cards: the spend confirm and the editable proposed-prompt card.
+  const actionCard = activeCards?.find((c) => c.id === "confirm_action" || c.id === "prompt_apply") ?? null;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -152,6 +160,8 @@ export function ChatCore({ videoId, docked = false }: { videoId?: string; docked
         conversation_id: conversationId ?? req.conversation_id ?? null,
         // The dock tags every turn with its video so the backend gates paid actions.
         video_id: docked ? videoId ?? null : req.video_id ?? null,
+        // ...and what the creator is viewing, so "this image" resolves.
+        ui_context: docked ? uiContext ?? null : null,
       });
       setConversationId(res.conversation_id);
       try { localStorage.setItem(cidKey, res.conversation_id); } catch { /* private mode */ }
@@ -293,13 +303,21 @@ export function ChatCore({ videoId, docked = false }: { videoId?: string; docked
   // The active zone (cards / plan / created confirmation), shared by both layouts.
   const activeZone = (
     <>
-      {confirmCard && !sending && (
+      {actionCard?.id === "prompt_apply" && !sending && (
+        <PromptProposalCard
+          key={`pp-${messages.length}`}
+          card={actionCard}
+          onApply={(text) => turn({ selections: { prompt_apply: "yes", prompt_text: text } }, "Apply this prompt")}
+          onCancel={() => turn({ selections: { prompt_apply: "no" } }, "Cancel")}
+        />
+      )}
+      {actionCard?.id === "confirm_action" && !sending && (
         <ConfirmActionCard
-          card={confirmCard}
+          card={actionCard}
           onChoose={(value, label) => turn({ selections: { confirm_action: value } }, label)}
         />
       )}
-      {activeCards && !confirmCard && !sending && (
+      {activeCards && !actionCard && !sending && (
         <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSetValue={setPickValue} onSubmit={submitPicks} canSubmit={allCardsAnswered} />
       )}
       {activePlan && !sending && (
@@ -573,6 +591,61 @@ function ConfirmActionCard({
           {no?.label ?? "Cancel"}
         </button>
       </div>
+    </GlassCard>
+  );
+}
+
+// --- proposed-prompt card (full prompt edit access) -----------------------
+// The co-pilot's rewritten prompt, shown in an editable box so the creator can
+// tweak it directly before applying. Apply sends back whatever's in the box; the
+// backend redraws/re-animates/re-does just that one shot. Keep refining in words
+// works too (that arrives as a fresh card via the message box).
+function PromptProposalCard({
+  card,
+  onApply,
+  onCancel,
+}: {
+  card: ChatCard;
+  onApply: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(card.body ?? "");
+  const apply = card.options?.find((o) => o.value === "yes");
+  const cancel = card.options?.find((o) => o.value === "no");
+  return (
+    <GlassCard className="flex flex-col gap-3" style={{ borderColor: "var(--turquoise-dim)" }}>
+      <div className="flex items-center gap-2">
+        <Sparkles size={16} style={{ color: "var(--turquoise)" }} />
+        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{card.label}</span>
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={6}
+        spellCheck={false}
+        className="w-full rounded-xl px-3 py-2 text-sm leading-relaxed resize-y outline-none"
+        style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)", minHeight: 120 }}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onApply(text.trim())}
+          disabled={!text.trim()}
+          className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {apply?.label ?? "Apply"}
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98]"
+          style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+        >
+          {cancel?.label ?? "Cancel"}
+        </button>
+      </div>
+      <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+        Edit the prompt above, or tell me how to adjust it in the message box.
+      </p>
     </GlassCard>
   );
 }

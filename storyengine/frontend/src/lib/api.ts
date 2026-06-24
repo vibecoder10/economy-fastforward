@@ -2286,6 +2286,9 @@ export interface ChatCard {
   label: string;
   type: "single" | "multi";
   options: ChatCardOption[];
+  // Proposed-prompt cards (id "prompt_apply") carry the full draft here so the dock
+  // can show it in an editable box; Apply sends back the edited text as prompt_text.
+  body?: string;
 }
 export interface ProductionPlan {
   story_concept?: string;
@@ -2303,6 +2306,8 @@ export interface ChatTurnRequest {
   // presence tells the backend this is the co-pilot dock: find-or-create one
   // conversation per video AND hold paid/destructive actions behind a confirm card.
   video_id?: string | null;
+  // What the creator is looking at, so "this image" resolves without naming it.
+  ui_context?: { tab?: string; scene?: number; index?: number } | null;
 }
 export interface ChatTurnResponse {
   conversation_id: string;
