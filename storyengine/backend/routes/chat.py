@@ -131,22 +131,34 @@ def _selections_to_text(selections: dict[str, Any]) -> str:
 
 def _stamp_length_default(data: dict[str, Any]) -> None:
     """Pre-set the length slider to the producer's recommended length so it opens on the
-    director's suggestion (in seconds), not the generic 1-minute floor. No-op until there's
-    a plan with a recommended length and a length card to stamp."""
+    director's suggestion (in seconds), not the generic 1-minute floor. Works in both the
+    asking phase (the producer puts recommended_minutes on the length card) and the plan
+    phase (falls back to the plan spec's video_length_minutes)."""
     cards = data.get("cards")
+    if not isinstance(cards, list):
+        return
     plan = data.get("plan")
     spec = plan.get("spec") if isinstance(plan, dict) else None
-    if not isinstance(cards, list) or not isinstance(spec, dict):
-        return
-    try:
-        secs = max(LENGTH_MIN_SECONDS, int(round(float(spec.get("video_length_minutes") or 0) * 60)))
-    except (TypeError, ValueError):
-        return
-    if secs <= 0:
-        return
+    spec_min = None
+    if isinstance(spec, dict):
+        try:
+            spec_min = float(spec.get("video_length_minutes") or 0) or None
+        except (TypeError, ValueError):
+            spec_min = None
     for c in cards:
-        if isinstance(c, dict) and (c.get("id") == "length" or c.get("type") == "slider"):
-            c.setdefault("recommended_seconds", secs)
+        if not (isinstance(c, dict) and (c.get("id") == "length" or c.get("type") == "slider")):
+            continue
+        mins = None
+        try:
+            mins = float(c.get("recommended_minutes")) if c.get("recommended_minutes") is not None else None
+        except (TypeError, ValueError):
+            mins = None
+        mins = mins or spec_min
+        if not mins:
+            continue
+        secs = max(LENGTH_MIN_SECONDS, int(round(mins * 60)))
+        if secs > 0:
+            c["recommended_seconds"] = secs
 
 
 # --- conversation persistence (tenant-scoped) -------------------------------
