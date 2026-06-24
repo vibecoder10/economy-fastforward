@@ -612,6 +612,9 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
             "I just need an API key to think this through. Add your Kie.ai or Anthropic key under "
             "Profile → API Keys, then tell me again — I'll take it from there."
         )
+    # AnthropicDirectClient.generate defaults to a stale model id; pass the current
+    # one (the Kie client keeps its own valid default). Mirrors coverage_to_app.py.
+    copilot_model = "claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None
 
     prompt = (
         "You are the in-app co-pilot for ONE video. The creator can ask questions about it OR tell you to "
@@ -642,7 +645,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     )
     try:
         from producer_prompt import _extract_json
-        raw = await client.generate(prompt=prompt, max_tokens=700, temperature=0.2)
+        gen_kwargs: dict[str, Any] = {"prompt": prompt, "max_tokens": 700, "temperature": 0.2}
+        if copilot_model:
+            gen_kwargs["model"] = copilot_model
+        raw = await client.generate(**gen_kwargs)
         data = json.loads(_extract_json(raw))
     except Exception as e:  # noqa: BLE001
         logger.warning("copilot: classify failed: %s", e)
