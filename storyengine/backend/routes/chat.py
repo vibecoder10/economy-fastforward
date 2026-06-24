@@ -117,8 +117,36 @@ def _assistant_turn(data: dict[str, Any]) -> dict[str, str]:
 
 
 def _selections_to_text(selections: dict[str, Any]) -> str:
-    parts = [f"{k}: {v}" for k, v in selections.items()]
+    parts = []
+    for k, v in selections.items():
+        if k == "length":  # the slider sends seconds — show it as a runtime so the producer reasons in real time
+            try:
+                parts.append(f"length: ~{_format_runtime(max(LENGTH_MIN_SECONDS, int(float(v))))}")
+                continue
+            except (TypeError, ValueError):
+                pass
+        parts.append(f"{k}: {v}")
     return "My choices — " + ", ".join(parts)
+
+
+def _stamp_length_default(data: dict[str, Any]) -> None:
+    """Pre-set the length slider to the producer's recommended length so it opens on the
+    director's suggestion (in seconds), not the generic 1-minute floor. No-op until there's
+    a plan with a recommended length and a length card to stamp."""
+    cards = data.get("cards")
+    plan = data.get("plan")
+    spec = plan.get("spec") if isinstance(plan, dict) else None
+    if not isinstance(cards, list) or not isinstance(spec, dict):
+        return
+    try:
+        secs = max(LENGTH_MIN_SECONDS, int(round(float(spec.get("video_length_minutes") or 0) * 60)))
+    except (TypeError, ValueError):
+        return
+    if secs <= 0:
+        return
+    for c in cards:
+        if isinstance(c, dict) and (c.get("id") == "length" or c.get("type") == "slider"):
+            c.setdefault("recommended_seconds", secs)
 
 
 # --- conversation persistence (tenant-scoped) -------------------------------
@@ -1363,6 +1391,26 @@ def _creator_brief(state: dict) -> str:
     return "WHO YOU'RE TALKING TO (from their setup — remember this): " + " ".join(bits) + tailor
 
 
+async def _modeled_runtime_hint(tenant_id) -> str:
+    """A length anchor for the producer: the typical runtime of the videos this creator
+    models (their competitors' winners). Real data — competitor_videos.duration_seconds is
+    populated at modeling time. Fail-soft; empty when there's nothing solid to anchor on."""
+    try:
+        row = await fetch_one(
+            "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_seconds) AS med "
+            "FROM competitor_videos WHERE tenant_id = $1 AND duration_seconds > 0",
+            tenant_id,
+        )
+        med = int((row or {}).get("med") or 0)
+    except Exception:  # noqa: BLE001
+        return ""
+    if med < 30:
+        return ""
+    return (f"\nLENGTH ANCHOR: the videos this creator models typically run ~{_format_runtime(med)}. "
+            "Lean toward that as your recommended length unless the specific story clearly needs "
+            "shorter or longer — and say so.")
+
+
 # The durable subset of conversation `state` that defines a creator across sessions.
 _BRIEF_KEYS = ("intent", "goals", "niche_angle", "channel", "competitors")
 
@@ -1616,7 +1664,9 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         transcript.append(_assistant_turn({"assistant_text": msg, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
-    data = call_producer(transcript, build_system_prompt(_creator_brief(state)), api_key=api_key)
+    brief = _creator_brief(state) + await _modeled_runtime_hint(tenant_id)
+    data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
+    _stamp_length_default(data)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
@@ -1981,8 +2031,9 @@ async def chat_turn(
         return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
 
     # Channel intelligence brief is injected in Phase 4; empty for now.
-    system_prompt = build_system_prompt(_creator_brief(state))
+    system_prompt = build_system_prompt(_creator_brief(state) + await _modeled_runtime_hint(tenant_id))
     data = call_producer(transcript, system_prompt, api_key=api_key)
+    _stamp_length_default(data)
     transcript.append(_assistant_turn(data))
 
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None

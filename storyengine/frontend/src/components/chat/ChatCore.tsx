@@ -81,6 +81,24 @@ function formatLength(secs: number): string {
   return s === 0 ? `${m} min` : `${m}m ${s}s`;
 }
 
+// The effective slider value: the creator's pick, else the producer's recommended length
+// (stamped on the card by the backend), else the 1-minute floor.
+function effLengthSecs(card: ChatCard, picks: Record<string, string | string[]>): number {
+  const picked = picks[card.id];
+  const rec = (card as { recommended_seconds?: number }).recommended_seconds;
+  return Number(picked ?? rec ?? LENGTH_DEFAULT);
+}
+
+// A live "director" note under the length slider — instant feedback by band as the creator
+// drags. The producer's chat message carries the story-specific reasoning; this is the cue.
+function lengthHint(secs: number): string {
+  if (secs < 90) return "Tight for a real story — a beginning, middle, and end may feel rushed.";
+  if (secs < 180) return "Short and punchy — good for one clear idea.";
+  if (secs <= 720) return "A comfortable length — room for real story beats without dragging.";
+  if (secs <= 1200) return "On the longer side — make sure the story earns it, or scenes may drag.";
+  return "Long — worth it only for a rich story; a simple idea will drag and lose viewers.";
+}
+
 // Minimal markdown for chat bubbles: **bold** -> <strong> and [text](url) ->
 // a new-tab link (used by the onboarding key step). Newlines are handled by CSS
 // (whitespace-pre-wrap). ponytail: no markdown dependency for two patterns.
@@ -284,10 +302,14 @@ export function ChatCore({
 
   function submitPicks() {
     if (!activeCards || sending) return;
-    // Slider cards default to LENGTH_DEFAULT if the creator never touched them.
+    // An untouched slider submits the producer's recommended length (stamped on the card),
+    // falling back to the 1-minute floor — so it never silently overrides the recommendation.
     const sel: Record<string, string | string[]> = { ...picks };
     for (const c of activeCards) {
-      if (isSliderCard(c) && sel[c.id] === undefined) sel[c.id] = String(LENGTH_DEFAULT);
+      if (isSliderCard(c) && sel[c.id] === undefined) {
+        const rec = (c as { recommended_seconds?: number }).recommended_seconds;
+        sel[c.id] = String(rec ?? LENGTH_DEFAULT);
+      }
     }
     const labelFor = (cardId: string, val: string) =>
       activeCards.find((c) => c.id === cardId)?.options?.find((o) => o.value === val)?.label ?? val;
@@ -753,7 +775,7 @@ function SelectorCards({
             </span>
             {isSliderCard(card) && (
               <span className="text-sm font-semibold" style={{ color: "var(--turquoise)" }}>
-                {formatLength(Number(picks[card.id] ?? LENGTH_DEFAULT))}
+                {formatLength(effLengthSecs(card, picks))}
               </span>
             )}
           </div>
@@ -767,7 +789,7 @@ function SelectorCards({
                 min={LENGTH_MIN}
                 max={LENGTH_MAX}
                 step={LENGTH_STEP}
-                value={Number(picks[card.id] ?? LENGTH_DEFAULT)}
+                value={effLengthSecs(card, picks)}
                 onChange={(e) => onSetValue(card.id, e.target.value)}
                 className="w-full cursor-pointer"
                 style={{ accentColor: "var(--turquoise)" }}
@@ -776,6 +798,9 @@ function SelectorCards({
                 <span>1 min</span>
                 <span>30 min</span>
               </div>
+              <p className="text-[11px] mt-2 leading-snug" style={{ color: "var(--text-secondary)" }}>
+                {lengthHint(effLengthSecs(card, picks))}
+              </p>
             </div>
           ) : (
           <div className="flex flex-wrap gap-2">
