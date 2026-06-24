@@ -630,6 +630,18 @@ class BriefTranslator:
         video_title = select_video_title(brief)
         sources_text = build_sources_list(brief)
 
+        # Replace, don't append: a regenerated script (e.g. the retention auto-revise) must
+        # clear the previous split's scene rows first, or the page shows doubled scenes and
+        # reset voice progress. Scope the delete to THIS video by id (title is ambiguous).
+        vid = getattr(self.airtable, "current_video_id", None)
+        if vid and hasattr(self.airtable, "delete_scripts_for_video_id"):
+            try:
+                removed = self.airtable.delete_scripts_for_video_id(vid)
+                if removed:
+                    logger.info(f"Cleared {removed} prior script record(s) before rewrite")
+            except Exception as e:
+                logger.warning(f"Could not clear old script records before rewrite: {e}")
+
         angle_lookup = {}
         if psych_assignments:
             for pa in psych_assignments:

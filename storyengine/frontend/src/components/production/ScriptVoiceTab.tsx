@@ -15,6 +15,7 @@ import {
   runVoiceForScene, runSplit, getSceneSegments, updateSceneSegments,
   runPromptsForScene, runPromptsForSegment, getDefaultScriptPrompt,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
+  setApiKey, getApiKeyStatus,
 } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
@@ -355,6 +356,104 @@ function SegmentEditor({ videoId, sceneNumber }: { videoId: string; sceneNumber:
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom voice (ElevenLabs) — paste a voice ID so narration uses your own voice
+// instead of the default Kie roster. Saves to the same per-tenant key store as
+// Settings → Keys, surfaced here where you actually generate voice.
+// ---------------------------------------------------------------------------
+
+function CustomVoiceCard() {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [voiceId, setVoiceId] = useState("");
+  const [apiKey, setApiKeyValue] = useState("");
+
+  const { data: voiceStatus } = useQuery({
+    queryKey: ["key-status", "elevenlabs_voice_id"],
+    queryFn: () => getApiKeyStatus("elevenlabs_voice_id"),
+  });
+  const { data: keyStatus } = useQuery({
+    queryKey: ["key-status", "elevenlabs_api_key"],
+    queryFn: () => getApiKeyStatus("elevenlabs_api_key"),
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (apiKey.trim()) await setApiKey("elevenlabs_api_key", apiKey.trim());
+      if (voiceId.trim()) await setApiKey("elevenlabs_voice_id", voiceId.trim());
+    },
+    onSuccess: () => {
+      toast.success("Saved — new voice generations will use your ElevenLabs voice.");
+      setVoiceId("");
+      setApiKeyValue("");
+      queryClient.invalidateQueries({ queryKey: ["key-status", "elevenlabs_voice_id"] });
+      queryClient.invalidateQueries({ queryKey: ["key-status", "elevenlabs_api_key"] });
+    },
+    onError: (err) => toast.error(`Couldn't save voice: ${(err as Error).message}`),
+  });
+
+  const voiceSet = !!voiceStatus?.configured;
+  const keySet = !!keyStatus?.configured;
+  const canSave = !!voiceId.trim() && (keySet || !!apiKey.trim()) && !save.isPending;
+
+  return (
+    <GlassCard className="p-5">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center justify-between w-full text-left"
+      >
+        <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+          Custom Voice (ElevenLabs)
+        </span>
+        <span className="flex items-center gap-2">
+          {voiceSet && (
+            <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: "var(--green)" }}>
+              <CheckCircle size={11} /> set
+            </span>
+          )}
+          {open ? <ChevronDown size={14} style={{ color: "var(--text-tertiary)" }} /> : <ChevronRight size={14} style={{ color: "var(--text-tertiary)" }} />}
+        </span>
+      </button>
+
+      {open && (
+        <div className="space-y-2.5 mt-3">
+          <p className="text-[11px] leading-snug" style={{ color: "var(--text-tertiary)" }}>
+            Paste a Voice ID from your ElevenLabs voice library to narrate in your own voice.
+            {voiceSet ? " A voice is already saved — paste a new ID to change it." : ""}
+          </p>
+          <input
+            value={voiceId}
+            onChange={(e) => setVoiceId(e.target.value)}
+            placeholder="ElevenLabs Voice ID (e.g. 21m00Tcm4TlvDq8ikWAM)"
+            className="w-full px-3 py-2 rounded-lg text-sm font-mono"
+            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}
+          />
+          {!keySet && (
+            <input
+              value={apiKey}
+              onChange={(e) => setApiKeyValue(e.target.value)}
+              placeholder="ElevenLabs API key (needed once)"
+              type="password"
+              className="w-full px-3 py-2 rounded-lg text-sm font-mono"
+              style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}
+            />
+          )}
+          <ActionButton
+            variant="outline"
+            icon={save.isPending ? Loader2 : Save}
+            className="w-full"
+            onClick={() => canSave && save.mutate()}
+            disabled={!canSave}
+          >
+            {save.isPending ? "Saving..." : "Save voice"}
+          </ActionButton>
+        </div>
+      )}
+    </GlassCard>
   );
 }
 
@@ -1931,6 +2030,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               </div>
             </div>
           </GlassCard>
+
+          {/* Custom voice (ElevenLabs) — paste your own voice ID */}
+          <CustomVoiceCard />
 
           {/* Action buttons */}
           <div className="space-y-2">

@@ -670,6 +670,20 @@ class SupabaseAdapter:
         except (ValueError, IndexError, AttributeError):
             return 0
 
+    def delete_scripts_for_video_id(self, video_id: str) -> int:
+        """Delete all scripts for one video by id (tenant-scoped). Used to make a script
+        re-split idempotent — replace the prior scenes instead of appending a second set,
+        which doubled the scene count and reset voice progress on the page."""
+        tw, tp = self._tw()
+        result = _execute(
+            f"DELETE FROM scripts WHERE video_id = %s{tw}",
+            (video_id, *tp),
+        )
+        try:
+            return int(result.split()[-1])
+        except (ValueError, IndexError, AttributeError):
+            return 0
+
     # ── Images/Assets Table ──────────────────────────────────────────────
 
     def get_pending_images(self) -> list:

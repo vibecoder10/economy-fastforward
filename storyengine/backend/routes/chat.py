@@ -548,7 +548,7 @@ async def _copilot_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]
     """Compact, current state of the video for the classifier, the gate, the cost
     estimate, and read answers — all from the video row + scripts + assets."""
     v = await fetch_one(
-        "SELECT video_title, status, video_length_minutes, video_model "
+        "SELECT video_title, status, video_length_minutes, video_model, script_validation "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
@@ -556,7 +556,9 @@ async def _copilot_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]
         return None
     sc = await fetch_one(
         "SELECT count(*) FILTER (WHERE scene_text IS NOT NULL) AS scenes, "
-        "count(*) FILTER (WHERE storyboard_1_url IS NOT NULL) AS boards, max(scene) AS max_scene "
+        "count(*) FILTER (WHERE storyboard_1_url IS NOT NULL) AS boards, "
+        "count(*) FILTER (WHERE voice_over_url IS NOT NULL OR voice_status = 'Done') AS voiced, "
+        "max(scene) AS max_scene "
         "FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene IS NOT NULL",
         video_id, tenant_id,
     )
@@ -576,20 +578,28 @@ async def _copilot_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]
         "model": model,
         "scenes": int(sc["scenes"] or 0),
         "boards": int(sc["boards"] or 0),
+        "voiced": int(sc["voiced"] or 0),
         "max_scene": int(sc["max_scene"] or 0),
         "pics": pics,
         "clips": clips,
         "spent": cost,
+        "validation": str(v.get("script_validation") or "").strip()[:600],
     }
 
 
 def _summary_line(s: dict[str, Any]) -> str:
-    return (
+    line = (
         f'Video: "{s["title"]}" — status {s["status"]}, target length {s.get("length_min") or "?"} min, '
         f'animation model {s["model"]}.\n'
-        f'Progress: {s["scenes"]} scenes written, {s["boards"]} storyboards, {s["pics"]} pictures made, '
-        f'{s["clips"]} clips animated. Spent so far ~${s["spent"]:.2f}.'
+        f'Progress: {s["scenes"]} scenes written ({s.get("voiced", 0)} voiced), {s["boards"]} storyboards, '
+        f'{s["pics"]} pictures made, {s["clips"]} clips animated. Spent so far ~${s["spent"]:.2f}.'
     )
+    val = (s.get("validation") or "").strip()
+    if val:
+        # The creator can see these on the page; the co-pilot must not contradict them.
+        line += ("\nScript-check results (these are REAL and visible to the creator — quote them "
+                 "accurately; if a [FAIL] line is present, never claim nothing failed):\n" + val)
+    return line
 
 
 def _action_blocked(verb: str, summary: dict[str, Any]) -> Optional[str]:
