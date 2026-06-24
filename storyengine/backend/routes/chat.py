@@ -67,6 +67,10 @@ class ChatTurnRequest(BaseModel):
     selections: Optional[dict[str, Any]] = None
     approve: bool = False
     start_onboarding: bool = False  # launch the "Start Here" setup flow
+    # The in-pipeline chat dock sends the video it's scoped to on every turn. Its
+    # presence means "this is the co-pilot dock" — find-or-create one conversation
+    # per video AND hold paid/destructive actions behind a confirm card.
+    video_id: Optional[str] = None
 
 
 class ChatTurnResponse(BaseModel):
@@ -159,41 +163,6 @@ def _make_run_step(tenant_id, video_id: str, *, user_intent: Optional[str] = Non
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_next_step(video_id, user_intent=user_intent)
-            _set_task_status(
-                video_id, result.get("status", "completed"),
-                result.get("error") or result.get("message"), tenant_id=tenant_id,
-            )
-        except Exception as e:  # noqa: BLE001 — surface as a failed task, not a 500
-            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
-        finally:
-            await asyncio.sleep(30)
-            _clear_task_status(video_id, tenant_id)
-
-    return _run
-
-
-def _make_stage_step(tenant_id, video_id: str, methods: list[str], *,
-                     start_msg: str = "On it…"):
-    """Like _make_run_step, but re-runs SPECIFIC executor stage methods in order
-    (e.g. ['run_prompts','run_images']) instead of the status-driven next step —
-    used by follow-up edits, which target a chosen stage. Reports via the same
-    task-status channel so the chat's live tracker updates. Stops on first error."""
-    from pipeline_executor import PipelineExecutor
-    from routes.pipeline import _clear_task_status, _set_task_status
-
-    async def _run():
-        _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
-        try:
-            executor = PipelineExecutor(tenant_id)
-            result: dict = {}
-            for name in methods:
-                method = getattr(executor, name, None)
-                if method is None:
-                    result = {"status": "failed", "error": f"Unknown stage '{name}'"}
-                    break
-                result = await method(video_id) or {}
-                if result.get("error"):
-                    break
             _set_task_status(
                 video_id, result.get("status", "completed"),
                 result.get("error") or result.get("message"), tenant_id=tenant_id,
@@ -328,43 +297,6 @@ FOLLOWUP_STAGES: dict[str, dict[str, Any]] = {
     "thumbnail": {"methods": ["run_thumbnail"],             "column": "thumbnail_prompt",     "doing": "redoing the thumbnail"},
     "render":    {"methods": ["run_render"],                "column": None,                   "doing": "re-rendering the video"},
 }
-FOLLOWUP_CONFIDENCE = 0.55  # below this, ask the creator to clarify instead of guessing
-
-
-def _classify_followup(api_key: str, message: str, video: dict) -> dict:
-    """One direct-Anthropic call mapping a free-text edit request onto a target stage +
-    the concrete change to apply. Sync — call via asyncio.to_thread."""
-    try:
-        minutes = int(float(video.get("video_length_minutes") or 0)) or "unknown"
-    except (TypeError, ValueError):
-        minutes = "unknown"
-    prompt = (
-        "A creator is iterating on an existing video through chat. Decide how to honor their request.\n\n"
-        f"Video title: {video.get('video_title') or 'Untitled'}\n"
-        f"Current stage/status: {video.get('status') or 'unknown'}\n"
-        f"Current length: {minutes} min\n\n"
-        f'The creator said: "{message}"\n\n'
-        "Pick the ONE production stage to re-run, and the change to apply:\n"
-        "- script: rewrite/restructure the script, or change LENGTH, tone, pacing, or content.\n"
-        "- images: change the visual look/style of the scene images.\n"
-        "- thumbnail: change the thumbnail (bolder, more aggressive, different text/expression).\n"
-        "- render: just re-stitch the final video, no content change.\n"
-        "- advance: they're happy and want to keep moving to the next step.\n"
-        "- none: unclear, off-topic, or not an edit — ask them to clarify.\n\n"
-        "Return ONE JSON object and nothing else:\n"
-        '{"stage":"script|images|thumbnail|render|advance|none",'
-        '"intent_summary":"<short>",'
-        '"video_length_minutes":<int if they changed length else null>,'
-        '"guidance_append":"<a concrete instruction to append to that stage\'s guidance so the re-run honors '
-        'the request; empty for render/advance/none>",'
-        '"confidence":<0.0-1.0>,'
-        '"reply":"<one friendly sentence telling them what you\'re doing now, or your clarifying question>"}'
-    )
-    try:
-        return _claude_json(api_key, prompt, 700)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("followup: classify failed: %s", e)
-        return {}
 
 
 async def _apply_followup_edit(tenant_id, video_id, stage: str, edit: dict) -> None:
@@ -393,51 +325,378 @@ async def _apply_followup_edit(tenant_id, video_id, stage: str, edit: dict) -> N
         )
 
 
-async def _handle_followup(body, conversation_id, tenant_id, transcript, state, video_id, background_tasks):
-    """A message after the video exists -> a conversational edit. Classify the request,
-    apply the change to the right stage, re-run just that stage, and report in plain
-    English. Unclear requests get a clarifying ask, not a blind pipeline advance."""
-    msg = (body.message or "").strip()
-    if msg:
-        transcript.append({"role": "user", "content": msg})
+# --- co-pilot (the in-pipeline chat dock) -----------------------------------
+#
+# A conversation bound to a video can RUN the pipeline by voice. One classifier
+# call maps the message + a compact state summary onto a READ (answer a question,
+# free) or an ACTION (one pipeline verb, optional scene). Anything that spends
+# money or overwrites work is held behind a one-tap confirm card (pending_action
+# in the conversation state); reads run immediately. Reuses PipelineExecutor + the
+# task-status channel so the pipeline page's existing live trackers reflect work.
+# Supersedes _handle_followup (it folds in FOLLOWUP_STAGES via _apply_followup_edit
+# for the edit-style verbs). The confirm gate only applies to the DOCK (a request
+# that carries video_id); the home CreatedCard follow-up keeps its immediate runs.
 
-    async def _reply(text):
-        transcript.append(_assistant_turn({"assistant_text": text, "phase": "created"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text,
-                                video_id=video_id, phase="created")
+# Per-clip prices mirror the frontend's CLIP_COST_PER_MODEL (next-action.ts) so the
+# co-pilot's "~$X" matches the page's Est. Cost. Pictures are $0.08 each.
+_CLIP_COST = {"grok-imagine": 0.10, "veo-3.1-fast": 0.30, "veo-3.1-quality": 1.25, "seedance-2-fast": 0.30}
+_PICTURE_COST = 0.08
 
-    if not msg:
-        return await _reply("Tell me what to change — e.g. “make it shorter”, “redo the thumbnail”, or “keep going”.")
+# verb -> how to run it. `calls` = ordered (executor method, passes a scene= kwarg).
+# `paid` => hold behind a confirm card in the dock. `needs` = the prerequisite that
+# must already exist, or the action is refused politely. `edit` => the verb accepts
+# a free-text change applied via _apply_followup_edit before the re-run.
+COPILOT_ACTIONS: dict[str, dict[str, Any]] = {
+    "script":      {"calls": [("run_script", False)], "paid": True, "needs": None, "edit": True,
+                    "doing": "rewriting the script", "label": "Rewrite the script"},
+    "storyboards": {"calls": [("run_storyboard_prompts", True), ("run_storyboard_images", True)], "paid": True,
+                    "needs": "scenes", "doing": "drawing the storyboards", "label": "Generate storyboards"},
+    "images":      {"calls": [("run_prompts", True), ("run_images", True)], "paid": True, "needs": "scenes", "edit": True,
+                    "doing": "making the pictures", "label": "Generate the pictures"},
+    "voice":       {"calls": [("run_voice", True)], "paid": True, "needs": "scenes",
+                    "doing": "recording the voiceover", "label": "Generate the voiceover"},
+    "animate":     {"calls": [("run_clip_generation", True)], "paid": True, "needs": "pictures",
+                    "doing": "animating", "label": "Animate"},
+    "sound":       {"calls": [("run_sound_prompts", False), ("run_sound_effects", False)], "paid": True,
+                    "needs": "pictures", "doing": "designing the sound", "label": "Add sound"},
+    "thumbnail":   {"calls": [("run_thumbnail", False)], "paid": True, "needs": None, "edit": True,
+                    "doing": "redoing the thumbnail", "label": "Redo the thumbnail"},
+    "render":      {"calls": [("run_render", False)], "paid": True, "needs": "clips",
+                    "doing": "rendering the final video", "label": "Render the final video"},
+    # meta verb: advance runs whatever the next pipeline step is (spends money).
+    "advance":     {"calls": None, "paid": True, "needs": None,
+                    "doing": "running the next step", "label": "Run the next step"},
+}
+# Plain-English reason an action can't run yet (gate keyed by `needs`).
+_NEEDS_REASON = {
+    "scenes":   "the script hasn't been broken into scenes yet — I'd write the script first",
+    "pictures": "there are no pictures to work from yet — I'd make the pictures first",
+    "clips":    "nothing's been animated yet — I'd animate the scenes first",
+}
+COPILOT_CONFIDENCE = 0.55
 
-    api_key = await get_secret("anthropic_api_key", tenant_id)
-    video = await fetch_one(
-        "SELECT video_title, status, video_length_minutes FROM videos WHERE id = $1 AND tenant_id = $2",
+
+async def _conversation_for_video(tenant_id, video_id: str) -> Optional[dict]:
+    """Find-or-create ONE conversation bound to this video so the dock resumes the
+    whole backstory. Verifies the video belongs to the tenant first (a foreign id
+    would otherwise mint a junk row; every downstream query is tenant-scoped anyway)."""
+    owns = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id
+    )
+    if not owns:
+        return None
+    row = await fetch_one(
+        """SELECT id, project_id, video_id, transcript, state, phase
+             FROM chat_conversations
+            WHERE tenant_id = $1 AND video_id = $2
+            ORDER BY updated_at DESC LIMIT 1""",
+        tenant_id, video_id,
+    )
+    if row:
+        return row
+    return await fetch_one(
+        """INSERT INTO chat_conversations (tenant_id, video_id, phase)
+           VALUES ($1, $2, 'created')
+           RETURNING id, project_id, video_id, transcript, state, phase""",
+        tenant_id, video_id,
+    )
+
+
+async def _copilot_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
+    """Compact, current state of the video for the classifier, the gate, the cost
+    estimate, and read answers — all from the video row + scripts + assets."""
+    v = await fetch_one(
+        "SELECT video_title, status, video_length_minutes, video_model "
+        "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
-    if not api_key or not video:
-        # No key (or the video vanished) — fall back to the old blind advance so a
-        # "keep going" still moves the pipeline.
-        background_tasks.add_task(_make_run_step(tenant_id, video_id, user_intent=msg, start_msg="On it…"))
-        return await _reply("On it — I'll take care of that and update you here.")
+    if not v:
+        return None
+    sc = await fetch_one(
+        "SELECT count(*) FILTER (WHERE scene_text IS NOT NULL) AS scenes, "
+        "count(*) FILTER (WHERE storyboard_1_url IS NOT NULL) AS boards, max(scene) AS max_scene "
+        "FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene IS NOT NULL",
+        video_id, tenant_id,
+    )
+    a = await fetch_one(
+        "SELECT count(*) FILTER (WHERE image_url IS NOT NULL) AS pics, "
+        "count(*) FILTER (WHERE video_clip_url IS NOT NULL) AS clips "
+        "FROM assets WHERE video_id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    model = v.get("video_model") or "grok-imagine"
+    pics, clips = int(a["pics"] or 0), int(a["clips"] or 0)
+    cost = round(pics * _PICTURE_COST + clips * _CLIP_COST.get(model, 0.10), 2)
+    return {
+        "title": v.get("video_title") or "Untitled",
+        "status": v.get("status") or "unknown",
+        "length_min": v.get("video_length_minutes"),
+        "model": model,
+        "scenes": int(sc["scenes"] or 0),
+        "boards": int(sc["boards"] or 0),
+        "max_scene": int(sc["max_scene"] or 0),
+        "pics": pics,
+        "clips": clips,
+        "spent": cost,
+    }
 
-    edit = await asyncio.to_thread(_classify_followup, api_key, msg, dict(video))
-    stage = (edit.get("stage") or "none").strip()
-    reply = (edit.get("reply") or "").strip()
 
-    # "keep going" -> advance the pipeline one step.
-    if stage == "advance":
+def _summary_line(s: dict[str, Any]) -> str:
+    return (
+        f'Video: "{s["title"]}" — status {s["status"]}, target length {s.get("length_min") or "?"} min, '
+        f'animation model {s["model"]}.\n'
+        f'Progress: {s["scenes"]} scenes written, {s["boards"]} storyboards, {s["pics"]} pictures made, '
+        f'{s["clips"]} clips animated. Spent so far ~${s["spent"]:.2f}.'
+    )
+
+
+def _action_blocked(verb: str, summary: dict[str, Any]) -> Optional[str]:
+    """Return a plain-English reason this action can't run yet, or None if it's allowed."""
+    needs = (COPILOT_ACTIONS.get(verb) or {}).get("needs")
+    if needs == "scenes" and summary["scenes"] == 0:
+        return _NEEDS_REASON["scenes"]
+    if needs == "pictures" and summary["pics"] == 0:
+        return _NEEDS_REASON["pictures"]
+    if needs == "clips" and summary["clips"] == 0:
+        return _NEEDS_REASON["clips"]
+    return None
+
+
+async def _estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], summary: dict[str, Any]) -> tuple[float, str]:
+    """A rough but honest dollar estimate for a paid action, mirroring the page's
+    counts. Per-scene actions price just that scene's pictures/clips."""
+    model = summary["model"]
+    clip = _CLIP_COST.get(model, 0.10)
+    if verb == "animate":
+        n = summary["pics"]
+        if scene is not None:
+            row = await fetch_one(
+                "SELECT count(*) AS n FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 AND image_url IS NOT NULL",
+                video_id, tenant_id, scene,
+            )
+            n = int((row or {}).get("n") or 0) or 4  # fall back to a small guess
+        cost = n * clip
+    elif verb == "images":
+        n = summary["pics"] or max(1, summary["scenes"]) * 6  # ~6 shots/scene when none exist yet
+        if scene is not None:
+            n = 6
+        cost = n * _PICTURE_COST
+    elif verb == "storyboards":
+        cost = (1 if scene is not None else max(1, summary["scenes"])) * _PICTURE_COST
+    elif verb == "voice":
+        cost = 0.30
+    elif verb == "sound":
+        cost = 0.20
+    elif verb == "thumbnail":
+        cost = 0.10
+    elif verb == "script":
+        cost = 0.02
+    elif verb == "render":
+        cost = 0.0
+    else:  # advance — next step is unknown; give a soft signal
+        cost = 0.0
+    text = "no extra cost" if cost <= 0 else f"~${cost:.2f}"
+    return round(cost, 2), text
+
+
+def _confirm_card(verb: str, scene: Optional[int], cost_text: str) -> dict[str, Any]:
+    """Smallest-change confirm: a single-select card the frontend already renders;
+    the dock reads the pick back as selections.confirm_action = yes|no."""
+    cfg = COPILOT_ACTIONS[verb]
+    what = cfg["label"] + (f" — scene {scene}" if scene is not None else "")
+    return {
+        "id": "confirm_action", "label": what, "type": "single",
+        "options": [
+            {"value": "yes", "label": f"Do it · {cost_text}"},
+            {"value": "no", "label": "Cancel"},
+        ],
+    }
+
+
+def _make_copilot_step(tenant_id, video_id: str, calls: list, *, scene: Optional[int] = None,
+                       start_msg: str = "On it…"):
+    """Run an action's executor methods in order, passing scene= to the ones that
+    accept it. Same task-status channel as _make_run_step so the page's trackers
+    light up. Stops on the first error."""
+    from pipeline_executor import PipelineExecutor
+    from routes.pipeline import _clear_task_status, _set_task_status
+
+    async def _run():
+        _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result: dict = {}
+            for name, takes_scene in calls:
+                method = getattr(executor, name, None)
+                if method is None:
+                    result = {"status": "failed", "error": f"Unknown stage '{name}'"}
+                    break
+                kwargs = {"scene": scene} if (takes_scene and scene is not None) else {}
+                result = await method(video_id, **kwargs) or {}
+                if result.get("error"):
+                    break
+            _set_task_status(video_id, result.get("status", "completed"),
+                             result.get("error") or result.get("message"), tenant_id=tenant_id)
+        except Exception as e:  # noqa: BLE001
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    return _run
+
+
+async def _run_pending_action(tenant_id, video_id, pending: dict, background_tasks) -> str:
+    """Kick off a confirmed action and return the 'on it' line."""
+    verb = pending["verb"]
+    scene = pending.get("scene")
+    cfg = COPILOT_ACTIONS[verb]
+    # Edit-style verbs apply the creator's change to the stage guidance first.
+    if cfg.get("edit") and pending.get("change"):
+        await _apply_followup_edit(
+            tenant_id, video_id, verb,
+            {"guidance_append": pending["change"], "video_length_minutes": pending.get("length_min")},
+        )
+    doing = cfg["doing"] + (f" for scene {scene}" if scene is not None else "")
+    if verb == "advance":
         background_tasks.add_task(_make_run_step(tenant_id, video_id, start_msg="Moving to the next step…"))
-        return await _reply(reply or "Great — moving on to the next step. I'll keep you posted here.")
+    else:
+        background_tasks.add_task(
+            _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…")
+        )
+    return f"On it — {doing} now. I'll update you right here."
 
-    # Unclear / not an edit / low confidence -> ask, don't guess.
-    if stage not in FOLLOWUP_STAGES or float(edit.get("confidence") or 0) < FOLLOWUP_CONFIDENCE:
-        return await _reply(reply or "Happy to tweak it — want a different script, visuals, thumbnail, or a re-render?")
 
-    await _apply_followup_edit(tenant_id, video_id, stage, edit)
-    cfg = FOLLOWUP_STAGES[stage]
-    background_tasks.add_task(_make_stage_step(tenant_id, video_id, cfg["methods"], start_msg=f"On it — {cfg['doing']}…"))
-    return await _reply(reply or f"On it — {cfg['doing']} now. I'll update you right here.")
+async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, video_id, background_tasks):
+    """The video-scoped co-pilot turn. Classify -> read (answer) or action (run, with
+    a confirm gate in the dock). `docked` (request carries video_id) decides whether
+    paid actions confirm first; the home CreatedCard follow-up keeps immediate runs."""
+    docked = bool(getattr(body, "video_id", None))
+    msg = (body.message or "").strip()
+    sel = body.selections or {}
+
+    async def _reply(text, cards=None):
+        transcript.append(_assistant_turn({"assistant_text": text, "cards": cards, "phase": "created"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text,
+                                cards=cards, video_id=video_id, phase="created")
+
+    # --- confirm handshake: turn 2 of a paid/destructive action ---
+    if "confirm_action" in sel:
+        pending = state.get("pending_action")
+        state["pending_action"] = None
+        if sel["confirm_action"] == "yes" and pending:
+            line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
+            return await _reply(line)
+        return await _reply("No problem — left it as it is. Tell me what you'd like instead.")
+
+    if msg:
+        transcript.append({"role": "user", "content": msg})
+    if not msg:
+        return await _reply("Ask me anything about this video, or tell me what to do next — e.g. "
+                            "“animate scene 2”, “redo the thumbnail”, or “how much has this cost?”")
+
+    summary = await _copilot_summary(tenant_id, video_id)
+    if not summary:
+        return await _reply("I can't find that video anymore — it may have been deleted.")
+
+    # The co-pilot's intelligence needs a text model. Keyless tenants get the
+    # friendly key prompt (reused from onboarding), never a crash.
+    try:
+        from kie_unified import get_text_client_for_tenant
+        client = await get_text_client_for_tenant(tenant_id)
+    except Exception:  # noqa: BLE001 — no key configured at all
+        client = None
+    if client is None:
+        return await _reply(
+            "I just need an API key to think this through. Add your Kie.ai or Anthropic key under "
+            "Profile → API Keys, then tell me again — I'll take it from there."
+        )
+
+    prompt = (
+        "You are the in-app co-pilot for ONE video. The creator can ask questions about it OR tell you to "
+        "run a production step. Decide which, from their message and the current state.\n\n"
+        + _summary_line(summary) + "\n\n"
+        f'The creator said: "{msg}"\n\n'
+        "ACTIONS you can trigger (use the exact verb):\n"
+        "- script: rewrite/restructure the script, or change length/tone/pacing/content.\n"
+        "- storyboards: draw the storyboard sheets for a scene (or all).\n"
+        "- images: generate/redo the scene pictures.\n"
+        "- voice: generate the voiceover.\n"
+        "- animate: turn the pictures into motion clips (supports one scene).\n"
+        "- sound: add sound design / effects.\n"
+        "- thumbnail: make/redo the YouTube thumbnail.\n"
+        "- render: stitch the final video.\n"
+        "- advance: they just want to keep moving to the next step.\n\n"
+        "If they are ASKING a question (cost, what's left, why something looks a certain way, status), "
+        'kind is "read" and you answer it directly from the state above.\n\n'
+        "Return ONE JSON object and nothing else:\n"
+        '{"kind":"read|action",'
+        '"verb":"script|storyboards|images|voice|animate|sound|thumbnail|render|advance|none",'
+        '"scene":<int scene number if they named one, else null>,'
+        '"change":"<for script/images/thumbnail: a concrete instruction to honor; else empty>",'
+        '"length_min":<int if they changed the length, else null>,'
+        '"answer":"<for read: a friendly, specific 1-2 sentence answer using the numbers above>",'
+        '"reply":"<for action: one friendly sentence naming what you\'ll do; for none: a clarifying question>",'
+        '"confidence":<0.0-1.0>}'
+    )
+    try:
+        from producer_prompt import _extract_json
+        raw = await client.generate(prompt=prompt, max_tokens=700, temperature=0.2)
+        data = json.loads(_extract_json(raw))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("copilot: classify failed: %s", e)
+        return await _reply("I didn't quite catch that — want me to change the script, the pictures, the "
+                            "thumbnail, animate a scene, or render it?")
+
+    kind = (data.get("kind") or "").strip()
+    verb = (data.get("verb") or "none").strip()
+    reply = (data.get("reply") or "").strip()
+    conf = float(data.get("confidence") or 0)
+
+    # --- read: answer immediately, no spend ---
+    if kind == "read" or verb == "none":
+        answer = (data.get("answer") or reply or "").strip()
+        if not answer:
+            answer = (f'“{summary["title"]}” is at {summary["status"]}: {summary["scenes"]} scenes, '
+                      f'{summary["pics"]} pictures, {summary["clips"]} clips. Spent so far ~${summary["spent"]:.2f}.')
+        return await _reply(answer)
+
+    if verb not in COPILOT_ACTIONS or conf < COPILOT_CONFIDENCE:
+        return await _reply(reply or "Happy to help — want me to change the script, the pictures, the "
+                            "thumbnail, the voice, animate a scene, add sound, or render it?")
+
+    # --- legality gate: refuse politely if the prerequisite isn't there ---
+    blocked = _action_blocked(verb, summary)
+    if blocked:
+        return await _reply(f"I can't {COPILOT_ACTIONS[verb]['label'].lower()} yet — {blocked}. "
+                            "Want me to do that first?")
+
+    scene = data.get("scene")
+    scene = int(scene) if isinstance(scene, (int, float)) else None
+    cfg = COPILOT_ACTIONS[verb]
+
+    # --- free vs paid ---
+    if not cfg["paid"]:
+        line = await _run_pending_action(
+            tenant_id, video_id,
+            {"verb": verb, "scene": scene, "change": data.get("change"), "length_min": data.get("length_min")},
+            background_tasks,
+        )
+        return await _reply(line)
+
+    # Paid. The home follow-up runs immediately (preserves Phase 5 behavior); the
+    # dock holds it behind a one-tap confirm card.
+    pending = {"verb": verb, "scene": scene, "change": (data.get("change") or "").strip(),
+               "length_min": data.get("length_min")}
+    if not docked:
+        line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
+        return await _reply(line)
+
+    _cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
+    state["pending_action"] = pending
+    intro = reply or f"I can {cfg['label'].lower()}{f' for scene {scene}' if scene is not None else ''}."
+    return await _reply(intro + " Want me to?", cards=[_confirm_card(verb, scene, cost_text)])
 
 
 # --- onboarding ("Start Here") step-machine ---------------------------------
@@ -1199,11 +1458,17 @@ async def chat_turn(
     background_tasks: BackgroundTasks,
     tenant_id=Depends(get_tenant_id),
 ):
-    # 1. Load or create the conversation (tenant-scoped).
+    # 1. Load or create the conversation (tenant-scoped). The dock sends video_id
+    #    with no conversation_id on first open -> find-or-create the ONE conversation
+    #    bound to that video so it resumes the whole backstory (Decision A).
     if body.conversation_id:
         conv = await _load_conversation(body.conversation_id, tenant_id)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
+    elif body.video_id:
+        conv = await _conversation_for_video(tenant_id, body.video_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Video not found")
     else:
         conv = await _create_conversation(tenant_id)
 
@@ -1225,9 +1490,11 @@ async def chat_turn(
             body, conversation_id, tenant_id, transcript, state, background_tasks
         )
 
-    # 2. Video already exists -> follow-up edit.
+    # 2. Video already exists -> co-pilot turn (read or run a pipeline action).
+    #    Supersedes _handle_followup; the dock (request carries video_id) gates paid
+    #    actions behind a confirm card, the home CreatedCard keeps immediate runs.
     if video_id:
-        return await _handle_followup(
+        return await _handle_copilot(
             body, conversation_id, tenant_id, transcript, state, video_id, background_tasks
         )
 
@@ -1287,3 +1554,31 @@ async def chat_turn(
         ready_to_create=bool(plan),
         phase=phase,
     )
+
+
+@router.get("/conversation")
+async def get_conversation_for_video(video_id: str, tenant_id=Depends(get_tenant_id)):
+    """Hydrate the dock on open: the prior messages of this video's conversation,
+    flattened to the shape ChatCore renders. Empty when none exists yet — the dock
+    then starts a fresh thread (the next turn find-or-creates the row)."""
+    conv = await fetch_one(
+        """SELECT id, transcript, phase FROM chat_conversations
+            WHERE tenant_id = $1 AND video_id = $2
+            ORDER BY updated_at DESC LIMIT 1""",
+        tenant_id, video_id,
+    )
+    if not conv:
+        return {"conversation_id": None, "messages": [], "phase": "created"}
+    messages: list[dict[str, Any]] = []
+    for t in _as_list(conv.get("transcript")):
+        if t.get("role") == "user":
+            messages.append({"role": "user", "text": t.get("content") or ""})
+        elif t.get("role") == "assistant":
+            d = _as_dict(t.get("content"))  # assistant turns store JSON (see _assistant_turn)
+            messages.append({
+                "role": "assistant",
+                "text": d.get("assistant_text") or "",
+                "cards": d.get("cards"),
+                "plan": d.get("plan"),
+            })
+    return {"conversation_id": str(conv["id"]), "messages": messages, "phase": conv.get("phase") or "created"}

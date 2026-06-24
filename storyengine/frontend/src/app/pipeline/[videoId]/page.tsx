@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
   BarChart3, Search, Video, Upload, Loader2, Brain, Volume2, Download, ExternalLink, X,
-  Users, MoreHorizontal, MapPin,
+  Users, MoreHorizontal, MapPin, MessageCircle,
 } from "lucide-react";
+import { ChatCore } from "@/components/chat/ChatCore";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getVideo, getVideoAssets, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
@@ -206,6 +207,19 @@ export default function VideoDetailPage() {
   const [taskRunning, setTaskRunning] = useState(false);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
 
+  // Co-pilot dock: a collapsible right panel scoped to this video. Remembers
+  // open/closed (read on the client to avoid an SSR localStorage access).
+  const [dockOpen, setDockOpen] = useState(false);
+  useEffect(() => {
+    try { setDockOpen(localStorage.getItem("se_pipeline_chat_open") === "1"); } catch { /* private mode */ }
+  }, []);
+  const toggleDock = () =>
+    setDockOpen((o) => {
+      const next = !o;
+      try { localStorage.setItem("se_pipeline_chat_open", next ? "1" : "0"); } catch { /* private mode */ }
+      return next;
+    });
+
   useTaskPoller({
     videoId,
     enabled: taskRunning,
@@ -362,7 +376,11 @@ export default function VideoDetailPage() {
   };
 
   return (
-    <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
+    <div
+      className="lg:grid lg:gap-6 transition-[grid-template-columns] duration-300 ease-out"
+      style={{ gridTemplateColumns: dockOpen ? "minmax(0, 1fr) 420px" : "minmax(0, 1fr) 0px" }}
+    >
+    <motion.div className="space-y-6 min-w-0" variants={container} initial="hidden" animate="show">
       {/* Back */}
       <motion.div variants={item}>
         <Link
@@ -404,6 +422,18 @@ export default function VideoDetailPage() {
               ${Math.max(video.total_cost || 0, estimatedCost).toFixed(2)}
             </p>
           </div>
+
+          {/* Co-pilot chat toggle (desktop). Slides the dock in/out. */}
+          <button
+            onClick={toggleDock}
+            className="hidden lg:inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all active:scale-[0.98]"
+            style={dockOpen
+              ? { background: "var(--turquoise)", color: "var(--bg-void)" }
+              : { background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+            title="Chat with the co-pilot about this video"
+          >
+            <MessageCircle size={16} /> Chat
+          </button>
 
           {/* Advanced menu — everything power-user lives here, the big banner
               button below is the ONLY primary action on the page. */}
@@ -670,6 +700,38 @@ export default function VideoDetailPage() {
         </div>
       )}
     </motion.div>
+
+      {/* Co-pilot dock — slides in from the right; page content reflows on desktop,
+          and the panel is hidden below lg so mobile is unaffected. Live progress is
+          free: the page's 5s poll + SSE + task poller already reflect any work it kicks
+          off in the stepper and tabs. */}
+      <aside className="hidden lg:block overflow-hidden">
+        {dockOpen && (
+          <div
+            className="sticky top-4 w-[420px] flex flex-col rounded-2xl overflow-hidden"
+            style={{ height: "calc(100vh - 2rem)", background: "var(--bg-deep)", border: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+              <div className="flex items-center gap-2">
+                <MessageCircle size={16} style={{ color: "var(--turquoise)" }} />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Co-pilot</span>
+              </div>
+              <button
+                onClick={toggleDock}
+                className="p-1 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
+                style={{ color: "var(--text-tertiary)" }}
+                aria-label="Close chat"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <ChatCore videoId={videoId} docked />
+            </div>
+          </div>
+        )}
+      </aside>
+    </div>
   );
 }
 

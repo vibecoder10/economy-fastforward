@@ -2299,6 +2299,10 @@ export interface ChatTurnRequest {
   selections?: Record<string, unknown> | null;
   approve?: boolean;
   start_onboarding?: boolean;
+  // The in-pipeline chat dock sends the video it's scoped to on every turn. Its
+  // presence tells the backend this is the co-pilot dock: find-or-create one
+  // conversation per video AND hold paid/destructive actions behind a confirm card.
+  video_id?: string | null;
 }
 export interface ChatTurnResponse {
   conversation_id: string;
@@ -2315,3 +2319,21 @@ export const sendChatTurn = (body: ChatTurnRequest) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+// One prior message of a video's co-pilot conversation, flattened for the dock.
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  text: string;
+  cards?: ChatCard[] | null;
+  plan?: ProductionPlan | null;
+}
+export interface ChatConversation {
+  conversation_id: string | null;
+  messages: ChatHistoryMessage[];
+  phase: string;
+}
+
+// Hydrate the in-pipeline chat dock on open with this video's conversation so it
+// resumes the whole backstory. Empty (conversation_id null) when none exists yet.
+export const getChatConversation = (videoId: string) =>
+  fetchApi<ChatConversation>(`/api/chat/conversation?video_id=${encodeURIComponent(videoId)}`);
