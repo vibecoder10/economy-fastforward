@@ -209,6 +209,16 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 if status in ("idea_logged", "approved"):
                     await _advance("ready_for_scripting")
                     continue
+                # Storyboards gate on environments AND characters being designed/approved
+                # (or skipped). For a hands-off build, auto-pass both so it reaches the
+                # pictures; the creator reviews the pictures (the checkpoint) and can refine
+                # characters/backgrounds there. COALESCE so we never clobber a real approval.
+                if status in ("ready_for_image_prompts", "ready_for_storyboards", "ready_for_storyboard_images"):
+                    await execute(
+                        "UPDATE videos SET environments_approved_at = COALESCE(environments_approved_at, now()), "
+                        "characters_approved_at = COALESCE(characters_approved_at, now()), "
+                        "updated_at = now() WHERE id = $1 AND tenant_id = $2",
+                        video_id, tenant_id)
                 _set_task_status(video_id, "running", "Working on it…", tenant_id=tenant_id)
                 result = await ex.run_next_step(video_id) or {}
                 rs = result.get("status")
