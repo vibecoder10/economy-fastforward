@@ -165,28 +165,38 @@ def call_producer(
     soft: any error or malformed JSON returns a gentle re-prompt so the
     conversation never crashes.
     """
-    try:
-        client = _client(api_key)
-        resp = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system_prompt,
-            messages=transcript,
-        )
-        text = "".join(
-            getattr(block, "text", "")
-            for block in resp.content
-            if getattr(block, "type", "") == "text"
-        )
-        data = json.loads(_extract_json(text))
-        if not isinstance(data, dict) or not data.get("assistant_text"):
-            logger.warning("producer returned unusable JSON, using fallback: %.300s", text)
-            return dict(_FALLBACK)
-        return data
-    except Exception as e:
-        # Never crash the conversation — but DO log why (silent swallow bit us once).
-        logger.warning("producer turn failed (%s), using fallback: %s", type(e).__name__, e)
-        return dict(_FALLBACK)
+    # Two attempts: a single transient hiccup (a network blip or a stray non-JSON token) used
+    # to surface to the creator as "I lost the thread". Retry once, nudging harder for clean
+    # JSON, before falling back — so a one-off doesn't break the very first turn.
+    last_err = None
+    for attempt in range(2):
+        try:
+            client = _client(api_key)
+            sys_prompt = system_prompt if attempt == 0 else (
+                system_prompt + "\n\nIMPORTANT: Reply with ONE valid JSON object and nothing else.")
+            resp = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=sys_prompt,
+                messages=transcript,
+            )
+            text = "".join(
+                getattr(block, "text", "")
+                for block in resp.content
+                if getattr(block, "type", "") == "text"
+            )
+            data = json.loads(_extract_json(text))
+            if not isinstance(data, dict) or not data.get("assistant_text"):
+                logger.warning("producer returned unusable JSON (attempt %d): %.300s", attempt + 1, text)
+                last_err = "unusable JSON"
+                continue
+            return data
+        except Exception as e:  # noqa: BLE001
+            last_err = f"{type(e).__name__}: {e}"
+            logger.warning("producer turn failed (attempt %d): %s", attempt + 1, last_err)
+    # Never crash the conversation — fall back gently after the retry.
+    logger.warning("producer falling back after retries: %s", last_err)
+    return dict(_FALLBACK)
 
 
 # ---------------------------------------------------------------------------

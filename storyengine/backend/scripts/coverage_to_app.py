@@ -551,6 +551,20 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         cu = await resolve_cast_url(None, ic, story_bible=bible, profile=profile, aspect=aspect, outdir=base_dir)
         cast_refs = [cu] if cu else []
     if not cast_refs:
+        # No locked characters AND no character bible to build from — the common case for chat
+        # auto-builds, which stamp the characters gate but never write video_characters rows.
+        # Build a cast sheet straight from the script (the same proven path the CLI uses below)
+        # so coverage always has an anchor instead of dead-ending on "lock characters first".
+        _p("Building the cast from the script…")
+        try:
+            cast_text = "\n\n".join((s["scene_text"] or "") for s in targets)
+            cast_prompt = await build_cast_prompt(claude, cast_text, model=claude_model)
+            cu = await resolve_cast_url(None, ic, cast_prompt=cast_prompt, profile=profile,
+                                        aspect=aspect, outdir=base_dir)
+            cast_refs = [cu] if cu else []
+        except Exception as e:  # noqa: BLE001
+            return {"status": "failed", "error": f"couldn't build a cast from the script: {e}"}
+    if not cast_refs:
         return {"status": "failed", "error": "no cast to anchor on — lock characters first"}
 
     total = 0

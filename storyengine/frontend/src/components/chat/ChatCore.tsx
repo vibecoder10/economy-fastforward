@@ -909,6 +909,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function CreatedCard({ videoId }: { videoId: string }) {
   const [current, setCurrent] = useState("Story Approved");
   const [failed, setFailed] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   usePipelineSSE({
     videoId,
@@ -918,7 +919,12 @@ function CreatedCard({ videoId }: { videoId: string }) {
     },
     onTaskProgress: (e) => {
       if (e.status === "failed") setFailed(e.error || e.message || "Something needs a look.");
-      else if (e.status === "running") setFailed(null);
+      else if (e.status === "running") {
+        setFailed(null);
+        if (e.message) setNote(e.message); // live "Drawing the pictures…" / "Recording the voiceover…"
+      } else if (e.status === "completed" && e.message) {
+        setNote(e.message);
+      }
     },
   });
 
@@ -986,7 +992,9 @@ function CreatedCard({ videoId }: { videoId: string }) {
         </div>
       ) : (
         <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          {isDone ? "Take a look and tell me if you want any changes." : "I'll keep working — follow along here or ask for a change anytime."}
+          {isDone
+            ? "Take a look and tell me if you want any changes."
+            : note || "I'll keep working — follow along here or ask for a change anytime."}
         </div>
       )}
     </GlassCard>

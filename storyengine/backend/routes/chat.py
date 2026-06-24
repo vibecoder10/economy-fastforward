@@ -179,13 +179,41 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
     from status_map import get_next_status_supabase
 
     async def _advance(to_status: str):
+        prev = await fetch_one(
+            "SELECT status FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
         await execute("UPDATE videos SET status=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
                       to_status, video_id, tenant_id)
+        # Log a real stage transition so the chat progress card's live SSE updates — a raw
+        # status UPDATE alone left the card frozen on an old step while the build moved on.
+        try:
+            await execute(
+                "INSERT INTO stage_transitions (video_id, tenant_id, from_status, to_status, triggered_by) "
+                "VALUES ($1, $2, $3, $4, 'auto')",
+                video_id, tenant_id, (prev or {}).get("status") or "", to_status)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def _run():
         _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
         try:
             ex = PipelineExecutor(tenant_id)
+            # Build-to-pictures skips the voiceover; if we're now finishing, lay it down first
+            # (the render needs an audio track). run_voice can nudge the status backwards, so
+            # snapshot and restore it. Guarded on missing audio so we never double-charge.
+            if target == "finish":
+                try:
+                    missing = await fetch_one(
+                        "SELECT 1 AS x FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+                        "AND voice_over_url IS NULL LIMIT 1", video_id, tenant_id)
+                    if missing:
+                        snap = await fetch_one(
+                            "SELECT status FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
+                        _set_task_status(video_id, "running", "Recording the voiceover…", tenant_id=tenant_id)
+                        await ex.run_voice(video_id)
+                        if snap and snap.get("status"):
+                            await _advance(snap["status"])
+                except Exception:  # noqa: BLE001
+                    pass
             last = None
             for _ in range(18):  # hard cap — the pipeline is ~14 stages deep
                 video = await ex._get_video(video_id)
@@ -210,14 +238,15 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     await _advance("ready_for_scripting")
                     continue
                 # IMAGE PHASE: draw the pictures via the COVERAGE flow — the same path the
-                # Scenes-page "pictures" button uses (generate_coverage_for_video), which
-                # auto-builds the cast from the Story Bible and saves real picture assets.
+                # Scenes-page "pictures" button uses (generate_coverage_for_video). Coverage
+                # builds its own cast sheet from the script when no characters are locked
+                # (chat auto-builds don't lock a cast), then saves real picture assets.
                 # The old status-map storyboard handlers no-op now, so we call coverage
                 # directly, then stop at the pictures-review checkpoint.
                 if status in ("ready_for_image_prompts", "ready_for_storyboards",
                               "ready_for_storyboard_images", "ready_for_storyboard_extraction"):
                     # Satisfy the storyboard gates (env skipped, characters approved) and
-                    # build the Story Bible the cast auto-builder anchors on.
+                    # write the Story Bible (continuity anchor for the shot directives).
                     await execute(
                         "UPDATE videos SET environments_approved_at = COALESCE(environments_approved_at, now()), "
                         "characters_approved_at = COALESCE(characters_approved_at, now()), "
@@ -244,10 +273,14 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 rs = result.get("status")
                 if rs == "needs_approval":
                     if status == "ready_for_voice":
-                        try:
-                            await ex.run_voice(video_id)  # best-effort; no voice key -> skip
-                        except Exception:  # noqa: BLE001
-                            pass
+                        # Voice isn't needed to review the pictures and it's the slowest paid
+                        # step, so build-to-pictures skips it and advances. The finish flow lays
+                        # the voiceover down before the render (see the finish guard in _run).
+                        if target != "pictures":
+                            try:
+                                await ex.run_voice(video_id)  # best-effort; no voice key -> skip
+                            except Exception:  # noqa: BLE001
+                                pass
                         nxt = get_next_status_supabase(status)
                         if nxt:
                             await _advance(nxt)
