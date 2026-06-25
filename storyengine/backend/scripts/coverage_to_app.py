@@ -646,18 +646,21 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None):
 
 
 _MOTION_SYSTEM = (
-    "You write MOTION prompts for grok-imagine image-to-video. Each shot already has a still "
-    "frame — describe what MOVES, never re-describe what is in it. For EACH shot output ONE line:\n"
-    "1) START with ONE concrete camera move: push-in / dolly-in, pull-back, pan left/right, "
-    "tilt up/down, tracking, orbit/arc, dolly-zoom, slow zoom, or handheld sway. Add 'Unfixed "
-    "lens' when the camera moves, 'Fixed lens' if it holds.\n"
-    "2) Then ONE small, physically-reachable subject motion (a breath, a head turn, a hand raise, "
-    "eyes widen), quantified with a degree ('slowly', 'halfway', 'a little').\n"
-    "Fit the shot type: a wide gets a slow establishing move; a close-up gets a small push or a "
-    "hold; an insert gets a slow tilt or pan across the object.\n"
-    "VARY the camera move across the shots — never repeat the same move twice in a row.\n"
+    "You write per-shot prompts for grok-imagine image-to-video, which CAN lip-sync spoken "
+    "dialogue. Each shot already has a still frame — describe what MOVES and, when a character is "
+    "speaking on screen, the exact spoken line so grok animates the mouth. For EACH shot, ONE line:\n"
+    "1) CAMERA: start with ONE concrete move — push-in / dolly-in, pull-back, pan left/right, "
+    "tilt up/down, tracking, orbit/arc, dolly-zoom, slow zoom, or handheld sway. Add 'Unfixed lens' "
+    "when the camera moves, 'Fixed lens' if it holds. VARY the move; never repeat it twice in a row.\n"
+    "2) DIALOGUE: if the shot SHOWS a character delivering a line (their face/upper body is visible "
+    "and the action says they speak), append it in grok's dialogue form — "
+    "<Name> says <one-word manner>: \"<the exact line, verbatim from the SCENE DIALOGUE>\". One "
+    "speaker per shot; use the SCENE DIALOGUE for the right speaker and exact words.\n"
+    "3) If the shot is an INSERT, a cutaway, an action, or a listening/reaction with NO one speaking "
+    "to camera, write only the camera move + ONE small reachable motion (a breath, a head turn) — "
+    "NO dialogue.\n"
     "BANNED: the words gentle/soft/subtle, mood words (cinematic/dramatic/emotional), negatives "
-    "('no ...', 'avoid ...'), and re-describing the scene. Keep each line under 28 words.\n"
+    "('no ...', 'avoid ...'), and re-describing the scene. Keep each line under 40 words.\n"
     "Output ONLY the numbered lines, one per shot, in order — nothing else.")
 
 
@@ -677,15 +680,19 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     moves instead of the hardcoded slow push-in. Best-effort — leaves video_prompt NULL on failure
     (the clip generator still has its safe default)."""
     rows = await fetch_all(
-        "SELECT id, shot_type, image_prompt FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+        "SELECT id, shot_type, image_prompt, sentence_text FROM assets WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene=$3 AND generation_method='coverage' ORDER BY image_index", vid, tenant, scene)
     if not rows:
         return 0
+    srow = await fetch_one(
+        "SELECT scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, scene)
+    dialogue = ((srow or {}).get("scene_text") or "").strip()
     shots = "\n".join(
-        f"{i+1}. [{(r['shot_type'] or 'MS')}] {(r['image_prompt'] or '')[:240]}"
+        f"{i+1}. [{(r['shot_type'] or 'MS')}] {(r['sentence_text'] or r['image_prompt'] or '')[:200]}"
         for i, r in enumerate(rows))
-    kwargs = dict(prompt=f"Write one motion line per shot, numbered, in order:\n\n{shots}",
-                  system_prompt=_MOTION_SYSTEM, max_tokens=1500, temperature=0.6)
+    user = (f"SCENE DIALOGUE (verbatim — who says what):\n{dialogue[:2000]}\n\n"
+            f"SHOTS (write one line per shot, numbered, in order):\n{shots}")
+    kwargs = dict(prompt=user, system_prompt=_MOTION_SYSTEM, max_tokens=1800, temperature=0.6)
     if model:
         kwargs["model"] = model
     text = (await claude.generate(**kwargs)) or ""
