@@ -1234,8 +1234,15 @@ class PipelineExecutor:
 
 {video.get('writer_guidance') or ''}
 
-SCENE PLAN — write one section per scene, in this order:
+SCENE PLAN — follow these story beats in order. SPLIT any beat that moves between locations into
+separate scenes, one location each:
 {concept_lines}
+
+ONE LOCATION PER SCENE (important) — every scene must take place in a SINGLE physical location.
+The moment the action moves somewhere new (e.g. living room -> garage -> lakeside), START A NEW
+SCENE with a new @@@SCENE n@@@ marker. A beat that travels through several places becomes several
+scenes, one per place. NEVER let one scene span two locations — this keeps each scene's visuals
+consistent for the storyboard and the stitched video.
 
 Target length: about {target_words} words total, spread across the scenes.
 
