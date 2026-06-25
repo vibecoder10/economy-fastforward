@@ -588,6 +588,10 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, now(), $13, CURRENT_DATE)
            ON CONFLICT (tenant_id, video_id) DO UPDATE SET
                modeled_by_us = true, modeled_at = now(), our_video_id = $13,
+               views = CASE WHEN COALESCE(EXCLUDED.views, 0) > 0
+                           THEN EXCLUDED.views ELSE competitor_videos.views END,
+               duration_seconds = COALESCE(NULLIF(EXCLUDED.duration_seconds, 0),
+                                           competitor_videos.duration_seconds),
                transcript = COALESCE(EXCLUDED.transcript, competitor_videos.transcript),
                thumbnail_url = COALESCE(EXCLUDED.thumbnail_url, competitor_videos.thumbnail_url),
                updated_at = now()""",
@@ -696,6 +700,10 @@ async def _persist_style_overrides(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, now(), $13, CURRENT_DATE)
            ON CONFLICT (tenant_id, video_id) DO UPDATE SET
                modeled_by_us = true, modeled_at = now(), our_video_id = $13,
+               views = CASE WHEN COALESCE(EXCLUDED.views, 0) > 0
+                           THEN EXCLUDED.views ELSE competitor_videos.views END,
+               duration_seconds = COALESCE(NULLIF(EXCLUDED.duration_seconds, 0),
+                                           competitor_videos.duration_seconds),
                transcript = COALESCE(EXCLUDED.transcript, competitor_videos.transcript),
                thumbnail_url = COALESCE(EXCLUDED.thumbnail_url, competitor_videos.thumbnail_url),
                updated_at = now()""",
@@ -901,14 +909,33 @@ async def _run_modeling(tenant_id, video_id: str, youtube_id: str, reference_url
 
     blockers: list[str] = []
     try:
-        # 1. Extract
+        # 1. Extract. Prefer the official YouTube Data API (real views/duration, not
+        # bot-blocked on datacenter IPs) so we never model from zeros. Fall back to
+        # yt-dlp (often blocked here) then oEmbed (title/thumbnail only).
         _set("running", "Fetching the reference video…")
-        from routes.niche import _extract_video_info
-        info = await asyncio.to_thread(_extract_video_info, youtube_id)
+        info = None
+        api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+        if api_key:
+            try:
+                from youtube_data_api import fetch_single_video
+                info = await fetch_single_video(youtube_id, api_key)
+            except Exception as e:  # noqa: BLE001
+                print(f"[model_video] YouTube Data API fetch failed for {youtube_id}: {e}")
+                info = None
+        if not info or not info.get("title"):
+            from routes.niche import _extract_video_info
+            info = await asyncio.to_thread(_extract_video_info, youtube_id)
         used_oembed = False
         if not info or not info.get("title"):
             info = await _oembed_fallback(youtube_id)
             used_oembed = bool(info)
+        if not api_key and (used_oembed or not (info or {}).get("views")):
+            # No API key + a blocked/zero source = no real numbers. Say so loudly
+            # so the "based on real data" promise isn't silently faked.
+            blockers.append(
+                "No YouTube Data API key set, so real view/duration numbers weren't "
+                "available for this reference — add YOUTUBE_API_KEY to ground the modeling in real data."
+            )
         if not info or not info.get("title"):
             _set("failed", error=user_facing(
                 "We couldn't read that video. Check that the link is a public YouTube video and try again."

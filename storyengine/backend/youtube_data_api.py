@@ -73,6 +73,60 @@ async def _resolve_channel_id(
     return None
 
 
+async def fetch_single_video(youtube_id: str, api_key: str) -> Optional[dict]:
+    """Fetch ONE video's public metadata via the YouTube Data API.
+
+    Returns a dict whose keys match routes.niche._extract_video_info (the yt-dlp
+    path) so it is a drop-in for the modeling extract step: video_id, title, url,
+    views, likes, comment_count, channel, channel_url, published_at, thumbnail_url,
+    duration_seconds, description. Transcript is NOT returned (the API has none —
+    Supadata supplies it). Returns None if the video is not found.
+
+    Unlike yt-dlp, this is not bot-blocked on datacenter IPs, so it returns real
+    views/duration instead of the zeros that poison competitor_videos.
+    """
+    yid = (youtube_id or "").strip()
+    if not yid:
+        return None
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(
+            f"{API_BASE}/videos",
+            params={"part": "snippet,statistics,contentDetails", "id": yid, "key": api_key},
+        )
+        r.raise_for_status()
+        items = r.json().get("items") or []
+        if not items:
+            return None
+        v = items[0]
+        sn = v.get("snippet", {})
+        st = v.get("statistics", {})
+        cd = v.get("contentDetails", {})
+        thumbs = sn.get("thumbnails", {})
+        thumb = (
+            thumbs.get("maxres")
+            or thumbs.get("high")
+            or thumbs.get("medium")
+            or thumbs.get("default")
+            or {}
+        ).get("url")
+        cid = sn.get("channelId", "")
+        return {
+            "video_id": v["id"],
+            "title": sn.get("title", ""),
+            "url": f"https://www.youtube.com/watch?v={v['id']}",
+            "views": int(st.get("viewCount", 0) or 0),
+            "likes": int(st.get("likeCount", 0) or 0),
+            "comment_count": int(st.get("commentCount", 0) or 0),
+            "channel": sn.get("channelTitle", ""),
+            "channel_url": f"https://www.youtube.com/channel/{cid}" if cid else "",
+            "published_at": (sn.get("publishedAt") or "")[:10],
+            "thumbnail_url": thumb,
+            "transcript": None,
+            "duration_seconds": _parse_iso8601_duration(cd.get("duration", "")),
+            "description": (sn.get("description") or "")[:2000],
+        }
+
+
 async def fetch_channel_videos(
     channel_url: str, api_key: str, max_results: int = 30
 ) -> list[dict]:
