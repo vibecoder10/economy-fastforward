@@ -142,9 +142,10 @@ class PipelineExecutor:
             except Exception as e:
                 print(f"[INIT]   ✗ {key_name} error: {e}", flush=True)
 
-        # Kie.ai covers Claude ("we use kie ai for any claude calls"): when the
-        # tenant has no direct Anthropic key, route the pipeline's Claude calls
-        # through Kie's Anthropic-compatible gateway. AnthropicClient reads
+        # Claude runs on DIRECT Anthropic (the tenant's anthropic_api_key loaded
+        # above) — it's the reliable path. Kie is ONLY a fallback for Claude when a
+        # tenant has no Anthropic key (the Kie gateway 500s/hangs and drops image
+        # blocks). Images/video always use Kie. On fallback, AnthropicClient reads
         # ANTHROPIC_BASE_URL and switches to Bearer auth + undated model aliases.
         if not os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("KIE_AI_API_KEY"):
             os.environ["ANTHROPIC_API_KEY"] = os.environ["KIE_AI_API_KEY"]

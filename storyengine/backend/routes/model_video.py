@@ -50,7 +50,7 @@ ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1
 # Model ids per provider/tier. Kie.ai uses undated aliases.
 CLAUDE_MODELS = {
     "kie": {"smart": "claude-sonnet-4-5", "fast": "claude-haiku-4-5"},
-    "anthropic": {"smart": "claude-sonnet-4-20250514", "fast": "claude-haiku-4-5-20251001"},
+    "anthropic": {"smart": "claude-sonnet-4-6", "fast": "claude-haiku-4-5-20251001"},
 }
 TRANSCRIPT_PROMPT_CHAR_CAP = 8000
 TASK_TYPE = "model_video"
@@ -85,15 +85,18 @@ class ModelVideoResponse(BaseModel):
 # --- Claude helpers ---
 
 async def _resolve_claude_creds(tenant_id) -> Optional[dict]:
-    """Pick the provider for Claude calls: Kie.ai first (it's the one key every
-    tenant configures in onboarding), direct Anthropic as fallback."""
+    """Pick the provider for Claude calls: direct Anthropic FIRST (reliable), Kie.ai
+    only as a fallback when the tenant has no Anthropic key. The Kie Claude gateway
+    500s and hangs (it stalled a modeling run in prod) and silently drops image
+    blocks, so Claude should never depend on it when a real Anthropic key exists.
+    Images/video stay on Kie. This matches get_text_client_for_tenant (Anthropic-first)."""
     from vault import get_secret
-    kie_key = await get_secret("kie_ai_api_key", str(tenant_id))
-    if kie_key:
-        return {"provider": "kie", "key": kie_key}
     anthropic_key = await get_secret("anthropic_api_key", str(tenant_id))
     if anthropic_key:
         return {"provider": "anthropic", "key": anthropic_key}
+    kie_key = await get_secret("kie_ai_api_key", str(tenant_id))
+    if kie_key:
+        return {"provider": "kie", "key": kie_key}
     return None
 
 
