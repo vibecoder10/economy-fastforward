@@ -965,8 +965,13 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
 
     _cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
     state["pending_action"] = pending
-    intro = reply or f"I can {cfg['label'].lower()}{f' for scene {scene}' if scene is not None else ''}."
-    return await _reply(intro + " Want me to?", cards=[_confirm_card(verb, scene, cost_text)])
+    # Deterministic, confirmation-clear message — NOT the model's free-text reply, which
+    # tended to say "Generating now…" even though this is gated behind a tap (the money
+    # gate). State what will run + the cost + that a tap is needed; no contradiction.
+    where = f" for scene {scene}" if scene is not None else ""
+    intro = (f"Ready when you are — I'll {cfg['label'].lower()}{where} ({cost_text}). "
+             "Tap to run it, or tell me to change anything first.")
+    return await _reply(intro, cards=[_confirm_card(verb, scene, cost_text)])
 
 
 # --- prompt studio (full prompt-edit access) --------------------------------
