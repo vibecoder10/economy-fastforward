@@ -1142,9 +1142,13 @@ async def run_clip(
 
     _require_stage_enabled(video, "video")
 
-    # Relaxed gate (the lessons pattern): finals can exist from extraction
-    # onward — the executor itself only animates assets that HAVE a picture.
-    if not is_at_or_past_stage(video["status"], "ready_for_images"):
+    # Relaxed gate (the lessons pattern): finals can exist from extraction onward —
+    # the executor itself only animates assets that HAVE a picture. A TARGETED animate
+    # (one card via asset_id, or one scene) only needs that picture to exist, so it
+    # bypasses the global status gate — same as the other per-scene stage gates. The
+    # status check applies only to "animate everything" (coverage leaves the status at
+    # ready_for_image_prompts even though the pictures exist).
+    if asset_id is None and scene is None and not is_at_or_past_stage(video["status"], "ready_for_images"):
         raise HTTPException(
             status_code=400,
             detail=f"Final pictures must exist before clips (status: {video['status']})",
