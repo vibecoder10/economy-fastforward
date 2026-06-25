@@ -39,7 +39,7 @@ TIER_MODELS = {
     "fast": {"gemini": "gemini-2.5-flash", "kie_claude": "claude-haiku-4-5",
              "anthropic": "claude-haiku-4-5-20251001"},
     "smart": {"gemini": "gemini-2.5-pro", "kie_claude": "claude-sonnet-4-5",
-              "anthropic": "claude-sonnet-4-5"},
+              "anthropic": "claude-sonnet-4-6"},
 }
 
 _MAGIC_TYPES = (
@@ -205,7 +205,10 @@ async def vision_call(
     """Ask a vision model about one or more images; return its text reply.
 
     images: URLs (downloaded here) and/or raw bytes, in display order.
-    Provider chain: Kie Gemini → Kie Claude → direct Anthropic (key-gated).
+    Provider chain: direct Anthropic → Kie Gemini → Kie Claude (key-gated).
+    Anthropic goes FIRST when its key is present — the Kie gateway 500s/hangs and
+    silently drops image blocks, so analysis ("seeing") runs on the reliable path;
+    Kie stays as the fallback. (Image/video GENERATION still uses Kie elsewhere.)
 
     Raises VisionUnavailable when no provider produced a usable reply.
     """
@@ -215,11 +218,11 @@ async def vision_call(
     loaded = await _load_images(images, timeout)
 
     attempts = []
+    if anthropic_key:
+        attempts.append(("anthropic", _try_anthropic, anthropic_key, models["anthropic"]))
     if kie_key:
         attempts.append(("kie-gemini", _try_gemini, kie_key, models["gemini"]))
         attempts.append(("kie-claude", _try_kie_claude, kie_key, models["kie_claude"]))
-    if anthropic_key:
-        attempts.append(("anthropic", _try_anthropic, anthropic_key, models["anthropic"]))
     if not attempts:
         raise VisionUnavailable("no API key for any vision provider")
 
