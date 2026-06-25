@@ -1622,9 +1622,13 @@ separate scenes."""
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
                                        native_speaking_prompt, motion_guard, duck_audio,
-                                       download_voice, mux_voice, DIALOGUE_VOICE_LEAD_SECONDS)
+                                       download_voice, mux_voice, DIALOGUE_VOICE_LEAD_SECONDS,
+                                       speech_seconds, spoken_word_count, pick_clip_duration)
             client = self._pipeline.image_client
-            durations = [d for d in profile.durations if d in (6, 10)] or [profile.durations[0]]
+            # Grok-imagine takes any duration 6–30s (Kie). Use every tier the
+            # model profile declares so a long spoken line isn't cut at 6/10s;
+            # the per-clip selector below picks the smallest tier that fits.
+            durations = sorted(profile.durations) or [6]
 
             # Seedance is a drop-in animator with the same call shape as Grok
             # (img, prompt, duration, extra_image_urls). Veo keeps its own branch below.
@@ -1730,12 +1734,16 @@ separate scenes."""
                         core = (native_speaking_prompt(lines, r.get("sentence_text"))
                                 if native_voices else speaking_prompt(lines))
                         prompt = _decorate(core)
-                        voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
-                        # The line (plus its lead) has to fit inside the clip.
-                        need = voice_secs + DIALOGUE_VOICE_LEAD_SECONDS
-                        clip_dur = (max(durations)
-                                    if need > min(durations) - 0.5 and len(durations) > 1
-                                    else durations[0])
+                        # The whole spoken line has to fit inside the clip, or
+                        # Grok cuts it off. native = Grok times its own speech
+                        # (size from the word count); voice_over = the synthesized
+                        # line's measured length plus its lead-in.
+                        if native_voices:
+                            need = speech_seconds(spoken_word_count(core))
+                        else:
+                            need = (sum(float(l.get("duration") or 2.0) for l in lines)
+                                    + DIALOGUE_VOICE_LEAD_SECONDS)
+                        clip_dur = pick_clip_duration(need, durations)
                         clip_url = await _gen(animate(
                             img, prompt, duration=clip_dur,
                             extra_image_urls=[_proxy_url(sheet)] if sheet else None))
@@ -1757,8 +1765,14 @@ separate scenes."""
                         # nobody-NEW. Decision table lives in motion_guard.
                         prompt = motion_guard(r.get("image_prompt"),
                                               r.get("sentence_text"), cast_names) + prompt
+                        # A coverage shot carries its spoken line INSIDE the
+                        # motion prompt (<Name> says ...: "line") — size the clip
+                        # to that line so a long line gets a longer tier. A
+                        # silent shot has no embedded line (0s) and keeps the
+                        # base tier; a timed segment still acts as a floor.
+                        spoken_secs = speech_seconds(spoken_word_count(prompt))
                         seg_dur = float(r.get("duration_seconds") or 0)
-                        clip_dur = max(durations) if seg_dur > 6.0 and len(durations) > 1 else durations[0]
+                        clip_dur = pick_clip_duration(max(spoken_secs, seg_dur), durations)
                         if model_id.startswith("veo-3.1"):
                             veo_model = client.VEO_MODEL_QUALITY if model_id.endswith("quality") else client.VEO_MODEL_FAST
                             clip_url = await _gen(client.generate_video_veo(prompt, image_url=img, model=veo_model))

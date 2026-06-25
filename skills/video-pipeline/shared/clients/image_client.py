@@ -884,7 +884,7 @@ class ImageClient:
         self,
         image_url: str,
         prompt: str,
-        duration: int = 6, # Grok supports 6 or 10. Default 6.
+        duration: int = 6, # Grok-imagine supports 6–30s (Kie). Default 6.
         extra_image_urls: Optional[list] = None,
     ) -> Optional[str]:
         """Generate a video from an image using Grok Imagine via Kie.ai.
@@ -895,13 +895,13 @@ class ImageClient:
         storyboard drift).
         """
 
-        # Duration check (must be 6 or 10)
-        # We will cast to string as per docs ("6" or "10")
-        if duration not in [6, 10]:
-            print(f"      ⚠️ Duration {duration} not supported by Grok. Defaulting to 6.")
-            duration_str = "6"
-        else:
-            duration_str = str(duration)
+        # Grok-imagine (Kie) accepts any duration 6–30s as a string. Clamp to
+        # that range so a long spoken line gets a long enough clip instead of
+        # being silently knocked back to 6s.
+        dur = max(6, min(30, int(duration)))
+        if dur != duration:
+            print(f"      ⚠️ Duration {duration}s out of Grok's 6–30s range; using {dur}s.")
+        duration_str = str(dur)
 
         image_urls = [image_url] + [u for u in (extra_image_urls or []) if u][:6]
         print(f"      🎬 Generating video with Grok Imagine (Duration: {duration_str}s, refs: {len(image_urls)})...")

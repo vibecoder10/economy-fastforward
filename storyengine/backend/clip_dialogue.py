@@ -36,6 +36,42 @@ logger = logging.getLogger(__name__)
 DIALOGUE_VOICE_LEAD_SECONDS = 0.5
 
 
+# --- Dynamic clip length for speaking shots ---------------------------------
+# A speaking clip has to be long enough to hold the whole spoken line, or Grok
+# cuts the line off mid-word at the clip's end. Grok speaks at roughly 2.8
+# words/sec (measured: S-02.104 said 14 words in 5.0s). We size a touch slower
+# so we never undershoot, then add a fixed buffer so the last word plus a beat
+# of silence fits. Both knobs are env-tunable without a code change.
+SPEAKING_WORDS_PER_SEC = float(os.getenv("GROK_WORDS_PER_SEC", "2.5"))
+SPEECH_BUFFER_SECONDS = float(os.getenv("GROK_SPEECH_BUFFER", "1.0"))
+
+# Coverage motion prompts embed the spoken line as: <Name> says <manner>: "line"
+_SPOKEN_RE = re.compile(r'says\b[^:"\n]*:\s*"([^"]+)"', re.IGNORECASE)
+
+
+def spoken_word_count(prompt_or_text: Optional[str]) -> int:
+    """Words Grok will SPEAK in a prompt that embeds dialogue as
+    `<Name> says <manner>: "line"`. Returns 0 for a motion-only (silent) shot."""
+    return sum(len(s.split()) for s in _SPOKEN_RE.findall(prompt_or_text or ""))
+
+
+def speech_seconds(words: int) -> float:
+    """Seconds Grok needs to speak `words`, with headroom so nothing is cut."""
+    if words <= 0:
+        return 0.0
+    return words / SPEAKING_WORDS_PER_SEC + SPEECH_BUFFER_SECONDS
+
+
+def pick_clip_duration(need_seconds: float, durations: list) -> int:
+    """Smallest available tier that holds `need_seconds`; the longest tier if
+    none fit (a too-long line is better slightly clipped than missing tiers)."""
+    tiers = sorted({int(d) for d in (durations or [6])})
+    for d in tiers:
+        if d + 0.25 >= need_seconds:
+            return d
+    return tiers[-1]
+
+
 def norm(s: Optional[str]) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower())).strip()
 
