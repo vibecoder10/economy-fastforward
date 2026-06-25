@@ -50,6 +50,11 @@ from orchestrator.pipeline_constants import Models  # noqa: E402
 SHOT_TYPES = "ELS, WS, MS, MCU, CU, ECU, OTS, INSERT"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 
+# Max image generations in flight at once across a whole scene's coverage. Moments and
+# the angles within a moment draw concurrently (master-first is still enforced per moment);
+# this caps the total so we don't trip Kie rate limits. Tune via env if needed.
+_COVERAGE_CONCURRENCY = int(os.getenv("COVERAGE_CONCURRENCY", "5"))
+
 
 # =============================================================================
 # Directive — per moment, a master + matched angles of the same instant
@@ -214,24 +219,36 @@ async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
 
 
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
-                                   env_url=None, aspect="16:9", resolution="2K") -> list[dict] | None:
+                                   env_url=None, aspect="16:9", resolution="2K", sem=None) -> list[dict] | None:
     """Master frame (anchored on cast) -> each angle (anchored on cast + master).
-    Returns frames [{role, shot_type, description, url}] or None if the master fails."""
+    Returns frames [{role, shot_type, description, url}] or None if the master fails.
+    The master MUST be drawn first (angles reference it), but the angles only depend on
+    the master, not on each other — so they draw in PARALLEL. `sem` caps total Kie gens."""
     # cast_url may be one URL or a LIST (e.g. the locked per-character 4-view sheets).
     cast_refs = list(cast_url) if isinstance(cast_url, list) else [cast_url]
     base = cast_refs + ([env_url] if env_url else [])
+    sem = sem or asyncio.Semaphore(1)  # no semaphore passed => serial fallback
+
+    async def _gen(prompt, refs):
+        async with sem:
+            return await _gen_ref(image_client, prompt, refs, aspect, resolution)
+
     m = moment["master"]
     master_prompt = build_image_prompt_from_keyframe({"composition": m["description"]}, profile) + _STYLE_LOCK
-    master_url = await _gen_ref(image_client, master_prompt, base, aspect, resolution)
+    master_url = await _gen(master_prompt, base)  # master first — angles anchor on it
     if not master_url:
         return None
     frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"], "url": master_url}]
-    for a in moment["angles"]:
+    angle_refs = cast_refs + [master_url] + ([env_url] if env_url else [])
+
+    async def _angle(a):
         ap = build_image_prompt_from_keyframe({"composition": a["description"]}, profile) + _SAME_SUBJECT + _STYLE_LOCK
-        refs = cast_refs + [master_url] + ([env_url] if env_url else [])
-        url = await _gen_ref(image_client, ap, refs, aspect, resolution)
-        if url:
-            frames.append({"role": "angle", "shot_type": a["shot_type"], "description": a["description"], "url": url})
+        url = await _gen(ap, angle_refs)
+        return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"], "url": url} if url else None
+
+    # All angles share the same master ref → draw them concurrently (capped by sem).
+    angle_frames = await asyncio.gather(*[_angle(a) for a in moment["angles"]])
+    frames.extend([f for f in angle_frames if f])
     return frames
 
 
@@ -314,10 +331,19 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
 
+    # Draw all moments CONCURRENTLY (each: master first, then its angles in parallel),
+    # with one shared semaphore capping total in-flight Kie image gens. Collapses ~12
+    # strictly-serial frames into ~2 sequential steps — scene coverage goes from ~20 min
+    # to a few minutes. Set COVERAGE_CONCURRENCY to tune.
+    sem = asyncio.Semaphore(_COVERAGE_CONCURRENCY)
+    moment_results = await asyncio.gather(*[
+        generate_coverage_frames(moment, cast_url, image_client, profile,
+                                 env_url=env_url, aspect=aspect, resolution=resolution, sem=sem)
+        for moment in moments
+    ])
+
     result_moments, frame_total = [], 0
-    for moment in moments:
-        frames = await generate_coverage_frames(
-            moment, cast_url, image_client, profile, env_url=env_url, aspect=aspect, resolution=resolution)
+    for moment, frames in zip(moments, moment_results):
         if not frames:
             print(f"  [moment {moment['moment_number']}] master failed — skipped", flush=True)
             continue
