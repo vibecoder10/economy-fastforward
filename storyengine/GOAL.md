@@ -124,7 +124,7 @@ if the characters are represented and the scenes/characters are well defined.
 Each phase lists the root fix, the key files (from the audit), and the proof. Phase 0 is the
 keystone - most other phases port their fix INTO the unified path it creates.
 
-### Phase 0 - Unify on ONE pipeline (keystone) `[todo]`
+### Phase 0 - Unify on ONE pipeline (keystone) `[partial 2026-06-24: false-proof + interactive path done; status-map swap deferred]`
 The whole pass depends on this. Make coverage the single live image/clip path and kill the
 competing routes.
 - Make `generate_coverage_for_video` (coverage) the only image generator a user can reach. Route
@@ -139,7 +139,7 @@ competing routes.
 - **Proof:** one real chat-built video; confirm via DB + screenshots that every image/clip came
   from the coverage path and no old-path entry point is reachable.
 
-### Phase 1 - Data foundation (real numbers) `[todo]`
+### Phase 1 - Data foundation (real numbers) `[mostly done 2026-06-24: model-a-video + onboarding on the API; own-channel ingestion + prod zero-row purge remain]`
 Confirmed half-broken: key is set, daily scrape works, but onboarding + model-a-video write
 zeros (23 of 50 rows for the owner tenant).
 - Extract one shared `youtube_data_api` helper (single-video + channel) and route EVERY ingestion
@@ -264,3 +264,12 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   director machinery. Prod check: YOUTUBE_API_KEY set, 27/50 competitor rows real (23 zeros from
   onboarding/model-a-video). grok-imagine prompting rules researched (kie.ai, Grok Imagine 1.5).
   This plan written. Prior GOAL backed up to GOAL.md.bak-20260624-221122.
+- 2026-06-24 (overnight): Phase 0 + 1 code work on branch `feat/director-pass` (NOT deployed,
+  no spend). Phase 0: killed the false-proof signals (broken self-test, stale/lying docstrings)
+  and unified the INTERACTIVE image path on coverage (co-pilot dock verbs now draw via coverage,
+  not the old grid). Phase 1: model-a-video + onboarding now fetch via the YouTube Data API
+  (real views/duration), heal/skip zero rows, and fail loud without a key. All touched files
+  compile; no new test regressions (286 skills tests pass; the 5 failures are pre-existing on
+  main). Deferred (need Ryan + a real run): the run_next_step status-map swap, the own-channel
+  onboarding ingestion, and the one-time prod purge of the 23 existing zero rows. See
+  storyengine/HANDOFF-REPORT.md.
