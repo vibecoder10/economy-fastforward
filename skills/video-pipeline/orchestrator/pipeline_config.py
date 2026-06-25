@@ -3,13 +3,15 @@
 Computes all derived pipeline parameters from:
 - video_length_minutes: Target video duration (3-30 minutes)
 
-Clip duration is assigned dynamically per-segment by the segmentation engine:
-- Segments with <= 6s of narration get 6s clips
-- Segments with > 6s of narration get 10s clips
-- Remotion trims each clip to fit the actual voiceover duration
+Clip duration: this module's 10s value is a PLANNING DEFAULT only (used to estimate
+total clips, script word targets, and costs). It is NOT what the live pipeline renders.
 
-The planning default of 10s clips is used for estimating total clips, script
-word targets, and costs. Actual clip durations vary per segment.
+REALITY (GOAL v2 audit 2026-06-24): the per-segment 6/10s assignment described below is
+NOT applied on the live path. The live image path (coverage) inserts assets with no
+duration, so the clip generator falls through to a fixed 6s for every narration clip.
+Real per-shot duration variation is GOAL v2 Phase 6 (stamp durations onto coverage assets).
+Do not trust the "assigned per-segment by the segmentation engine" wording — that path is
+dead on the live build.
 """
 
 
@@ -111,8 +113,8 @@ class VideoConfig:
         """Create VideoConfig from an Airtable Idea Concepts record.
 
         Reads 'Video Length (min)' field. Falls back to 10 min if empty.
-        Clip duration is always 10s for planning estimates — actual clip
-        durations are assigned per-segment by the segmentation engine.
+        Clip duration is always 10s for PLANNING estimates only. (Live render does
+        not vary per-segment yet — see the module docstring; that is GOAL v2 Phase 6.)
 
         Returns:
             Tuple of (VideoConfig, duration_was_set) where duration_was_set

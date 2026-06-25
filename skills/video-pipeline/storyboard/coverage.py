@@ -10,9 +10,13 @@ told "only the camera angle changes." Same call the 3x3 grid path already uses
 (image_client.generate_with_reference) — so this touches neither image_client.py nor
 pipeline_executor.py.
 
-NEW mode, gated: nothing here is wired into the live pipeline. The existing 3x3 storyboard
-flow (run_storyboard_images / generate_contact_sheet) is untouched. Reach this only via the
-CLI below; pipeline wiring + route picker are Phase 4.
+STATUS (2026-06-24): this IS the live image path. The chat auto-build and the Scenes-page
+"pictures"/"generate all pictures" buttons reach run_coverage via
+scripts/coverage_to_app.py:generate_coverage_for_video. The old 3x3 grid flow
+(run_storyboard_images / generate_contact_sheet) is being retired (GOAL v2 Phase 0); do not
+mistake it for the live path. Most of the director machinery (env refs, per-shot durations,
+camera motion prompts, the closed-cast validator) still lives on the old grid path and is
+being ported INTO this coverage flow in GOAL v2 Phases 5-9.
 
   coverage.py estimate <spec.json>
   coverage.py run <spec.json> <outdir>

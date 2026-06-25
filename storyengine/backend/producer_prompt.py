@@ -103,9 +103,11 @@ When you have the look, the length, and how far to take it, move to phase "plan"
 def build_system_prompt(channel_brief: str = "") -> str:
     """The producer system prompt, with an optional channel brief appended.
 
-    The channel brief (Phase 4) is a compact summary of the connected channel's
-    proven titles/hooks/look so the producer's suggestions match what already
-    wins. Empty brief -> the generic producer behavior.
+    The brief is whatever the caller passes. TODAY that is a thin creator brief
+    (intent/goals/niche/channel + competitor NAMES) plus a runtime length anchor.
+    It does NOT yet carry the competitors' proven titles/hooks/thumbnails — wiring
+    that real format intelligence into every turn is GOAL v2 Phase 2. Empty brief
+    -> the generic producer behavior.
     """
     brief = (channel_brief or "").strip()
     if brief:
@@ -227,7 +229,8 @@ def _load_key_for_selftest() -> bool:
 if __name__ == "__main__":
     # Offline: prompt-build sanity (no network).
     assert "creative producer" in build_system_prompt().lower()
-    assert "MY CHANNEL".lower() in build_system_prompt("Niche: cooking").lower()
+    assert "this creator's channel".lower() in build_system_prompt("Niche: cooking").lower()
+    assert "Niche: cooking" in build_system_prompt("Niche: cooking")
     assert _extract_json('```json\n{"a":1}\n```') == '{"a":1}'
     print("offline checks passed")
 
