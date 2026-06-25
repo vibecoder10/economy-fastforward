@@ -19,6 +19,7 @@ import asyncio
 import html as _html
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.request
@@ -157,6 +158,48 @@ async def load_character_bible(vid, tenant):
         "AND description IS NOT NULL ORDER BY sort", vid, tenant)
     chars = [{"id": r["name"], "costume": r["description"], "scenes_present": []} for r in rows]
     return {"characters": chars} if chars else None
+
+
+_NAME_STOPWORDS = {"the", "mr", "mrs", "ms", "dr", "miss", "aunt", "uncle", "sir", "lady", "a", "an"}
+
+
+def _scenes_present_for(name: str, scene_rows) -> list:
+    """Scene numbers a character appears in — word-boundary match of the character's
+    distinctive name token(s) in each scene's text (titles like 'Mr.' are skipped so
+    'Mr. Brown' matches on 'Brown'). Empty list => the bible formatter treats them as
+    'present everywhere' (its existing fallback)."""
+    toks = [t for t in re.split(r"[\s.]+", (name or "").strip())
+            if len(t) >= 3 and t.lower() not in _NAME_STOPWORDS]
+    if not toks:
+        toks = [(name or "").strip()]
+    pats = [re.compile(r"\b" + re.escape(t) + r"\b", re.IGNORECASE) for t in toks if t]
+    out = []
+    for s in scene_rows:
+        txt = s.get("scene_text") or ""
+        if s.get("scene") is not None and any(p.search(txt) for p in pats):
+            out.append(s["scene"])
+    return out
+
+
+async def scene_aware_bible(vid, tenant, scene_rows, claude=None, model=None):
+    """A character bible with per-scene PRESENCE filled in, so coverage's existing
+    _format_story_bible_for_beat injects ONLY each scene's actual characters — the
+    1-character-per-scene lock (a scene that genuinely has two keeps both). Uses the
+    locked video_characters if present, else extracts the cast from the script. This
+    ADAPTS machinery that already exists (the formatter + presence filter): it was
+    only ever handed empty scenes_present, so every character leaked into every scene."""
+    bible = await load_character_bible(vid, tenant)
+    if not bible and claude is not None:
+        full = "\n\n".join((s.get("scene_text") or "") for s in scene_rows)
+        cast = await extract_characters(claude, full, model=model)
+        if cast:
+            bible = {"characters": [{"id": c["name"], "costume": c["description"],
+                                     "scenes_present": []} for c in cast]}
+    if not bible:
+        return None
+    for ch in bible["characters"]:
+        ch["scenes_present"] = _scenes_present_for(ch.get("id", ""), scene_rows)
+    return bible
 
 
 def compose_grid(paths, cols=4):
@@ -581,7 +624,9 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     # Carry the creator's chosen visual style (e.g. 3D Pixar) into the cast sheet + director so the
     # whole video renders in that style — not the realistic default.
     profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
-    bible = await load_character_bible(vid, tenant)
+    # Scene-aware bible: each scene's directive gets ONLY the characters in that scene
+    # (the 1-character-per-scene lock), via the existing _format_story_bible_for_beat.
+    bible = await scene_aware_bible(vid, tenant, scenes, claude, claude_model)
     base_dir = f"/tmp/coverage_app/{vid[:8]}"
 
     # Anchor every frame on the LOCKED character 4-view sheets (best cast lock); fall back to an
