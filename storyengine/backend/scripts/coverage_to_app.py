@@ -602,9 +602,25 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
     return {"status": "completed", "message": f"Storyboard ready for {done} scene(s) — review, then generate images"}
 
 
-async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None):
+# When grok's content filter flags a frame (usually a tight over-the-shoulder or
+# low/ambiguous angle of a child), redraw it as a clean, bright, front-facing
+# medium shot of the same moment — same character, wardrobe, setting and action,
+# just an unambiguous wholesome framing the filter accepts.
+SAFE_REFRAME_PREFIX = (
+    "Clear, bright, front-facing MEDIUM shot. The character is fully clothed, "
+    "eyes open, face well-lit and unobscured, in a wholesome children's-storybook "
+    "style. Keep the same character, wardrobe, setting and action, but use a plain "
+    "respectful medium framing — not an over-the-shoulder, close, low or ambiguous "
+    "angle. "
+)
+
+
+async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_reframe=False):
     """Redraw ONE picture from its (possibly edited) image_prompt, anchored on the LOCKED
-    cast sheets so the characters stay consistent. Clears the now-stale clip. GPT Image 2."""
+    cast sheets so the characters stay consistent. Clears the now-stale clip. GPT Image 2.
+
+    safe_reframe: prepend a wholesome medium-shot directive so a frame that grok's
+    content filter rejected gets redrawn into a framing the filter accepts."""
     def _p(msg):
         if progress:
             try:
@@ -622,6 +638,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None):
     prompt = (a["image_prompt"] or "").strip()
     if not prompt:
         return {"status": "failed", "error": "this picture has no image prompt to redraw from"}
+    if safe_reframe:
+        prompt = SAFE_REFRAME_PREFIX + prompt
 
     kie_key = await get_secret("kie_ai_api_key", tenant_id) or os.getenv("KIE_AI_API_KEY")
     ic = ImageClient(api_key=kie_key)

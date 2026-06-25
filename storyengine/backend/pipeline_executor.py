@@ -1625,6 +1625,7 @@ separate scenes."""
                                        download_voice, mux_voice, DIALOGUE_VOICE_LEAD_SECONDS,
                                        speech_seconds, spoken_word_count, pick_clip_duration,
                                        clip_cost_for)
+            from shared.clients.image_client import CONTENT_POLICY_MARKER
             client = self._pipeline.image_client
             # Grok-imagine takes any duration 6–30s (Kie). Use every tier the
             # model profile declares so a long spoken line isn't cut at 6/10s;
@@ -1711,6 +1712,42 @@ separate scenes."""
             async def _gen(coro):
                 return await asyncio.wait_for(coro, CLIP_DEADLINE)
 
+            async def _animate_recover(r, image_url, full_prompt, clip_dur):
+                """Generate the clip; if Grok's content filter (failCode 430) flags
+                the frame, redraw the shot with a safer wholesome framing and retry
+                ONCE. Returns (clip_url_or_None, image_url_actually_used)."""
+                extra = [_proxy_url(sheet)] if sheet else None
+                try:
+                    return (await _gen(animate(image_url, full_prompt, duration=clip_dur,
+                                               extra_image_urls=extra)), image_url)
+                except Exception as e:
+                    if CONTENT_POLICY_MARKER not in str(e):
+                        raise  # not a content block — let _safe_one count it failed
+                    sc, idx = r["scene"], r["image_index"]
+                    await _report(f"S{sc}.{idx} was flagged by the video filter — redrawing it safer…")
+                    print(f"[clips] S{sc}.{idx} content-policy block — redrawing safer + retrying", flush=True)
+                    try:
+                        from scripts.coverage_to_app import redraw_asset_image
+                        rr = await redraw_asset_image(video_id, self.tenant_id, r["id"], safe_reframe=True)
+                    except Exception as re_err:
+                        print(f"[clips] S{sc}.{idx} safe-redraw errored: {str(re_err)[:150]}", flush=True)
+                        return None, image_url
+                    if (rr or {}).get("status") != "completed":
+                        return None, image_url
+                    nr = await fetch_one(
+                        "SELECT image_url, drive_image_url FROM assets WHERE id = $1", r["id"])
+                    new_img = _proxy_url((nr or {}).get("drive_image_url")
+                                         or (nr or {}).get("image_url") or image_url)
+                    try:
+                        return (await _gen(animate(new_img, full_prompt, duration=clip_dur,
+                                                   extra_image_urls=extra)), new_img)
+                    except Exception as e2:
+                        if CONTENT_POLICY_MARKER in str(e2):
+                            print(f"[clips] S{sc}.{idx} still flagged after safe redraw — giving up",
+                                  flush=True)
+                            return None, new_img
+                        raise
+
             async def _one(r):
                 nonlocal done, failed, cost, cancelled
                 async with sem:
@@ -1757,9 +1794,7 @@ separate scenes."""
                             need = (sum(float(l.get("duration") or 2.0) for l in lines)
                                     + DIALOGUE_VOICE_LEAD_SECONDS)
                         clip_dur = pick_clip_duration(need, durations)
-                        clip_url = await _gen(animate(
-                            img, prompt, duration=clip_dur,
-                            extra_image_urls=[_proxy_url(sheet)] if sheet else None))
+                        clip_url, img = await _animate_recover(r, img, prompt, clip_dur)
                         clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
@@ -1793,9 +1828,7 @@ separate scenes."""
                             clip_url = await _gen(client.generate_video_veo(prompt, image_url=img, model=veo_model))
                             clip_dur = profile.durations[0]
                         else:
-                            clip_url = await _gen(animate(
-                                img, _decorate(prompt), duration=clip_dur,
-                                extra_image_urls=[_proxy_url(sheet)] if sheet else None))
+                            clip_url, img = await _animate_recover(r, img, _decorate(prompt), clip_dur)
                         clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
 
                     if not clip_url:

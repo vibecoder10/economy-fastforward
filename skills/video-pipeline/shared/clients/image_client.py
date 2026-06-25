@@ -32,6 +32,29 @@ def _is_kie_block(text) -> bool:
     return any(sig in low or sig in str(text) for sig in _KIE_BLOCK_SIGNALS)
 
 
+# Grok-imagine's content filter rejects some frames (failCode 430 / "flagged ...
+# violating content policies"). It's deterministic for a given frame and costs
+# no credits, so retrying the SAME image is pointless — we raise a marked error
+# so the caller can redraw the shot with a safer framing and try once more.
+CONTENT_POLICY_MARKER = "CONTENT_POLICY_BLOCKED"
+_CONTENT_BLOCK_SIGNALS = (
+    "430", "violating content polic", "content polic", "flagged",
+    "content moderation", "not allowed", "sensitive content",
+    CONTENT_POLICY_MARKER.lower(),
+)
+
+
+def _is_content_block(*texts) -> bool:
+    """True if any error message/code signals a content-policy rejection."""
+    for text in texts:
+        if not text:
+            continue
+        low = str(text).lower()
+        if any(sig in low for sig in _CONTENT_BLOCK_SIGNALS):
+            return True
+    return False
+
+
 def _get_profile():
     """Return the active visual profile, or None."""
     try:
@@ -358,9 +381,12 @@ class ImageClient:
                 str(task_status).lower() in ["failed", "failure", "error"] or
                 str(task_state).lower() in ["fail", "failed", "failure", "error"]):
 
-                # Extract all available error details from the API response
-                error_msg = data.get("errorMessage") or data.get("error") or data.get("msg") or "No error details provided"
-                error_code = data.get("errorCode") or data.get("code")
+                # Extract all available error details. Kie reports clip failures
+                # in failMsg/failCode (NOT errorMessage) — read those first or the
+                # log just says "No error details provided".
+                error_msg = (data.get("failMsg") or data.get("errorMessage")
+                             or data.get("error") or data.get("msg") or "No error details provided")
+                error_code = data.get("failCode") or data.get("errorCode") or data.get("code")
                 task_id_str = data.get("taskId", "unknown")
                 print(f"      ❌ Task FAILED (taskId: {task_id_str})")
                 print(f"         State: {task_state} | Status: {task_status}")
@@ -375,6 +401,11 @@ class ImageClient:
                 # caller retries until the budget is gone.
                 if _is_kie_block(error_msg) or _is_kie_block(error_code):
                     raise RuntimeError(f"{KIE_BLOCK_MARKER}: {error_msg}")
+                # Content-filter rejection (failCode 430): deterministic for this
+                # frame and free — raise a marked error so the caller can redraw
+                # the shot safer and retry, instead of burning 3 identical retries.
+                if str(error_code) == "430" or _is_content_block(error_msg):
+                    raise RuntimeError(f"{CONTENT_POLICY_MARKER}: {error_msg}")
                 return None
 
             result_json = data.get("resultJson")
@@ -973,10 +1004,15 @@ class ImageClient:
                     print(f"      ⚠️ Attempt {attempt+1} failed (Poll returned failure). Retrying...")
 
             except Exception as e:
+                # Terminal failures must propagate, not burn retries: a content-
+                # filter block is deterministic for this frame (the caller redraws
+                # it safer), and a banned/out-of-credit key won't recover.
+                if CONTENT_POLICY_MARKER in str(e) or _is_kie_block(e):
+                    raise
                 print(f"❌ Video generation error (Attempt {attempt+1}): {str(e)}")
                 # wait before retry
                 await asyncio.sleep(5)
-                
+
         print("❌ All retry attempts failed.")
         return None
 
