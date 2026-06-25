@@ -1287,15 +1287,27 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             </button>
           );
           if (!approved) return (
-            <button
-              onClick={handleApprove}
-              disabled={approving || !allReady}
-              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-              style={{ background: "var(--green)", color: "var(--bg-void)" }}
-            >
-              {approving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-              Step 3: Approve Script & Voice
-            </button>
+            <>
+              <button
+                onClick={handleApprove}
+                disabled={approving || !allReady}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                style={{ background: "var(--green)", color: "var(--bg-void)" }}
+              >
+                {approving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                Step 3: Approve Script & Voice
+              </button>
+              {/* Go back and rewrite the script (e.g. after changing the style or scene rules). */}
+              <button
+                onClick={handleRegenerateScript}
+                disabled={regeneratingScript || scriptTaskRunning}
+                className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
+                style={{ background: "transparent", border: "1px solid var(--orange)", color: "var(--orange)" }}
+              >
+                {(regeneratingScript || scriptTaskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+                {scriptTaskRunning ? scriptTaskMessage || "Regenerating…" : "Regenerate script"}
+              </button>
+            </>
           );
           return (
             <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
