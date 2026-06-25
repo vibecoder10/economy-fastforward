@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -192,12 +192,25 @@ export default function VideoDetailPage() {
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
 
   // SSE for live pipeline updates (filtered to this video)
+  // Refresh every tab's data on a stage change OR any task completion — including
+  // tasks the CO-PILOT DOCK starts (e.g. "regenerate the script"), which the page's
+  // own task poller doesn't watch. Without this the script/pictures show stale until
+  // a manual page refresh.
+  const refreshVideoData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+    queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+    queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+    queryClient.invalidateQueries({ queryKey: ["segments", videoId] });
+  }, [queryClient, videoId]);
   usePipelineSSE({
     enabled: !TERMINAL_STATUSES.has(status),
     videoId,
     onStageChange: (event) => {
       setLiveStatus(event.to_status);
-      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      refreshVideoData();
+    },
+    onTaskProgress: (event) => {
+      if (event.status === "completed") refreshVideoData();
     },
   });
   const [resetting, setResetting] = useState(false);
