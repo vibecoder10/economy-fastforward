@@ -160,17 +160,29 @@ async def _generate_portrait(api_key: str, description: str, style_dna: str) -> 
             "every image — do NOT switch to photorealism or flat 2D illustration unless "
             "art_style explicitly calls for it"
         ),
-        "shot": "full-body character reference sheet, facing camera, the character fills the frame",
+        # A 4-view character REFERENCE SHEET (the 360 consistency anchor), not a single
+        # frame — matches character-creation-prompt.md. All angles in ONE wide image so
+        # every storyboard panel + animation can lock the character's full look.
+        "layout": (
+            "a SINGLE professional character reference sheet showing the SAME character in FOUR "
+            "views, left-to-right, on a plain neutral grey studio background: "
+            "(1) Full Body Front — slight three-quarter front, entire body head to toe; "
+            "(2) Full Body Back — straight rear view, full body; "
+            "(3) Front Portrait — head-and-shoulders front, showing face, hair and upper clothing; "
+            "(4) Side Portrait — head-and-shoulders left profile, exact 90-degree side view. "
+            "Keep the SAME face, body proportions, hairstyle, outfit, colors and accessories "
+            "identical across all four views; clean even studio lighting; symmetrical, evenly spaced."
+        ),
         "subject": description.strip(),
-        "background": "neutral plain background, even lighting",
-        "exclude": "no text, no watermarks",
+        "background": "plain neutral grey studio background only",
+        "exclude": "no text, no labels, no logos, no watermarks, no props, no extra characters",
     }
     prompt = json.dumps(spec, ensure_ascii=False)
     async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
         create_resp = await client.post(
             KIE_CREATE_TASK_URL,
             json={"model": PORTRAIT_MODEL,
-                  "input": {"prompt": prompt[:1800], "aspect_ratio": "1:1", "output_format": "png"}},
+                  "input": {"prompt": prompt[:1800], "aspect_ratio": "16:9", "output_format": "png"}},
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         )
         if create_resp.status_code != 200:
