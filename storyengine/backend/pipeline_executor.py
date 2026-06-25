@@ -1230,7 +1230,7 @@ class PipelineExecutor:
             research = _json.dumps(research)
         research_excerpt = (research or "")[:4000]
 
-        prompt = f"""Write the complete narration script for a video titled "{video.get('video_title')}".
+        prompt = f"""Write the complete spoken script for a video titled "{video.get('video_title')}".
 
 {video.get('writer_guidance') or ''}
 
@@ -1242,13 +1242,18 @@ Target length: about {target_words} words total, spread across the scenes.
 Background material you may draw from (use only what fits the video's style and audience):
 {research_excerpt}
 
-FORMAT — plain text, no JSON, no markdown. Start each scene on its own line
-with exactly this marker:
+VOICE — write every scene in the EXACT voice, tense, vocabulary and FORMAT your style
+instructions above define. If they call for character DIALOGUE, write dialogue (speaker
+turns like "Mum: ..." are fine); if narration, write narration; if both, both. Match their
+sentence length and reading level. Do NOT default to a third-person narrator unless the
+style explicitly says to — the style above wins over any default.
+
+FORMAT — plain text, no JSON, no markdown headings. Start each scene on its own line with
+exactly this marker:
 @@@SCENE n@@@
-where n is the scene number (1, 2, 3, ...). Put that scene's narration on the
-lines right after its marker. Use the markers and nothing else to separate
-scenes. The text after each marker is exactly what the narrator reads aloud —
-no stage directions, no labels, no headings."""
+where n is the scene number (1, 2, 3, ...). Put that scene's spoken text on the lines right
+after its marker — exactly what is heard in that scene. Use the markers and nothing else to
+separate scenes."""
 
         style_system = video.get("script_system_prompt") or ""
         # Long free-text narration used to be returned as one big JSON blob and
