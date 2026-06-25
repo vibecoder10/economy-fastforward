@@ -535,8 +535,9 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
     claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
     kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
     ic = ImageClient(api_key=kie_key)
-    bible = await load_character_bible(vid, tenant)
-    cast_block = "\n".join(f"{c['id']}: {c['costume']}" for c in (bible or {}).get("characters", []))
+    # Scene-aware bible so each scene's storyboard names ONLY its characters + the
+    # locked environments (per-scene character lock + the prose background lock).
+    bible = await scene_aware_bible(vid, tenant, scenes, claude, claude_model)
     crows = await fetch_all(
         "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
         "AND reference_url IS NOT NULL ORDER BY sort", vid, tenant)
@@ -546,8 +547,17 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
     for s in targets:
         sc = s["scene"]
         _p(f"Scene {sc}: writing the storyboard…")
+        # Only THIS scene's characters (per-scene lock), plus the locked environments.
+        scene_chars = [c for c in (bible or {}).get("characters", [])
+                       if not c.get("scenes_present") or sc in c["scenes_present"]]
+        cast_block = "\n".join(f"{c['id']}: {c['costume']}" for c in scene_chars) or "(none)"
+        locs = (bible or {}).get("locations", [])
+        loc_block = (
+            "\n\nLOCKED ENVIRONMENTS — use the ONE that fits this scene and render it identically "
+            "wherever it recurs; do not invent a new location:\n"
+            + "\n".join(f"{l['id']}: {l['description']}" for l in locs)) if locs else ""
         user = (f"Scene story:\n{s['scene_text']}\n\n"
-                f"Cast (use these EXACT looks in every panel):\n{cast_block or '(none)'}")
+                f"Cast (use these EXACT looks in every panel):\n{cast_block}{loc_block}")
         kw = dict(prompt=user, system_prompt=_storyboard_sheet_system(style_dir),
                   max_tokens=2000, temperature=0.6)
         if claude_model:
