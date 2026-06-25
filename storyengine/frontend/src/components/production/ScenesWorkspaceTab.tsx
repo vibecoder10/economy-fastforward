@@ -1158,13 +1158,24 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                         <LayoutGrid size={15} /> Generate storyboard
                       </button>
                     ) : sceneCards.length === 0 ? (
-                      <button onClick={() => handleGenerateRealImages(scene.sceneNumber)}
-                        disabled={running || storyLocked}
-                        title={storyLocked ? "Unlock the story first (top right)" : "Draw the real per-shot pictures for this scene"}
-                        className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                        style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
-                        <ImageIcon size={15} /> Generate pictures
-                      </button>
+                      <>
+                        {/* Storyboard exists but no pictures yet: let them REDO the board
+                            (e.g. after changing the cast or environments) OR move to pictures. */}
+                        <button onClick={() => handleGenerateScene(scene.sceneNumber)}
+                          disabled={running || storyLocked}
+                          title={storyLocked ? "Unlock the story first (top right)" : "Redraw this scene's storyboard (after changing the cast, environments, or script)"}
+                          className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                          style={{ background: "transparent", border: "1px solid var(--purple)", color: "var(--purple)" }}>
+                          <LayoutGrid size={15} /> Regenerate storyboard
+                        </button>
+                        <button onClick={() => handleGenerateRealImages(scene.sceneNumber)}
+                          disabled={running || storyLocked}
+                          title={storyLocked ? "Unlock the story first (top right)" : "Draw the real per-shot pictures for this scene"}
+                          className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                          style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
+                          <ImageIcon size={15} /> Generate pictures
+                        </button>
+                      </>
                     ) : (
                       <>
                         {videoStageEnabled && scenePending.length > 0 && (
