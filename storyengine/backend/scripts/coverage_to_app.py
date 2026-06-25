@@ -645,6 +645,59 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None):
     return {"status": "completed", "message": f"Picture S{a['scene']}.{a['image_index']} redrawn"}
 
 
+_MOTION_SYSTEM = (
+    "You write MOTION prompts for grok-imagine image-to-video. Each shot already has a still "
+    "frame — describe what MOVES, never re-describe what is in it. For EACH shot output ONE line:\n"
+    "1) START with ONE concrete camera move: push-in / dolly-in, pull-back, pan left/right, "
+    "tilt up/down, tracking, orbit/arc, dolly-zoom, slow zoom, or handheld sway. Add 'Unfixed "
+    "lens' when the camera moves, 'Fixed lens' if it holds.\n"
+    "2) Then ONE small, physically-reachable subject motion (a breath, a head turn, a hand raise, "
+    "eyes widen), quantified with a degree ('slowly', 'halfway', 'a little').\n"
+    "Fit the shot type: a wide gets a slow establishing move; a close-up gets a small push or a "
+    "hold; an insert gets a slow tilt or pan across the object.\n"
+    "VARY the camera move across the shots — never repeat the same move twice in a row.\n"
+    "BANNED: the words gentle/soft/subtle, mood words (cinematic/dramatic/emotional), negatives "
+    "('no ...', 'avoid ...'), and re-describing the scene. Keep each line under 28 words.\n"
+    "Output ONLY the numbered lines, one per shot, in order — nothing else.")
+
+
+def _parse_numbered(text: str, count: int) -> list:
+    """Pull 'N. <line>' motion lines out of the model's reply, padded/truncated to count."""
+    out = []
+    for line in (text or "").splitlines():
+        m = re.match(r"^\s*\d+[\.\):]\s*(.+)$", line.strip())
+        if m:
+            out.append(m.group(1).strip())
+    return (out + [""] * count)[:count]
+
+
+async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
+    """One Claude call writes a per-shot grok-imagine motion prompt for the scene's coverage
+    frames; store each on assets.video_prompt so the clip generator animates with real camera
+    moves instead of the hardcoded slow push-in. Best-effort — leaves video_prompt NULL on failure
+    (the clip generator still has its safe default)."""
+    rows = await fetch_all(
+        "SELECT id, shot_type, image_prompt FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+        "AND scene=$3 AND generation_method='coverage' ORDER BY image_index", vid, tenant, scene)
+    if not rows:
+        return 0
+    shots = "\n".join(
+        f"{i+1}. [{(r['shot_type'] or 'MS')}] {(r['image_prompt'] or '')[:240]}"
+        for i, r in enumerate(rows))
+    kwargs = dict(prompt=f"Write one motion line per shot, numbered, in order:\n\n{shots}",
+                  system_prompt=_MOTION_SYSTEM, max_tokens=1500, temperature=0.6)
+    if model:
+        kwargs["model"] = model
+    text = (await claude.generate(**kwargs)) or ""
+    lines = _parse_numbered(text, len(rows))
+    written = 0
+    for r, line in zip(rows, lines):
+        if line:
+            await execute("UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2", line, r["id"])
+            written += 1
+    return written
+
+
 async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=None):
     """Backend stage entry point: generate the burger-style COVERAGE for a video's scene(s) and
     store it in the app (frames as assets + the storyboard board), anchored on the LOCKED character
@@ -728,6 +781,13 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         frames_by_moment = [(m["summary"], m["frames"]) for m in out["moments"]]
         n = await store_scene(vid, tenant, title, aspect, sc, frames_by_moment)
         await set_scene_board(vid, tenant, sc, outdir, title=title)
+        # Write a real per-shot grok-imagine MOTION prompt onto each frame, so the clip
+        # generator animates with intent instead of falling back to a hardcoded push-in.
+        try:
+            _p(f"Scene {sc}: writing camera motion…")
+            await _write_motion_prompts(vid, tenant, sc, claude, claude_model)
+        except Exception as e:  # noqa: BLE001
+            _p(f"(motion prompts skipped: {e})")
         total += n
         _p(f"Scene {sc}: {n} coverage frames + board done")
 
