@@ -22,6 +22,7 @@ Endpoints:
 import asyncio
 import json
 import logging
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -516,14 +517,28 @@ async def _run_competitor_analysis(job_id: str, tenant_id: str, urls: list[str])
                 )
                 channel_db_id = str(new_row["id"]) if new_row else None
 
-            # Step 3: Scrape top 50 videos
-            stubs = await asyncio.get_event_loop().run_in_executor(
-                None, _list_channel_videos, metadata["channel_url"], 50
-            )
-
-            # Step 3.5: Fetch publish dates for stubs missing them
-            if stubs:
-                await _fetch_publish_dates(stubs)
+            # Step 3: Scrape top 50 videos. Prefer the official YouTube Data API
+            # (real views/dates, not bot-blocked on our IP) so onboarding doesn't
+            # seed views=0 rows; fall back to yt-dlp + HTML dates only without a key.
+            api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+            stubs = None
+            if api_key:
+                try:
+                    from youtube_data_api import fetch_channel_videos
+                    stubs = await fetch_channel_videos(metadata["channel_url"], api_key, 50)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[Onboarding] YouTube Data API channel fetch failed for %s: %s", url, e)
+                    stubs = None
+            if not stubs:
+                if not api_key:
+                    logger.warning("[Onboarding] No YOUTUBE_API_KEY — falling back to yt-dlp "
+                                   "(often bot-blocked here); competitor numbers may be missing.")
+                stubs = await asyncio.get_event_loop().run_in_executor(
+                    None, _list_channel_videos, metadata["channel_url"], 50
+                )
+                # Step 3.5: Fetch publish dates for stubs missing them (yt-dlp path only)
+                if stubs:
+                    await _fetch_publish_dates(stubs)
 
             saved = 0
             saved_refs = []
@@ -533,6 +548,10 @@ async def _run_competitor_analysis(job_id: str, tenant_id: str, urls: list[str])
                     vph = 0.0
                     hours_old = 168.0  # Default 1 week
                     views = stub.get("view_count", 0)
+                    if not views or views <= 0:
+                        # Don't seed a zero-view row — it fails the home/discovery
+                        # views>0 filter and would block a future real upsert.
+                        continue
                     if stub.get("published_at"):
                         vph, hours_old = _calculate_vph(views, stub["published_at"], now)
 
