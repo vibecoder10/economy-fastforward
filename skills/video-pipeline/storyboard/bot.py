@@ -544,7 +544,10 @@ def _format_story_bible_for_beat(
     locs = story_bible.get("locations", [])
     if locs:
         lines.append("\n<visual_bible_locations>")
-        lines.append("USE THESE EXACT ENVIRONMENTS for visual consistency.")
+        lines.append("These are the LOCKED environments. For THIS scene, choose the ONE that fits "
+                     "and render it; reuse that environment's EXACT architecture, props, materials and "
+                     "lighting every time the location recurs across the video so the background never "
+                     "drifts. Do NOT invent a new location or re-describe one already locked here.")
         for loc in locs:
             loc_id = loc.get("id", "unknown")
             desc = loc.get("description", "")

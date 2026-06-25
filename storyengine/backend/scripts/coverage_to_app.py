@@ -196,10 +196,38 @@ async def scene_aware_bible(vid, tenant, scene_rows, claude=None, model=None):
             bible = {"characters": [{"id": c["name"], "costume": c["description"],
                                      "scenes_present": []} for c in cast]}
     if not bible:
-        return None
-    for ch in bible["characters"]:
+        bible = {"characters": []}
+    for ch in bible.get("characters", []):
         ch["scenes_present"] = _scenes_present_for(ch.get("id", ""), scene_rows)
-    return bible
+    # Locked locations from the story bible (the prose scene lock). Unscoped on purpose:
+    # keyword scene->location matching proved unreliable (road vs street), so the coverage
+    # director sees the full LOCKED set and picks the one that fits each scene + reuses it
+    # identically — stopping the background from drifting scene to scene.
+    locs = await _story_bible_locations(vid, tenant)
+    if locs:
+        bible["locations"] = locs
+    return bible if (bible.get("characters") or bible.get("locations")) else None
+
+
+async def _story_bible_locations(vid, tenant) -> list:
+    """Locked locations from videos.story_bible, shaped for _format_story_bible_for_beat.
+    scenes_present is omitted (=> the formatter shows them in every scene) so the director
+    chooses; we don't force a guessed scene->location mapping."""
+    row = await fetch_one("SELECT story_bible FROM videos WHERE id=$1 AND tenant_id=$2", vid, tenant)
+    sb = (row or {}).get("story_bible")
+    if isinstance(sb, str):
+        try:
+            sb = json.loads(sb)
+        except Exception:  # noqa: BLE001
+            return []
+    if not isinstance(sb, dict):
+        return []
+    out = []
+    for loc in (sb.get("locations") or []):
+        if loc.get("description"):
+            out.append({"id": loc.get("id", "location"), "description": loc.get("description"),
+                        "lighting": loc.get("lighting", ""), "type": loc.get("type", "")})
+    return out
 
 
 def compose_grid(paths, cols=4):
