@@ -530,6 +530,8 @@ _PICTURE_COST = 0.08
 COPILOT_ACTIONS: dict[str, dict[str, Any]] = {
     "script":      {"calls": [("run_script", False)], "paid": True, "needs": None, "edit": True,
                     "doing": "writing the script", "label": "Write the script"},
+    "characters":  {"calls": [("run_characters", False)], "paid": True, "needs": "scenes",
+                    "doing": "designing the cast", "label": "Design the characters"},
     # Unified on the coverage path (GOAL v2 Phase 0): the dock now draws via coverage
     # (the live image generator), not the old 3x3 grid handlers. "storyboards" = the
     # cheap single-sheet preview; "images" = the real per-shot multi-angle pictures.
@@ -686,6 +688,12 @@ async def _estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], s
         cost = 0.10
     elif verb == "script":
         cost = 0.02
+    elif verb == "characters":
+        # ~$0.03 per 4-view character sheet; use the current cast count or a small default.
+        row = await fetch_one(
+            "SELECT count(*) AS n FROM video_characters WHERE video_id=$1 AND tenant_id=$2",
+            video_id, tenant_id)
+        cost = (int((row or {}).get("n") or 0) or 4) * 0.03
     elif verb == "render":
         cost = 0.0
     elif verb == "build":
@@ -863,8 +871,11 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
            + ".\n" if ui_context.get("scene") else "")
         + f'\nThe creator said: "{msg}"\n\n'
-        "ACTIONS (kind=action, exact verb): script, storyboards, images, voice, animate, sound, thumbnail, "
-        "render — for RUNNING/redoing a SINGLE step. 'animate' is ONE scene (give the scene). "
+        "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, sound, "
+        "thumbnail, render — for RUNNING/redoing a SINGLE step. 'characters' = design or REDESIGN the CAST "
+        "(the character reference sheets): 'redesign the cast', 'redo the characters', 'regenerate the cast', "
+        "'design the characters', 'change how Tom looks'. NEVER map a cast/character request to 'script'. "
+        "'animate' is ONE scene (give the scene). "
         "Use 'build' when they want the whole video built or moved forward — 'build it', 'make the video', "
         "'do it', 'run it all', 'keep going', 'generate it', 'finish it', 'animate everything'. build runs "
         "the pipeline automatically to the next checkpoint, NOT one step.\n"
@@ -877,7 +888,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
         "Return ONE JSON object and nothing else:\n"
         '{"kind":"read|action|prompt",'
-        '"verb":"script|storyboards|images|voice|animate|sound|thumbnail|render|build|none",'
+        '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'

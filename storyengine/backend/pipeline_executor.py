@@ -2132,6 +2132,50 @@ separate scenes."""
         from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
         return await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
 
+    async def run_characters(self, video_id: str, scene: int = None) -> dict:
+        """Design/redesign the cast — the 4-view character reference sheets the storyboard
+        anchors on. Reuses the Characters-tab generator (routes.characters helpers) so the
+        co-pilot dock ('redesign the cast') produces the same sheets as the tab button."""
+        from routes.characters import _extract_cast, _generate_portrait, _persist_portrait_url
+        from vault import get_secret
+        video = await fetch_one(
+            "SELECT * FROM videos WHERE id=$1 AND tenant_id=$2", video_id, self.tenant_id)
+        if not video:
+            return {"status": "failed", "error": "video not found"}
+        video = dict(video)
+        video["tenant_id"] = self.tenant_id
+        api_key = await get_secret("kie_ai_api_key", str(self.tenant_id))
+        if not api_key:
+            return {"status": "failed", "error": "Add your Kie.ai API key in Settings → Keys first."}
+        style_dna = video.get("image_style_override") or ""
+        cast = await _extract_cast(video, api_key)
+        if not cast:
+            return {"status": "failed", "error": "No recurring characters found in this script."}
+        # Replace prior generated drafts; keep uploaded/imported ones. Reset the approval.
+        await execute("DELETE FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
+                      "AND source='generated' AND status='draft'", video_id, self.tenant_id)
+        await execute("UPDATE videos SET characters_approved_at = NULL WHERE id=$1 AND tenant_id=$2",
+                      video_id, self.tenant_id)
+        done = 0
+        for i, ch in enumerate(cast):
+            row = await fetch_one(
+                "INSERT INTO video_characters (tenant_id, video_id, name, description, sort) "
+                "VALUES ($1,$2,$3,$4,$5) RETURNING id",
+                self.tenant_id, video_id, ch["name"][:120], ch.get("description") or "", i)
+            char_id = str(row["id"])
+            for attempt in range(3):
+                try:
+                    temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna)
+                    url = await _persist_portrait_url(self.tenant_id, video_id, char_id, temp_url)
+                    await execute("UPDATE video_characters SET reference_url=$1, updated_at=now() WHERE id=$2",
+                                  url, char_id)
+                    done += 1
+                    break
+                except Exception:  # noqa: BLE001
+                    await asyncio.sleep(2 * (attempt + 1))
+        return {"status": "completed",
+                "message": f"Cast designed: {done}/{len(cast)} character sheets ready — review, then approve."}
+
     async def run_prompts(self, video_id: str, scene: int = None, index: int = None) -> dict:
         """Generate image prompts for a video.
 
