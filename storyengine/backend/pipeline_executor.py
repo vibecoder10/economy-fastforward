@@ -1768,17 +1768,12 @@ separate scenes."""
                                               r.get("sentence_text"), cast_names) + prompt
                         # A coverage shot carries its spoken line INSIDE the
                         # motion prompt (<Name> says ...: "line") — size the clip
-                        # to that line so a long line isn't cut. A silent shot
-                        # has no embedded line (0s) and keeps the base length; a
+                        # to exactly how long that line takes to say, so the video
+                        # ENDS when the speech does and Grok has no slack to ad-lib
+                        # filler (live finding: an over-long clip invents garbage
+                        # past the line). A silent shot keeps the base length; a
                         # timed segment still acts as a floor.
-                        spoken_words = spoken_word_count(prompt)
-                        if spoken_words:
-                            # Stop Grok ad-libbing nonsense in any slack after the
-                            # line (live finding: it repeats + invents words).
-                            prompt += (" Speak only the words in quotes, exactly, then"
-                                       " close your mouth and stay silent — add no other,"
-                                       " extra or invented dialogue.")
-                        spoken_secs = speech_seconds(spoken_words)
+                        spoken_secs = speech_seconds(spoken_word_count(prompt))
                         seg_dur = float(r.get("duration_seconds") or 0)
                         clip_dur = pick_clip_duration(max(spoken_secs, seg_dur), durations)
                         if model_id.startswith("veo-3.1"):
