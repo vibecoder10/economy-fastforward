@@ -1724,8 +1724,20 @@ separate scenes."""
                         pass
                     sc, idx = r["scene"], r["image_index"]
                     img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
-                    lines = [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
-                             if native_voices or l.get("audio_url")]
+                    # In grok_native mode the coverage motion-writer is the SINGLE
+                    # source of truth for what a shot says — it embeds the exact
+                    # line in video_prompt and Grok voices it. Don't let the older
+                    # match_lines path second-guess that: it matched a phrase in the
+                    # shot's DESCRIPTION and overrode the embed, making one line play
+                    # 3× while others dropped. voice_over (ElevenLabs overlay) still
+                    # needs match_lines to find the line to lay over the clip.
+                    vp = (r.get("video_prompt") or "").strip()
+                    embedded_words = spoken_word_count(vp)
+                    lines = ([] if (native_voices and vp) else
+                             [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
+                              if native_voices or l.get("audio_url")])
+                    # Speaking = a match_lines hit, or (native) an embedded line.
+                    is_speaking = bool(lines) or (native_voices and embedded_words > 0)
 
                     if lines:
                         # Speaking card → Grok animates the FULL SCENE.
@@ -1793,7 +1805,7 @@ separate scenes."""
                         # ~1.4s with zero journal output — undebuggable.)
                         print(f"[clips] S{sc}.{idx} returned no clip — "
                               f"client={type(client).__module__}.{type(client).__name__} "
-                              f"speaking={bool(lines)} dur={clip_dur} img={img[:90]}",
+                              f"speaking={is_speaking} dur={clip_dur} img={img[:90]}",
                               flush=True)
                         await _report(f"S{sc}.{idx} didn't generate ({done + failed}/{total})")
                         return
@@ -1805,6 +1817,7 @@ separate scenes."""
                     # renderer mixes narration and music over them.
                     try:
                         if lines and not native_voices:
+                            voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
                             vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
                             if vbytes:
                                 lead = max(0.0, min(DIALOGUE_VOICE_LEAD_SECONDS,
@@ -1813,7 +1826,10 @@ separate scenes."""
                                                              delay_seconds=lead, bed_gain=0.2)
                             else:
                                 clip_bytes = await duck_audio(clip_bytes)
-                        elif not lines and getattr(profile, "strip_audio", False):
+                        elif not is_speaking and getattr(profile, "strip_audio", False):
+                            # Only SILENT shots get ducked to an ambience bed. A
+                            # speaking shot (native lip-sync) keeps Grok's voice at
+                            # full volume — the line IS the take.
                             clip_bytes = await duck_audio(clip_bytes)
                     except Exception as e:
                         print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
