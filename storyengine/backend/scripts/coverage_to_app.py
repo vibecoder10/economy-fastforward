@@ -61,23 +61,46 @@ PER_FRAME_USD = 0.05
 
 async def resolve_video(ident: str):
     return await fetch_one(
-        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio, '16:9') AS aspect "
+        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio, '16:9') AS aspect, "
+        "image_style_override, visual_style "
         "FROM videos WHERE (id::text LIKE $1 OR video_title ILIKE $2) AND deleted_at IS NULL "
         "ORDER BY created_at DESC LIMIT 1",
         ident + "%", "%" + ident + "%",
     )
 
 
-async def build_cast_prompt(claude, script_text: str, model=None) -> str:
-    """Ask the tenant's Claude for ONE photoreal cast-sheet prompt covering the whole script."""
+def _resolve_style(image_style_override, visual_style):
+    """Turn a video's stored style choice into (profile, style_directive).
+
+    The picture engine locks every frame to the cast sheet's look, so the cast sheet IS the
+    style. This carries the creator's pick (image_style_override / visual_style) into the
+    director, cast-sheet, and storyboard prompts. Without it, load_profile({}) fell back to a
+    neutral 'clean, modern, cinematic' default and every video rendered realistic — even when
+    the creator chose 3D Pixar. style_directive is None when no style was picked, so callers
+    keep their own sensible default."""
+    rec = {}
+    iso = (image_style_override or "").strip()
+    if iso:
+        rec["Image Style Override"] = iso
+    vs = (visual_style or "").strip()
+    if vs:
+        rec["Visual Style"] = vs
+    profile = load_profile(rec)
+    return profile, (profile.visual_style_directive if rec else None)
+
+
+async def build_cast_prompt(claude, script_text: str, model=None, style: str | None = None) -> str:
+    """Ask the tenant's Claude for ONE cast-sheet prompt covering the whole script, rendered in
+    the creator's chosen visual style. Falls back to photoreal cinematic only when none is set."""
+    style_line = style.strip() if (style and style.strip()) else "a PHOTOREAL live-action / 3D-CG style"
     system = (
-        "You write prompts for a PHOTOREAL cinematic video. Given a script, output ONE image "
+        "You write prompts for a cinematic video. Given a script, output ONE image "
         "prompt for a character/cast reference sheet: a clean sheet on a neutral grey background "
         "showing each named character (and any key creature or vehicle) full-body, labeled with "
-        "its name, with identical lighting and a PHOTOREAL live-action / 3D-CG style across all of "
-        "them. Restate each character's exact look (wardrobe with colors, hair, age, build). "
+        "its name, with identical lighting and this EXACT rendering style across all of them: "
+        f"{style_line}. Restate each character's exact look (wardrobe with colors, hair, age, build). "
         "Output ONLY the prompt, no preamble.")
-    kwargs = dict(prompt=f"Script:\n{script_text[:6000]}\n\nWrite the photoreal cast sheet prompt.",
+    kwargs = dict(prompt=f"Script:\n{script_text[:6000]}\n\nWrite the cast sheet prompt in that exact style.",
                   system_prompt=system, max_tokens=600, temperature=0.5)
     if model:
         kwargs["model"] = model
@@ -160,7 +183,8 @@ async def extract_characters(claude, script_text, model=None):
     system = (
         "From the script, list the distinct on-screen characters and key creatures (max 4). "
         "Output one line per character, EXACTLY in the form: NAME :: one-line visual description "
-        ":: a photoreal portrait prompt. No preamble, no numbering, one character per line.")
+        ":: a short portrait prompt (subject only, no art-style words). No preamble, no numbering, "
+        "one character per line.")
     kwargs = dict(prompt=f"Script:\n{script_text[:6000]}", system_prompt=system,
                   max_tokens=700, temperature=0.4)
     if model:
@@ -190,9 +214,10 @@ async def _stable_url(maybe_url, dest_path, tenant):
         return maybe_url
 
 
-async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, script_text):
+async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, script_text, style=None):
     """Write video_characters rows (the Characters tab) from the cast. Skips if any exist.
-    Generates a photoreal portrait per character anchored on the on-disk cast sheet."""
+    Generates a portrait per character anchored on the on-disk cast sheet, in the creator's
+    chosen style (so a 3D Pixar video gets Pixar character art, not realistic)."""
     existing = await fetch_one(
         "SELECT count(*) AS n FROM video_characters WHERE video_id=$1 AND tenant_id=$2", vid, tenant)
     if existing and existing["n"]:
@@ -203,13 +228,17 @@ async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, s
     if os.path.exists(cast_local):
         with open(cast_local, "rb") as f:
             cast_url = await upload_bytes(f.read(), f"{vid}/characters/_cast.png", "image/png", tenant)
+    style_clause = (
+        f" Render in this EXACT style, matching the attached cast reference's look: {style.strip()}."
+        if style and style.strip()
+        else " Photoreal and realistic, matching the attached cast reference's exact look and "
+             "rendering style; never 2D illustration or cartoon.")
     chars = await extract_characters(claude, script_text, model=claude_model)
     n = 0
     for i, ch in enumerate(chars):
         ref = None
         if cast_url:
-            prompt = (ch["portrait"] + " Photoreal and realistic, matching the attached cast "
-                      "reference's exact look and rendering style; never 2D illustration or cartoon.")
+            prompt = ch["portrait"] + style_clause
             res = await ic.generate_thumbnail_gpt2(prompt, [cast_url], "16:9")  # GPT Image 2
             ref = await _stable_url(res.get("url") if isinstance(res, dict) else res,
                                     f"{vid}/characters/{i}_{ch['name'].replace(' ', '_')}.png", tenant)
@@ -385,18 +414,23 @@ async def set_scene_board(vid, tenant, scene, outdir, title="Storyboard"):
     return True
 
 
-_STORYBOARD_SHEET_SYSTEM = (
-    "You are an expert Hollywood storyboard artist and AI prompt engineer. Produce ONE continuous "
-    "image-generation prompt for GPT Image 2 that renders a SINGLE professional storyboard SHEET for "
-    "the scene below — numbered panels laid out in an EVEN SQUARE GRID (4 panels as 2x2, or 6-9 panels "
-    "as 3x3) so that EACH PANEL IS A WIDE 16:9 WIDESCREEN CINEMATIC FRAME matching the film's format; "
-    "panels must be widescreen, NEVER square or tall. Each panel is a distinct cinematic shot of the "
-    "scene's story IN ORDER, with a small caption label under each panel (shot type + one short line of "
-    "action). Mix shot types naturally (wide / medium / close-up / over-the-shoulder / insert). "
-    "Photorealistic, cinematic, consistent lighting and grade across all panels. Use the EXACT "
-    "characters from the cast — restate each character's locked appearance verbatim wherever they "
-    "appear; NEVER invent new characters or change their look. Clean neutral storyboard presentation, "
-    "numbered frames, small timecodes. Output ONLY the image prompt, no preamble.")
+def _storyboard_sheet_system(style: str | None = None) -> str:
+    """Storyboard-sheet writer instructions, rendered in the creator's chosen style. Defaults to
+    photoreal cinematic only when no style was picked (was hardcoded 'Photorealistic')."""
+    style_line = style.strip() if (style and style.strip()) else "Photorealistic, cinematic film still"
+    return (
+        "You are an expert Hollywood storyboard artist and AI prompt engineer. Produce ONE continuous "
+        "image-generation prompt for GPT Image 2 that renders a SINGLE professional storyboard SHEET for "
+        "the scene below — numbered panels laid out in an EVEN SQUARE GRID (4 panels as 2x2, or 6-9 panels "
+        "as 3x3) so that EACH PANEL IS A WIDE 16:9 WIDESCREEN CINEMATIC FRAME matching the film's format; "
+        "panels must be widescreen, NEVER square or tall. Each panel is a distinct cinematic shot of the "
+        "scene's story IN ORDER, with a small caption label under each panel (shot type + one short line of "
+        "action). Mix shot types naturally (wide / medium / close-up / over-the-shoulder / insert). "
+        "Render EVERY panel in this EXACT art style, stated up front in the prompt and held identically "
+        f"across all panels: {style_line}. Keep lighting and grade consistent across all panels. Use the "
+        "EXACT characters from the cast — restate each character's locked appearance verbatim wherever they "
+        "appear; NEVER invent new characters or change their look. Clean neutral storyboard presentation, "
+        "numbered frames, small timecodes. Output ONLY the image prompt, no preamble.")
 
 
 async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, progress=None):
@@ -412,11 +446,13 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
                 pass
 
     v = await fetch_one(
-        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect "
+        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
+        "image_style_override, visual_style "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
+    _, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
@@ -441,12 +477,16 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
         _p(f"Scene {sc}: writing the storyboard…")
         user = (f"Scene story:\n{s['scene_text']}\n\n"
                 f"Cast (use these EXACT looks in every panel):\n{cast_block or '(none)'}")
-        kw = dict(prompt=user, system_prompt=_STORYBOARD_SHEET_SYSTEM, max_tokens=2000, temperature=0.6)
+        kw = dict(prompt=user, system_prompt=_storyboard_sheet_system(style_dir),
+                  max_tokens=2000, temperature=0.6)
         if claude_model:
             kw["model"] = claude_model
         sb_prompt = ((await claude.generate(**kw)) or "").strip()
         if not sb_prompt:
             _p(f"Scene {sc}: storyboard prompt failed"); continue
+        # Hard-guarantee the chosen style reaches the image model even if the writer underplays it.
+        if style_dir and style_dir.strip() and style_dir.strip().lower() not in sb_prompt.lower():
+            sb_prompt = f"Art style for EVERY panel: {style_dir.strip()}\n\n{sb_prompt}"
         _p(f"Scene {sc}: drawing the storyboard (GPT Image 2)…")
         res = (await ic.generate_thumbnail_gpt2(sb_prompt, cast_refs, aspect) if cast_refs
                else await ic.generate_scene_image_gpt(sb_prompt, None, aspect))
@@ -520,7 +560,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 pass
 
     v = await fetch_one(
-        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect "
+        "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
+        "image_style_override, visual_style "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
@@ -537,7 +578,9 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
     kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
     ic = ImageClient(api_key=kie_key)
-    profile = load_profile({})
+    # Carry the creator's chosen visual style (e.g. 3D Pixar) into the cast sheet + director so the
+    # whole video renders in that style — not the realistic default.
+    profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
     bible = await load_character_bible(vid, tenant)
     base_dir = f"/tmp/coverage_app/{vid[:8]}"
 
@@ -558,7 +601,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         _p("Building the cast from the script…")
         try:
             cast_text = "\n\n".join((s["scene_text"] or "") for s in targets)
-            cast_prompt = await build_cast_prompt(claude, cast_text, model=claude_model)
+            cast_prompt = await build_cast_prompt(claude, cast_text, model=claude_model, style=style_dir)
             cu = await resolve_cast_url(None, ic, cast_prompt=cast_prompt, profile=profile,
                                         aspect=aspect, outdir=base_dir)
             cast_refs = [cu] if cu else []
@@ -588,6 +631,17 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         total += n
         _p(f"Scene {sc}: {n} coverage frames + board done")
 
+    # Surface the cast in the Characters tab so the creator can see/lock it. The fast auto-build
+    # stamps the characters gate but never writes rows, leaving the tab empty; fill it from the
+    # cast sheet we just built (in the chosen style). Idempotent — skips if rows already exist.
+    try:
+        full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
+        _p("Filling the Characters tab from the cast…")
+        await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script,
+                                  style=style_dir)
+    except Exception as e:  # noqa: BLE001
+        _p(f"(couldn't fill the Characters tab: {e})")
+
     return {"status": "completed", "message": f"Coverage done: {total} frames across {len(targets)} scene(s)"}
 
 
@@ -611,7 +665,9 @@ async def main():
         print(f"No video matched '{args.video}'"); return
     vid, tenant = str(v["id"]), str(v["tenant_id"])
     title, aspect = v["video_title"], v["aspect"]
-    print(f"Video: {title}\n  id={vid} tenant={tenant} aspect={aspect}")
+    _, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
+    print(f"Video: {title}\n  id={vid} tenant={tenant} aspect={aspect}"
+          + (f"\n  style: {style_dir[:80]}" if style_dir else "\n  style: (none set — photoreal default)"))
 
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
@@ -636,7 +692,8 @@ async def main():
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
         ic = ImageClient(api_key=kie_key)
         full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
-        nchar = await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script)
+        nchar = await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script,
+                                          style=style_dir)
         nboard = 0
         for s in targets:
             if await set_scene_board(vid, tenant, s["scene"], f"{base_dir}/scene{s['scene']}", title=title):
@@ -669,7 +726,7 @@ async def main():
         claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
         ic = ImageClient(api_key=kie_key)
-        profile = load_profile({})
+        profile, _ = _resolve_style(v["image_style_override"], v["visual_style"])
         # ONE cast for the whole video so characters match ACROSS scenes: reuse the on-disk cast
         # sheet a prior run made; only build it once. (A fresh cast per scene would drift the look.)
         cast_local = os.path.join(base_dir, "0_cast_sheet.png")
@@ -679,7 +736,7 @@ async def main():
             print(f"Reusing existing cast sheet for cross-scene consistency: {cast_url}")
         else:
             full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
-            cast_prompt = await build_cast_prompt(claude, full_script, model=claude_model)
+            cast_prompt = await build_cast_prompt(claude, full_script, model=claude_model, style=style_dir)
             print(f"Cast prompt: {cast_prompt[:140]}...")
             cast_url = await resolve_cast_url(None, ic, cast_prompt=cast_prompt, profile=profile,
                                               aspect=aspect, outdir=base_dir)
