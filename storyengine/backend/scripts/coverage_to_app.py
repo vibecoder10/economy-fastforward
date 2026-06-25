@@ -199,14 +199,30 @@ async def scene_aware_bible(vid, tenant, scene_rows, claude=None, model=None):
         bible = {"characters": []}
     for ch in bible.get("characters", []):
         ch["scenes_present"] = _scenes_present_for(ch.get("id", ""), scene_rows)
-    # Locked locations from the story bible (the prose scene lock). Unscoped on purpose:
-    # keyword scene->location matching proved unreliable (road vs street), so the coverage
-    # director sees the full LOCKED set and picks the one that fits each scene + reuses it
-    # identically — stopping the background from drifting scene to scene.
-    locs = await _story_bible_locations(vid, tenant)
+    # Locked locations (the prose scene lock): prefer the creator-APPROVED video_environments
+    # (the reviewed set, each with a reference image), else the story bible. Unscoped on purpose —
+    # keyword scene->location matching proved unreliable (road vs street), so the director sees the
+    # full LOCKED set and picks the one that fits each shot + reuses it identically, NEVER inventing
+    # a location outside this set (the 'kitchen that wasn't an environment' bug).
+    locs = await _scene_locations(vid, tenant)
     if locs:
         bible["locations"] = locs
     return bible if (bible.get("characters") or bible.get("locations")) else None
+
+
+async def _scene_locations(vid, tenant) -> list:
+    """The locked locations to feed the director: the creator-APPROVED video_environments first
+    (reviewed, each with a reference image), else the story bible's locations. Shaped for
+    _format_story_bible_for_beat; scenes_present omitted so the director picks the right one per shot.
+    `reference_url` is carried for the image-anchor step."""
+    rows = await fetch_all(
+        "SELECT name, description, reference_url FROM video_environments "
+        "WHERE video_id=$1 AND tenant_id=$2 ORDER BY sort", vid, tenant)
+    envs = [r for r in (rows or []) if (r.get("description") or "").strip()]
+    if envs:
+        return [{"id": r["name"] or "location", "description": r["description"], "lighting": "",
+                 "type": "", "reference_url": r.get("reference_url")} for r in envs]
+    return await _story_bible_locations(vid, tenant)
 
 
 async def _story_bible_locations(vid, tenant) -> list:
@@ -553,8 +569,9 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
         cast_block = "\n".join(f"{c['id']}: {c['costume']}" for c in scene_chars) or "(none)"
         locs = (bible or {}).get("locations", [])
         loc_block = (
-            "\n\nLOCKED ENVIRONMENTS — use the ONE that fits this scene and render it identically "
-            "wherever it recurs; do not invent a new location:\n"
+            "\n\nLOCKED ENVIRONMENTS (the ONLY locations allowed) — render each panel in whichever "
+            "of these fits that moment; a scene CAN move between them (e.g. kitchen then garage); "
+            "reuse each one's exact look wherever it recurs; NEVER show a location not in this list:\n"
             + "\n".join(f"{l['id']}: {l['description']}" for l in locs)) if locs else ""
         user = (f"Scene story:\n{s['scene_text']}\n\n"
                 f"Cast (use these EXACT looks in every panel):\n{cast_block}{loc_block}")

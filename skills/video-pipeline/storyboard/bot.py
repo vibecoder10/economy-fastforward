@@ -544,10 +544,11 @@ def _format_story_bible_for_beat(
     locs = story_bible.get("locations", [])
     if locs:
         lines.append("\n<visual_bible_locations>")
-        lines.append("These are the LOCKED environments. For THIS scene, choose the ONE that fits "
-                     "and render it; reuse that environment's EXACT architecture, props, materials and "
-                     "lighting every time the location recurs across the video so the background never "
-                     "drifts. Do NOT invent a new location or re-describe one already locked here.")
+        lines.append("These are the ONLY locked environments. Render every shot in whichever of "
+                     "these fits that moment — a scene CAN move between them (e.g. kitchen, then "
+                     "garage) — and reuse each environment's EXACT architecture, props, materials and "
+                     "lighting every time it recurs so the background never drifts. NEVER invent or "
+                     "show a location that is not in this list.")
         for loc in locs:
             loc_id = loc.get("id", "unknown")
             desc = loc.get("description", "")

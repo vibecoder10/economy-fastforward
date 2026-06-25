@@ -127,15 +127,18 @@ async def _extract_locations_from_script(video: dict, api_key: str) -> list[dict
     creds = await _resolve_claude_creds(video["tenant_id"]) if video.get("tenant_id") else None
     if creds is None:
         creds = {"provider": "kie", "key": api_key}
-    prompt = f"""Read this video narration script and list the RECURRING VISIBLE LOCATIONS
-(distinct places shown on screen — e.g. a kitchen, a classroom, a park). Merge duplicates
-of the same place; skip one-off throwaway mentions. Maximum {MAX_ENVIRONMENTS}.
+    prompt = f"""Read this script and list every VISUALLY DISTINCT location shown on screen — one
+environment per place that LOOKS different and would need its OWN reference image. Two rooms in
+the same building are SEPARATE environments if they look different: a kitchen and a garage are
+TWO environments, not one "home"; an indoor room and an outdoor shore are separate. ONLY merge
+shots of the literally same room/place (e.g. two angles of the same kitchen). Skip one-off
+throwaway mentions. Maximum {MAX_ENVIRONMENTS}.
 
 SCRIPT:
 {script[:12000]}
 
 Return ONLY valid JSON:
-{{"locations": [{{"name": "short location name", "description": "what the place looks like + its lighting/time of day, written so an image generator draws the SAME place every time (40-80 words)"}}]}}"""
+{{"locations": [{{"name": "short SPECIFIC place name (e.g. 'Kitchen', 'Garage', 'Lake shore' — never a combined 'Home/Garage')", "description": "what the place looks like + its lighting/time of day, written so an image generator draws the SAME place every time (40-80 words)"}}]}}"""
     try:
         text = await _call_claude(prompt, creds, tier="smart", max_tokens=2000)
         text = text.strip()
