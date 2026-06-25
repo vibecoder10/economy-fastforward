@@ -29,7 +29,14 @@ class TestVideoConfigBasics:
 
     def test_invalid_length_too_short(self):
         with pytest.raises(ValueError, match="Minimum"):
-            VideoConfig(video_length_minutes=2)
+            VideoConfig(video_length_minutes=0)
+
+    def test_short_videos_accepted(self):
+        """Short videos (1-2 min) are valid and use a single-act structure."""
+        for minutes in (1, 2):
+            config = VideoConfig(video_length_minutes=minutes)
+            assert config.video_length_minutes == minutes
+            assert config.act_count == 1
 
     def test_invalid_length_too_long(self):
         with pytest.raises(ValueError, match="Maximum"):
