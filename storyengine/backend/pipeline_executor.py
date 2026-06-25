@@ -1623,7 +1623,8 @@ separate scenes."""
             from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
                                        native_speaking_prompt, motion_guard, duck_audio,
                                        download_voice, mux_voice, DIALOGUE_VOICE_LEAD_SECONDS,
-                                       speech_seconds, spoken_word_count, pick_clip_duration)
+                                       speech_seconds, spoken_word_count, pick_clip_duration,
+                                       clip_cost_for)
             client = self._pipeline.image_client
             # Grok-imagine takes any duration 6–30s (Kie). Use every tier the
             # model profile declares so a long spoken line isn't cut at 6/10s;
@@ -1747,7 +1748,7 @@ separate scenes."""
                         clip_url = await _gen(animate(
                             img, prompt, duration=clip_dur,
                             extra_image_urls=[_proxy_url(sheet)] if sheet else None))
-                        clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
+                        clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
                         # card without one still animates (safe default) instead
@@ -1767,10 +1768,17 @@ separate scenes."""
                                               r.get("sentence_text"), cast_names) + prompt
                         # A coverage shot carries its spoken line INSIDE the
                         # motion prompt (<Name> says ...: "line") — size the clip
-                        # to that line so a long line gets a longer tier. A
-                        # silent shot has no embedded line (0s) and keeps the
-                        # base tier; a timed segment still acts as a floor.
-                        spoken_secs = speech_seconds(spoken_word_count(prompt))
+                        # to that line so a long line isn't cut. A silent shot
+                        # has no embedded line (0s) and keeps the base length; a
+                        # timed segment still acts as a floor.
+                        spoken_words = spoken_word_count(prompt)
+                        if spoken_words:
+                            # Stop Grok ad-libbing nonsense in any slack after the
+                            # line (live finding: it repeats + invents words).
+                            prompt += (" Speak only the words in quotes, exactly, then"
+                                       " close your mouth and stay silent — add no other,"
+                                       " extra or invented dialogue.")
+                        spoken_secs = speech_seconds(spoken_words)
                         seg_dur = float(r.get("duration_seconds") or 0)
                         clip_dur = pick_clip_duration(max(spoken_secs, seg_dur), durations)
                         if model_id.startswith("veo-3.1"):
@@ -1781,7 +1789,7 @@ separate scenes."""
                             clip_url = await _gen(animate(
                                 img, _decorate(prompt), duration=clip_dur,
                                 extra_image_urls=[_proxy_url(sheet)] if sheet else None))
-                        clip_cost = profile.cost_per_clip.get(clip_dur, 0.10)
+                        clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
 
                     if not clip_url:
                         failed += 1

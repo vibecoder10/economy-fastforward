@@ -20,6 +20,7 @@ cards without any extra model calls.
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import subprocess
@@ -37,13 +38,16 @@ DIALOGUE_VOICE_LEAD_SECONDS = 0.5
 
 
 # --- Dynamic clip length for speaking shots ---------------------------------
-# A speaking clip has to be long enough to hold the whole spoken line, or Grok
-# cuts the line off mid-word at the clip's end. Grok speaks at roughly 2.8
-# words/sec (measured: S-02.104 said 14 words in 5.0s). We size a touch slower
-# so we never undershoot, then add a fixed buffer so the last word plus a beat
-# of silence fits. Both knobs are env-tunable without a code change.
-SPEAKING_WORDS_PER_SEC = float(os.getenv("GROK_WORDS_PER_SEC", "2.5"))
-SPEECH_BUFFER_SECONDS = float(os.getenv("GROK_SPEECH_BUFFER", "1.0"))
+# A speaking clip must be long enough to hold the whole spoken line — too short
+# and Grok cuts the line off mid-word; too LONG and Grok ad-libs filler/garbage
+# past the line and the camera move overshoots (live finding: a 26-word line in
+# a 15s clip finished at ~9.6s, then invented nonsense to fill the rest). So we
+# size each clip to the line itself. Kie's grok-imagine takes any 6–30s, so we
+# use whole seconds, not coarse 6/10/15 buckets. Grok speaks ~2.7 words/sec
+# (measured: S-02.104 14 words in 5.0s; S-02.105 26 words in 9.6s). Both knobs
+# are env-tunable without a code change.
+SPEAKING_WORDS_PER_SEC = float(os.getenv("GROK_WORDS_PER_SEC", "2.7"))
+SPEECH_BUFFER_SECONDS = float(os.getenv("GROK_SPEECH_BUFFER", "0.3"))
 
 # Coverage motion prompts embed the spoken line as: <Name> says <manner>: "line"
 _SPOKEN_RE = re.compile(r'says\b[^:"\n]*:\s*"([^"]+)"', re.IGNORECASE)
@@ -56,20 +60,34 @@ def spoken_word_count(prompt_or_text: Optional[str]) -> int:
 
 
 def speech_seconds(words: int) -> float:
-    """Seconds Grok needs to speak `words`, with headroom so nothing is cut."""
+    """Seconds Grok needs to speak `words`, with a little headroom so the last
+    word plus a beat fits. 0 for a silent shot."""
     if words <= 0:
         return 0.0
     return words / SPEAKING_WORDS_PER_SEC + SPEECH_BUFFER_SECONDS
 
 
 def pick_clip_duration(need_seconds: float, durations: list) -> int:
-    """Smallest available tier that holds `need_seconds`; the longest tier if
-    none fit (a too-long line is better slightly clipped than missing tiers)."""
-    tiers = sorted({int(d) for d in (durations or [6])})
-    for d in tiers:
-        if d + 0.25 >= need_seconds:
-            return d
-    return tiers[-1]
+    """Whole-second clip length sized to the line: round up so nothing is cut,
+    but never below the model's floor or above its ceiling (keeps a silent shot
+    at the base length and caps runaway lines at the top tier — long lines are
+    better split across shots than stretched into one over-long clip)."""
+    floor = int(min(durations)) if durations else 6
+    cap = int(max(durations)) if durations else 15
+    if need_seconds <= 0:
+        return floor
+    return max(floor, min(cap, math.ceil(need_seconds)))
+
+
+def clip_cost_for(cost_map: dict, duration: int) -> float:
+    """Cost for an exact duration. Named tiers use their listed price; an
+    in-between length is charged at the next named tier up (conservative)."""
+    if not cost_map:
+        return 0.10
+    if duration in cost_map:
+        return cost_map[duration]
+    above = sorted(d for d in cost_map if d >= duration)
+    return cost_map[above[0]] if above else cost_map[max(cost_map)]
 
 
 def norm(s: Optional[str]) -> str:
