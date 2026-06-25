@@ -530,9 +530,12 @@ _PICTURE_COST = 0.08
 COPILOT_ACTIONS: dict[str, dict[str, Any]] = {
     "script":      {"calls": [("run_script", False)], "paid": True, "needs": None, "edit": True,
                     "doing": "writing the script", "label": "Write the script"},
-    "storyboards": {"calls": [("run_storyboard_prompts", True), ("run_storyboard_images", True)], "paid": True,
+    # Unified on the coverage path (GOAL v2 Phase 0): the dock now draws via coverage
+    # (the live image generator), not the old 3x3 grid handlers. "storyboards" = the
+    # cheap single-sheet preview; "images" = the real per-shot multi-angle pictures.
+    "storyboards": {"calls": [("run_storyboard_sheet", True)], "paid": True,
                     "needs": "scenes", "doing": "drawing the storyboards", "label": "Generate storyboards"},
-    "images":      {"calls": [("run_prompts", True), ("run_images", True)], "paid": True, "needs": "scenes", "edit": True,
+    "images":      {"calls": [("run_coverage_images", True)], "paid": True, "needs": "scenes", "edit": True,
                     "doing": "making the pictures", "label": "Generate the pictures"},
     "voice":       {"calls": [("run_voice", True)], "paid": True, "needs": "scenes",
                     "doing": "recording the voiceover", "label": "Generate the voiceover"},

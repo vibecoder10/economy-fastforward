@@ -2105,6 +2105,27 @@ no stage directions, no labels, no headings."""
 
         return await handler(video_id)
 
+    # --- Unified live image path (GOAL v2 Phase 0) ------------------------------
+    # The coverage flow (scripts/coverage_to_app.py) is the single live image
+    # generator. These thin wrappers let the co-pilot dock reach it through the
+    # normal executor dispatch instead of the old 3x3 grid path (run_prompts/
+    # run_images, run_storyboard_prompts/run_storyboard_images). They do NOT change
+    # video.status (coverage doesn't), so they are safe for one-off co-pilot actions.
+    # NOTE: the run_next_step status map above still routes the image STAGES to the
+    # old grid handlers; swapping those to coverage needs status-advance handling +
+    # a FINISH/autopilot test and is a follow-up (see HANDOFF-REPORT).
+    async def run_coverage_images(self, video_id: str, scene: int = None) -> dict:
+        """Draw the real per-shot, multi-angle pictures for a scene (or all scenes)
+        via coverage — the live image path. Replaces the old grid run_prompts+run_images."""
+        from scripts.coverage_to_app import generate_coverage_for_video
+        return await generate_coverage_for_video(video_id, self.tenant_id, scene=scene)
+
+    async def run_storyboard_sheet(self, video_id: str, scene: int = None) -> dict:
+        """Draw the cheap single-image storyboard SHEET preview for a scene via
+        coverage. Replaces the old grid run_storyboard_prompts+run_storyboard_images."""
+        from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
+        return await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
+
     async def run_prompts(self, video_id: str, scene: int = None, index: int = None) -> dict:
         """Generate image prompts for a video.
 
