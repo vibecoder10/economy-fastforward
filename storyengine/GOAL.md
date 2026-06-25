@@ -1,127 +1,266 @@
-# GOAL - StoryEngine: chat-first creative producer ("ChatGPT for video creation")
+# GOAL - StoryEngine v2: the intelligent director system (correctness pass)
 
-**North star:** A new user describes a video in one sentence and StoryEngine, acting like a creative producer, gathers what's missing conversationally and runs the whole pipeline under the hood. Conversation + progress become the interface; the pipeline becomes an implementation detail. (Feeds the company goal: first 10 customers actually using it.)
-**Success looks like:** A cold-start user types "make me a video about a dragon who finds a lonely owner, becomes his best friend, and goes on an adventure," answers a few selector cards, approves a production plan, and gets a finished video in Review - without ever seeing the dashboard or understanding a single pipeline stage.
-**Status:** Phases 1-3 + O4 (core + piece 3) + Phase 5 DEPLOYED LIVE to prod (2026-06-22). Phase 5 = conversational follow-up edits (layer 1+2) via a dedicated chat.py handler. O4 piece 3 = the chat-onboarding setup + intelligence report surfaced on the /competitors page (HEAD 5c166691). Owed: authenticated click-through proofs (new-user auto-trigger + cross-session memory; a "make it shorter" edit; the /competitors cards rendering). Migrations 060 (chat_conversations) + 061 (channel_profiles.creator_brief) applied live; storyengine.dev 200, /api/health 200, /api/chat + /api/dashboard/onboarding/status 401 w/o auth. O4 core shipped: durable creator brief (intent/goals/niche/channel/competitors persisted on channel_profiles, hydrated into every new conversation so the producer remembers across sessions) + auto-trigger onboarding for genuinely brand-new users (no channel, no videos, onboarding not completed; established tenants never re-onboarded). Final check owed: an authenticated brand-new-user click-through (auto-trigger fires + cross-session memory holds). Next: O4 piece 3 (surface channel/competitors/intel in the Competitors + Visual Styles pages), then Phase 4 (channel intelligence) + Phase 5 (follow-up edits). Plan approved 2026-06-22.
-**Updated:** 2026-06-23
+**Mission:** a person uses the chat like a Claude chat and is guided start to finish to build
+the most-likely-viral video for their channel, based on real data. The system models a chosen
+competitor video (idea, script, style, hooks, thumbnail, cadence, length), draws a storyboard
+that shows real camera angles and moves the story forward, locks the characters, and animates
+clean grok-imagine clips with real motion. It should feel like an ultra-smart director in the
+room.
 
-> 2026-06-23: Phase 7 (zero-to-key onboarding) is DEPLOYED LIVE + proven (key step works end-to-end on prod with a real Kie key; full chat walkthrough verified in-browser). ONE owed item for the Google connect steps: the OAuth app is in testing mode, so Ryan must publish + verify the Google consent screen before customers can cleanly connect YouTube/Drive (the Kie/Claude key step needs no Google and is fully live).
-
-Full plan (with architecture + verified file references): `~/.claude/plans/streamed-zooming-pascal.md`
-
----
-
-## Decisions locked (with Ryan, 2026-06-22)
-1. **Brain = guided producer intake**, not an autonomous agent. Claude runs the Step 1-8 flow; post-creation edits route through the existing `claude_orchestrator`.
-2. **Surface = chat becomes home.** `/` is the chat; dashboard moves to `/dashboard`; existing pages tuck under an "Advanced" nav group.
-3. **Done bar = build now, prove on working stages.** Kie.ai (image/video) may be banned; intake + script work today. Full image/video validated the moment Kie is restored.
-4. **Plan file = this is the new north star;** the old "lock the visual chain" plan folds in below as **Track B**. Old GOAL.md backed up (GOAL.md.bak-20260622-092738).
-
-## Architecture (verified against the code)
-- Intake is a **separate layer** from the orchestrator (orchestrator needs a video_id; intake ends in `create_video`).
-- **One Claude call per chat turn, structured JSON out** (not streamed, not tool-use): `{assistant_text, phase, questions?, cards?, plan?}`. Copy `originality.py:356-383` direct-Anthropic + fence-strip + fail-soft. Use a DIRECT `ANTHROPIC_API_KEY` so a Kie outage never blocks intake.
-- **Spec -> video:** backend derives `pipeline_stages` from the workflow card (Full->None, Research Only->[research], Script Only->[script], Script+Assets->[script,images], Custom->picked), runs it through `normalize_stage_plan` (status_map.py:283), then calls `create_video` as a function (videos.py:182) and schedules `run_next_step` (create_video does NOT auto-start).
-- **Friendly progress:** 5 UI states mapped in status_map.py, fed to the UI via a `friendly` field on the existing SSE `stage_change` event (consumed by `use-pipeline-sse.ts`).
+**This pass is a full sweep to make the system exactly that, fixed at the root.** It is grounded
+in an end-to-end multi-agent audit (2026-06-24, 19 agents, adversarially verified at high
+confidence). Old GOAL (the chat-first producer build, Phases 1-7, mostly shipped) is preserved in
+`GOAL.md.bak-20260624-221122`.
 
 ---
 
-## Phase 1 - Producer brain (backend intake engine)  `[code complete; live proof pending deploy]`
-Goal: one `/api/chat` endpoint that turns a sentence into questions -> cards -> plan -> created video + kicked-off pipeline.
-- [x] `backend/routes/chat.py` - APIRouter `/api/chat`, `chat_turn` handler; load/create conversation, intake vs. follow-up branch, on approve map spec -> CreateVideoRequest -> `create_video` -> schedule `run_next_step`. Pydantic models here.
-- [x] `backend/producer_prompt.py` - PRODUCER_SYSTEM_PROMPT + build_system_prompt(channel_brief) + call_producer() (direct Anthropic, fence-strip, fail-soft + self-test).
-- [x] `backend/migrations/060_chat_conversations.sql` - one JSONB-transcript table, tenant-scoped + RLS; appended to schema.sql. (059 was taken -> numbered 060.)
-- [x] Registered router in `backend/main.py`; appended FRIENDLY_STATE + FRIENDLY_STATE_ORDER + friendly_state() to `backend/status_map.py`.
-- [x] Verified offline: py_compile all touched files; logic checks pass (friendly_state, workflow->stages via real normalize_stage_plan, spec->CreateVideoRequest, jsonb coercion, fail-soft). routes/chat.py imports clean.
-- [ ] LIVE PROOF (needs deploy gate): apply migration 060 to prod DB + a live ANTHROPIC_API_KEY, then `curl POST /api/chat` (dragon sentence) -> questions -> cards -> plan; `approve` creates a real video with the right `pipeline_stages` and status advances. Spends ~1-2 Claude calls (~$0.02).
-Reuse confirmed: `create_video` + `CreateVideoRequest`, `normalize_stage_plan`/`first_status_for_plan`, `PipelineExecutor.run_next_step`, originality.py call pattern. Every chat query carries `WHERE tenant_id = $1` (manual isolation).
+## The one root cause (read this first)
 
-## Phase 2 - Chat-first surface (frontend)  `[code complete; live proof pending deploy]`
-Goal: a new user lands on chat, types one sentence, answers cards, approves, sees the video created - no dashboard.
-- [x] `frontend/src/app/page.tsx` authed branch now renders `<ChatHome/>` (was the Production Overview dashboard). NOTE: a richer `/dashboard` route already existed (onboarding-aware: WelcomeQuest, FirstRunChecklist) and is where login/onboarding landed - so I pointed the sidebar "Dashboard" there instead of moving the old overview. Old Production Overview kept exported-but-unused in page.tsx (cleanup task spawned).
-- [x] `frontend/src/components/chat/ChatHome.tsx` - welcome screen + example prompts, message thread, composer, `SelectorCards`, `ProductionPlanCard` ("Make it"), created-confirmation. Reuses GlassCard/ActionButton/tokens/Framer Motion.
-- [x] `frontend/src/lib/api.ts` - `sendChatTurn()` + Chat types.
-- [x] `sidebar.tsx` - "Chat" at `/` (top), "Dashboard" -> `/dashboard`, everything else under an "Advanced" heading. Extracted `renderNavItem`.
-- [x] Made chat the true landing: login + onboarding redirects changed `/dashboard` -> `/`.
-- [x] Verified: `tsc --noEmit` clean; `npm run build` clean (all 33 routes compile incl. / and /dashboard).
-- [ ] LIVE PROOF (deploy gate): with the backend deployed (Phase 1) + a token, load `/`, drive the dragon sentence -> cards -> plan -> created video; screenshot. (SE authed pages can't be browsed locally - documented limitation; build is the local gate.)
-Done when: from `/`, the dragon sentence drives intake to an approved plan + created video (browser-verified, screenshot); existing pages reachable under Advanced.
+StoryEngine has **two parallel image/video pipelines that drifted apart**:
 
-## Phase 3 - Friendly progress in chat  `[code complete; live proof pending deploy]`
-Goal: after approval, chat shows a live plain-English progress tracker.
-- [x] Added `friendly` to the SSE `stage_change` event (routes/pipeline.py) via `friendly_state()`; added `friendly` to SSEStageChangeEvent type.
-- [x] CreatedCard in ChatHome.tsx renders the live 5-state tracker off `usePipelineSSE` (done/active/pending), with graceful failure surfacing (Kie/stage errors -> "ask me to try again", not a crash).
-- [x] Verified: backend py_compile + friendly_state check; frontend tsc + next build clean.
-- [ ] LIVE PROOF (deploy gate): approve in chat, watch the tracker advance off the real pipeline.
-Done when: approving shows live friendly progress driven by the real pipeline (proven through script); failed stages surface gracefully.
+- **The old "grid" path** (`bot.py` 3x3 contact sheet -> `run_storyboard_prompts` /
+  `run_storyboard_images` / `run_images`, `run_split`, `segment_script`, the `video_motion`
+  camera-writer). This holds almost ALL the director-grade machinery: environment locking,
+  per-shot durations, camera-aware motion prompts, the closed-cast validator, story-lock.
+- **The new "coverage" path** (`scripts/coverage_to_app.py:generate_coverage_for_video` ->
+  `skills/video-pipeline/storyboard/coverage.py`). This is what the chat auto-build and the
+  Scenes-page buttons **actually run today**. It draws good multi-angle coverage anchored on a
+  cast sheet - but it **inherited almost none of the old machinery**.
 
-## Phase 4 - Channel intelligence in the producer  `[todo]`
-Goal: with a channel connected, the producer's titles/hooks/thumbnail directions + length reflect proven channel patterns.
-- [ ] `backend/producer_channel_brief.py` - build_channel_brief() reusing `discovery._get_learnings_context`, top competitor videos by VPH, the `projects` row. Fail-open.
-- [ ] Inject the brief into the producer system prompt.
-Done when: a tenant with learnings gets channel-aware titles/hooks; a tenant with no channel gets a sensible generic plan.
+Every "fix" so far landed on whichever path the fixer happened to read. The live path a real user
+hits is a third thing (coverage) that is missing the integrations. That is why: style defaults to
+realistic, every clip is a 6-second "slow push-in" metronome, backgrounds drift, and every
+character is injected into every scene. Orphaned old code also gets mistaken for working features
+(stale "not wired" comments, a broken self-test). **This is the "fixed but nothing changed at the
+root" pattern, named.**
 
-## Phase 5 - Conversational follow-up edits  `[shipped live 2026-06-22, layer 1+2]`
-Goal: after a video exists, follow-up messages drive the pipeline through chat.
-- [x] Dedicated follow-up handler in `chat.py` (NOT the orchestrator - see below). One direct-Anthropic call (`_classify_followup`, tenant Vault key + `claude-sonnet-4-6`) maps the message -> `{stage, video_length_minutes?, guidance_append, confidence, reply}`.
-- [x] `_apply_followup_edit` writes the change to the stage's guidance column (length -> `video_length_minutes`; script -> `writer_guidance`; images -> `image_style_override`; thumbnail -> `thumbnail_prompt`), then `_make_stage_step` re-runs just that stage's executor method(s) via the same task-status channel the create flow uses (so the live tracker updates). "keep going" -> advance one step; unclear/low-confidence -> clarifying ask, never a blind advance.
-- WHY NOT the orchestrator (the old plan): reading `claude_orchestrator.execute()` showed it (a) ignores `parameters` so it CAN'T apply an edit (calls `method(video_id)` only), (b) uses the 404 model id `claude-sonnet-4-20250514` + no tenant key, (c) is feature-flagged off (`claude_orchestration`). Its registry actually loads fine on prod (3239 chars) - the GOAL.md "empty registry" note was wrong. So a small dedicated handler is lazier AND more capable; orchestrator left untouched for Autopilot. Approved with Ryan 2026-06-22.
-- Verified: a sim runs the REAL `_handle_followup`/`_classify_followup`/`_apply_followup_edit` (mock only Claude + DB + step factories): "shorter" -> length+writer_guidance + run_script; "more aggressive thumbnail" -> thumbnail_prompt + run_thumbnail; "noir" -> image_style_override + run_prompts+run_images; "keep going" -> advance, no edit; gibberish -> ask-back, nothing scheduled. py_compile clean; deployed (488b2c0b, backend-only restart). No FE change (composer + CreatedCard already handle follow-ups).
-- Ceilings (ponytail): editing the script re-runs it and moves the video back through downstream stages (correct, but the tracker visibly rewinds). Thumbnail intent threads via `thumbnail_prompt` (clone-mode); from-scratch thumbnail guidance is a follow-up. Image/thumbnail re-runs need Kie (banned -> fail gracefully); script/render are Kie-independent.
-Done when: a follow-up ("make it shorter", "redo the thumbnail") triggers the correct stage re-run and reports back in plain English. [LIVE-PROOF owed: an authenticated follow-up on a real video - a Kie-independent "make it shorter" is the clean test.]
-
-## Phase 6 - Polish + full-pipeline proof (Kie-gated)  `[todo]`
-Goal: a brand-new user creates a finished video from a single sentence, chat alone.
-- [ ] Empty/loading/error states, mobile layout, Advanced discoverability.
-- [ ] End-to-end finished-video proof the moment Kie.ai is restored.
-Done when: cold-start user -> one sentence -> finished video in Review, no dashboard needed.
-
-## Phase 7 - Zero-to-key onboarding (first paying customer ready)  `[DEPLOYED LIVE + key step proven 2026-06-23]`
-Goal: a brand-new customer goes from sign-up to a validated AI key without leaving the chat - click "Get my key", pay on kie.ai, copy, paste. Kie.ai recommended (one key = text + images + video), Anthropic accepted. Built 2026-06-23.
-- [x] Backend key step in `routes/chat.py`: a new `key` onboarding step inserted right after the intent fork (`_KEY_PROMPT` with the kie.ai link + 3 steps; `_pick_key` auto-detects `sk-ant-` -> anthropic else kie; `set_secret` + reuse `vault.test_api_key` to validate; friendly retry on a bad/rejected key; required, no skip). `_has_generation_key` lets already-keyed users skip it. The secret never enters conversation `state`/creator_brief.
-- [x] Frontend: `renderRich` now linkifies `[text](url)` (the kie.ai link); pasted keys are masked in the transcript (`maskSecret`). `ChatHome.tsx`.
-- [x] Entry fix (Phase B): login now lands EVERYONE on `/` (chat) - the old not-completed -> `/onboarding` wizard split bypassed the chat (and the key step). The chat auto-trigger + `complete_onboarding` already handle new vs returning. `app/login/page.tsx`. (`useOnboardingGate` is dead/unused; `/` renders ChatHome with no gate.)
-- [x] Settings -> Keys hand-holding (Phase C): `KEY_HELP` adds a "Get a key" link + 3 steps to the Kie.ai and Claude cards and the Configure modal. `app/settings/keys/page.tsx`.
-- [x] Account-connect steps (Ryan add 2026-06-23): two skippable steps after competitors - **YouTube analytics OAuth** then **Google Drive OAuth** - reusing the existing connect URLs + callbacks. ChatHome renders a "Connect" button (same-tab OAuth, stashes a `chat` origin); the callbacks return to `/?connected=yt|drive`; ChatHome resumes the stashed conversation and tells the backend the step is done. No Google Console change (internal return only). `routes/chat.py` (connect_yt/connect_drive steps), `ChatHome.tsx` (ConnectButton + resume), `youtube-callback`/`drive-callback` (chat origin).
-- [x] Softened the cold `MissingGenerationKeyError` to point at the chat walkthrough. `kie_unified.py`.
-- [x] Verified offline: `_handle_onboarding` driven through the real bodies (22 checks PASS - intent->key, bad/openai/rejected pastes retry, good kie/anthropic keys save to the right slot + advance, existing-key skip); frontend `tsc` + `next build` clean; backend `py_compile` clean.
-- [x] DEPLOYED LIVE 2026-06-23 (commit 525ebd90 on main; VPS pulled, backend kill-9 restart, frontend rebuilt from a CLEAN origin/main worktree + .next swap to avoid shipping a concurrent agent's uncommitted WIP, both healthy). LIVE PROOF PASSED two ways: (1) API drive of a fresh prod tenant -> intent -> key step -> bad key retry -> real Kie key -> "✅ You're powered up — Kie.ai API key valid (credit: 7481.99)" -> goals; (2) browser walkthrough on a fresh account -> auto-onboarding -> key step renders with the clickable kie.ai link -> pasted key masked in transcript -> powered up -> goals -> skip channel/competitors -> YouTube connect step + Connect button -> real Google OAuth handoff (correct scopes/redirect/state).
-Done when: a brand-new sign-up lands in chat, is walked through getting + pasting a working key, and continues setup - no Settings detour. ✅ Plan: `~/.claude/plans/lucky-soaring-seahorse.md`.
-RYAN-ACTION (blocks the Google connect steps for real customers): the Google OAuth app is in **testing** mode, so connecting YouTube/Drive shows "Google hasn't verified this app" (or blocks non-test users). Publish the OAuth consent screen + submit for Google verification (sensitive scopes: youtube.readonly, yt-analytics.readonly, drive) in Google Cloud Console. The key step (Kie/Claude) is unaffected - it needs no Google.
-KNOWN GAP: the chat onboarding only collects the text/image key (Kie or Anthropic). ElevenLabs (voiceover) + OpenAI (whisper) are NOT asked in chat - a voiceover video would need those added in Settings (now hand-holdy) or would fail gracefully. Add a chat voice-key nudge later if voiceover is core for the first customer.
+**The cure:** make coverage the single live pipeline, and port / rebuild the director machinery
+INTO it; then redirect or delete the old competing paths so there is ONE path. Re-architecture,
+which is in scope for this pass.
 
 ---
 
-## Track B - output quality (folded-in visual chain)  `[parallel, Kie-blocked]`
-Makes the *output* trustworthy while the chat work makes the *experience* trustworthy. Carried over verbatim from the prior GOAL.md.
+## Decisions locked (with Ryan, 2026-06-24)
 
-- **Phase B1 - kill invented-character bug, lock scenes 1-2 storyboards** `[done 2026-06-20]` - per-beat CLOSED CAST from script speakers, temp 0.9->0.35, high-precision validator, documentary leak removed. Scenes 1-2 grids viewed + adversarially verified PASS. Proof video 3d5aa0ca, tenant ee93e6d1.
-  - Residual: the bot.py fix is a LIVE working-tree edit on the VPS (backup bot.py.bak-20260620-045936) - commit it to the repo so a git pull can't clobber it.
-- **Phase B1.5 - grid layout + narration-drift fixes** `[deployed, rebuild Kie-blocked]` - strict even 3x3 grids; fixed the duplicate-title data bug (4 methods in supabase_adapter.py now filter video_id + exclude deleted); 3d5aa0ca's own 53 image prompts generated. BLOCKED rebuilding scenes 1-2 storyboards by the Kie.ai Claude gateway ban ("用户已被封禁"). Needs Ryan to fix the Kie.ai account.
-- **Phase B2 - lock the canon (production bible)** `[todo]` - character/env/prop continuity everything cites; tighten location `scenes_present`.
-- **Phase B3 - Scene 2 full chain to clips** `[todo]` - extract panels, image-set gate, clips (i2v motion-only), scene review.
-- **Phase B4 - scale to all scenes** `[todo]` - repeat the gated chain for scenes 3-8 with cross-scene continuity.
+1. **grok-imagine first.** Optimize the whole clip path for grok-imagine via kie.ai. Seedance is
+   the next goal, not this one.
+2. **Root-fix, re-architect where needed.** No band-aids. Where the root is rotten, rebuild it.
+3. **Data-foundation phase is in.** The audit confirmed it is half-broken (see Phase 1).
+4. **Acceptance gate = a correct Scene 1, proven by screenshots** (see below). Spend is allowed
+   only through Scene 1's storyboard, images, and clips, and only if the storyboard shows the
+   characters and scenes defined well.
+5. **Proof rule (anti-rot):** every phase is proven by a REAL run with a screenshot or a DB
+   check, never a self-test. Self-tests that assert on stale strings are how we got fake "done."
 
 ---
+
+## Honest state of the 9 subsystems (verified)
+
+| # | Subsystem | Intended | What it actually does today | Live? |
+|---|---|---|---|---|
+| 1 | **Director chat** | Guide start->finish, pitch a modeled idea on start, suggest by convo | Chat IS wired end to end (real producer call every turn, real auto-build, real co-pilot actions). But "intelligence" is shallow: proactive idea pitch fires ONCE in onboarding only; returning users get a static greeting. Producer gets only a thin brief + a length number, never the competitors' real winning titles/hooks/format. | Wired but hollow |
+| 2 | **Style detect->apply** | Know the modeled video's style, ask/recommend, apply everywhere | Two good halves that never meet on the chat path. A real vision style-detector exists (`model_video.py`) but only on the URL-paste flows. Application is style-aware now (commit e19f5241). The "Worth modeling" chat click sends a plain text title with no video ref, so detection never runs and style silently defaults to **realistic**. | Partial (break in the middle) |
+| 3 | **Length** | Recommend from THE example video, warn if too short | Slider + recommendation + flow-through all work. But the chat anchor is the tenant-wide MEDIAN of all competitors, not the specific modeled video. A separate non-chat path uses the exact runtime but never asks and clamps to 3 min. | Wired but wrong anchor |
+| 4 | **Storyboard angles** | Multiple angles per scene + story moves forward | Multi-angle coverage is real and reaches the final video. But NO story-progression rule exists (only visual continuity), and each scene is planned in isolation with no memory of prior scenes. Some entry points still route to the old single-sheet path. | Partial |
+| 5 | **Per-shot timing** | Vary clip length per shot; equal only to extend one scene | Every narration clip is a fixed **6 seconds**. Coverage never stamps a duration, so the clip generator falls through to 6s for all. The 3 components that would vary it are all dead/orphaned. A metronome. | Broken at root |
+| 6 | **grok motion + @image** | Camera/motion prompts + @image refs telling who does what | The @image mechanism is live. But coverage writes NO motion prompt, so every narration clip uses ONE hardcoded "slow push-in." The real camera-aware writer only runs on the later FINISH path, not when pictures/clips are first made. | Half wired |
+| 7 | **Character lock + 1/scene** | Lock characters; 1 per scene unless very distinct pair | Locking is real (cast sheet + bible + style lock). 1-per-scene is enforced NOWHERE. Worse, the bible marks every character "present everywhere," so all characters get injected into every scene. | Lock yes, count no |
+| 8 | **Scene consistency** | Locked, consistent backgrounds; continuity | The env-lock machinery exists but the live coverage path never passes an environment reference (env_url is always None), and the one env-aware path is broken by a name-vs-id key mismatch. Backgrounds rest on re-described prose only. | Inert on live path |
+| 9 | **Real data** | Viral picks based on real competitor numbers | API key IS set on prod; daily scrape works (real views present). But onboarding + "model-a-video" still use bot-blocked yt-dlp and write **views=0** rows. Confirmed: 27 of 50 competitor rows real, 23 are zeros polluting the home/discovery filters. | Half real |
+
+---
+
+## grok-imagine prompting rules (baked from research, for Phase 7)
+
+kie.ai gateway. Base `https://api.kie.ai`, `POST /api/v1/jobs/createTask`, `Authorization: Bearer
+<key>`. Models: `grok-imagine/image-to-video` (I2V), `grok-imagine/text-to-video`,
+`grok-imagine/image-to-image`. Grok Imagine 1.5.
+
+1. **Prompt is a motion script, not a description.** Formula: `[subject + its motion] + [camera +
+   its move] + [light/atmosphere shift]`. Do NOT re-describe what is already in the frame - the
+   model sees it.
+2. **Front-load the camera move and key action.** The engine reads left to right and drops
+   tail-end instructions. Lighting/atmosphere go last.
+3. **Never contradict the input frame.** Motion must be reachable from the existing pose/framing
+   (a seated subject cannot run). This is the #1 cause of warped output.
+4. **No negative prompts.** The video model ignores them. Say what you want, positively.
+5. **Name one concrete camera move per clip:** dolly/push-in, pull-back, pan, tilt, tracking,
+   crane, orbit/arc, dolly-zoom, slow zoom, handheld sway. Add **"Unfixed lens"** when moving the
+   camera, **"Fixed lens"** for a locked static shot.
+6. **Quantify motion with adverbs and beats:** "slowly," "quickly," "with large amplitude," "she
+   takes one step back, turns her head 30 degrees." Mood words ("cinematic, dramatic") give the
+   model nothing to animate.
+7. **Sequence actions in order** within one prompt; use **"Shot Switch"** for an intentional cut
+   inside one clip.
+8. **Shot type up front** ("wide / medium / close-up / low-angle / POV"); for I2V the framing is
+   set by the input image, so use the shot word to aim the camera move (push from wide into a
+   close-up), not to reframe.
+9. **`duration` is the length lever, 6-30s, 1s steps.** Per request, so different shots get
+   different lengths. Type quirk: I2V wants a STRING ("6"), T2V wants a NUMBER (6). Make short
+   native takes and stitch.
+10. **@image token = `@imageN ` (1-based + trailing space).** Multi-tag chaining is only for
+    image-to-image. **Critical for us: grok-imagine I2V uses only the FIRST image as the motion
+    reference; extra images are ignored.** So character consistency on a clip must come from the
+    PANEL already containing the locked character (coverage's cast anchor), not from a second
+    @image. Multi-@image composition, if needed, happens at an image-to-image stage before I2V.
+11. `resolution` "480p" or "720p" (default 480p). `aspect_ratio` one of 2:3 / 3:2 / 1:1 / 16:9 /
+    9:16; for I2V it follows the input image if omitted. Prompt is English-only, max 5000 chars.
+12. Async: `createTask` returns a `taskId`; get the result by `callBackUrl` webhook (preferred) or
+    poll Get Task Details.
+
+---
+
+## Acceptance gate (Ryan's words, exact)
+
+Scene 1 is generated with a storyboard that **shows the angles and progresses the storyline
+forward**, with characters and scenes **defined well** in the storyboard. Verify with screenshots.
+Only then is there permission to spend, through Scene 1's storyboard, images, and clips - and only
+if the characters are represented and the scenes/characters are well defined.
+
+---
+
+## Phases
+
+Each phase lists the root fix, the key files (from the audit), and the proof. Phase 0 is the
+keystone - most other phases port their fix INTO the unified path it creates.
+
+### Phase 0 - Unify on ONE pipeline (keystone) `[todo]`
+The whole pass depends on this. Make coverage the single live image/clip path and kill the
+competing routes.
+- Make `generate_coverage_for_video` (coverage) the only image generator a user can reach. Route
+  the status map (`pipeline_executor.py:2088-2093`, `ready_for_storyboards -> run_storyboard_prompts`)
+  and the co-pilot verbs (`chat.py:533,535`, "storyboards"/"images") to coverage; remove or
+  clearly retire the old `bot.py` grid path so no entry point produces a different result.
+- Make the clip generator read what coverage writes (sets up Phases 5-7).
+- **Kill false-proof signals:** fix the broken producer self-test (`producer_prompt.py:230`
+  asserts "MY CHANNEL", header is now "THIS CREATOR'S CHANNEL"); delete the stale "not wired"
+  comment in `coverage.py`; fix lying docstrings (`pipeline_config.py` per-segment duration claim;
+  `producer_prompt.py:107` "injects proven titles/hooks/look").
+- **Proof:** one real chat-built video; confirm via DB + screenshots that every image/clip came
+  from the coverage path and no old-path entry point is reachable.
+
+### Phase 1 - Data foundation (real numbers) `[todo]`
+Confirmed half-broken: key is set, daily scrape works, but onboarding + model-a-video write
+zeros (23 of 50 rows for the owner tenant).
+- Extract one shared `youtube_data_api` helper (single-video + channel) and route EVERY ingestion
+  path through it: `onboarding.py` (replace the yt-dlp list + HTML date scrape) and
+  `model_video.py:_run_modeling` (replace `_extract_video_info`; keep Supadata for the transcript
+  only). `niche.py` already uses the API (commit 49ed96ad).
+- Fail loud if `YOUTUBE_API_KEY` is missing (surface "add a YouTube Data API key") instead of
+  silently writing zeros.
+- Stop persisting `views=0` competitor rows from any path, and purge existing zero rows (they fail
+  the `views>0` home filter and block future real upserts).
+- **Proof:** re-run onboarding/model-a-video for a channel; confirm competitor_videos rows carry
+  real views/duration/vph; home "Worth modeling" shows real numbers.
+
+### Phase 2 - Director chat intelligence `[todo]`
+Make channel intelligence always-on, not a one-time onboarding seed.
+- Persist a rich creator brief on `channel_profiles` (top titles, hook patterns, thumbnail motifs,
+  median cadence/runtime), refreshed when scrapes complete - not just the 5 thin `_BRIEF_KEYS`
+  (`chat.py:1427`).
+- Feed that rich brief into `build_system_prompt` on EVERY producer turn (`chat.py:2046`,
+  `_seed_producer`) so script/style/hook/thumbnail suggestions are genuinely modeled.
+- Proactive open turn for RETURNING users: when `chat_turn` gets no message and the user is
+  onboarded with competitor data, run `_generate_competitor_ideas` / `_present_ideas_turn` to
+  pitch a fresh modeled idea instead of the static `_GREETING` (`chat.py:1995,2022`).
+- **Proof:** open the home chat as an onboarded user; it pitches a specific modeled idea and the
+  producer references real competitor titles/hooks.
+
+### Phase 3 - Style: detect -> recommend -> apply `[todo]`
+Connect the two good halves on the chat path.
+- "Worth modeling" click and "model this" must pass the reference video id/url so the chat-created
+  video is `is_modeled` and `_run_modeling` fires (today `ChatCore.tsx:431` sends plain text;
+  `_spec_to_create_request` omits `reference_url`, `chat.py:393`). Detection lives at
+  `model_video.py:380` `_describe_scene_style`.
+- Show the detected style ("3D Pixar") to the creator as a confirmable recommendation, not a
+  silent DB write.
+- Never silently default to realistic: if no style is set, either inherit the detected style or
+  ask - do not fall through to the photoreal default (`coverage_to_app.py:95`).
+- **Proof:** model a Pixar video via chat; storyboard + frames render Pixar (screenshot), style
+  was shown and confirmed.
+
+### Phase 4 - Length from the SPECIFIC modeled video `[todo]`
+- Anchor the recommendation on the chosen video's runtime, not the tenant median
+  (`_modeled_runtime_hint`, `chat.py:1411`). Unify with the `model_video.py` exact-runtime path
+  (which today never asks and clamps to a 3-min minimum).
+- Add a deterministic too-short backstop, not just LLM free text.
+- **Proof:** model a 12-min video; chat recommends ~12 min and warns sensibly on a 20s request.
+
+### Phase 5 - Storyboard angles + story progression `[todo]` (into coverage)
+- Keep multi-angle coverage (it works). Add a story-progression rule to the coverage directive
+  ("advance, never restate") and cross-scene memory (pass prior-scene summaries) - today
+  `_coverage_system_prompt` enforces only visual continuity and each scene runs in isolation.
+- Add an acceptance check that Scene 1 yields more than one distinct angle and advances.
+- **Proof:** Scene 1 storyboard shows distinct angles and clearly progresses (screenshot).
+
+### Phase 6 - Per-shot timing `[todo]` (into coverage)
+- Stamp a per-shot duration onto coverage assets (today `store_scene` inserts none -> clips fall
+  to fixed 6s). Vary by shot type (the `_CUT` table exists but only paints the static PNG); allow
+  grok's 6-30s. Identical lengths only to extend one scene across angles.
+- Expand the clip generator beyond the binary 6/10 (`run_clip_generation`; also
+  `run_generate.py:89-90`). Retire the dead `run_split` after folding its varied-duration logic
+  into coverage.
+- **Proof:** a built scene shows clips of varied lengths (DB durations + watch).
+
+### Phase 7 - grok-imagine motion + @image `[todo]` (into coverage, research-baked)
+- Generate a per-shot camera/motion prompt into each coverage asset's `video_prompt` (today NULL
+  -> one hardcoded "slow push-in"). Reuse/relocate the good camera writer
+  (`video_motion/run_scripts.py` `generate_video_prompt`) so it runs when pictures/clips are first
+  made, not only on FINISH.
+- Apply the 12 rules above: motion script not description, front-load the camera move, one move
+  per clip, no negatives, quantified beats, `duration` (string for I2V), Fixed/Unfixed lens.
+- **@image correctness:** I2V uses only the FIRST image, so the panel must already contain the
+  locked character; a second @image (cast sheet) is ignored on I2V. Keep character identity in the
+  panel, not in a second clip reference.
+- **Proof:** clips show real, varied camera motion (watch), prompts are per-shot in the DB.
+
+### Phase 8 - Character lock + 1-per-scene `[todo]` (into coverage)
+- Add per-scene presence data so the bible no longer marks every character "present everywhere"
+  (today `load_character_bible` hardcodes `scenes_present=[]`).
+- Enforce 1 character per scene with the "very distinct pair" exception (human+dragon, human+dog) -
+  no cap exists today. Down-select the directive to the scene's actual character(s).
+- Port the closed-cast validator (anti-invention scrub, old `run_storyboard_prompts` path) into
+  coverage so it protects the live images.
+- **Proof:** a 2-character script yields scenes with one character each (except the allowed pair);
+  no invented/extra people (screenshots).
+
+### Phase 9 - Scene consistency / environment lock `[todo]` (into coverage)
+- Load approved `video_environments` in `generate_coverage_for_video` and thread a per-scene env
+  reference image into `run_coverage` (today env_url is always None) so each scene's master frame
+  is anchored on the approved location, with angles chained on master+env.
+- Single-source the location key: generate the Story Bible first (it owns canonical location ids),
+  derive environments from bible locations, and resolve env by that same id - kill the
+  name-vs-slug mismatch.
+- Make the gates real on the live coverage routes (enforce `environments_approved_at` and
+  `story_locked_at`); stop the auto-build from blanket-stamping `environments_approved_at`.
+- **Proof:** the same location looks consistent across a scene's angles and scene to scene
+  (screenshots).
+
+### Phase 10 - The Scene 1 proof (acceptance gate) `[todo]` `[SPEND HERE]`
+On the unified path, build Scene 1 end to end and verify against the gate above.
+- Generate the Scene 1 storyboard; screenshot-verify it shows the angles, progresses the story,
+  and defines characters + scene well.
+- Only then spend through Scene 1's images and clips. Watch the clips for real motion, locked
+  characters, consistent background, varied shot lengths.
+- This is the single go/no-go for the pass.
+
+---
+
+## Sequencing
+
+1. **Phase 0** (unify) - the keystone, do first.
+2. **Phase 1** (data) can run in parallel with **Phases 2, 3, 4** (chat / style / length).
+3. **Phases 5-9** port the director machinery into the unified coverage path.
+4. **Phase 10** is the proof and the spend.
+
+## Out of scope (this pass)
+- Seedance (next goal).
+- Full multi-scene final render/stitch polish, voice/SFX polish, dialogue mode.
+- Anything past a verified, correct Scene 1.
 
 ## Log
-- 2026-06-23 - Phase 7 DEPLOYED LIVE + proven. Pushed 525ebd90 to main (diverged branch -> cherry-picked onto a clean origin/main worktree, pushed from there). VPS: ff-only pull (only my 8 files; a concurrent agent's uncommitted pipeline/production WIP left untouched), backend kill-9 restart (healthy), frontend rebuilt from a CLEAN origin/main worktree (hardlinked node_modules + copied .env.local) and the .next hot-swapped into the live dir + revived - this shipped ONLY committed code, NOT the other agent's unbuilt frontend WIP. LIVE PROOF: (1) API drive of a fresh prod tenant through the key step with Ryan's real Kie key -> validated "credit: 7481.99" -> advanced; (2) full browser walkthrough on a fresh account -> auto-onboarding -> key step renders w/ clickable kie.ai link -> key masked in transcript -> powered up -> connect-YouTube step + button -> real Google OAuth handoff (correct scopes/redirect). FINDING: the Google OAuth app is in TESTING mode -> "Google hasn't verified this app" warning blocks/scares real customers on the YouTube/Drive connect; Ryan must publish + verify the consent screen in Google Cloud Console (the Kie/Claude key step is unaffected). Did NOT complete the Google grant (stopped at the warning). Created throwaway prod test accounts (se-onboard-test-*, se-visual-* @example.com, free/unverified - harmless). Frontend .next.bak-20260623-203731 kept on the VPS for rollback.
-- 2026-06-23 - Phase 7 added + code complete (zero-to-key onboarding for the first customer). New `key` step in the chat onboarding (right after intent, before any Claude step): walks the user to kie.ai, takes a pasted key from the composer, auto-detects Anthropic vs Kie, saves to Vault, and validates with the existing `test_api_key` before advancing - bad/rejected keys get a friendly retry; required (no skip); already-keyed users skip it. Fixed the entry funnel: login now lands everyone on `/` (chat) instead of splitting brand-new users into the legacy `/onboarding` wizard, which bypassed the chat and the key step. Added Settings->Keys hand-holding (Get-a-key links + steps for Kie/Claude) and softened the cold "key required" error to point at the chat. Verified: 22-check real-body sim of `_handle_onboarding` PASS, tsc + next build clean, py_compile clean. LIVE PROOF (deploy + fresh-account click-through with Ryan's Kie key, ~cents) is GATED on Ryan. Plan: `~/.claude/plans/lucky-soaring-seahorse.md`.
-- 2026-06-22 - O4 piece 3 shipped LIVE (workspace surfacing). The chat onboarding collects a channel + competitors + builds an intelligence_reports row, but the report was written-and-never-shown and the connected channel / creator_brief were invisible. Added two cards to /competitors: a "Your setup" summary (channel / niche-angle / goals from creator_brief) and an "Intelligence report" panel (channel_analysis, title_ideas + reasoning, creation_guidance plan) with a chat empty state. Backend: exposed creator_brief + youtube_channel_name on /api/onboarding/status (one SELECT col + return field; no migration). Frontend: getCreatorSetup + getIntelligenceReport (the report's JSONB fields come back as STRINGS - no asyncpg codec in database.py - so the api fn coerces string-or-parsed). Cards render in the main view AND above the niche-setup gate (nicheConfigured = nicheConfig.niche_category != null), so chat-onboarded users without an autopilot niche still see them. Skipped the Visual Styles page (independent visual_styles assets - nothing onboarding collects maps to it). tsc + next build + py_compile clean. Deployed 5c166691 via an isolated git worktree cherry-pick (local tree had the other session's uncommitted WIP, so no rebase/stash in the shared tree); VPS pull + frontend rebuild + backend kill -9, health 200. Owed: an authed view of /competitors to see the cards render with real data. NOTE: there are TWO onboarding-status endpoints - /api/onboarding/status (onboarding.py, the one I enriched + getCreatorSetup calls) and /api/dashboard/onboarding/status (dashboard.py, what getOnboardingStatus calls); don't confuse them.
-- 2026-06-22 - Phase 5 shipped LIVE (conversational follow-up edits, layer 1+2). After a video exists, a chat message routes to a NEW dedicated handler in chat.py (NOT the orchestrator): `_classify_followup` makes one direct-Anthropic call (tenant Vault key + claude-sonnet-4-6) -> `{stage, video_length_minutes?, guidance_append, confidence, reply}`; `_apply_followup_edit` writes the change to the stage's guidance column (length->video_length_minutes, script->writer_guidance, images->image_style_override, thumbnail->thumbnail_prompt); `_make_stage_step` re-runs just that stage's executor method(s) on the same task-status channel the create flow uses (live tracker updates). "keep going"->advance; unclear/low-confidence->clarifying ask. Chose the dedicated handler over the GOAL.md "route through claude_orchestrator" plan after reading execute(): the orchestrator can't apply parameters (calls method(video_id) only), uses the 404 model + no tenant key, and is flag-gated off; its registry actually loads fine (the "empty registry" note was wrong). Lazier + more capable; orchestrator left for Autopilot. Verified by a real-body sim (mock only Claude+DB+step factories) across shorter/thumbnail/noir/advance/gibberish. Backend-only (no FE change - composer + CreatedCard already handle follow-ups). Deployed 488b2c0b on top of the other session's live YouTube-ruleset commit (004b7400); clean fast-forward, backend kill -9 restart, health 200 (one transient 502 in the restart window, recovered). LIVE-PROOF owed: an authed follow-up on a real video (Kie-independent "make it shorter" is the clean test); didn't run it because tenant ee93e6d1 had a live pipeline in flight.
-- 2026-06-22 - O4 core shipped LIVE (durable memory + auto-trigger). (1) Migration 061 adds channel_profiles.creator_brief JSONB. During onboarding, intent/goals/niche/channel/competitors are mirrored onto it (upsert + JSONB-merge, fail-soft) via a single call in the _ob_reply funnel + the niche-set point. On every NEW conversation, chat_turn hydrates state from creator_brief (fills only MISSING keys, so a fresh conversation's own choices win) so the producer stays channel-aware across sessions (each page load = a fresh conversation, which previously wiped all onboarding context). (2) Frontend ChatHome auto-starts the guided setup for genuinely brand-new users only (status check: !completed && !first_video_created && !channel_configured) - established tenants get the normal welcome, never re-onboarded; a loader guard avoids a welcome-then-jump flash; manual "Start Here" button kept as the escape. Reused the existing getOnboardingStatus (api.ts untouched). Verified: a sim running the REAL _handle_onboarding step machine (mock only DB + onboarding side-calls + Claude) proves persist + hydrate + no-clobber; py_compile + tsc + next build clean. Deployed: commit e1af585d (only the 4 O4 files; left concurrent engine_templates.py work + Track B untouched), pushed main from local, VPS pull --ff-only, frontend rebuilt, backend kill -9 restart -> migration 061 auto-applied (journal-confirmed), health 200. PROD-HEAD REALITY: prod was actually at f1d44ddb (the prior 3def6c72 was a docs-only GOAL.md commit never deployed), so the pull added only my O4 code + that harmless doc. LEFT: authenticated brand-new-user click-through proof; O4 piece 3 (surface channel/competitors/intel in the visual pages).
-- 2026-06-22 - Added the "how do you want to model this?" step (Ryan's niche-finding insight). After competitor analysis, chat summarizes the winning FORMAT + proposes 4 ownable ways to adapt it (swap language/theme/audience/focus) -> creator picks one or types their own niche -> 3 ideas generated FOR THAT NICHE modeling the format (not copying the competitor's topic), still citing real view counts + recency -> pick -> producer (which now knows the niche via the brief). Refactored idea-gen into _wait_for_scrape/_recent_competitor_rows/_video_lines/_claude_json/_propose_modeling_angles; Claude calls run via asyncio.to_thread (non-blocking). Verified by running the REAL function bodies in sim (only Claude/DB mocked) - after two runtime bugs (missing background_tasks arg; fetch_all not imported) that mocked sims had missed. Deployed + healthy.
-- 2026-06-22 - Fixed producer amnesia after onboarding. The onboarding->producer handoff reset the transcript (to avoid replaying card JSON) which ALSO wiped context -> producer greeted cold ("Hey! I'm StoryEngine"), forgetting channel/goals/competitors. Fix: a compact _creator_brief(state) (intent, goals, channel, competitors) is now injected into EVERY producer turn's system prompt (both the chat_turn intake and the _seed_producer handoff) -> persistent memory + light tailoring (thumbnails-only -> thumbnail workflow; goal-matched workflow defaults). Store pasted competitor handles. Deployed + healthy. (The "ask me for ideas" screenshot was a stale pre-deploy conversation.)
-- 2026-06-22 - Fixed the empty-ideas fallback + made it auto/last-week. ROOT CAUSE (from prod logs): chat.py called onboarding.connect_youtube + analyze_competitors WITHOUT their required background_tasks arg -> both silently failed -> no competitor data -> fallback. Fixed both calls. Rewrote idea-gen: queries the PAST WEEK's top competitor_videos (hours_old<=240, by vph/views) and calls Claude on the tenant's DIRECT key (not Kie), citing real title+views+recency; no-data path is honest (never "ask me"). Confirmed YOUTUBE_API_KEY IS set on the VPS (official API, not bot-blocked) so real data now flows. The finish turn waits (Thinking…) up to ~40s for the scrape then auto-presents 3 ideas. Backend-only; deployed + healthy.
-- 2026-06-22 - Proactive "3 ideas + why" shipped LIVE (O4 core). After onboarding, chat.py builds the intelligence report from the analyzed competitors and pitches the top 3 title_ideas with reasoning + the competitor video each models ("their best of the past week at 240k views..."), as tappable idea_choice cards; picking one (or typing your own) hands off to the producer seeded with that idea; graceful fallback if competitor data isn't ready. Backend-only (reused card rendering); simulated all paths + deployed. NOTE: corrected course - Ryan already built one-click OAuth setup for customers (no Cloud Console / YOUTUBE_API_KEY hand-holding needed); the data path is handled on his end. Markdown bold now renders cleanly in chat bubbles (shipped 2026-06-22, minimal renderRich, no md dep). Still owed (O4 polish): auto-trigger onboarding for brand-new users, persist goals/intent + tailor producer defaults.
-- 2026-06-22 - Conversational onboarding ("Start Here") O1+O2+O3 shipped LIVE. Registered the dormant onboarding router (main.py). chat.py onboarding step-machine: intent (tell stories vs automate channel) -> what to automate (ideas/scripts/voiceover/thumbnails/whole videos/all) -> paste channel URL (connect_youtube) -> 1-3 competitors (analyze_competitors) -> soft Advanced-tier pitch (Smart Analytics + Autopilot, no-pressure, "switch on anytime") -> kicks off intelligence report + complete_onboarding -> hands to producer. URL steps use the composer; intent/goals/upsell reuse existing single/multi cards; "Start Here" button on the welcome screen (start_onboarding flag) so it's launchable + testable. Full flow simulated locally (both intent paths) + py_compile/tsc/build clean; deployed; /api/onboarding/status 401-wired. LEFT (O4): persist goals+intent durably + tailor producer defaults (thumbnails-only -> thumbnail workflow), auto-trigger for brand-new users, surface the intelligence report in chat + the visual pages.
-- 2026-06-22 - Follow-up #3 shipped: LENGTH is now a slider (5s-30min, 5s steps) with a live label, replacing fixed buttons. ChatHome renders a range input for the length card; producer emits a type:slider length card; chat.py maps chosen seconds -> int minutes (min 1) + writes the exact target into writer_guidance. CAVEAT flagged to Ryan: the pipeline sizes in whole minutes (int(float(len))), so true sub-minute OUTPUT fidelity needs the short-form pipeline route (roadmap) - the slider captures intent but a 30s pick won't yet guarantee a 30s final cut. Deployed + healthy.
-- 2026-06-22 - LIVE PROOF SUCCEEDED + 2 follow-ups shipped. (1) Producer was failing silently -> the model id `claude-sonnet-4-20250514` (copied from the never-run orchestrator) 404s; switched to `claude-sonnet-4-6` (proven in originality.py), forced direct Anthropic base_url, and now LOG the failure reason. Chat then worked end-to-end (idea -> producer asks -> LOOK + LENGTH cards). (2) Ryan: the LOOK card should show the same style preview images as the New Video flow. Extracted the 6 presets to shared `frontend/src/lib/visual-presets.ts` (used by both pickers), ChatHome renders the 64px thumbnails, producer offers the 6 canonical style values, chat.py maps the chosen preset id -> canonical LOOK sentence (user's card pick authoritative). All deployed; /style-icons/*.png all serve 200. KEY OPS LESSON: backend uvicorn needs kill -9 (SIGTERM hangs it -> 502); see [[storyengine-deploy-restart-gotcha]].
-- 2026-06-22 - DEPLOYED LIVE. Pushed merged main from local (9dcdc22f..ec0f12c2); VPS git checkout main + pull (clean ff); rebuilt frontend (npm run build, 33 pages); restarted backend + frontend. Migration 060 auto-applied on backend startup (journal confirmed, "68 files, 0 new"). /api/chat returns 401 w/o auth (wired). storyengine.dev 200, /api/health 200. GOTCHA: the backend uvicorn does NOT exit on SIGTERM (hangs mid-shutdown, closes its listener -> ~2-3 min 502 outage, systemd won't revive a non-exited proc); MUST use kill -9 to restart it cleanly. Frontend (next-server) restarts fine on SIGTERM. Redis/arq not running on the VPS -> pipeline uses FastAPI BackgroundTasks fallback (which is what the chat kickoff uses). Owed: authenticated end-to-end conversation proof.
-- 2026-06-22 - LOCAL MERGE DONE + VERIFIED (paused before prod per Ryan). Branch feat/chat-first-producer: 5243f343 (chat work) -> 8a33474e (page.tsx cleanup) -> ed1d746a (VPS snapshot) -> eb37a8ef (merge). The VPS prod state merged into chat-first with ZERO conflicts (git auto-merged; main.py diff vs prod = ONLY the 2 chat lines). Dropped .bak clutter the snapshot swept in. Verified: full backend py_compile, frontend tsc + next build (34 routes incl. VPS's /verify-email). All prod-unique work preserved (RLS migrations, onboarding.py, bot.py fix, pipeline_executor.py, channel_profile_documents.py). Concurrent coverage.py work re-stashed/restored, untouched. REMAINING (gated on Ryan's go): push main from LOCAL (ungated - local core.hookspath unset), VPS `git checkout main && git pull` (clean ff) + restart backend (auto-applies migration 060) + frontend, then the ~$0.02 live chat proof. Plus: add a tasks/todo.md handoff before/at push; rotate the GitHub PAT in the VPS remote.
-- 2026-06-22 - DEPLOY IN PROGRESS (safe-merge path). Committed all local work to branch feat/chat-first-producer (5243f343, 63 files). Found local<->VPS DIVERGENCE: both at 9dcdc22f but each with different uncommitted work. 6/7 untouched shared files byte-identical; pipeline_executor.py differs; VPS has ~9 unique migrations (tenant/membership RLS, onboarding-intel, e2e-pipeline-wiring, channel-profile-documents, visual-style-proofs), the live bot.py invented-char fix, channel_profile_documents.py. SAFETY WIN: snapshotted the entire VPS working tree to git (commit ed1d746a on VPS branch vps-live-20260622) so nothing prod-side can be lost. GitHub push from VPS is blocked by the .githooks/pre-push "Session Quality Gates" (needs tasks/lessons.md + tasks/todo.md updated on 3+ file changes) - that gate only fires on VPS-origin pushes, so deploy plan = fetch snapshot to local, merge, push main FROM LOCAL, VPS pulls (pull isn't gated) + restart auto-applies migrations. SECURITY: VPS git remote URL has a GitHub PAT in plaintext - rotate + use a credential helper. Remaining: local merge (treat prod as canonical for diverged files), honor lessons/todo gate, push main, VPS pull+restart, live proof.
-- 2026-06-22 - Phase 3 code complete. SSE stage_change now carries a `friendly` state; chat's CreatedCard renders the live 5-state tracker (done/active/pending) with graceful Kie/stage-error surfacing. Also fixed a real gap: the producer reads a DIRECT Anthropic key, but Ryan's key lives in the per-tenant Vault - so chat.py now loads `anthropic_api_key` from Vault and passes it to call_producer (clear "add a key" message if absent). Backend py_compile + frontend tsc/build all clean. Ready for the single deploy + live proof.
-- 2026-06-22 - Phase 2 code complete. Chat is now the home screen (ChatHome.tsx: welcome + examples, thread, composer, selector cards, production-plan card, created confirmation); sidebar reorganized (Chat / Dashboard / Advanced group); login + onboarding now land on chat. Discovered a pre-existing /dashboard route (onboarding-rich) that login/onboarding already used -> pointed sidebar "Dashboard" there; left the legacy Production Overview exported-but-unused (cleanup task spawned). tsc + next build both clean (33 routes). Live proof batched with Phase 1 into one deploy.
-- 2026-06-22 - Phase 1 code complete. Built backend/routes/chat.py (intake + follow-up branches, spec->create_video mapping, pipeline kickoff), backend/producer_prompt.py (producer system prompt + direct-Anthropic call_producer, fail-soft, self-test), migration 060 + schema.sql, status_map FRIENDLY_STATE + friendly_state(), main.py router. py_compile clean; offline logic checks all pass; routes/chat.py imports clean. Live HTTP proof pending a backend deploy + migration apply (prod DB + ~$0.02 Claude) - holding for Ryan's go per the prod/cost rule.
-- 2026-06-22 - New north star set: chat-first creative producer. Comprehensive planning session run; architecture verified against the code (claude_orchestrator + pipeline_executor reused; intake is a new separate layer; structured-JSON turns; create_video called as a function; friendly-state SSE). Plan approved, 6 phases + Track B. Old GOAL.md (visual chain) backed up to GOAL.md.bak-20260622-092738 and folded in as Track B. Starting Phase 1 (backend intake engine).
-- 2026-06-20 - (Track B1) Phase done. Structural invented-character fix in skills/video-pipeline/storyboard/bot.py; all gates PASS on scenes 1-2, verified by direct viewing + adversarial review.
-- 2026-06-19 - (Track B) Confirmed the storyboard directive (not per-shot prompts) invented people; built the structural fix.
+- 2026-06-24: Multi-agent end-to-end audit (19 agents, adversarially verified, high confidence).
+  Root cause found: two diverged pipelines; the live "coverage" path is missing the old path's
+  director machinery. Prod check: YOUTUBE_API_KEY set, 27/50 competitor rows real (23 zeros from
+  onboarding/model-a-video). grok-imagine prompting rules researched (kie.ai, Grok Imagine 1.5).
+  This plan written. Prior GOAL backed up to GOAL.md.bak-20260624-221122.
