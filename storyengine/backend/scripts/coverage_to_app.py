@@ -678,10 +678,12 @@ _MOTION_SYSTEM = (
     "thing they do: an expression change, a gesture, a head turn, eyes lifting, a breath — real and "
     "watchable, not a mood.\n"
     "3) DIALOGUE: if the character is delivering a line on screen (face/upper body visible), append it in "
-    "grok's form — <Name> says <one-word manner>: \"<exact line, verbatim from the SCENE DIALOGUE>\". One "
-    "speaker per shot. Pull the right speaker and exact words from the SCENE DIALOGUE. Assign each line to "
-    "EXACTLY ONE shot — never repeat a line across shots, and never skip a line; cover the dialogue in "
-    "order across the speaking shots.\n"
+    "grok's form — <Name> says <one-word manner>: \"<exact line, verbatim from the SCENE DIALOGUE>\". "
+    "ONE SPEAKER PER SHOT, ALWAYS — a clip can only lip-sync one character, so NEVER put two different "
+    "speakers in the same shot. One shot speaks one speaker's line (a run of consecutive sentences by "
+    "that SAME speaker may share the shot). Pull the right speaker and exact words from the SCENE "
+    "DIALOGUE. Assign each line to EXACTLY ONE shot — never repeat a line, never skip a line; cover the "
+    "dialogue in order across the speaking shots (there are enough shots for one speaker each).\n"
     "4) INSERT / cutaway / reaction with no one speaking to camera: camera move + ONE small real motion "
     "only — NO dialogue, NO new people.\n"
     "Write like a director calling the shot: concrete blocking, plain language. BANNED: the words gentle/"
@@ -698,6 +700,38 @@ def _parse_numbered(text: str, count: int) -> list:
         if m:
             out.append(m.group(1).strip())
     return (out + [""] * count)[:count]
+
+
+# A clip lip-syncs ONE character, so every dialogue turn (each speaker change)
+# needs its OWN shot. Count the turns in a scene's narration so coverage draws
+# at least one moment per turn — otherwise the motion-writer runs out of shots
+# and crams two speakers onto one (which Grok can't voice).
+_SPEAKER_RE = re.compile(r"(?m)^\s*([A-Z][A-Za-z .'-]{0,24}):\s+\S")
+
+
+def _dialogue_turn_count(scene_text: str) -> int:
+    """Number of speaker TURNS in a scene (consecutive same-speaker lines = one
+    turn). 0 for a scene with no tagged dialogue (pure narration/visual)."""
+    turns, prev = 0, None
+    for spk in _SPEAKER_RE.findall(scene_text or ""):
+        name = spk.strip().lower()
+        if name != prev:
+            turns += 1
+            prev = name
+    return turns
+
+
+def _coverage_shape(scene_text: str):
+    """(max_moments, angles_min, angles_max) sized to the scene's dialogue.
+
+    Dialogue scene → one moment per turn (+2 for an establishing wide and a
+    cutaway), mostly master-only shots so frame count stays ~one per line.
+    A non-dialogue scene keeps the richer 3-moment / 2–4-angle cinematic
+    coverage. Capped so a very chatty scene can't explode the frame count."""
+    turns = _dialogue_turn_count(scene_text)
+    if turns < 2:
+        return 3, 2, 4  # visual/narration scene — cinematic multi-angle coverage
+    return min(turns + 2, 16), 0, 1  # one shot per turn (+ a couple of cutaways)
 
 
 async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
@@ -800,11 +834,16 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     for s in targets:
         sc = s["scene"]
         outdir = f"{base_dir}/scene{sc}"
+        # Size coverage to the dialogue: one shot per speaker turn so the writer
+        # never has to put two speakers on one shot. Visual scenes keep the
+        # richer multi-angle coverage.
+        _mm, _amin, _amax = _coverage_shape(s["scene_text"] or "")
         _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
         out = await run_coverage(
             beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
             video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
-            anthropic_client=claude, directive_model=claude_model, max_moments=3, aspect=aspect)
+            anthropic_client=claude, directive_model=claude_model,
+            max_moments=_mm, angles_min=_amin, angles_max=_amax, aspect=aspect)
         if out.get("error"):
             _p(f"Scene {sc}: skipped ({out['error']})")
             continue

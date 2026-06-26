@@ -92,6 +92,12 @@ the bible STILL wins. The goal is an identical character in every single panel.
 Only framing/angle/lens changes. Angles must be genuinely DISTINCT (different shot size AND a \
 different visual focus: face vs hands vs object), never near-duplicate zooms of one framing.
 4) Across moments keep continuity: same characters, consistent palette and light per location.
+5) DIALOGUE = ONE SPEAKER PER MOMENT. A clip can only lip-sync one character, so plan ONE moment \
+per speaker TURN (each time the speaker changes, that is a new moment). The master FRAMES that one \
+speaker delivering their line — name the speaker in the moment description. NEVER put two different \
+speakers' lines in the same moment. A plain dialogue beat can be JUST a master (no ANGLE) — add an \
+ANGLE only for a genuine reaction or cutaway. Cover EVERY spoken line; also add a few non-dialogue \
+moments (an establishing wide, an insert/cutaway) for visual variety.
 </rules>
 
 <output_format>
@@ -169,7 +175,11 @@ def parse_coverage(directive_text: str) -> list[dict]:
                 master = shot
             else:
                 angles.append(shot)
-        if master and angles:  # a moment needs a master + at least one angle to be coverage
+        # A moment needs a master; angles are optional. A single-speaker dialogue
+        # beat is often just ONE master shot of the speaker (one line = one shot,
+        # one speaker per shot) — forcing an angle there bloated frame count and
+        # made the writer cram two speakers onto one shot when lines ran out.
+        if master:
             moments.append({"moment_number": int(h.group(1)), "summary": h.group(2).strip(),
                             "master": master, "angles": angles})
     return moments
@@ -307,7 +317,8 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        video_title="", profile=None, story_bible=None, beat_scenes=None,
                        env_url=None, image_prompts=None, directive_text=None,
                        anthropic_client=None, directive_model=None,
-                       max_moments=3, aspect="16:9", resolution="2K") -> dict:
+                       max_moments=3, angles_min=2, angles_max=4,
+                       aspect="16:9", resolution="2K") -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
     bible (or cast_prompt) so coverage always has something to lock characters to.
@@ -323,7 +334,8 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     if directive_text is None:
         directive_text = await generate_coverage_directive(
             beat_text, video_title, profile, story_bible, beat_scenes, image_prompts or [],
-            max_moments=max_moments, anthropic_client=anthropic_client, model=directive_model)
+            max_moments=max_moments, angles_min=angles_min, angles_max=angles_max,
+            anthropic_client=anthropic_client, model=directive_model)
     with open(os.path.join(outdir, "directive.txt"), "w") as f:
         f.write(directive_text)
 
