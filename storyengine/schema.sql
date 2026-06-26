@@ -336,6 +336,7 @@ CREATE TABLE assets (
   panel_position INTEGER,
   generation_method TEXT,
   camera_movement TEXT,
+  assigned_dialogue TEXT,  -- coverage-assigned spoken line for a speaking shot (migration 065)
   assigned_video_duration NUMERIC,
   estimated_clip_cost NUMERIC,
 

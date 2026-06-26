@@ -110,12 +110,15 @@ async def build_cast_prompt(claude, script_text: str, model=None, style: str | N
 
 
 async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment) -> int:
-    """Delete this scene's prior coverage rows, then insert the new frames. Returns count."""
+    """Delete this scene's prior coverage rows, then insert the new frames. Each
+    item is (summary, frames, speaker, line); the moment's spoken line (assigned
+    by the coverage planner) is stored on its MASTER frame as assigned_dialogue
+    so it carries to the clip exactly. Returns count."""
     await execute(
         "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
         "AND generation_method='coverage'", vid, tenant, scene)
     idx = COVERAGE_INDEX_BASE
-    for summary, frames in frames_by_moment:
+    for summary, frames, speaker, line in frames_by_moment:
         for fr in frames:
             fpath = fr.get("_path")
             if not fpath or not os.path.exists(fpath):
@@ -123,14 +126,17 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment) -> in
             with open(fpath, "rb") as f:
                 data = f.read()
             url = await upload_bytes(data, f"{vid}/coverage/S{scene}_i{idx}.png", "image/png", tenant)
+            is_master = fr.get("role") == "master"
+            # The line lives on the speaking (master) frame; angles are cutaways.
+            assigned = f'{speaker}: "{line}"' if (is_master and speaker and line) else None
             await execute(
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
-                "image_url, drive_image_url, hero_shot, generation_method) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage')",
+                "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
-                title, aspect, url, url, fr.get("role") == "master",
+                title, aspect, url, url, is_master, assigned,
             )
             idx += 1
     return idx - COVERAGE_INDEX_BASE
@@ -664,32 +670,27 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
 
 
 _MOTION_SYSTEM = (
-    "You are a film director writing the shot list for grok-imagine image-to-video, which animates a "
-    "still frame and CAN lip-sync spoken dialogue. Each shot already has a finished still — your job is "
-    "to direct the MOTION. Write ONE vivid, specific instruction per shot, precise enough that there is "
-    "no guesswork about what the camera does and what the subject does.\n"
+    "You are a film director writing the CAMERA MOTION for grok-imagine image-to-video. Each shot "
+    "already has a finished still, and its spoken line (if any) is assigned elsewhere — your ONLY job "
+    "is to direct how the camera and the subject MOVE. Write ONE vivid, specific instruction per shot, "
+    "precise enough that there is no guesswork.\n"
     "1) CAMERA: open with ONE definite move and say where it starts and where it ends — push-in / "
     "dolly-in, pull-back, pan left/right, tilt up/down, tracking, orbit/arc, dolly-zoom, slow zoom, or "
     "handheld sway. Add 'Unfixed lens' when the camera moves, 'Fixed lens' when it holds. Vary the move "
     "shot to shot; never repeat the same move twice in a row.\n"
     "2) KEEP THE SUBJECT IN FRAME: the main character stays visible for the WHOLE shot. If the move "
-    "reveals something (a window, the moon, an object), keep the character in frame while it does — never "
-    "pan or tilt away onto an empty detail and lose them. Name the character and the SPECIFIC, physical "
-    "thing they do: an expression change, a gesture, a head turn, eyes lifting, a breath — real and "
-    "watchable, not a mood.\n"
-    "3) DIALOGUE: if the character is delivering a line on screen (face/upper body visible), append it in "
-    "grok's form — <Name> says <one-word manner>: \"<exact line, verbatim from the SCENE DIALOGUE>\". "
-    "ONE SPEAKER PER SHOT, ALWAYS — a clip can only lip-sync one character, so NEVER put two different "
-    "speakers in the same shot. One shot speaks one speaker's line (a run of consecutive sentences by "
-    "that SAME speaker may share the shot). Pull the right speaker and exact words from the SCENE "
-    "DIALOGUE. Assign each line to EXACTLY ONE shot — never repeat a line, never skip a line; cover the "
-    "dialogue in order across the speaking shots (there are enough shots for one speaker each).\n"
-    "4) INSERT / cutaway / reaction with no one speaking to camera: camera move + ONE small real motion "
-    "only — NO dialogue, NO new people.\n"
+    "reveals something (a window, the water, an object), keep the character in frame while it does — "
+    "never pan or tilt away onto an empty detail and lose them. Name the character and the SPECIFIC, "
+    "physical thing they do: an expression change, a gesture, a head turn, eyes lifting, a breath — "
+    "real and watchable, not a mood.\n"
+    "3) A shot tagged (SPEAKING: <Name>) shows that character delivering their line — frame their face "
+    "or upper body and give a small, natural speaking gesture. DO NOT write the words; the line is added "
+    "automatically. A shot with NO tag is silent — camera move + ONE small motion, NO people added.\n"
     "Write like a director calling the shot: concrete blocking, plain language. BANNED: the words gentle/"
     "soft/subtle/faint/slight, mood words (cinematic/dramatic/emotional), negatives ('no ...', 'avoid "
-    "...'), and repainting the static scene that is already in the frame. Keep each line under 50 words.\n"
-    "Output ONLY the numbered lines, one per shot, in order — nothing else.")
+    "...'), repainting the static scene already in the frame, and ANY quoted dialogue. Under 50 words "
+    "each.\n"
+    "Output ONLY the numbered camera-motion lines, one per shot, in order — nothing else.")
 
 
 def _parse_numbered(text: str, count: int) -> list:
@@ -709,63 +710,25 @@ def _parse_numbered(text: str, count: int) -> list:
 _SPEAKER_RE = re.compile(r"(?m)^\s*([A-Z][A-Za-z .'-]{0,24}):\s+\S")
 
 
+# A shot's pre-assigned dialogue is stored as `Speaker: "line"`. The writer's
+# camera-motion output should carry no dialogue, but strip any it adds anyway
+# before we append the authoritative assigned line.
 _EMBED_SAYS_RE = re.compile(r'\b[A-Z][A-Za-z .\'-]{0,24}\s+says\b', re.IGNORECASE)
-_HAS_LINE_RE = re.compile(r'\bsays\b[^:"\n]*:\s*"', re.IGNORECASE)
+_ASSIGNED_RE = re.compile(r'^\s*([^:"\n]+?)\s*:\s*"(.+)"\s*$', re.DOTALL)
 
 
 def _strip_embedded_line(prompt: str) -> str:
-    """The camera-motion part of a shot prompt, with any `<Name> says ...: "line"`
-    cut off the end (kept so we can re-attach the correct line deterministically)."""
+    """Camera-motion text with any stray `<Name> says …: "line"` the writer added
+    cut off (the real line is appended from the coverage-assigned dialogue)."""
     m = _EMBED_SAYS_RE.search(prompt or "")
     base = (prompt or "")[:m.start()] if m else (prompt or "")
     return base.strip().rstrip(".").strip()
 
 
-def _embed_speaker(line: str):
-    """The character the writer put on a speaking shot ('<Name> says …'), lowercased."""
-    m = re.search(r'\b([A-Z][A-Za-z .\'-]{0,24})\s+says\b', line or "")
-    return m.group(1).strip().lower() if m else None
-
-
-def _overlay_dialogue(rows, lines, turns):
-    """Lay the dialogue turns onto the speaking shots IN ORDER, in code, so every
-    line lands exactly once in sequence — the writer (an LLM) drops/duplicates/
-    reorders lines on long scenes even with an ordered checklist. SPEAKER-AWARE:
-    a turn goes to a shot the writer framed for THAT speaker (so Dad's line never
-    lands on a Tom shot); we keep its camera motion and its choice of which shots
-    speak — we only fix the mapping."""
-    if not turns:
-        return lines
-    speaking = [(i, _embed_speaker(lines[i])) for i, ln in enumerate(lines)
-                if ln and _HAS_LINE_RE.search(ln)]
-    used = set()
-
-    def _take(want_speaker):
-        # next unused speaking shot for this speaker; then any unused speaking
-        # shot; then any unused non-INSERT (face) shot — in shot order.
-        for i, s in speaking:
-            if i not in used and s == want_speaker:
-                return i
-        for i, s in speaking:
-            if i not in used:
-                return i
-        for i, r in enumerate(rows):
-            if i not in used and lines[i] and (r.get("shot_type") or "").upper() != "INSERT":
-                return i
-        return None
-
-    for spk, txt in turns:
-        slot = _take(spk.lower())
-        if slot is None:
-            continue  # genuinely no room (rare) — better to drop one than misvoice
-        used.add(slot)
-        base = _strip_embedded_line(lines[slot])
-        lines[slot] = (f'{base} {spk} says: "{txt}"').strip()
-    # Speaking shots the writer invented beyond the real turns → strip their line.
-    for i, _s in speaking:
-        if i not in used:
-            lines[i] = _strip_embedded_line(lines[i])
-    return lines
+def _split_assigned(assigned: str):
+    """(speaker, text) from a stored `Speaker: "line"`, or (None, None)."""
+    m = _ASSIGNED_RE.match(assigned or "")
+    return (m.group(1).strip(), m.group(2).strip()) if m else (None, None)
 
 
 def _dialogue_turns(scene_text: str):
@@ -803,48 +766,41 @@ def _coverage_shape(scene_text: str):
 
 
 async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
-    """One Claude call writes a per-shot grok-imagine motion prompt for the scene's coverage
-    frames; store each on assets.video_prompt so the clip generator animates with real camera
-    moves instead of the hardcoded slow push-in. Best-effort — leaves video_prompt NULL on failure
-    (the clip generator still has its safe default)."""
+    """One Claude call writes the per-shot CAMERA MOTION for the scene's coverage
+    frames; the spoken line was already assigned by the coverage planner (stored on
+    assets.assigned_dialogue), so we append it deterministically — no LLM re-mapping
+    that drops/duplicates/reorders lines. Stores video_prompt = motion + line.
+    Best-effort — leaves video_prompt NULL on failure (the clip gen has a default)."""
     rows = await fetch_all(
-        "SELECT id, shot_type, image_prompt, sentence_text FROM assets WHERE video_id=$1 AND tenant_id=$2 "
-        "AND scene=$3 AND generation_method='coverage' ORDER BY image_index", vid, tenant, scene)
+        "SELECT id, shot_type, image_prompt, sentence_text, assigned_dialogue FROM assets "
+        "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 AND generation_method='coverage' "
+        "ORDER BY image_index", vid, tenant, scene)
     if not rows:
         return 0
     srow = await fetch_one(
         "SELECT scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, scene)
-    dialogue = ((srow or {}).get("scene_text") or "").strip()
-    shots = "\n".join(
-        f"{i+1}. [{(r['shot_type'] or 'MS')}] {(r['sentence_text'] or r['image_prompt'] or '')[:200]}"
-        for i, r in enumerate(rows))
-    # Feed the dialogue as an explicit ORDERED checklist so the writer walks every
-    # turn onto a speaking shot in sequence — left to itself it dropped a line and
-    # scrambled the order when there were many turns.
-    turns = _dialogue_turns(dialogue)
-    turn_block = ""
-    if turns:
-        listed = "\n".join(f'T{i+1} {spk}: "{txt}"' for i, (spk, txt) in enumerate(turns))
-        turn_block = (
-            f"\n\nDIALOGUE TURNS — assign each to ONE speaking shot, IN THIS ORDER, "
-            f"cover ALL {len(turns)}, drop none, keep their order:\n{listed}\n"
-            "Walk the turns in sequence onto the face shots (one turn per shot); only make a "
-            "shot a silent insert/cutaway AFTER every turn is placed.")
-    user = (f"SCENE NARRATION (context + who says what):\n{dialogue[:2000]}{turn_block}\n\n"
-            f"SHOTS (write one line per shot, numbered, in order):\n{shots}")
+    narration = ((srow or {}).get("scene_text") or "").strip()
+    # Tag each shot that speaks (so the writer frames the face) — but the writer
+    # only writes camera MOTION; the words are appended from assigned_dialogue.
+    def _shot(i, r):
+        spk, _txt = _split_assigned(r.get("assigned_dialogue"))
+        tag = f"(SPEAKING: {spk}) " if spk else ""
+        return f"{i+1}. [{(r['shot_type'] or 'MS')}] {tag}{(r['sentence_text'] or r['image_prompt'] or '')[:200]}"
+    shots = "\n".join(_shot(i, r) for i, r in enumerate(rows))
+    user = (f"SCENE NARRATION (context):\n{narration[:2000]}\n\n"
+            f"SHOTS (write ONE camera-motion line per shot, numbered, in order):\n{shots}")
     kwargs = dict(prompt=user, system_prompt=_MOTION_SYSTEM, max_tokens=1800, temperature=0.6)
     if model:
         kwargs["model"] = model
     text = (await claude.generate(**kwargs)) or ""
-    lines = _parse_numbered(text, len(rows))
-    # Deterministically place each dialogue turn once, in order, on a speaking
-    # shot — the writer's own mapping drifts on long scenes.
-    lines = _overlay_dialogue(rows, lines, turns)
+    motions = _parse_numbered(text, len(rows))
     written = 0
-    for r, line in zip(rows, lines):
-        if line:
-            await execute("UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2", line, r["id"])
-            written += 1
+    for r, motion in zip(rows, motions):
+        motion = _strip_embedded_line(motion) or "Slow push-in on the main subject, keeping it in frame."
+        spk, txt = _split_assigned(r.get("assigned_dialogue"))
+        prompt = f'{motion} {spk} says: "{txt}"' if (spk and txt) else motion
+        await execute("UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2", prompt, r["id"])
+        written += 1
     return written
 
 
@@ -933,7 +889,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         for m in out["moments"]:
             for fr in m["frames"]:
                 fr["_path"] = os.path.join(outdir, fr.get("file", "")) if fr.get("file") else None
-        frames_by_moment = [(m["summary"], m["frames"]) for m in out["moments"]]
+        frames_by_moment = [(m["summary"], m["frames"], m.get("speaker"), m.get("line"))
+                            for m in out["moments"]]
         n = await store_scene(vid, tenant, title, aspect, sc, frames_by_moment)
         await set_scene_board(vid, tenant, sc, outdir, title=title)
         # Write a real per-shot grok-imagine MOTION prompt onto each frame, so the clip

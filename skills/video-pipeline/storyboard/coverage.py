@@ -92,18 +92,21 @@ the bible STILL wins. The goal is an identical character in every single panel.
 Only framing/angle/lens changes. Angles must be genuinely DISTINCT (different shot size AND a \
 different visual focus: face vs hands vs object), never near-duplicate zooms of one framing.
 4) Across moments keep continuity: same characters, consistent palette and light per location.
-5) DIALOGUE = ONE SPEAKER PER MOMENT. A clip can only lip-sync one character, so plan ONE moment \
-per speaker TURN (each time the speaker changes, that is a new moment). The master FRAMES that one \
-speaker delivering their line — name the speaker in the moment description. NEVER put two different \
-speakers' lines in the same moment. A plain dialogue beat can be JUST a master (no ANGLE) — add an \
-ANGLE only for a genuine reaction or cutaway. Cover EVERY spoken line; also add a few non-dialogue \
-moments (an establishing wide, an insert/cutaway) for visual variety.
+5) DIALOGUE = ONE SPEAKER PER MOMENT, ASSIGNED HERE. A clip can only lip-sync one character, so plan \
+ONE moment per speaker TURN (each time the speaker changes, that is a new moment), IN SCRIPT ORDER, \
+covering EVERY spoken line exactly once. For a speaking moment, put the spoken line on its own \
+`LINE:` row right under the MOMENT header — `LINE: <Speaker> | "<exact words, verbatim from the \
+SCENE DIALOGUE>"` — and the MASTER must FRAME that speaker delivering it. A run of consecutive \
+sentences by the SAME speaker may share one moment's LINE. NEVER put two different speakers in one \
+moment. A speaking moment can be JUST a master (no ANGLE). Silent moments (establishing wide, \
+insert, cutaway, reaction) have NO `LINE:` row — add a few for visual variety.
 </rules>
 
 <output_format>
 Output ONLY the coverage plan, nothing else. For each moment:
 
 [MOMENT n | one-line description of what happens]
+LINE: <Speaker> | "<exact spoken words>"   (ONLY for a speaking moment; omit entirely if silent)
 - MASTER [shot_type]: full visual description — subjects with exact appearance, environment, \
 blocking, lighting. This is the widest / establishing framing of the moment.
 - ANGLE [shot_type]: same instant, different camera — the new framing and what it emphasises.
@@ -159,16 +162,22 @@ _SHOT_RE = re.compile(
     r"(?=\n\s*-\s*\*{0,2}\s*(?:MASTER|ANGLE)\b|\n\s*\*{0,2}\s*\[MOMENT|\Z)",
     re.IGNORECASE | re.DOTALL,
 )
+# The line the planner assigned to a speaking moment: `LINE: Dad | "exact words"`.
+_LINE_RE = re.compile(r'(?im)^\s*\*{0,2}\s*LINE\s*:\s*([^|"\n]+?)\s*\|\s*"([^"]+)"')
 
 
 def parse_coverage(directive_text: str) -> list[dict]:
     """Parse the coverage plan into moments. Each moment: {moment_number, summary,
-    master:{shot_type,description}, angles:[{shot_type,description}, ...]}."""
+    master:{shot_type,description}, angles:[...], speaker, line}. speaker/line are
+    set only for a speaking moment (the planner assigns dialogue at draw time)."""
     heads = list(_MOMENT_RE.finditer(directive_text))
     moments: list[dict] = []
     for i, h in enumerate(heads):
         block = directive_text[h.end(): heads[i + 1].start() if i + 1 < len(heads) else len(directive_text)]
         master, angles = None, []
+        lm = _LINE_RE.search(block)
+        speaker = lm.group(1).strip() if lm else None
+        line = lm.group(2).strip() if lm else None
         for m in _SHOT_RE.finditer(block):
             shot = {"shot_type": m.group(2).strip().upper(), "description": m.group(3).strip()}
             if m.group(1).upper() == "MASTER" and master is None:
@@ -181,7 +190,7 @@ def parse_coverage(directive_text: str) -> list[dict]:
         # made the writer cram two speakers onto one shot when lines ran out.
         if master:
             moments.append({"moment_number": int(h.group(1)), "summary": h.group(2).strip(),
-                            "master": master, "angles": angles})
+                            "master": master, "angles": angles, "speaker": speaker, "line": line})
     return moments
 
 
