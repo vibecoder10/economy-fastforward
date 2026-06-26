@@ -5,20 +5,13 @@ import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp, ChevronRight, Sparkl
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useQueryClient } from "@tanstack/react-query";
-import { runPipelineStage, advanceVideo, updateVideoStyles, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion, getDefaultThumbnailPrompt } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion, getDefaultThumbnailPrompt } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import type { VideoDetail } from "@/lib/api";
 import { getStageIndex, getStageLabel } from "@/lib/constants";
 import { toDisplayImageUrl } from "@/lib/utils";
-
-const ACCENT_COLORS = [
-  { name: "Cold Teal", value: "#4A9E9E" },
-  { name: "Muted Crimson", value: "#A63D40" },
-  { name: "Warm Amber", value: "#C4923A" },
-  { name: "Muted Green", value: "#5E8C61" },
-] as const;
 
 interface ThumbnailTabProps {
   video: VideoDetail & {
@@ -32,12 +25,9 @@ interface ThumbnailTabProps {
 export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const currentAccent = video.accent_color || "Cold Teal";
-  const [selectedAccent, setSelectedAccent] = useState(currentAccent);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
-  const [isSavingColor, setIsSavingColor] = useState(false);
   const [prompt, setPrompt] = useState(video.thumbnail_prompt || "");
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
@@ -162,18 +152,6 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
       setIsApproving(false);
     }
   }, [video.id, onAdvanced]);
-
-  const handleAccentChange = useCallback(async (colorName: string) => {
-    setSelectedAccent(colorName);
-    setIsSavingColor(true);
-    try {
-      await updateVideoStyles(video.id, {
-        accent_color: colorName.toLowerCase().replace(" ", "_"),
-      });
-    } finally {
-      setIsSavingColor(false);
-    }
-  }, [video.id]);
 
   const promptDirty = prompt !== savedPromptRef.current;
 
@@ -357,41 +335,6 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
 
       {/* Sidebar */}
       <div className="space-y-4">
-        {/* Accent Color */}
-        <GlassCard className="p-5">
-          <h3
-            className="text-xs font-semibold uppercase tracking-wider mb-3"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Accent Color
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            {ACCENT_COLORS.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => handleAccentChange(c.name)}
-                disabled={isSavingColor}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all text-left"
-                style={{
-                  background: selectedAccent === c.name ? `${c.value}22` : "transparent",
-                  border: `1px solid ${selectedAccent === c.name ? c.value : "var(--border-subtle)"}`,
-                }}
-              >
-                <span
-                  className="w-4 h-4 rounded-full flex-shrink-0"
-                  style={{ background: c.value }}
-                />
-                <span
-                  className="text-[10px] font-medium"
-                  style={{ color: selectedAccent === c.name ? c.value : "var(--text-secondary)" }}
-                >
-                  {c.name}
-                </span>
-              </button>
-            ))}
-          </div>
-        </GlassCard>
-
         {/* Thumbnail Text */}
         <GlassCard className="p-5">
           <h3

@@ -3446,10 +3446,12 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def _build_thumbnail_clone_prompt(self, video_id: str, video: dict) -> str:
-        """Default reference-clone prompt: copy the reference thumbnail's layout
-        and style, but cast our own characters and the video's subject. Seeded
-        into thumbnail_prompt so the creator can refine it in the app."""
+    async def _build_thumbnail_model_prompt(self, video_id: str, video: dict) -> str:
+        """Modeled thumbnail prompt (MODEL, not copy): design OUR OWN thumbnail of
+        OUR video's moment — driven by our title — applying the reference's winning
+        FORMULA + STYLE (stored in thumbnail_style_override) and proven thumbnail
+        rules, with our cast. Built to generate from the CAST SHEET ONLY, so it never
+        traces the reference's image. Seeded into thumbnail_prompt for in-app refine."""
         names = ""
         try:
             rows = await fetch_all(
@@ -3458,30 +3460,53 @@ separate scenes."""
             names = ", ".join((r.get("name") or "").strip() for r in rows if r.get("name"))
         except Exception:
             pass
-        style = (video.get("thumbnail_style_override") or "").strip()
+        signature = (video.get("thumbnail_style_override") or "").strip()
         text = (video.get("thumbnail_text") or "").strip()
         title = (video.get("video_title") or "").strip()
         ar = video.get("aspect_ratio") or "16:9"
+        # Subject is driven by OUR title (drop the "| channel suffix").
+        clean_title = title.split("|")[0].strip()
+
         parts = [
-            f"YouTube thumbnail, {ar}. The FIRST reference image is the OFFICIAL CHARACTER CAST SHEET — reproduce "
-            "these EXACT characters: the same faces, hair, skin tone, ages and clothing. Never invent or "
-            "substitute anyone.",
+            f"YouTube thumbnail, {ar}. Design a NEW, ORIGINAL thumbnail for OUR video. We are "
+            "MODELING a proven competitor's winning thumbnail formula — not copying it: do NOT "
+            "reproduce any competitor image, scene, object or composition. Build our own.",
+            "The reference image provided is OUR OFFICIAL CHARACTER CAST SHEET — reproduce these "
+            "EXACT characters (same faces, hair, skin tone, ages and clothing) and keep their "
+            "rendering style; never invent or substitute anyone.",
         ]
         if names:
             parts.append(f"The cast is: {names}.")
-        parts.append(
-            "The SECOND reference image is ONLY a layout/composition guide — copy its framing, poses and energy, "
-            "but REPLACE every person in it with the matching character from the cast sheet. Do NOT keep any face, "
-            "hairstyle or outfit from the second image.")
-        if style:
-            parts.append("Art-direction recipe: " + style)
+        if clean_title:
+            parts.append(
+                f'OUR video is titled "{clean_title}". Stage the single most click-worthy moment '
+                "this title promises — its surprising reveal or payoff, caught the instant it "
+                "happens — as our own original scene with our cast.")
+        if signature:
+            parts.append(
+                "Apply this proven winning STYLE and CLICK FORMULA (match the look and the pattern, "
+                "but on OUR subject above — never the reference's specific objects): " + signature)
+        # Overlay text is part of the MODELED formula: render OUR words in the
+        # reference's text TREATMENT and LAYOUT — big and bold, spanning across the
+        # screen the same way (same scale, tiers, colors, outline). The text style
+        # comes from the signature above; the WORDS are ours.
         if text:
-            parts.append(f'Overlay text exactly, in the reference style: "{text}".')
-        elif title:
-            parts.append(f'Headline relates to: "{title}".')
+            headline_clause = f'render the headline reading exactly "{text}"'
+        else:
+            headline_clause = (
+                f'render a large, punchy headline that captures OUR title\'s hook (derived from '
+                f'"{clean_title}", not a verbatim copy of it)')
         parts.append(
-            "Glossy 3D Pixar/Disney style, bright, saturated, high-contrast. Do NOT copy any text, logos or "
-            "background signage from the reference. Clean and uncluttered, vibrant, eye-catching, professional.")
+            "MODEL THE TEXT: " + headline_clause + ". Make it BIG and BOLD, spanning across the "
+            "screen in the SAME text treatment and layout as the reference described above — match "
+            "its scale, number of tiers, color per tier, font weight/case and heavy outline. The "
+            "text is a primary element, not a small label.")
+        # Proven hard rules (from the YouTube intelligence ruleset).
+        parts.append(
+            "Follow proven thumbnail rules: ONE clear focal point and at most THREE distinct "
+            "elements; exaggerated facial emotion; bright with extreme contrast so it pops in dark "
+            "mode; a single 'click-to-unpause' moment; text readable at 120px. No competitor "
+            "logos, watermarks or badges.")
         return " ".join(parts)
 
     async def run_thumbnail(self, video_id: str) -> dict:
@@ -3496,11 +3521,13 @@ separate scenes."""
 
             current_status = video.get("status")
 
-            # ── Reference-clone mode ──────────────────────────────────
+            # ── Modeled mode (model, NOT copy) ────────────────────────
             # When the video was modeled on a reference video (reference_url)
-            # AND has a character cast sheet, build the thumbnail by cloning
-            # the reference thumbnail's composition with our own characters
-            # (nano-banana-pro, two image references). The editable
+            # AND has a character cast sheet, design OUR OWN thumbnail of OUR
+            # story's moment using the reference's winning FORMULA + STYLE — never
+            # tracing the reference's image. We generate from the CAST SHEET ONLY
+            # (it carries both our characters and the modeled art style), so the
+            # composition is fresh and our cast can't be overwritten. The editable
             # thumbnail_prompt drives refinement: every Regenerate re-runs with
             # whatever prompt is saved, so creators tune it in the app. Status
             # stays at ready_for_thumbnail so Regenerate keeps working — the
@@ -3515,29 +3542,27 @@ separate scenes."""
             cast_sheet = (video.get("character_reference_url") or "").strip()
             if ref_yt and cast_sheet:
                 await self._log_activity(bot_name, video_id, "started",
-                                         "Cloning thumbnail from reference")
-                ref_thumb = f"https://img.youtube.com/vi/{ref_yt}/maxresdefault.jpg"
+                                         "Modeling thumbnail on the reference's winning formula")
                 prompt = (video.get("thumbnail_prompt") or "").strip()
                 if not prompt:
-                    prompt = await self._build_thumbnail_clone_prompt(video_id, video)
+                    prompt = await self._build_thumbnail_model_prompt(video_id, video)
                 client = self._pipeline.image_client
-                # Cast sheet FIRST (authoritative for identities), reference
-                # thumbnail SECOND (layout only). Order + the prompt's explicit
-                # "replace every person" instruction stop the reference's own
-                # cast from overwriting ours — without this, the reference
-                # thumbnail's family leaks through and our characters vanish.
-                # GPT Image 2 holds character identity best (live A/B); fall
-                # back to nano-banana-pro if it errors so Regenerate never dead-ends.
+                # CAST SHEET ONLY — no reference thumbnail. The cast sheet is the
+                # one authoritative image (identities + the modeled Pixar/medium look),
+                # so the model invents our own fresh composition instead of copying
+                # the reference's. GPT Image 2 holds character identity best (live
+                # A/B); fall back to nano-banana-pro if it errors so Regenerate
+                # never dead-ends.
                 thumb_ar = video.get("aspect_ratio") or "16:9"
                 res = await client.generate_thumbnail_gpt2(
-                    prompt, [cast_sheet, ref_thumb], aspect_ratio=thumb_ar)
+                    prompt, [cast_sheet], aspect_ratio=thumb_ar)
                 if not (res or {}).get("url"):
                     res = await client.generate_with_reference(
-                        prompt, [cast_sheet, ref_thumb], aspect_ratio=thumb_ar)
+                        prompt, [cast_sheet], aspect_ratio=thumb_ar)
                 url = (res or {}).get("url")
                 if not url:
                     await self._log_activity(bot_name, video_id, "failed",
-                                             "Reference clone returned no image")
+                                             "Modeled thumbnail returned no image")
                     return {"status": "failed", "error": user_facing(
                         "The thumbnail didn't generate this time — tap Regenerate to try again.")}
                 durable = await self._persist_url(url, f"{video_id}/thumbnails/thumb.png")
@@ -3547,7 +3572,7 @@ separate scenes."""
                     durable, prompt, video_id, self.tenant_id,
                 )
                 await self._log_activity(bot_name, video_id, "completed",
-                                         "Thumbnail cloned from reference")
+                                         "Thumbnail modeled from reference")
                 return {"status": "completed", "video_id": video_id,
                         "thumbnail_url": durable}
 

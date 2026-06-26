@@ -272,10 +272,10 @@ Return ONLY valid JSON with exactly this shape:
   "script_guidance": "markdown: replicate the reference's script approach — hook style, structure, pacing, segment pattern (150-250 words)",
   "script_dna": "direct instructions to the scriptwriter to replicate the reference's script STYLE: narration vs dialogue, language level, sentence length, tone, recurring segment patterns (e.g. comprehension questions, recaps) (60-120 words)",
   "visual_style_brief": "markdown: the reference's IN-VIDEO visual style from the SCENE OBSERVATION (art style, palette, character design, composition), to be replicated across all video images (100-200 words)",
-  "thumbnail_prompt": "one self-contained image-generation prompt for the sibling video's thumbnail in the reference's exact THUMBNAIL style per the THUMBNAIL OBSERVATION (40-70 words)",
+  "thumbnail_prompt": "a self-contained image prompt for OUR video's OWN thumbnail. MODEL the reference, do NOT copy it: depict the single most click-worthy moment THIS video's own title + scene_concepts promise (its surprising reveal/payoff), staged as our own fresh scene — never reproduce the reference's specific objects, scene or composition. Apply the reference's CLICK FORMULA and visual STYLE from the THUMBNAIL OBSERVATION (medium, palette, lighting, text treatment). Obey: ONE focal point, <=3 elements, exaggerated facial emotion, extreme contrast, bright. MODEL THE TEXT: render a big, bold headline that captures OUR title's hook (not a verbatim copy), spanning across the screen in the SAME text treatment and layout as the reference (its scale, tiers, color per tier, weight/case and heavy outline) — text is a primary element, not a small label. 60-90 words",
   "image_dna": "style directives for EVERY still image, matching the SCENE OBSERVATION (the real in-video look, NOT the thumbnail): art style/medium, palette, character design, lighting, recurring motifs (60-100 words)",
   "motion_dna": "directives for EVERY video clip prompt: camera movement, pacing, subject motion matching the reference's format (40-80 words)",
-  "thumbnail_dna": "style directives for thumbnail generation matching the THUMBNAIL OBSERVATION: composition, characters/faces, color blocking, text treatment (40-80 words)",
+  "thumbnail_dna": "reusable directives for regenerating OUR thumbnail by MODELING the reference (not copying): the medium, color palette, lighting and text treatment to match, plus the abstracted CLICK FORMULA to re-apply to our own scene. Style + pattern only, never the reference's specific objects (40-80 words)",
   "negative_prompts": ["3-6 short style constraints to avoid (styles that would break consistency with the reference, plus 'no watermarks')"],
   "scene_concepts": [
     {{
@@ -318,15 +318,24 @@ def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str
 
 
 _THUMBNAIL_OBSERVATION_PROMPT = (
-    "This is a YouTube thumbnail. Describe its visual style so an artist could "
-    "replicate it without seeing it. START with one line — `MEDIUM: <the exact "
-    "rendering medium>` — naming the single best fit precisely: photorealistic "
-    "live-action, 3D CG / Pixar-style animation, 2D / flat illustration, anime, "
-    "stop-motion, mixed-media, etc. Do NOT default to an animated or illustrated "
-    "medium: if the thumbnail is a real photo or live-action footage, say "
-    "photorealistic live-action. Then describe color palette, character/subject "
-    "design (age, species, proportions), composition, text treatment if any, and "
-    "overall mood. 60-120 words, no preamble."
+    "This is a SUCCESSFUL YouTube thumbnail. Extract its REUSABLE WINNING FORMULA so we can "
+    "MODEL it on a DIFFERENT video — we will never copy its specific subjects, objects or "
+    "scene, only its look and its click pattern. START with one line — `MEDIUM: <the exact "
+    "rendering medium>` — naming the single best fit precisely: photorealistic live-action, "
+    "3D CG / Pixar-style animation, 2D / flat illustration, anime, stop-motion, mixed-media, "
+    "etc. Do NOT default to an animated or illustrated medium: if it is a real photo or "
+    "live-action footage, say photorealistic live-action. Then, each in a short phrase: "
+    "COLOR PALETTE (3-5 approximate hex codes with their role — background, subject, "
+    "text/accent); LIGHTING; TEXT TREATMENT (the FULL text design to reproduce: how many "
+    "lines/tiers, the SIZE/scale relative to the frame, whether the text spans the full "
+    "width across the bottom/screen, the color of each tier, font weight, case, and "
+    "outline/stroke — the STYLE and LAYOUT only, do not transcribe the words); CLICK FORMULA (the abstracted "
+    "pattern that makes it work — the emotional setup, the focal/reveal pattern, the "
+    "'click-to-unpause' moment — described GENERICALLY by type, e.g. 'a child reacts with "
+    "shock to an oversized object that subverts an expectation', NOT the specific objects, so "
+    "it transfers to another story); EMOTION (the expressions/energy on faces); MOOD. "
+    "90-150 words, no preamble. Do NOT describe the literal scene or objects as something to "
+    "reproduce — only the reusable style and pattern."
 )
 
 
@@ -460,6 +469,10 @@ async def _generate_modeled_pack(creds: dict, info: dict, dna: Optional[dict],
                 raise ValueError(f"Modeled pack missing keys: {missing}")
             if not isinstance(pack["scene_concepts"], list) or len(pack["scene_concepts"]) < 4:
                 raise ValueError("Modeled pack has too few scene concepts")
+            # Carry the RAW thumbnail observation (ground truth from the real
+            # reference thumbnail) so persistence can use it as the thumbnail
+            # style recipe instead of Claude's lossy thumbnail_dna rewrite.
+            pack["_thumb_obs"] = thumb_obs
             return pack
         except (json.JSONDecodeError, ValueError, RuntimeError) as e:
             last_err = e
@@ -492,6 +505,7 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         "script_guidance": pack.get("script_guidance"),
         "visual_style_brief": pack.get("visual_style_brief"),
         "thumbnail_prompt": pack.get("thumbnail_prompt"),
+        "thumbnail_observation": str(pack.get("_thumb_obs") or "").strip() or None,
         "negative_prompts": pack.get("negative_prompts") or [],
         "title_options": pack.get("title_options") or [],
         "scene_concepts": pack.get("scene_concepts") or [],
@@ -515,6 +529,11 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
     avoid_line = ("\nAvoid: " + "; ".join(str(n) for n in negatives)) if negatives else ""
     image_dna = (str(pack.get("image_dna") or "") or visual_brief) + avoid_line
     thumbnail_dna = str(pack.get("thumbnail_dna") or "") or visual_brief
+    # Raw vision observation of the real reference thumbnail = ground truth. Prefer
+    # it over Claude's thumbnail_dna (which can drift to the wrong story) as the
+    # style recipe the thumbnail generator reads from thumbnail_style_override.
+    thumb_obs = str(pack.get("_thumb_obs") or "").strip()
+    thumbnail_style = thumb_obs or thumbnail_dna.strip()
     motion_dna = str(pack.get("motion_dna") or "") or visual_brief
     motion_override = (
         "Modeled motion DNA from a reference video the creator wants to emulate. "
@@ -545,13 +564,13 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         f"Modeled from reference: {info.get('title') or reference_url}",
         str(pack.get("script_guidance") or ""),
         json.dumps(pack.get("title_options") or []),
-        str(pack.get("thumbnail_prompt") or ""),
+        str(pack.get("thumbnail_prompt") or "") or None,  # modeled (not copied) thumbnail concept
         info.get("views"),
         info.get("channel"),
         json.dumps(original_dna),
         json.dumps(research_payload),
         image_dna.strip() or None,
-        thumbnail_dna.strip() or None,
+        thumbnail_style or None,
         motion_override,
         video_length_minutes,
         script_override,
@@ -630,6 +649,10 @@ async def _persist_style_overrides(
     avoid_line = ("\nAvoid: " + "; ".join(str(n) for n in negatives)) if negatives else ""
     image_dna = ((str(pack.get("image_dna") or "") or visual_brief) + avoid_line).strip()
     thumbnail_dna = (str(pack.get("thumbnail_dna") or "") or visual_brief).strip()
+    # Raw vision observation of the real reference thumbnail = ground truth; prefer
+    # it over Claude's thumbnail_dna as the thumbnail style recipe (see _persist_pack).
+    thumb_obs = str(pack.get("_thumb_obs") or "").strip()
+    thumbnail_style = thumb_obs or thumbnail_dna
     motion_dna = (str(pack.get("motion_dna") or "") or visual_brief).strip()
     script_dna = str(pack.get("script_dna") or "").strip()
 
@@ -646,7 +669,7 @@ async def _persist_style_overrides(
 
     # Only the switched-on stages get an override; the rest stay NULL (fresh).
     img_val = (image_dna or None) if "images" in on else None
-    thumb_val = (thumbnail_dna or None) if "thumbnail" in on else None
+    thumb_val = (thumbnail_style or None) if "thumbnail" in on else None
     motion_val = motion_override if "video" in on else None
     script_val = script_override if "script" in on else None
 
@@ -661,7 +684,8 @@ async def _persist_style_overrides(
                           "title": info.get("title"), "channel": info.get("channel")},
             "scope": sorted(on),
             "script_dna": script_dna, "image_dna": image_dna,
-            "thumbnail_dna": thumbnail_dna, "motion_dna": motion_dna,
+            "thumbnail_dna": thumbnail_dna, "thumbnail_observation": thumb_obs,
+            "motion_dna": motion_dna,
             "blockers": blockers,
         },
     }
