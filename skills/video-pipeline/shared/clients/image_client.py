@@ -915,6 +915,8 @@ class ImageClient:
     # the source image's shape, so a 16:9 frame gets cropped to portrait unless
     # we pass the ratio explicitly.
     GROK_ASPECTS = {"16:9", "9:16", "1:1", "2:3", "3:2"}
+    # Grok-imagine resolutions (Kie). 480p is the default; 720p is YouTube-ready.
+    GROK_RESOLUTIONS = {"480p", "720p"}
 
     async def generate_video(
         self,
@@ -923,6 +925,7 @@ class ImageClient:
         duration: int = 6, # Grok-imagine supports 6–30s (Kie). Default 6.
         extra_image_urls: Optional[list] = None,
         aspect_ratio: Optional[str] = None,
+        resolution: Optional[str] = None,
     ) -> Optional[str]:
         """Generate a video from an image using Grok Imagine via Kie.ai.
 
@@ -932,6 +935,7 @@ class ImageClient:
         storyboard drift).
         aspect_ratio: '16:9' / '9:16' / etc. REQUIRED to get a landscape clip —
         Grok crops to vertical by default, so omitting it ruined 16:9 videos.
+        resolution: '480p' / '720p' — the quality selector.
         """
 
         # Grok-imagine (Kie) accepts any duration 6–30s as a string. Clamp to
@@ -965,6 +969,10 @@ class ImageClient:
             grok_input["aspect_ratio"] = aspect_ratio
         elif aspect_ratio:
             print(f"      ⚠️ Aspect '{aspect_ratio}' not a Grok ratio; letting it default.")
+        if resolution in self.GROK_RESOLUTIONS:
+            grok_input["resolution"] = resolution
+        elif resolution:
+            print(f"      ⚠️ Resolution '{resolution}' not a Grok option; letting it default.")
         payload = {"model": Models.ANIMATION_GROK, "input": grok_input}
 
         # Retry loop for robustness

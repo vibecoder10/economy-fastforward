@@ -238,13 +238,13 @@ async def create_video(
 
     style_override = (body.image_style_override or "").strip() or None
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, skip_voice, pipeline_stages, reference_url)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, source_val, body.framework_angle,
         body.video_length_minutes, body.writer_guidance, body.visual_style, style_override, body.accent_color,
-        body.aspect_ratio, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
+        body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
     )
 
     await increment_usage(tenant_id, "videos_created")
@@ -408,10 +408,13 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution"}
     # aspect_ratio flows into image/video gen + render — reject anything unexpected.
     if "aspect_ratio" in body and body["aspect_ratio"] not in {"16:9", "9:16", "1:1", "4:3", "3:4"}:
         raise HTTPException(status_code=400, detail="Invalid aspect_ratio")
+    # video_resolution is passed to the clip generator — reject anything unexpected.
+    if "video_resolution" in body and body["video_resolution"] not in {"480p", "720p"}:
+        raise HTTPException(status_code=400, detail="Invalid video_resolution")
     updates = []
     params = []
     idx = 1

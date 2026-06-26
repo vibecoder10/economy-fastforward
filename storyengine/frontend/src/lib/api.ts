@@ -323,6 +323,7 @@ export const createVideo = (data: {
   writer_guidance?: string;
   accent_color?: string;
   aspect_ratio?: "16:9" | "9:16";
+  video_resolution?: "480p" | "720p";
   skip_research?: boolean;
   skip_voice?: boolean;
   // Which pipeline stages to run (research, script, voice, images, sound,

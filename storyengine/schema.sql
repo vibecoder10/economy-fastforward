@@ -118,6 +118,8 @@ CREATE TABLE videos (
   render_minutes_charged NUMERIC(10,2) NOT NULL DEFAULT 0,
   -- Output shape, chosen at creation, flows through image/clip gen + render.
   aspect_ratio TEXT NOT NULL DEFAULT '16:9' CHECK (aspect_ratio IN ('16:9', '9:16')),
+  -- Clip quality, chosen at creation; passed to the clip generator (migration 064).
+  video_resolution TEXT NOT NULL DEFAULT '720p' CHECK (video_resolution IN ('480p', '720p')),
   -- Creation-time pipeline toggles (migrations 052, 054). skip_voice drops the
   -- narration stage. pipeline_stages is the per-video plan: the set of enabled
   -- user-facing stages (research, script, voice, images, sound, video,

@@ -110,6 +110,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   const [suggestError, setSuggestError] = useState("");
   const [videoLength, setVideoLength] = useState(10);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("16:9");
+  const [resolution, setResolution] = useState<"480p" | "720p">("720p");
   const [needsResearch, setNeedsResearch] = useState(true);
   const [voiceOver, setVoiceOver] = useState(true);
   const [angle, setAngle] = useState("");
@@ -150,6 +151,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
         title: selectedTitle.trim(),
         video_length_minutes: videoLength,
         aspect_ratio: aspectRatio,
+        video_resolution: resolution,
         skip_research: !needsResearch,
         skip_voice: !voiceOver,
         framework_angle: angle.trim() || undefined,
@@ -172,6 +174,10 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   const aspectOptions: { value: "16:9" | "9:16"; label: string; desc: string }[] = [
     { value: "16:9", label: "16:9", desc: "Landscape · YouTube" },
     { value: "9:16", label: "9:16", desc: "Vertical · Shorts" },
+  ];
+  const resolutionOptions: { value: "480p" | "720p"; label: string; desc: string }[] = [
+    { value: "720p", label: "720p", desc: "Sharper · YouTube" },
+    { value: "480p", label: "480p", desc: "Faster · cheaper" },
   ];
 
   const researchOptions: { value: boolean; label: string; desc: string }[] = [
@@ -468,6 +474,41 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
                         style={{
                           color: aspectRatio === opt.value ? "var(--bg-void)" : "var(--text-tertiary)",
                           opacity: aspectRatio === opt.value ? 0.7 : 1,
+                        }}
+                      >
+                        {opt.desc}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label
+                  className="flex items-center gap-1.5 text-sm font-body font-medium mb-3"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Crop size={14} style={{ color: "var(--text-tertiary)" }} />
+                  What quality should the video be?
+                </label>
+                <div className="flex gap-2">
+                  {resolutionOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setResolution(opt.value)}
+                      className="flex-1 px-3 py-3 rounded-lg text-center transition-all"
+                      style={{
+                        background: resolution === opt.value ? "var(--turquoise)" : "var(--bg-elevated)",
+                        color: resolution === opt.value ? "var(--bg-void)" : "var(--text-secondary)",
+                        border: `1px solid ${resolution === opt.value ? "var(--turquoise)" : "var(--border)"}`,
+                      }}
+                    >
+                      <div className="text-sm font-semibold font-body">{opt.label}</div>
+                      <div
+                        className="text-[10px] mt-0.5"
+                        style={{
+                          color: resolution === opt.value ? "var(--bg-void)" : "var(--text-tertiary)",
+                          opacity: resolution === opt.value ? 0.7 : 1,
                         }}
                       >
                         {opt.desc}

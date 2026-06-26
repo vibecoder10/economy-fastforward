@@ -180,6 +180,9 @@ class CreateVideoRequest(BaseModel):
     accent_color: Optional[str] = None
     # Output shape, chosen up front; flows through image/clip gen + render.
     aspect_ratio: Literal["16:9", "9:16"] = "16:9"
+    # Clip quality, chosen up front; passed to the clip generator. 720p is
+    # YouTube-ready; 480p is the cheaper/faster option.
+    video_resolution: Literal["480p", "720p"] = "720p"
     # Research is the default first step for typed topics. Creators of
     # fiction/story formats can skip it — the video lands straight at
     # 'ready_for_scripting' and the script bot writes from the title +
