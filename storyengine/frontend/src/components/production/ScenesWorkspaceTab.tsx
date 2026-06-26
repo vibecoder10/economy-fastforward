@@ -1464,6 +1464,21 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
   const [imgPrompt, setImgPrompt] = useState(asset.image_prompt || "");
   const [imgState, setImgState] = useState<"idle" | "saving" | "error">("idle");
 
+  // useState only seeds on mount, so when the server value changes under an open
+  // page (e.g. coverage just rewrote the motion prompt) the box kept showing its
+  // stale/empty initial text. Re-sync from the asset when the SAVED value changes,
+  // unless a save is mid-flight (don't clobber what the user is writing).
+  const serverPrompt = asset.video_prompt || "";
+  const serverImgPrompt = asset.image_prompt || "";
+  useEffect(() => {
+    if (promptState !== "saving") setPrompt(serverPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverPrompt]);
+  useEffect(() => {
+    if (imgState !== "saving") setImgPrompt(serverImgPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverImgPrompt]);
+
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
