@@ -37,7 +37,7 @@ import { clipCost } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, Asset } from "@/lib/api";
-import { toDisplayImageUrl } from "@/lib/utils";
+import { toDisplayImageUrl, toDisplayVideoUrl } from "@/lib/utils";
 import { API_URL } from "@/lib/env";
 import { AnimaticPlayer } from "@/components/production/AnimaticPlayer";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
@@ -1342,7 +1342,10 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               // still-image animatic. Cache-bust by the scene's updated_at so a
               // re-stitch shows the new cut.
               if (scene.sceneVideoUrl) {
-                const v = `${scene.sceneVideoUrl}${scene.gridVersion ? `?cb=${scene.gridVersion}` : ""}`;
+                // Drive-hosted stitches don't stream in <video> directly — route
+                // through the media proxy (Supabase/other URLs pass through).
+                const base = toDisplayVideoUrl(scene.sceneVideoUrl) ?? scene.sceneVideoUrl;
+                const v = `${base}${scene.gridVersion ? `${base.includes("?") ? "&" : "?"}cb=${scene.gridVersion}` : ""}`;
                 return (
                   <>
                     <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--turquoise)" }}>Watch this scene</p>
