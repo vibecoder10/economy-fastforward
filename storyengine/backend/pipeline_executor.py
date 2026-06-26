@@ -1868,10 +1868,13 @@ separate scenes."""
                             else:
                                 clip_bytes = await duck_audio(clip_bytes)
                         elif not is_speaking and getattr(profile, "strip_audio", False):
-                            # Only SILENT shots get ducked to an ambience bed. A
-                            # speaking shot (native lip-sync) keeps Grok's voice at
-                            # full volume — the line IS the take.
-                            clip_bytes = await duck_audio(clip_bytes)
+                            # Only SILENT shots get ducked. Grok sometimes ad-libs
+                            # a stray line over a B-roll insert, so we duck these
+                            # HARD (to a faint room-tone bed, not dead silence) so
+                            # any invented speech is inaudible. A speaking shot
+                            # keeps Grok's voice at full volume — the line IS the take.
+                            silent_gain = float(os.getenv("SILENT_CLIP_GAIN", "0.06"))
+                            clip_bytes = await duck_audio(clip_bytes, gain=silent_gain)
                     except Exception as e:
                         print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
                     drive_url = await upload_bytes(
