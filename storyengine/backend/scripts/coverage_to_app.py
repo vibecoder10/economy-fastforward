@@ -709,6 +709,65 @@ def _parse_numbered(text: str, count: int) -> list:
 _SPEAKER_RE = re.compile(r"(?m)^\s*([A-Z][A-Za-z .'-]{0,24}):\s+\S")
 
 
+_EMBED_SAYS_RE = re.compile(r'\b[A-Z][A-Za-z .\'-]{0,24}\s+says\b', re.IGNORECASE)
+_HAS_LINE_RE = re.compile(r'\bsays\b[^:"\n]*:\s*"', re.IGNORECASE)
+
+
+def _strip_embedded_line(prompt: str) -> str:
+    """The camera-motion part of a shot prompt, with any `<Name> says ...: "line"`
+    cut off the end (kept so we can re-attach the correct line deterministically)."""
+    m = _EMBED_SAYS_RE.search(prompt or "")
+    base = (prompt or "")[:m.start()] if m else (prompt or "")
+    return base.strip().rstrip(".").strip()
+
+
+def _embed_speaker(line: str):
+    """The character the writer put on a speaking shot ('<Name> says …'), lowercased."""
+    m = re.search(r'\b([A-Z][A-Za-z .\'-]{0,24})\s+says\b', line or "")
+    return m.group(1).strip().lower() if m else None
+
+
+def _overlay_dialogue(rows, lines, turns):
+    """Lay the dialogue turns onto the speaking shots IN ORDER, in code, so every
+    line lands exactly once in sequence — the writer (an LLM) drops/duplicates/
+    reorders lines on long scenes even with an ordered checklist. SPEAKER-AWARE:
+    a turn goes to a shot the writer framed for THAT speaker (so Dad's line never
+    lands on a Tom shot); we keep its camera motion and its choice of which shots
+    speak — we only fix the mapping."""
+    if not turns:
+        return lines
+    speaking = [(i, _embed_speaker(lines[i])) for i, ln in enumerate(lines)
+                if ln and _HAS_LINE_RE.search(ln)]
+    used = set()
+
+    def _take(want_speaker):
+        # next unused speaking shot for this speaker; then any unused speaking
+        # shot; then any unused non-INSERT (face) shot — in shot order.
+        for i, s in speaking:
+            if i not in used and s == want_speaker:
+                return i
+        for i, s in speaking:
+            if i not in used:
+                return i
+        for i, r in enumerate(rows):
+            if i not in used and lines[i] and (r.get("shot_type") or "").upper() != "INSERT":
+                return i
+        return None
+
+    for spk, txt in turns:
+        slot = _take(spk.lower())
+        if slot is None:
+            continue  # genuinely no room (rare) — better to drop one than misvoice
+        used.add(slot)
+        base = _strip_embedded_line(lines[slot])
+        lines[slot] = (f'{base} {spk} says: "{txt}"').strip()
+    # Speaking shots the writer invented beyond the real turns → strip their line.
+    for i, _s in speaking:
+        if i not in used:
+            lines[i] = _strip_embedded_line(lines[i])
+    return lines
+
+
 def _dialogue_turns(scene_text: str):
     """Ordered [(speaker, text), ...] dialogue turns; consecutive same-speaker
     lines merge into one turn. Empty for a scene with no tagged dialogue."""
@@ -778,6 +837,9 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
         kwargs["model"] = model
     text = (await claude.generate(**kwargs)) or ""
     lines = _parse_numbered(text, len(rows))
+    # Deterministically place each dialogue turn once, in order, on a speaking
+    # shot — the writer's own mapping drifts on long scenes.
+    lines = _overlay_dialogue(rows, lines, turns)
     written = 0
     for r, line in zip(rows, lines):
         if line:
