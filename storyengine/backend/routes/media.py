@@ -44,6 +44,7 @@ SELECT 1 WHERE EXISTS (
     WHERE storyboard_1_url LIKE $1 OR storyboard_2_url LIKE $1
        OR storyboard_3_url LIKE $1 OR storyboard_4_url LIKE $1
        OR storyboard_5_url LIKE $1 OR voice_over_url LIKE $1
+       OR scene_video_url LIKE $1   -- per-scene stitched preview (Drive → proxy)
        -- per-segment dialogue voices live inside the jsonb timeline;
        -- audio-driven lip-sync models fetch them through the proxy
        OR dialogue_segments::text LIKE $1
