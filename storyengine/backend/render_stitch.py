@@ -27,6 +27,7 @@ Public entry:
 
 import asyncio
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -42,6 +43,18 @@ from storage import upload_bytes
 _FFMPEG_SEM = asyncio.Semaphore(int(os.getenv("STITCH_FFMPEG_CONCURRENCY", "2")))
 # Per-render parallel Drive downloads (I/O-bound; the Drive client retries).
 _DOWNLOAD_CONCURRENCY = int(os.getenv("STITCH_DOWNLOAD_CONCURRENCY", "6"))
+
+# Dead-space trim: Grok pads a clip with quiet room-tone before the line starts
+# and after it ends, which stacks into long pauses once the clips are joined.
+# We detect the speech region (anything quieter than NOISE_DB for >= MIN_SIL is
+# dead space) and cut the leading/trailing dead air, keeping a short natural
+# breath on each side. A clip with no speech at all (a B-roll insert) is left
+# whole. All env-tunable.
+_TRIM_NOISE_DB = os.getenv("STITCH_TRIM_NOISE_DB", "-30dB")
+_TRIM_MIN_SILENCE = float(os.getenv("STITCH_TRIM_MIN_SILENCE", "0.20"))
+_TRIM_LEAD_PAD = float(os.getenv("STITCH_TRIM_LEAD_PAD", "0.12"))
+_TRIM_TAIL_PAD = float(os.getenv("STITCH_TRIM_TAIL_PAD", "0.20"))
+_TRIM_MIN_GAIN = float(os.getenv("STITCH_TRIM_MIN_GAIN", "0.25"))  # skip a re-encode for tiny trims
 
 ProgressCb = Optional[Callable[[str], Awaitable[None]]]
 
@@ -111,6 +124,67 @@ async def _probe_duration(path: str) -> float:
         return float((out or b"").decode().strip())
     except (ValueError, AttributeError):
         return 0.0
+
+
+async def _speech_bounds(path: str, duration: float):
+    """(speech_start, speech_end) of the audible region in seconds, or None if
+    the clip is effectively silent (no speech to trim around — e.g. a B-roll
+    insert, which we keep whole). Only LEADING and TRAILING dead air is reported;
+    a pause in the middle of a line is left alone."""
+    if duration <= 0:
+        return None
+    rc, err = await _run_subprocess([
+        "ffmpeg", "-i", path, "-af",
+        f"silencedetect=noise={_TRIM_NOISE_DB}:d={_TRIM_MIN_SILENCE}", "-f", "null", "-"])
+    starts = [float(m) for m in re.findall(r"silence_start:\s*(-?[0-9.]+)", err)]
+    ends = [float(m) for m in re.findall(r"silence_end:\s*(-?[0-9.]+)", err)]
+    if not starts:
+        return (0.0, duration)  # no silence at all → speech spans the whole clip
+    # Pair starts with ends in order; a final start with no end runs to EOF.
+    intervals = [(max(0.0, s), min(ends[i] if i < len(ends) else duration, duration))
+                 for i, s in enumerate(starts)]
+    speech_start = intervals[0][1] if intervals[0][0] <= 0.05 else 0.0
+    speech_end = intervals[-1][0] if intervals[-1][1] >= duration - 0.05 else duration
+    if speech_end - speech_start < 0.3:
+        return None  # basically all silence → treat as B-roll, keep whole
+    return (speech_start, speech_end)
+
+
+async def _trim_dead_space(paths: list[Path], workdir: Path,
+                           on_progress: ProgressCb) -> list[Path]:
+    """Cut the silent head/tail of every SPEAKING clip so the dialogue flows
+    tight when joined. Silent B-roll clips pass through untouched. A clip whose
+    trim would save less than _TRIM_MIN_GAIN seconds is left as-is (not worth a
+    re-encode). Best-effort: any failure keeps the original clip."""
+    await _emit(on_progress, "Trimming dead space…")
+    out: list[Path] = []
+    trimmed = saved = 0.0
+    for i, p in enumerate(paths):
+        dur = await _probe_duration(str(p))
+        bounds = await _speech_bounds(str(p), dur)
+        if not bounds:
+            out.append(p)
+            continue
+        s = max(0.0, bounds[0] - _TRIM_LEAD_PAD)
+        e = min(dur, bounds[1] + _TRIM_TAIL_PAD)
+        if (s + (dur - e)) < _TRIM_MIN_GAIN or (e - s) < 0.5:
+            out.append(p)
+            continue
+        tp = workdir / f"trim_{i:03d}.mp4"
+        async with _FFMPEG_SEM:
+            rc, err = await _run_subprocess([
+                "ffmpeg", "-y", "-i", str(p), "-ss", f"{s:.3f}", "-t", f"{(e - s):.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(tp)])
+        if rc == 0 and tp.exists() and tp.stat().st_size > 0:
+            out.append(tp)
+            trimmed += 1
+            saved += s + (dur - e)
+        else:
+            out.append(p)  # trim failed → keep the original, never drop a clip
+    await _emit(on_progress,
+                f"Trimmed {int(trimmed)}/{len(paths)} clips (−{saved:.1f}s dead air)")
+    return out
 
 
 async def _gather_clips(video_id: str, scene: Optional[int] = None) -> list[dict]:
@@ -311,6 +385,7 @@ async def stitch_video(
     title: str = "",
     orientation: str = "auto",
     scene: Optional[int] = None,
+    trim_silence: bool = True,
     on_progress: ProgressCb = None,
 ) -> dict:
     """Stitch a video's existing clips into one uploaded mp4.
@@ -318,9 +393,11 @@ async def stitch_video(
     Pass `scene` to stitch just that scene (stored under scenes/, for the
     per-scene preview); omit it to stitch the whole video (the final render).
     orientation: 'auto' (follow the majority of clips), 'portrait', or
-    'landscape'. Returns {final_video_url, duration_seconds, clip_count, method,
-    resolution, orientation}. Raises ValueError if there are no clips,
-    RuntimeError on ffmpeg failure.
+    'landscape'. trim_silence cuts the dead air off the head/tail of each
+    speaking clip so the dialogue flows tight (B-roll clips kept whole).
+    Returns {final_video_url, duration_seconds, clip_count, method, resolution,
+    orientation, trimmed}. Raises ValueError if there are no clips, RuntimeError
+    on ffmpeg failure.
     """
     clips = await _gather_clips(video_id, scene)
     if not clips:
@@ -337,6 +414,12 @@ async def stitch_video(
                 f"only {len(paths)}/{len(clips)} clips downloaded — aborting "
                 f"to avoid a video with gaps"
             )
+
+        trimmed = False
+        if trim_silence:
+            new_paths = await _trim_dead_space(paths, workdir, on_progress)
+            trimmed = any(a != b for a, b in zip(paths, new_paths))
+            paths = new_paths
 
         out_path = workdir / "stitched.mp4"
         tw, th, orient = await _choose_target(paths, orientation)
@@ -361,6 +444,7 @@ async def stitch_video(
             "resolution": f"{tw}x{th}",
             "orientation": orient,
             "size_bytes": len(data),
+            "trimmed": trimmed,
         }
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
