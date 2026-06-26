@@ -118,6 +118,22 @@ Plan up to {max_moments} moments from the narration below; pick the moments that
 </output_format>"""
 
 
+def _scene_turns(beat_text: str):
+    """Ordered [(speaker, text)] dialogue turns from a scene's narration; runs of
+    the same speaker merge. Used to hand the planner an exact turn checklist."""
+    out = []
+    for line in (beat_text or "").splitlines():
+        m = re.match(r"^\s*([A-Z][A-Za-z .'-]{0,24}):\s+(\S.*)$", line)
+        if not m:
+            continue
+        spk, txt = m.group(1).strip(), m.group(2).strip()
+        if out and out[-1][0].lower() == spk.lower():
+            out[-1] = (out[-1][0], f"{out[-1][1]} {txt}")
+        else:
+            out.append((spk, txt))
+    return out
+
+
 def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts) -> str:
     parts = [f'Plan cinematic COVERAGE for "{video_title or "this scene"}".',
              f"\nScene narration:\n{beat_text.strip()}"]
@@ -127,6 +143,14 @@ def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, imag
     if image_prompts:
         listed = "\n".join(f"  - {p}" for p in image_prompts if p)
         parts.append(f"\n--- EXISTING SHOT IDEAS (use as the moments to cover) ---\n{listed}")
+    turns = _scene_turns(beat_text)
+    if turns:
+        listed = "\n".join(f'T{i+1} {spk}: "{txt}"' for i, (spk, txt) in enumerate(turns))
+        parts.append(
+            f"\n--- DIALOGUE TURNS ({len(turns)}) — make EXACTLY ONE speaking moment for EACH, "
+            f"IN THIS ORDER, its MASTER framing that speaker and a LINE: row with these EXACT words. "
+            f"Cover all {len(turns)}: skip none, merge none across speakers, change no words. Add a "
+            f"few SILENT moments (establishing/insert) around them for variety ---\n{listed}")
     return "\n".join(parts)
 
 

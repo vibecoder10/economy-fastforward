@@ -752,6 +752,33 @@ def _dialogue_turn_count(scene_text: str) -> int:
     return len(_dialogue_turns(scene_text))
 
 
+def _reconcile_moment_dialogue(moments, scene_text):
+    """Guarantee every script turn is voiced exactly once, in order. The planner
+    is told to make one speaking moment per turn (and usually does), but it's an
+    LLM — this stamps the turns onto the speaking-eligible moments (non-INSERT
+    master) in sequence so nothing drops, duplicates, or reorders. INSERT moments
+    stay silent. Trusts the planner to frame moments in turn order (it's told to)."""
+    turns = _dialogue_turns(scene_text)
+    if not turns:
+        return moments
+    eligible = [m for m in moments
+                if (m.get("master", {}).get("shot_type") or "").upper() != "INSERT"]
+    for i, m in enumerate(eligible):
+        if i < len(turns):
+            m["speaker"], m["line"] = turns[i]
+        else:
+            m["speaker"], m["line"] = None, None
+    # More turns than face shots (rare, capped scene) → fold the overflow onto the
+    # last eligible moment so no line is lost.
+    if len(turns) > len(eligible) and eligible:
+        extra = " ".join(t[1] for t in turns[len(eligible):])
+        eligible[-1]["line"] = f'{eligible[-1]["line"]} {extra}'.strip()
+    for m in moments:
+        if (m.get("master", {}).get("shot_type") or "").upper() == "INSERT":
+            m["speaker"], m["line"] = None, None
+    return moments
+
+
 def _coverage_shape(scene_text: str):
     """(max_moments, angles_min, angles_max) sized to the scene's dialogue.
 
@@ -889,6 +916,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         for m in out["moments"]:
             for fr in m["frames"]:
                 fr["_path"] = os.path.join(outdir, fr.get("file", "")) if fr.get("file") else None
+        # Backstop: make line placement exact regardless of the planner's adherence.
+        _reconcile_moment_dialogue(out["moments"], s["scene_text"] or "")
         frames_by_moment = [(m["summary"], m["frames"], m.get("speaker"), m.get("line"))
                             for m in out["moments"]]
         n = await store_scene(vid, tenant, title, aspect, sc, frames_by_moment)
