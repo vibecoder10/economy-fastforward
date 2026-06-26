@@ -1634,14 +1634,19 @@ separate scenes."""
 
             # Seedance is a drop-in animator with the same call shape as Grok
             # (img, prompt, duration, extra_image_urls). Veo keeps its own branch below.
+            _vaspect = (video.get("aspect_ratio") or "16:9")
             if model_id.startswith("seedance"):
-                _vaspect = (video.get("aspect_ratio") or "16:9")
                 def animate(img, prompt, duration=6, extra_image_urls=None):
                     return client.generate_video_seedance(
                         img, prompt, duration=duration,
                         extra_image_urls=extra_image_urls, aspect_ratio=_vaspect)
             else:
-                animate = client.generate_video
+                # Pass the video's aspect to Grok — without it Grok crops every
+                # clip to vertical, so a 16:9 video came out 9:16.
+                def animate(img, prompt, duration=6, extra_image_urls=None):
+                    return client.generate_video(
+                        img, prompt, duration=duration,
+                        extra_image_urls=extra_image_urls, aspect_ratio=_vaspect)
 
             # Grok takes up to 7 reference images (@image1, @image2... in the
             # prompt): @image1 = the panel, @image2 = the labeled cast sheet.

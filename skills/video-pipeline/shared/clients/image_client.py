@@ -911,12 +911,18 @@ class ImageClient:
             print(f"      ❌ InfiniteTalk error: {str(e)[:150]}")
             return None
 
+    # Grok-imagine's accepted aspect ratios. It defaults to VERTICAL and ignores
+    # the source image's shape, so a 16:9 frame gets cropped to portrait unless
+    # we pass the ratio explicitly.
+    GROK_ASPECTS = {"16:9", "9:16", "1:1", "2:3", "3:2"}
+
     async def generate_video(
         self,
         image_url: str,
         prompt: str,
         duration: int = 6, # Grok-imagine supports 6–30s (Kie). Default 6.
         extra_image_urls: Optional[list] = None,
+        aspect_ratio: Optional[str] = None,
     ) -> Optional[str]:
         """Generate a video from an image using Grok Imagine via Kie.ai.
 
@@ -924,6 +930,8 @@ class ImageClient:
         the prompt as @image1, @image2, ... — we pass the labeled cast sheet
         as @image2 to lock characters/style (same one-sheet trick that fixed
         storyboard drift).
+        aspect_ratio: '16:9' / '9:16' / etc. REQUIRED to get a landscape clip —
+        Grok crops to vertical by default, so omitting it ruined 16:9 videos.
         """
 
         # Grok-imagine (Kie) accepts any duration 6–30s as a string. Clamp to
@@ -945,16 +953,19 @@ class ImageClient:
         }
 
         # Grok Imagine Schema
-        # Input: image_urls (array, max 7), prompt, duration (string), mode (default normal)
-        payload = {
-            "model": Models.ANIMATION_GROK,
-            "input": {
-                "image_urls": image_urls,
-                "prompt": prompt,
-                "duration": duration_str,
-                "mode": "normal", # Spicy not supported for external images
-            },
+        # Input: image_urls (array, max 7), prompt, duration (string), mode,
+        # aspect_ratio (omit -> Grok crops to vertical, breaking 16:9 videos).
+        grok_input = {
+            "image_urls": image_urls,
+            "prompt": prompt,
+            "duration": duration_str,
+            "mode": "normal", # Spicy not supported for external images
         }
+        if aspect_ratio in self.GROK_ASPECTS:
+            grok_input["aspect_ratio"] = aspect_ratio
+        elif aspect_ratio:
+            print(f"      ⚠️ Aspect '{aspect_ratio}' not a Grok ratio; letting it default.")
+        payload = {"model": Models.ANIMATION_GROK, "input": grok_input}
 
         # Retry loop for robustness
         max_retries = 3
