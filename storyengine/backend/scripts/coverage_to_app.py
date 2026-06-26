@@ -709,16 +709,25 @@ def _parse_numbered(text: str, count: int) -> list:
 _SPEAKER_RE = re.compile(r"(?m)^\s*([A-Z][A-Za-z .'-]{0,24}):\s+\S")
 
 
+def _dialogue_turns(scene_text: str):
+    """Ordered [(speaker, text), ...] dialogue turns; consecutive same-speaker
+    lines merge into one turn. Empty for a scene with no tagged dialogue."""
+    out = []
+    for line in (scene_text or "").splitlines():
+        m = re.match(r"^\s*([A-Z][A-Za-z .'-]{0,24}):\s+(\S.*)$", line)
+        if not m:
+            continue
+        spk, txt = m.group(1).strip(), m.group(2).strip()
+        if out and out[-1][0].lower() == spk.lower():
+            out[-1] = (out[-1][0], f"{out[-1][1]} {txt}")
+        else:
+            out.append((spk, txt))
+    return out
+
+
 def _dialogue_turn_count(scene_text: str) -> int:
-    """Number of speaker TURNS in a scene (consecutive same-speaker lines = one
-    turn). 0 for a scene with no tagged dialogue (pure narration/visual)."""
-    turns, prev = 0, None
-    for spk in _SPEAKER_RE.findall(scene_text or ""):
-        name = spk.strip().lower()
-        if name != prev:
-            turns += 1
-            prev = name
-    return turns
+    """Number of speaker TURNS in a scene. 0 for pure narration/visual."""
+    return len(_dialogue_turns(scene_text))
 
 
 def _coverage_shape(scene_text: str):
@@ -750,7 +759,19 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     shots = "\n".join(
         f"{i+1}. [{(r['shot_type'] or 'MS')}] {(r['sentence_text'] or r['image_prompt'] or '')[:200]}"
         for i, r in enumerate(rows))
-    user = (f"SCENE DIALOGUE (verbatim — who says what):\n{dialogue[:2000]}\n\n"
+    # Feed the dialogue as an explicit ORDERED checklist so the writer walks every
+    # turn onto a speaking shot in sequence — left to itself it dropped a line and
+    # scrambled the order when there were many turns.
+    turns = _dialogue_turns(dialogue)
+    turn_block = ""
+    if turns:
+        listed = "\n".join(f'T{i+1} {spk}: "{txt}"' for i, (spk, txt) in enumerate(turns))
+        turn_block = (
+            f"\n\nDIALOGUE TURNS — assign each to ONE speaking shot, IN THIS ORDER, "
+            f"cover ALL {len(turns)}, drop none, keep their order:\n{listed}\n"
+            "Walk the turns in sequence onto the face shots (one turn per shot); only make a "
+            "shot a silent insert/cutaway AFTER every turn is placed.")
+    user = (f"SCENE NARRATION (context + who says what):\n{dialogue[:2000]}{turn_block}\n\n"
             f"SHOTS (write one line per shot, numbered, in order):\n{shots}")
     kwargs = dict(prompt=user, system_prompt=_MOTION_SYSTEM, max_tokens=1800, temperature=0.6)
     if model:
