@@ -437,12 +437,14 @@ def _thumbnail_transform_prompt(blueprint_json: str, title: str, brand: str,
         "smashing, hitting, weapon. Keep it wholesome, funny and light. Put 'crying, tears, sad, "
         "distress, fear, injury, violence' in the negative_prompt.\n"
         "- NO competitor logos/brand words, no real trademarks/logos/real-person likenesses.\n"
-        "- 'prompt' must be ONE self-contained, DETAILED natural-language image-generation prompt that "
-        "fully describes the final thumbnail: scene, every character (look + comic emotion + pose), "
-        "the hero object and supporting prop, composition, the EXACT text to render for ALL THREE "
-        "tiers with each tier's color/outline/placement, the badge, and the color palette. Include a "
-        "thorough 'negative_prompt'.\n"
-        "Return ONLY valid JSON with the same keys, no preamble, no code fences."
+        "- The 'prompt' must be ONE self-contained, DETAILED natural-language image-generation prompt "
+        "that fully describes the final thumbnail: scene, every character (look + comic emotion + "
+        "pose), the hero object and supporting prop, composition, the EXACT text to render for ALL "
+        "THREE tiers with each tier's color/outline/placement, the badge, and the color palette.\n"
+        "Design the thumbnail through the full schema above in your reasoning, then return ONLY valid "
+        "JSON with EXACTLY two keys and nothing else: {\"prompt\": \"<the full detailed image "
+        "prompt>\", \"negative_prompt\": \"<thorough negatives>\"}. No other keys, no preamble, no "
+        "code fences. Keep it valid JSON — escape any quotes inside the strings."
     )
 
 
@@ -456,7 +458,7 @@ async def _model_thumbnail_prompt(creds: dict, blueprint_json: str, title: str, 
     try:
         raw = await _call_claude(
             _thumbnail_transform_prompt(blueprint_json, title, brand, cast_names, has_cast),
-            creds, tier="smart", max_tokens=2500)
+            creds, tier="smart", max_tokens=3500)
         modeled = json.loads(_strip_code_fences(raw))
         prompt = (modeled.get("prompt") or "").strip()
         neg = (modeled.get("negative_prompt") or "").strip()
