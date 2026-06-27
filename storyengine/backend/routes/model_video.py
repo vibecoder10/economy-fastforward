@@ -317,56 +317,155 @@ def _build_pack_prompt(info: dict, dna: Optional[dict], transcript: Optional[str
     )
 
 
-_THUMBNAIL_OBSERVATION_PROMPT = (
-    "This is a SUCCESSFUL YouTube thumbnail. Extract its REUSABLE WINNING FORMULA so we can "
-    "MODEL it on a DIFFERENT video — we will never copy its specific subjects, objects or "
-    "scene, only its look and its click pattern. START with one line — `MEDIUM: <the exact "
-    "rendering medium>` — naming the single best fit precisely: photorealistic live-action, "
-    "3D CG / Pixar-style animation, 2D / flat illustration, anime, stop-motion, mixed-media, "
-    "etc. Do NOT default to an animated or illustrated medium: if it is a real photo or "
-    "live-action footage, say photorealistic live-action. Then, each in a short phrase: "
-    "COLOR PALETTE (3-5 approximate hex codes with their role — background, subject, "
-    "text/accent); LIGHTING; TEXT TREATMENT (the FULL text design to reproduce: how many "
-    "lines/tiers, the SIZE/scale relative to the frame, whether the text spans the full "
-    "width across the bottom/screen, the color of each tier, font weight, case, and "
-    "outline/stroke — the STYLE and LAYOUT only, do not transcribe the words); CLICK FORMULA (the abstracted "
-    "pattern that makes it work — the emotional setup, the focal/reveal pattern, the "
-    "'click-to-unpause' moment — described GENERICALLY by type, e.g. 'a child reacts with "
-    "shock to an oversized object that subverts an expectation', NOT the specific objects, so "
-    "it transfers to another story); EMOTION (the expressions/energy on faces); MOOD. "
-    "90-150 words, no preamble. Do NOT describe the literal scene or objects as something to "
-    "reproduce — only the reusable style and pattern."
+_THUMBNAIL_BLUEPRINT_PROMPT = (
+    "Analyse this successful YouTube thumbnail and break it into a DETAILED JSON blueprint so we "
+    "can MODEL its winning formula on a different video (we will never copy its subjects, only its "
+    "look + pattern). Return ONLY valid JSON (no preamble, no code fences) with EXACTLY these keys: "
+    "format, aspect_ratio, style{medium, look, lighting, mood}, "
+    "scene{setting, main_action, focal_point, secondary_focal_point}, "
+    "characters (array of {role, description, emotion, pose}), "
+    "objects (array of {object, description, position}), "
+    "composition{camera, layout, depth_of_field, thumbnail_rules}, "
+    "text{primary_text{content, placement, style}, secondary_text{content, placement, style}, "
+    "small_text{content, placement, style}}, "
+    "color_palette (object of role:color), "
+    "prompt (a full natural-language image prompt that would recreate THIS thumbnail), "
+    "negative_prompt. Capture the exact text tiers, colors, outlines and placement precisely. "
+    "For `medium`, name it exactly (photorealistic live-action, 3D CG / Pixar-style animation, 2D "
+    "illustration, anime, etc.); never default to animated if it is a real photo."
 )
 
 
+def _strip_code_fences(t: Optional[str]) -> str:
+    """Strip ```json ... ``` fences an LLM may wrap around JSON output."""
+    t = (t or "").strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
+        t = re.sub(r"\s*```$", "", t).strip()
+    return t
+
+
 async def _describe_thumbnail_style(creds: dict, thumbnail_url: Optional[str]) -> Optional[str]:
-    """Vision pass over the reference thumbnail — the only visual ground truth
-    we have (transcripts are bot-blocked, frames unavailable). Goes through
-    the provider-chained vision helper, NOT the Claude gateway directly: the
-    gateway silently drops image blocks when it drifts, and a blind pack
-    invents a wrong visual style for every downstream image."""
+    """Vision pass over the reference thumbnail → a structured JSON BLUEPRINT (style,
+    scene, characters, objects, composition, exact text tiers, palette). This is the
+    ground truth we MODEL from. Goes through the provider-chained vision helper, NOT the
+    Claude gateway directly: the gateway silently drops image blocks when it drifts."""
     if not thumbnail_url:
         return None
     from shared.clients.vision_client import vision_call
     last_err: Optional[Exception] = None
-    # The style classification is the whole basis for "generate any style faithfully",
-    # so don't let one transient blip drop it to a text guess — retry before giving up.
+    # The blueprint is the whole basis for modeling, so don't let one transient blip
+    # drop it — retry before giving up.
     for attempt in range(3):
         try:
             obs = await vision_call(
-                _THUMBNAIL_OBSERVATION_PROMPT, [thumbnail_url],
+                _THUMBNAIL_BLUEPRINT_PROMPT, [thumbnail_url],
                 kie_key=creds["key"] if creds["provider"] == "kie" else None,
                 anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
-                tier="fast", max_tokens=400,
+                tier="fast", max_tokens=1600,
             )
             if obs and obs.strip():
-                return obs.strip()
+                return _strip_code_fences(obs)
             last_err = ValueError("empty observation")
         except Exception as e:
             last_err = e
         await asyncio.sleep(2 * (attempt + 1))
     logger.warning("[model_video] thumbnail vision pass failed after 3 tries (pack will be text-only): %s", str(last_err)[:200])
     return None
+
+
+async def _fetch_channel_brand(tenant_id) -> str:
+    """The creator's OWN channel name — used as the thumbnail's brand text line so we
+    model the reference's text FORMAT with OUR brand, not the competitor's words."""
+    try:
+        row = await fetch_one(
+            "SELECT channel_name FROM channel_profiles WHERE tenant_id = $1", tenant_id)
+        return ((row or {}).get("channel_name") or "").strip()
+    except Exception:
+        return ""
+
+
+def _thumbnail_transform_prompt(blueprint_json: str, title: str, brand: str,
+                                cast_names: str, has_cast: bool) -> str:
+    """Claude prompt: turn the reference blueprint into OUR modeled thumbnail JSON
+    (our story + our brand, the reference's winning formula), with hard content-safety
+    rules so the image generator doesn't reject distressed-child imagery."""
+    clean_title = (title or "").split("|")[0].strip()
+    brand_line = (f'primary_text.content = OUR channel brand "{brand}"'
+                  if brand else "primary_text.content = OUR channel brand")
+    if has_cast and cast_names:
+        cast_rule = (
+            f"- characters: our recurring cast is [{cast_names}] — describe each one's look, light "
+            "comic emotion and pose for THIS scene (their exact identities come from a provided "
+            "cast-sheet image, so keep names/descriptions consistent).\n")
+    elif has_cast:
+        cast_rule = "- characters: describe OUR story's characters with light comic emotion and clear poses.\n"
+    else:
+        cast_rule = ("- characters: use an EMPTY array — this is a FACELESS video; depict an event or "
+                     "bold iconography (a single charged object, charts, arrows) instead of people.\n")
+    return (
+        "You are a world-class YouTube thumbnail director. Below is a JSON blueprint of a PROVEN "
+        "competitor thumbnail that performs well in this niche:\n\n" + blueprint_json + "\n\n"
+        f'MODEL it (do NOT copy) for OUR brand-new video titled "{clean_title}". Produce a NEW JSON '
+        "with the SAME schema that KEEPS the proven style, lighting, mood, composition, text "
+        "treatment/layout, color palette, badge and overall format — but REPLACES the scene, "
+        "main_action, focal_point, characters, objects and all story-specific TEXT CONTENT so it "
+        "tells OUR title's story. Match the reference's RICHNESS — it is detailed and premium, so "
+        "yours must be too. Rules:\n"
+        f"- {brand_line} (keep the reference's big bold style, color and placement), NOT the "
+        "competitor's brand words.\n"
+        "- secondary_text.content = a short, punchy FIRST-PERSON exclamation hook from OUR story, "
+        "MIRRORING the reference secondary text's voice and grammar (e.g. if the reference says 'MY "
+        "LIMITED CARD FELL!', ours is 'MY RARE CAR BROKE!') — <=5 words, the surprising payoff, keep "
+        "its color and outline.\n"
+        "- ALWAYS include small_text (the reference's '... for beginners'-style subtitle) and the "
+        "level/label badge, in the reference's style (generic level text, e.g. 'A1-A2 LEVEL'). All "
+        "THREE text tiers must appear.\n"
+        + cast_rule +
+        "- objects: include the hero object AND a supporting prop that sells the stakes with a "
+        "FICTIONAL label (like the reference's badge/box) — no real brands or trademarks. Add "
+        "premium detailing (gold accents, sparkle, a clear already-happened accident state) where it "
+        "fits.\n"
+        "- Obey thumbnail rules: ONE clear focal point, <=3 main elements, extreme contrast, "
+        "instantly readable at 120px.\n"
+        "- CONTENT SAFETY (critical — image generators reject distressed-child imagery): emotions are "
+        "ONLY light comic surprise — 'jaw-dropped uh-oh', 'wide-eyed oops', 'playful panic', "
+        "'sheepish grin'. The accident has ALREADY happened on its own; NO character causes harm, "
+        "hits, or holds any tool/weapon (a guilty character just stands sheepishly). BANNED words you "
+        "must NOT use anywhere: horror, terror, devastation, devastated, crying, tears, teary, "
+        "glistening/watery eyes, sobbing, screaming, fear, scared, pain, hurt, injury, blood, hammer, "
+        "smashing, hitting, weapon. Keep it wholesome, funny and light. Put 'crying, tears, sad, "
+        "distress, fear, injury, violence' in the negative_prompt.\n"
+        "- NO competitor logos/brand words, no real trademarks/logos/real-person likenesses.\n"
+        "- 'prompt' must be ONE self-contained, DETAILED natural-language image-generation prompt that "
+        "fully describes the final thumbnail: scene, every character (look + comic emotion + pose), "
+        "the hero object and supporting prop, composition, the EXACT text to render for ALL THREE "
+        "tiers with each tier's color/outline/placement, the badge, and the color palette. Include a "
+        "thorough 'negative_prompt'.\n"
+        "Return ONLY valid JSON with the same keys, no preamble, no code fences."
+    )
+
+
+async def _model_thumbnail_prompt(creds: dict, blueprint_json: str, title: str, brand: str,
+                                  cast_names: str, has_cast: bool) -> Optional[str]:
+    """Transform the reference blueprint into OUR modeled thumbnail and return a single
+    generation prompt (the modeled `prompt` with the negative baked in). Returns None on
+    failure so callers can fall back to the text-assembly builder."""
+    if not (blueprint_json or "").strip():
+        return None
+    try:
+        raw = await _call_claude(
+            _thumbnail_transform_prompt(blueprint_json, title, brand, cast_names, has_cast),
+            creds, tier="smart", max_tokens=2500)
+        modeled = json.loads(_strip_code_fences(raw))
+        prompt = (modeled.get("prompt") or "").strip()
+        neg = (modeled.get("negative_prompt") or "").strip()
+        if not prompt:
+            return None
+        return prompt + (f"\n\nAvoid (negative prompt): {neg}" if neg else "")
+    except Exception as e:
+        logger.warning("[model_video] thumbnail transform failed: %s", str(e)[:200])
+        return None
 
 
 _SCENE_OBSERVATION_PROMPT = (
@@ -564,7 +663,7 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
         f"Modeled from reference: {info.get('title') or reference_url}",
         str(pack.get("script_guidance") or ""),
         json.dumps(pack.get("title_options") or []),
-        str(pack.get("thumbnail_prompt") or "") or None,  # modeled (not copied) thumbnail concept
+        None,  # thumbnail_prompt: generator computes the JSON-modeled prompt from the blueprint
         info.get("views"),
         info.get("channel"),
         json.dumps(original_dna),

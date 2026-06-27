@@ -3446,12 +3446,56 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def _build_thumbnail_model_prompt(self, video_id: str, video: dict) -> str:
+    async def _build_modeled_thumbnail_prompt(
+        self, video_id: str, video: dict, ref_yt: str, has_cast: bool
+    ) -> str:
+        """JSON-blueprint modeling: turn the reference thumbnail into OUR modeled
+        thumbnail prompt — our story + our channel brand, in the reference's proven
+        winning formula. Reads the structured blueprint (stored at modeling time, or
+        generated on the fly for older videos), transforms it against our title/brand/
+        cast via Claude, and returns a single rich generation prompt (negatives baked
+        in, content-safety enforced). Falls back to the text-assembly builder if the
+        LLM path is unavailable so Regenerate never dead-ends."""
+        try:
+            from routes.model_video import (
+                _resolve_claude_creds, _describe_thumbnail_style,
+                _model_thumbnail_prompt, _fetch_channel_brand)
+            creds = await _resolve_claude_creds(self.tenant_id)
+            if creds:
+                blueprint = (video.get("thumbnail_style_override") or "").strip()
+                if not blueprint.startswith("{"):
+                    # Older video without a stored JSON blueprint — read it now.
+                    ref_thumb = f"https://img.youtube.com/vi/{ref_yt}/maxresdefault.jpg"
+                    blueprint = (await _describe_thumbnail_style(creds, ref_thumb)) or blueprint
+                brand = await _fetch_channel_brand(self.tenant_id)
+                names = ""
+                try:
+                    rows = await fetch_all(
+                        "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2 ORDER BY sort",
+                        video_id, self.tenant_id)
+                    names = ", ".join((r.get("name") or "").strip() for r in rows if r.get("name"))
+                except Exception:
+                    pass
+                modeled = await _model_thumbnail_prompt(
+                    creds, blueprint, video.get("video_title") or "", brand, names, has_cast)
+                if modeled:
+                    return modeled
+        except Exception as e:
+            await self._log_activity(
+                "Thumbnail Bot", video_id, "running",
+                f"JSON modeling unavailable, using fallback ({str(e)[:100]})")
+        return await self._build_thumbnail_model_prompt(video_id, video, has_cast=has_cast)
+
+    async def _build_thumbnail_model_prompt(
+        self, video_id: str, video: dict, has_cast: bool = True
+    ) -> str:
         """Modeled thumbnail prompt (MODEL, not copy): design OUR OWN thumbnail of
         OUR video's moment — driven by our title — applying the reference's winning
         FORMULA + STYLE (stored in thumbnail_style_override) and proven thumbnail
-        rules, with our cast. Built to generate from the CAST SHEET ONLY, so it never
-        traces the reference's image. Seeded into thumbnail_prompt for in-app refine."""
+        rules. Never traces the reference's image. has_cast=True frames it around the
+        cast sheet (character videos, image-to-image); has_cast=False frames a faceless
+        EVENT/iconography scene (explainer/documentary, text-to-image). Seeded into
+        thumbnail_prompt for in-app refine."""
         names = ""
         try:
             rows = await fetch_all(
@@ -3471,17 +3515,28 @@ separate scenes."""
             f"YouTube thumbnail, {ar}. Design a NEW, ORIGINAL thumbnail for OUR video. We are "
             "MODELING a proven competitor's winning thumbnail formula — not copying it: do NOT "
             "reproduce any competitor image, scene, object or composition. Build our own.",
-            "The reference image provided is OUR OFFICIAL CHARACTER CAST SHEET — reproduce these "
-            "EXACT characters (same faces, hair, skin tone, ages and clothing) and keep their "
-            "rendering style; never invent or substitute anyone.",
         ]
-        if names:
-            parts.append(f"The cast is: {names}.")
-        if clean_title:
+        if has_cast:
             parts.append(
-                f'OUR video is titled "{clean_title}". Stage the single most click-worthy moment '
-                "this title promises — its surprising reveal or payoff, caught the instant it "
-                "happens — as our own original scene with our cast.")
+                "The reference image provided is OUR OFFICIAL CHARACTER CAST SHEET — reproduce these "
+                "EXACT characters (same faces, hair, skin tone, ages and clothing) and keep their "
+                "rendering style; never invent or substitute anyone.")
+            if names:
+                parts.append(f"The cast is: {names}.")
+            subject = (
+                "Stage the single most click-worthy moment this title promises — its surprising "
+                "reveal or payoff, caught the instant it happens — as our own original scene with our cast.")
+        else:
+            parts.append(
+                "This is a FACELESS video — there is NO recurring cast. Build our own original scene "
+                "or bold iconography; any people are generic and incidental, not a fixed character.")
+            subject = (
+                "Depict the single most click-worthy MOMENT or visual this title promises — show the "
+                "EVENT or the charged subject the instant it lands (not a flat, static object shot). "
+                "Use one clear, instantly-readable focal subject plus simple iconography (arrows, "
+                "highlights, split-screen, glowing charts) where it sharpens the idea.")
+        if clean_title:
+            parts.append(f'OUR video is titled "{clean_title}". ' + subject)
         if signature:
             parts.append(
                 "Apply this proven winning STYLE and CLICK FORMULA (match the look and the pattern, "
@@ -3522,16 +3577,19 @@ separate scenes."""
             current_status = video.get("status")
 
             # ── Modeled mode (model, NOT copy) ────────────────────────
-            # When the video was modeled on a reference video (reference_url)
-            # AND has a character cast sheet, design OUR OWN thumbnail of OUR
-            # story's moment using the reference's winning FORMULA + STYLE — never
-            # tracing the reference's image. We generate from the CAST SHEET ONLY
-            # (it carries both our characters and the modeled art style), so the
-            # composition is fresh and our cast can't be overwritten. The editable
-            # thumbnail_prompt drives refinement: every Regenerate re-runs with
-            # whatever prompt is saved, so creators tune it in the app. Status
-            # stays at ready_for_thumbnail so Regenerate keeps working — the
-            # creator clicks Approve & Advance when happy.
+            # When the video was modeled on a reference video (reference_url),
+            # design OUR OWN thumbnail of OUR story's moment using the reference's
+            # winning FORMULA + STYLE — never tracing the reference's image. Works
+            # for ANY video, with or without a cast:
+            #   • cast videos    → generate from the CAST SHEET ONLY (it carries our
+            #     characters + the modeled look, so the composition stays fresh and
+            #     our cast can't be overwritten).
+            #   • faceless videos (explainer/documentary, no cast sheet) → build the
+            #     scene from text (GPT Image 2 text-to-image); the style signature in
+            #     the prompt carries the modeled look.
+            # The editable thumbnail_prompt drives refinement: every Regenerate
+            # re-runs with whatever prompt is saved. Status stays at ready_for_thumbnail
+            # so Regenerate keeps working — the creator clicks Approve & Advance when happy.
             import re as _re_thumb
             _ref = (video.get("reference_url") or "")
             _m = (_re_thumb.search(r"[?&]v=([\w-]{11})", _ref)
@@ -3540,25 +3598,32 @@ separate scenes."""
                   or _re_thumb.search(r"/shorts/([\w-]{11})", _ref))
             ref_yt = _m.group(1) if _m else None
             cast_sheet = (video.get("character_reference_url") or "").strip()
-            if ref_yt and cast_sheet:
-                await self._log_activity(bot_name, video_id, "started",
-                                         "Modeling thumbnail on the reference's winning formula")
+            if ref_yt:
+                has_cast = bool(cast_sheet)
+                await self._log_activity(
+                    bot_name, video_id, "started",
+                    "Modeling thumbnail on the reference's winning formula"
+                    + ("" if has_cast else " (faceless)"))
                 prompt = (video.get("thumbnail_prompt") or "").strip()
                 if not prompt:
-                    prompt = await self._build_thumbnail_model_prompt(video_id, video)
+                    prompt = await self._build_modeled_thumbnail_prompt(
+                        video_id, video, ref_yt, has_cast)
                 client = self._pipeline.image_client
-                # CAST SHEET ONLY — no reference thumbnail. The cast sheet is the
-                # one authoritative image (identities + the modeled Pixar/medium look),
-                # so the model invents our own fresh composition instead of copying
-                # the reference's. GPT Image 2 holds character identity best (live
-                # A/B); fall back to nano-banana-pro if it errors so Regenerate
-                # never dead-ends.
                 thumb_ar = video.get("aspect_ratio") or "16:9"
-                res = await client.generate_thumbnail_gpt2(
-                    prompt, [cast_sheet], aspect_ratio=thumb_ar)
-                if not (res or {}).get("url"):
-                    res = await client.generate_with_reference(
+                if has_cast:
+                    # CAST SHEET ONLY — the one authoritative seed image (identities +
+                    # the modeled look). GPT Image 2 holds character identity best (live
+                    # A/B); nano-banana-pro fallback so Regenerate never dead-ends.
+                    res = await client.generate_thumbnail_gpt2(
                         prompt, [cast_sheet], aspect_ratio=thumb_ar)
+                    if not (res or {}).get("url"):
+                        res = await client.generate_with_reference(
+                            prompt, [cast_sheet], aspect_ratio=thumb_ar)
+                else:
+                    # FACELESS — no cast sheet to seed from. Build from text: GPT Image 2
+                    # text-to-image. The style signature in the prompt carries the look.
+                    res = await client.generate_scene_image_gpt(
+                        prompt, None, aspect_ratio=thumb_ar)
                 url = (res or {}).get("url")
                 if not url:
                     await self._log_activity(bot_name, video_id, "failed",
