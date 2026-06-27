@@ -273,3 +273,13 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   main). Deferred (need Ryan + a real run): the run_next_step status-map swap, the own-channel
   onboarding ingestion, and the one-time prod purge of the 23 existing zero rows. See
   storyengine/HANDOFF-REPORT.md.
+- 2026-06-25 (live test + reliability): deployed Phase 0+1 to prod and live-tested "Model A
+  Video". Phase 1 PROVEN end to end (competitor row persisted real 1,325 views / 881s; style
+  detected "3D CG Pixar"). Surfaced + fixed a RELIABILITY root cause: the Kie Claude gateway
+  500'd then HUNG a modeling run. Decision (Ryan): Claude + vision analysis run on DIRECT
+  Anthropic; Kie only for image/video generation (+ fallback). Deployed: model_video
+  ._resolve_claude_creds Anthropic-first (was Kie-first); vision_client chain Anthropic-first
+  (was Kie-first → ~2.5min of Kie timeouts); stale Anthropic model ids → claude-sonnet-4-6.
+  Both verified with real calls. KNOWN MINOR (todo, fold into Phase 4): modeling sets length via
+  COALESCE(video_length_minutes, ref) so it keeps the create-form default instead of adopting the
+  reference's real runtime.

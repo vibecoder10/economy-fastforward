@@ -377,13 +377,13 @@ function OnboardingContent() {
   const currentStepKey = STEPS[step]?.key;
 
   return (
-    <div className="flex items-center justify-center min-h-screen px-4 py-12">
-      <div className="w-full max-w-xl">
+    <div className="flex items-center justify-center min-h-screen px-3 py-8 sm:px-4 sm:py-12">
+      <div className="w-full max-w-xl min-w-0">
         {statusLoadFailed && (
           <div
             role="status"
             data-testid="onboarding-network-banner"
-            className="mb-6 px-4 py-3 rounded-lg text-sm text-center"
+            className="mb-6 px-4 py-3 rounded-lg text-sm text-center sm:text-base"
             style={{
               background: "rgba(255, 180, 0, 0.08)",
               border: "1px solid rgba(255, 180, 0, 0.35)",
@@ -395,56 +395,58 @@ function OnboardingContent() {
         )}
 
         {/* Progress Bar */}
-        <div className="flex items-center justify-center gap-0 mb-10">
-          {STEPS.map((s, i) => {
-            const Icon = s.icon;
-            const done = i < step;
-            const active = i === step;
-            return (
-              <div key={s.key} className="flex items-center">
-                <div className="flex flex-col items-center">
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-all"
-                    style={{
-                      background: done
-                        ? "var(--turquoise)"
-                        : active
-                          ? "var(--gold)"
-                          : "rgba(255,255,255,0.08)",
-                      color: done || active ? "#000" : "var(--text-tertiary)",
-                    }}
-                  >
-                    {done ? <Check size={18} /> : <Icon size={18} />}
+        <div className="mb-8 max-w-full overflow-x-auto pb-2 sm:mb-10">
+          <div className="flex min-w-max items-start justify-center gap-0 px-1 sm:min-w-0 sm:px-0">
+            {STEPS.map((s, i) => {
+              const Icon = s.icon;
+              const done = i < step;
+              const active = i === step;
+              return (
+                <div key={s.key} className="flex items-start">
+                  <div className="flex w-14 flex-col items-center sm:w-16">
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all sm:h-10 sm:w-10"
+                      style={{
+                        background: done
+                          ? "var(--turquoise)"
+                          : active
+                            ? "var(--gold)"
+                            : "rgba(255,255,255,0.08)",
+                        color: done || active ? "#000" : "var(--text-tertiary)",
+                      }}
+                    >
+                      {done ? <Check size={18} /> : <Icon size={18} />}
+                    </div>
+                    <span
+                      className="mt-1.5 max-w-14 text-center font-mono text-[9px] uppercase leading-tight tracking-wider sm:max-w-none sm:text-[10px]"
+                      style={{
+                        color: done
+                          ? "var(--turquoise)"
+                          : active
+                            ? "var(--gold)"
+                            : "var(--text-tertiary)",
+                      }}
+                    >
+                      {s.label}
+                    </span>
                   </div>
-                  <span
-                    className="text-[10px] mt-1.5 font-mono uppercase tracking-wider"
-                    style={{
-                      color: done
-                        ? "var(--turquoise)"
-                        : active
-                          ? "var(--gold)"
-                          : "var(--text-tertiary)",
-                    }}
-                  >
-                    {s.label}
-                  </span>
+                  {i < STEPS.length - 1 && (
+                    <div
+                      className="mt-[18px] h-px w-3 shrink-0 sm:w-8 md:w-12"
+                      style={{
+                        background: i < step ? "var(--turquoise)" : "rgba(255,255,255,0.1)",
+                      }}
+                    />
+                  )}
                 </div>
-                {i < STEPS.length - 1 && (
-                  <div
-                    className="w-12 h-px mx-1.5 mb-5"
-                    style={{
-                      background: i < step ? "var(--turquoise)" : "rgba(255,255,255,0.1)",
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
 
         {/* Step Content */}
         <div
-          className="p-8 rounded-2xl"
+          className="p-5 rounded-2xl sm:p-8"
           style={{
             background: "rgba(15,22,38,0.65)",
             border: "1px solid rgba(0,212,170,0.12)",
