@@ -381,3 +381,23 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   /pipeline/x/storyboards + /review + /login still 200. Still owed: the paid Model-A-Video
   end-to-end proof (does the unified coverage path draw correctly + stop at pictures), own-channel
   ingestion, prod zero-row purge.
+- 2026-06-29 (big session, all SHIPPED + verified on prod, HEAD 1f09f213): Phase 0
+  finished (legacy /prompts /storyboards /images now 410; dead VisualsTab/pages
+  removed; verified /visuals + /storyboard 404 publicly). Phase 1 dead-video pruning
+  (mig 067 removed_at + youtube_data_api.fetch_live_video_ids; proven 4 dead videos
+  flagged, "Worth modeling" top-5 now all live; "Watch on YouTube" links added).
+  Phase 2 channel intelligence (mig 066 channel_intel; rich brief into every producer
+  turn — verified it derived the A1-A2 named-character hook pattern) + on-demand
+  "✨ Suggest a video idea" button (replaced auto-fire). Phase 3 style detect→apply
+  (was already wired; surfaced via plan-card "Look" line + pipeline style badge;
+  fixed the bug where modeling clobbered an explicit pick — COALESCE guard; added
+  the recommendation: detect the reference's preset → "✨ Recommended" on the style
+  card + "looks like Pixar 3D" on the plan card; PROVEN universal — live-action refs
+  classify realistic, animated classify pixar_3d). Phase 4 partial (length default
+  anchors to the channel median — proven 8 min for the ESL channel). All verified in
+  the live UI via the Chrome MCP. NEXT: Phase 10 Scene-1 acceptance gate (build one
+  modeled Scene-1 STORYBOARD on the unified path, screenshot-verify angles + story
+  progression + characters/scene defined well — this gates the paid clip spend);
+  then Phases 5-9 port the remaining director machinery into coverage. Run the
+  Scene-1 storyboard FIRST as a diagnostic before building 5-9 (the audit is stale;
+  let the real output dictate priorities).
