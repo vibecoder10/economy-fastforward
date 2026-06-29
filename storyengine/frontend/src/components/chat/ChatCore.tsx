@@ -541,31 +541,63 @@ function ModelSuggestions({ data, onPick }: { data: SuggestedModels; onPick: (v:
         </span>
       </div>
       <div className="flex flex-col gap-2">
-        {data.videos.map((v) => (
-          <button
+        {data.videos.map((v) => {
+          const ytUrl = v.url || (v.video_id ? `https://www.youtube.com/watch?v=${v.video_id}` : null);
+          return (
+          <div
             key={v.video_id}
-            onClick={() => onPick(v)}
             className="group flex gap-3 items-stretch text-left rounded-xl p-2 transition-all hover:brightness-110"
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
           >
-            <div className="shrink-0 w-28 aspect-video rounded-lg overflow-hidden" style={{ background: "var(--bg-deep)" }}>
+            <button
+              onClick={() => onPick(v)}
+              title="Make one like this"
+              className="shrink-0 w-28 aspect-video rounded-lg overflow-hidden"
+              style={{ background: "var(--bg-deep)" }}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={v.thumbnail} alt="" className="w-full h-full object-cover" loading="lazy" />
-            </div>
+            </button>
             <div className="flex-1 min-w-0 flex flex-col gap-1 py-0.5">
-              <div className="text-sm font-medium line-clamp-1" style={{ color: "var(--text-primary)" }}>{v.title}</div>
+              <button
+                onClick={() => onPick(v)}
+                className="text-left text-sm font-medium line-clamp-1 hover:underline"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {v.title}
+              </button>
               <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
                 <span className="inline-flex items-center gap-1"><Eye size={11} /> {fmtViews(v.views)}</span>
                 <span>{v.posted}</span>
                 <span style={{ color: "var(--turquoise)" }}>{v.vph.toLocaleString()}/hr</span>
+                {ytUrl && (
+                  <a
+                    href={ytUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    title="Open the source video on YouTube to verify it's real and current"
+                    className="inline-flex items-center gap-1 hover:underline"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    <Youtube size={12} /> Watch
+                  </a>
+                )}
               </div>
-              <div className="text-xs line-clamp-2" style={{ color: "var(--text-secondary)" }}>{v.why}</div>
+              <button
+                onClick={() => onPick(v)}
+                className="text-left text-xs line-clamp-2"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {v.why}
+              </button>
               <div className="text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1" style={{ color: "var(--turquoise)" }}>
                 Make one like this <ArrowRight size={11} />
               </div>
             </div>
-          </button>
-        ))}
+          </div>
+          );
+        })}
       </div>
     </div>
   );
