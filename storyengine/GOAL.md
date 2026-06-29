@@ -401,3 +401,26 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   then Phases 5-9 port the remaining director machinery into coverage. Run the
   Scene-1 storyboard FIRST as a diagnostic before building 5-9 (the audit is stale;
   let the real output dictate priorities).
+- 2026-06-29 (Phase 10 Scene-1 storyboard diagnostic — RUN + PASSED, ~$1.80 image spend):
+  Drew Scene 1 of "Family Manners at Home" (video 3d5aa0ca, modeled, cast Tom/Mum/Dad/Gran
+  locked, Pixar-3D) on the LIVE unified path (generate_coverage_for_video scene=1, run scene-scoped
+  on the VPS). PASS against the gate: (a) distinct angles — real coverage grammar incl. OTS reverse
+  pairs, WS establishing, CU faces, INSERT cutaways (table / feet on stairs / phone); (b) story
+  progresses — 18 beats map 1:1 to the dialogue with a full arc (empty table → Mum calls → Tom
+  dismissive → stairs → Dad on lateness → phone admission → verdict → posture correction → sincere
+  apology); (c) characters + scene defined + HELD consistent — Tom identical on the sofa (M3) and
+  at the table (M13), all 4 locked cast present, NO invented people, dining-room env + Pixar style
+  consistent across all 36 frames. Contact sheet: ~/Desktop/scene1_contact_sheet.png; frames on the
+  VPS /tmp/coverage_app/3d5aa0ca/scene1 + local /tmp/se_scene1.
+  KEY DIAGNOSTIC FINDING — the 2026-06-24 audit is SUBSTANTIALLY STALE. Most of the "missing director
+  machinery" is already in coverage: Phase 5 (story progression) works; Phase 8 (closed-cast / no
+  invention) handled a 4-character scene cleanly (and a hard 1-char-per-scene rule would have HURT
+  this dinner scene); Phase 9 (env lock) looks solved (same room / portraits / pendant throughout).
+  The ONE clearly broken, costly problem is SHOT-COUNT INFLATION: _coverage_shape drew 18 moments /
+  36 frames for a single ~590-char dialogue scene → an 8-scene video ≈ 290 frames ≈ $14 in images
+  alone, before any clip. REORDERED PRIORITIES: (1) Phase 6 = add a per-scene shot budget (cap
+  moments ~6-10, trim marginal silent inserts) — NO SPEND, the real win; (2) then the gated paid
+  Scene-1 CLIP test (~$1-2) to prove motion / lip-sync / consistency in video = Phase 7, the only
+  thing still unproven; (3) downgrade Phases 5/8/9 from "build" to "spot-check / verify". ALSO: the
+  dry-run estimator (CLI fixed 3-moments → ~$0.65) badly under-quotes the live dialogue-sized path
+  (~$1.80 actual) — fix the estimator to use _coverage_shape.

@@ -1591,11 +1591,20 @@ async def run_render(
 
     _require_stage_enabled(video, "render")
 
+    # Render whatever's been generated: a stitch only needs clips to exist. Allow it
+    # once the video is at/past ready_to_render OR any clips have been generated (so a
+    # partially-animated video can be stitched into a final from the clips it has).
     if not is_at_or_past_stage(video["status"], "ready_to_render"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Video not ready to render (status: {video['status']})",
+        clip_row = await fetch_one(
+            "SELECT count(*) AS n FROM assets "
+            "WHERE video_id = $1 AND tenant_id = $2 AND video_clip_url IS NOT NULL",
+            video_id, tenant_id,
         )
+        if not (clip_row and clip_row["n"] > 0):
+            raise HTTPException(
+                status_code=400,
+                detail=f"No clips generated yet to stitch (status: {video['status']})",
+            )
 
     if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")

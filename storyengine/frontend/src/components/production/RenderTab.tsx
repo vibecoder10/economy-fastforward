@@ -6,8 +6,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { FilterSelect } from "@/components/ui/FilterSelect";
-import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask, advanceVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
@@ -43,8 +41,7 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
   const toast = useToast();
   const [isRendering, setIsRendering] = useState(false);
   const [confirmRender, setConfirmRender] = useState(false);
-  const [musicTrack, setMusicTrack] = useState("tension");
-  const [exportFormat, setExportFormat] = useState("mp4");
+  const [orientation, setOrientation] = useState<"auto" | "landscape" | "portrait">("auto");
   const [taskRunning, setTaskRunning] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
@@ -94,18 +91,44 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
   const vid = video as any;
   const duration = formatDuration(video.video_length_minutes ?? vid.videoLengthMin);
 
+  // What will actually be stitched: every generated clip, in scene order. This is the
+  // partial-render truth — render exactly the clips that exist, even if some scenes
+  // aren't animated yet.
+  const clipAssets = assets.filter((a) => a.video_clip_url);
+  const clipCount = clipAssets.length;
+  const clipScenes = Array.from(
+    new Set(clipAssets.map((a) => a.scene).filter((s): s is number => typeof s === "number"))
+  ).sort((a, b) => a - b);
+  const stitchSeconds = clipAssets.reduce(
+    (sum, a) => sum + (Number((a as unknown as { video_duration?: number | string }).video_duration) || 0),
+    0,
+  );
+  const fmtSecs = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  const scenesLabel =
+    clipScenes.length === 0
+      ? ""
+      : clipScenes.length === 1
+        ? `scene ${clipScenes[0]}`
+        : clipScenes[clipScenes.length - 1] - clipScenes[0] === clipScenes.length - 1
+          ? `scenes ${clipScenes[0]}–${clipScenes[clipScenes.length - 1]}`
+          : `scenes ${clipScenes.join(", ")}`;
+  const totalScenes = scriptScenes.length;
+  const isPartial = clipCount > 0 && totalScenes > 0 && clipScenes.length < totalScenes;
+  const resLabel = orientation === "portrait" ? "1080×1920" : orientation === "landscape" ? "1920×1080" : "Auto (from clips)";
+  const fpsLabel = "24";
+
   const handleRender = useCallback(async () => {
     setIsRendering(true);
     setConfirmRender(false);
     try {
-      await runPipelineStage(video.id, "render");
+      await runPipelineStage(video.id, "render", { orientation });
       setTaskRunning(true);
     } catch (err: unknown) {
       const message = (err as Error).message || "";
       if (message.includes("409")) {
         try {
           await clearStaleTask(video.id);
-          await runPipelineStage(video.id, "render");
+          await runPipelineStage(video.id, "render", { orientation });
           setTaskRunning(true);
           return;
         } catch (retryErr) {
@@ -116,7 +139,7 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
       }
       setIsRendering(false);
     }
-  }, [video.id]);
+  }, [video.id, orientation]);
 
   const renderActive = isRendering || isRenderStatus || taskRunning;
 
@@ -350,10 +373,10 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
               </span>
               <span>
                 Resolution:{" "}
-                <span style={{ color: "var(--turquoise)" }}>1920x1080</span>
+                <span style={{ color: "var(--turquoise)" }}>{resLabel}</span>
               </span>
               <span>
-                FPS: <span style={{ color: "var(--gold)" }}>30</span>
+                FPS: <span style={{ color: "var(--gold)" }}>{fpsLabel}</span>
               </span>
             </div>
           </GlassCard>
@@ -363,12 +386,46 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
       {/* Sidebar */}
       <div className="space-y-4">
         <GlassCard className="p-5">
-          <div className="space-y-3">
+          {/* Orientation — the one render override that's wired end to end. */}
+          <div className="mb-4">
+            <span className="text-xs block mb-1.5" style={{ color: "var(--text-secondary)" }}>
+              Orientation
+            </span>
+            <div className="grid grid-cols-3 gap-1">
+              {([
+                { value: "auto", label: "Auto" },
+                { value: "landscape", label: "16:9" },
+                { value: "portrait", label: "9:16" },
+              ] as const).map((opt) => {
+                const active = orientation === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setOrientation(opt.value)}
+                    disabled={renderActive}
+                    className="py-1.5 rounded-lg text-[11px] font-semibold transition-all disabled:opacity-50"
+                    style={{
+                      background: active ? "var(--turquoise)" : "rgba(255,255,255,0.04)",
+                      color: active ? "var(--bg-void)" : "var(--text-secondary)",
+                      border: `1px solid ${active ? "var(--turquoise)" : "var(--border)"}`,
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] mt-1.5" style={{ color: "var(--text-tertiary)" }}>
+              Auto follows the majority of your clips.
+            </p>
+          </div>
+          <div className="space-y-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
             {[
-              { label: "Resolution", value: "1920x1080" },
-              { label: "FPS", value: "30" },
-              { label: "Duration", value: duration },
-              { label: "Scenes", value: String(scriptScenes.length) },
+              { label: "Resolution", value: resLabel },
+              { label: "FPS", value: fpsLabel },
+              { label: "Clips ready", value: String(clipCount) },
+              { label: "Scenes", value: totalScenes > 0 ? `${clipScenes.length}/${totalScenes}` : String(clipScenes.length) },
+              { label: "Stitched length", value: stitchSeconds > 0 ? `≈ ${fmtSecs(stitchSeconds)}` : duration },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -383,41 +440,40 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
               </div>
             ))}
           </div>
-          <div className="mt-4 space-y-3">
-            <FilterSelect
-              label="Music Track"
-              options={[
-                { value: "tension", label: "Tension Rising" },
-                { value: "ambient", label: "Dark Ambient" },
-                { value: "none", label: "No Music" },
-              ]}
-              value={musicTrack}
-              onChange={setMusicTrack}
-              disabled
-              title="Render music selection is not wired to the production backend yet."
-            />
-            <FilterSelect
-              label="Export Format"
-              options={[
-                { value: "mp4", label: "MP4 (H.264)" },
-                { value: "webm", label: "WebM (VP9)" },
-              ]}
-              value={exportFormat}
-              onChange={setExportFormat}
-              disabled
-              title="Render export format selection is not wired to the production backend yet."
-            />
-            <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-              Render overrides will be enabled once backend render options are wired end to end.
-            </p>
-          </div>
         </GlassCard>
 
         <div className="space-y-2">
+          {/* What Render Now will actually stitch. */}
+          {!renderActive && (
+            <div
+              className="rounded-lg px-3 py-2 text-[11px]"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}
+            >
+              {clipCount > 0 ? (
+                <>
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    Stitches <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{clipCount} clips</span>
+                    {scenesLabel ? <> ({scenesLabel})</> : null} in order with FFmpeg.
+                  </span>
+                  {isPartial && (
+                    <span className="block mt-1" style={{ color: "var(--gold)" }}>
+                      Only {clipScenes.length} of {totalScenes} scenes are animated — the rest are skipped.
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span style={{ color: "var(--text-tertiary)" }}>
+                  No clips generated yet. Animate at least one scene to render.
+                </span>
+              )}
+            </div>
+          )}
           {confirmRender ? (
             <>
               <p className="text-[11px] text-center mb-2" style={{ color: "var(--text-secondary)" }}>
-                This will start rendering the video. Continue?
+                {isPartial
+                  ? `Stitch the ${clipCount} clips you've generated into a final video? Scenes without clips are skipped.`
+                  : "This will stitch your clips into the final video. Continue?"}
               </p>
               <ActionButton
                 variant="warning"
@@ -441,9 +497,9 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
               variant="warning"
               className="w-full"
               onClick={() => setConfirmRender(true)}
-              disabled={renderActive}
+              disabled={renderActive || clipCount === 0}
             >
-              {renderActive ? "Rendering..." : "Render Now"}
+              {renderActive ? "Rendering..." : clipCount === 0 ? "No clips to render" : "Render Now"}
             </ActionButton>
           )}
         </div>
