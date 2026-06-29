@@ -2239,15 +2239,18 @@ async def chat_turn(
         # static greeting. Gated to the first open (empty transcript), so it
         # fires once per conversation, not on every poll. Fail-soft to the greeting.
         if not transcript:
+            # Self-gating: _generate_competitor_ideas returns None when there's no
+            # competitor data or no API key, so we don't rely on creator_brief being
+            # populated (established tenants keep channel data in other tables, not
+            # the chat brief — gating on state.channel here silently skipped them).
             ideas = None
-            if state.get("channel") or state.get("competitors"):
-                try:
-                    ideas = await _generate_competitor_ideas(
-                        tenant_id, state, niche=state.get("niche_angle")
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("chat: proactive idea pitch failed: %s", e)
-                    ideas = None
+            try:
+                ideas = await _generate_competitor_ideas(
+                    tenant_id, state, niche=state.get("niche_angle")
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("chat: proactive idea pitch failed: %s", e)
+                ideas = None
             if ideas:
                 return await _present_ideas_turn(
                     conversation_id, tenant_id, transcript, state, ideas
