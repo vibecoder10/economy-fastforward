@@ -2292,7 +2292,7 @@ separate scenes."""
             char_id = str(row["id"])
             for attempt in range(3):
                 try:
-                    temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna)
+                    temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna, name=ch.get("name") or "")
                     url = await _persist_portrait_url(self.tenant_id, video_id, char_id, temp_url)
                     await execute("UPDATE video_characters SET reference_url=$1, updated_at=now() WHERE id=$2",
                                   url, char_id)

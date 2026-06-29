@@ -342,7 +342,7 @@ async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, s
         char_id = str(row["id"])
         for attempt in range(3):
             try:
-                temp_url = await _generate_portrait(ic.api_key, ch.get("description") or ch["name"], style or "")
+                temp_url = await _generate_portrait(ic.api_key, ch.get("description") or ch["name"], style or "", name=ch.get("name") or "")
                 ref = await _persist_portrait_url(tenant, vid, char_id, temp_url)
                 await execute("UPDATE video_characters SET reference_url=$1, updated_at=now() WHERE id=$2",
                               ref, char_id)

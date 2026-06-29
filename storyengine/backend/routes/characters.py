@@ -146,43 +146,41 @@ Return ONLY valid JSON:
     return [c for c in cast if (c.get("name") or "").strip()]
 
 
-async def _generate_portrait(api_key: str, description: str, style_dna: str) -> str:
-    """One character reference portrait via Kie (same job pattern as
-    visual_styles character generation). Returns the image URL."""
+async def _generate_portrait(api_key: str, description: str, style_dna: str, name: str = "") -> str:
+    """One character MODEL SHEET via Kie (nano-banana-2). A polished animation-studio
+    reference sheet — TURNAROUND (5 views) + EXPRESSIONS + POSE STUDIES + a left info
+    panel — so every storyboard panel, clip and thumbnail can lock the character's full
+    look, angles and emotions. The art_style leads so the cast and the locations share
+    one medium (no 2D-vs-3D drift). Returns the image URL."""
     style = (style_dna or "").strip()
-    # Structured prompt — the SAME art_style + render_medium leading slots the
-    # environment generator uses, so the cast and the locations share one locked
-    # medium (no 2D-vs-3D drift between characters and their world).
-    spec = {
-        "art_style": style or "consistent illustrated style",
-        "render_medium": (
-            "render in the exact medium named in art_style and keep it identical for "
-            "every image — do NOT switch to photorealism or flat 2D illustration unless "
-            "art_style explicitly calls for it"
-        ),
-        # A 4-view character REFERENCE SHEET (the 360 consistency anchor), not a single
-        # frame — matches character-creation-prompt.md. All angles in ONE wide image so
-        # every storyboard panel + animation can lock the character's full look.
-        "layout": (
-            "a SINGLE professional character reference sheet showing the SAME character in FOUR "
-            "views, left-to-right, on a plain neutral grey studio background: "
-            "(1) Full Body Front — slight three-quarter front, entire body head to toe; "
-            "(2) Full Body Back — straight rear view, full body; "
-            "(3) Front Portrait — head-and-shoulders front, showing face, hair and upper clothing; "
-            "(4) Side Portrait — head-and-shoulders left profile, exact 90-degree side view. "
-            "Keep the SAME face, body proportions, hairstyle, outfit, colors and accessories "
-            "identical across all four views; clean even studio lighting; symmetrical, evenly spaced."
-        ),
-        "subject": description.strip(),
-        "background": "plain neutral grey studio background only",
-        "exclude": "no text, no labels, no logos, no watermarks, no props, no extra characters",
-    }
-    prompt = json.dumps(spec, ensure_ascii=False)
+    art = style or "polished, colorful family-animation style"
+    who = (name or "the character").strip()
+    prompt = (
+        f"Create a clean, professional CHARACTER MODEL SHEET (one single image) for {who}, an "
+        f"original kid-friendly character, rendered in {art}. The character: {description.strip()}. "
+        f"Render {who} IDENTICALLY in every view, expression and pose — same face, hair, body "
+        "proportions, outfit, colors and accessories. Lay it out like a polished animation studio "
+        "model sheet on a clean light lavender-gray studio background, with bold blue uppercase "
+        "section headers, small readable labels, clean spacing and thin blue divider lines:\n"
+        "• TURNAROUND across the top — a full-body row, five views left-to-right labeled FRONT, "
+        "3/4 FRONT, SIDE, 3/4 BACK, BACK.\n"
+        "• EXPRESSIONS in the middle — head-and-shoulders close-ups labeled SHOCKED, SAD, HAPPY, "
+        "CONFUSED, ANGRY, EXCITED.\n"
+        "• POSE STUDIES at the bottom — dynamic full-body action poses labeled REACHING FORWARD, "
+        "KNEELING, POINTING, HANDS ON CHEEKS.\n"
+        f"• A LEFT INFO PANEL with '{who.upper()}' as a large bold blue title, a one-word role, a few "
+        "short personality keyword tags, and a color-palette swatch row. Keep ALL panel text minimal, "
+        "large and correctly spelled — no long sentences or paragraphs of tiny text.\n"
+        "Bright soft studio lighting, expressive faces, rounded clean shapes, sharp and uncluttered, "
+        "consistent design in every cell. Avoid: realistic photography, real brand logos, extra "
+        "unrelated characters, scene backgrounds, watermarks, distorted faces, mismatched outfits or "
+        "proportions, malformed hands, paragraphs of tiny gibberish text, misspelled or blurry labels."
+    )
     async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
         create_resp = await client.post(
             KIE_CREATE_TASK_URL,
             json={"model": PORTRAIT_MODEL,
-                  "input": {"prompt": prompt[:1800], "aspect_ratio": "16:9", "output_format": "png"}},
+                  "input": {"prompt": prompt[:2400], "aspect_ratio": "4:3", "output_format": "png"}},
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         )
         if create_resp.status_code != 200:
@@ -308,7 +306,7 @@ async def design_characters(
                 last_err = None
                 for attempt in range(3):
                     try:
-                        temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna)
+                        temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna, name=ch.get("name") or "")
                         url = await _persist_portrait_url(tenant_id, video_id, char_id, temp_url)
                         await execute(
                             "UPDATE video_characters SET reference_url = $1, updated_at = now() WHERE id = $2",
@@ -370,7 +368,7 @@ async def regenerate_character(
 
     async def _run():
         try:
-            temp_url = await _generate_portrait(api_key, char.get("description") or char["name"], style_dna)
+            temp_url = await _generate_portrait(api_key, char.get("description") or char["name"], style_dna, name=char.get("name") or "")
             url = await _persist_portrait_url(tenant_id, video_id, char_id, temp_url)
             await execute(
                 "UPDATE video_characters SET reference_url = $1, source = 'generated', "
