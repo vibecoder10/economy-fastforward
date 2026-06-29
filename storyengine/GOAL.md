@@ -213,6 +213,16 @@ else "Cinematic (default)") so the creator confirms the style before "Make it"; 
 the pipeline page header shows a style badge (preset label, or the detected style's
 first clause + "· from reference" when visual_style is empty but image_style_override
 is set == modeled). Frontend-only, no spend.
+BUGS found in live testing (2026-06-29) + fixed: (a) modeling OVERWROTE an explicit
+creator look-pick (image_style_override = detected, unconditional) — a picked
+Realistic became the reference's Pixar. Fixed both model_video UPDATEs to
+`COALESCE(NULLIF(image_style_override,''), <detected>)` so the pick wins and the
+reference only fills a blank. (b) The plan-card "Look" line said "Matched from
+reference" even when a style was picked — now the pick label wins. (c) Ghost
+"Continue" button: an empty selector card rendered alongside the plan — suppressed
+SelectorCards when a plan is present. STILL WANTED (Ryan, enhancement): at pick time
+RECOMMEND the detected style ("this looks closest to Pixar — match it or pick your
+own"), i.e. sync style-detect before the LOOK card, not just silent auto-apply.
 
 Connect the two good halves on the chat path.
 - "Worth modeling" click and "model this" must pass the reference video id/url so the chat-created

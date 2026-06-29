@@ -352,7 +352,7 @@ export function ChatCore({
           onChoose={(value, label) => turn({ selections: { confirm_action: value } }, label)}
         />
       )}
-      {activeCards && !actionCard && !sending && (
+      {activeCards && !actionCard && !activePlan && !sending && (
         <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSetValue={setPickValue} onSubmit={submitPicks} canSubmit={allCardsAnswered} />
       )}
       {activePlan && !sending && (
@@ -914,11 +914,18 @@ function SelectorCards({
 // --- production plan ------------------------------------------------------
 
 function ProductionPlanCard({ plan, onApprove }: { plan: ProductionPlan; onApprove: () => void }) {
-  // Surface the visual style so the creator confirms the look, not a silent default.
+  // Surface the visual style so the creator confirms what will actually generate.
+  // An explicit pick WINS over the reference (modeling no longer clobbers it), so
+  // show the picked look first; only fall back to "matched from reference".
   const spec = (plan.spec ?? {}) as { reference_url?: string; visual_style_label?: string; visual_style?: string };
-  const styleText = spec.reference_url
-    ? "Matched from your reference video"
-    : (spec.visual_style_label || spec.visual_style || "Cinematic (default)");
+  const PRESET_LABELS: Record<string, string> = {
+    pixar_3d: "Pixar 3D", flat_2d: "2D Flat", realistic: "Realistic",
+    anime: "Anime", watercolor: "Watercolor", comic: "Comic",
+  };
+  const picked = spec.visual_style_label
+    || (spec.visual_style ? (PRESET_LABELS[spec.visual_style] || spec.visual_style) : "");
+  const styleText = picked
+    || (spec.reference_url ? "Matched from your reference video" : "Cinematic (default)");
   return (
     <GlassCard className="flex flex-col gap-4" style={{ borderColor: "var(--turquoise-dim)" }}>
       <div className="flex items-center gap-2">

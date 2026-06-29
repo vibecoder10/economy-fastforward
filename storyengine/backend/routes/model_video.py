@@ -653,7 +653,9 @@ async def _persist_pack(tenant_id, video_id: str, reference_url: str, youtube_id
            writer_guidance = $4, title_candidates = $5, thumbnail_prompt = $6,
            source_views = $7, source_channel = $8,
            original_dna = $9, research_payload = $10,
-           image_style_override = $11, thumbnail_style_override = $12,
+           -- Respect an explicit creator look: only apply the reference's detected
+           -- style when they didn't pick one (else their choice wins).
+           image_style_override = COALESCE(NULLIF(image_style_override, ''), $11), thumbnail_style_override = $12,
            video_motion_system_prompt = $13,
            video_length_minutes = COALESCE(video_length_minutes, $14),
            script_system_prompt = $15,
@@ -795,7 +797,8 @@ async def _persist_style_overrides(
         """UPDATE videos SET
            idea_reasoning = $1, source_views = $2, source_channel = $3,
            original_dna = $4,
-           image_style_override = $5, thumbnail_style_override = $6,
+           -- Respect an explicit creator look (see above): pick wins over detected.
+           image_style_override = COALESCE(NULLIF(image_style_override, ''), $5), thumbnail_style_override = $6,
            video_motion_system_prompt = $7, script_system_prompt = $8,
            video_length_minutes = COALESCE(video_length_minutes, $9),
            updated_at = now()
