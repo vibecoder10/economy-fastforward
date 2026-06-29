@@ -637,6 +637,13 @@ async def run_prompts(
     Video must be at 'ready_for_image_prompts' status unless scene is specified
     (targeted single-scene or single-segment regen bypasses status gate).
     """
+    # DEPRECATED (Phase 0 unify, 2026-06-29): the old 3x3 grid path is retired.
+    # Image/storyboard generation now runs through the unified coverage pipeline
+    # (run_coverage_stage). Delete this raise to restore the old path.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Image prompts now run through the unified coverage pipeline (Scenes tab).",
+    )
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -694,6 +701,12 @@ async def run_storyboards(
     Args:
         scene: If set, only generate prompts for this scene (per-scene mode).
     """
+    # DEPRECATED (Phase 0 unify, 2026-06-29): retired in favor of the unified
+    # coverage pipeline. Delete this raise to restore the old grid path.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Storyboards now run through the unified coverage pipeline (Scenes tab).",
+    )
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -801,6 +814,12 @@ async def run_storyboard_images(
     Args:
         scene: If set, only generate images for this scene (per-scene mode).
     """
+    # DEPRECATED (Phase 0 unify, 2026-06-29): retired in favor of the unified
+    # coverage pipeline. Delete this raise to restore the old grid path.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Storyboard images now run through the unified coverage pipeline (Scenes tab).",
+    )
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -1009,6 +1028,12 @@ async def run_storyboard_extract(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Extract frames from storyboard grids."""
+    # DEPRECATED (Phase 0 unify, 2026-06-29): retired in favor of the unified
+    # coverage pipeline. Delete this raise to restore the old grid path.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Frame extraction now runs through the unified coverage pipeline (Scenes tab).",
+    )
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -1249,6 +1274,13 @@ async def run_images(
     When scene/index are specified, performs targeted single-image regen
     and bypasses the status gate.
     """
+    # DEPRECATED (Phase 0 unify, 2026-06-29): the old grid image path is retired.
+    # Image generation now runs through the unified coverage pipeline
+    # (run_coverage_stage). Delete this raise to restore the old path.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Image generation now runs through the unified coverage pipeline (Scenes tab).",
+    )
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,

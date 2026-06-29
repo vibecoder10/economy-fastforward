@@ -1062,12 +1062,6 @@ export interface SplitResult {
 export const runSplit = (videoId: string) =>
   fetchApi<SplitResult>(`/api/pipeline/split/${videoId}`, { method: "POST" });
 
-export const runPromptsForScene = (videoId: string, scene: number) =>
-  fetchApi<PipelineResponse>(`/api/pipeline/prompts/${videoId}?scene=${scene}`, { method: "POST" });
-
-export const runPromptsForSegment = (videoId: string, scene: number, index: number) =>
-  fetchApi<PipelineResponse>(`/api/pipeline/prompts/${videoId}?scene=${scene}&index=${index}`, { method: "POST" });
-
 export const updateSceneSegments = (
   videoId: string, scene: number,
   segments: { image_index: number; sentence_text: string }[]
@@ -1291,17 +1285,6 @@ export const runVoiceForScene = (videoId: string, scene: number) =>
     method: "POST",
   });
 
-export const runImageForSegment = (videoId: string, scene: number, index: number) =>
-  fetchApi<PipelineResponse>(
-    `/api/pipeline/images/${videoId}?scene=${scene}&index=${index}`,
-    { method: "POST" }
-  );
-
-export const runImageVariants = (videoId: string, scene: number, index: number, count = 3) =>
-  fetchApi<PipelineResponse>(
-    `/api/pipeline/images/${videoId}?scene=${scene}&index=${index}&variants=${count}`,
-    { method: "POST" }
-  );
 
 // Types
 export interface DashboardSummary {

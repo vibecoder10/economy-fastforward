@@ -13,7 +13,7 @@ import {
   getVideoScript, getVideoAssets, advanceVideo, rejectVideo,
   runPipelineStage, updateSceneText, updateVideo, clearStaleTask,
   runVoiceForScene, runSplit, getSceneSegments, updateSceneSegments,
-  runPromptsForScene, runPromptsForSegment, getDefaultScriptPrompt,
+  getDefaultScriptPrompt,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
   setApiKey, getApiKeyStatus,
 } from "@/lib/api";
@@ -504,12 +504,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const [generatingVoiceAll, setGeneratingVoiceAll] = useState(false);
   const [generatingVoiceScene, setGeneratingVoiceScene] = useState<number | null>(null);
 
-  // Image prompt generation actions
-  const [generatingPromptsAll, setGeneratingPromptsAll] = useState(false);
-  const [generatingPromptsScene, setGeneratingPromptsScene] = useState<number | null>(null);
-  const [generatingPromptsSegment, setGeneratingPromptsSegment] = useState<string | null>(null);
-  const [promptTaskRunning, setPromptTaskRunning] = useState(false);
-
   // Task polling (script generation)
   const [scriptTaskRunning, setScriptTaskRunning] = useState(false);
   const { message: scriptTaskMessage } = useTaskPoller({
@@ -595,28 +589,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     }
     setExpandedScenes((prev) => new Set(prev).add(sceneNum));
   }, [video.id]);
-
-  // Task polling (image prompt generation)
-  const { message: promptTaskMessage } = useTaskPoller({
-    videoId: video.id,
-    enabled: promptTaskRunning,
-    interval: 3000,
-    onComplete: () => {
-      setPromptTaskRunning(false);
-      setGeneratingPromptsAll(false);
-      setGeneratingPromptsScene(null);
-      setGeneratingPromptsSegment(null);
-      // Refresh expanded scenes to pick up new imagePrompt values
-      expandedScenes.forEach((sceneNum) => fetchAndExpandScene(sceneNum));
-    },
-    onFailed: (error) => {
-      setPromptTaskRunning(false);
-      setGeneratingPromptsAll(false);
-      setGeneratingPromptsScene(null);
-      setGeneratingPromptsSegment(null);
-      toast.error(`Image prompt generation failed: ${error}`);
-    },
-  });
 
   // Sentence splitting
   const [splitDone, setSplitDone] = useState(false);
@@ -886,56 +858,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   );
 
   // ---------------------------------------------------------------------------
-  // Image prompt handlers
-  // ---------------------------------------------------------------------------
-
-  const handleGenerateAllPrompts = useCallback(async () => {
-    setGeneratingPromptsAll(true);
-    try {
-      await runPipelineStage(video.id, "prompts");
-      setPromptTaskRunning(true);
-    } catch (err: unknown) {
-      const message = (err as Error).message || "";
-      if (message.includes("409")) {
-        try {
-          await clearStaleTask(video.id);
-          await runPipelineStage(video.id, "prompts");
-          setPromptTaskRunning(true);
-          return;
-        } catch (retryErr) {
-          toast.error(`Failed: ${(retryErr as Error).message}`);
-        }
-      } else {
-        toast.error(`Failed: ${message}`);
-      }
-      setGeneratingPromptsAll(false);
-    }
-  }, [video.id]);
-
-  const handleGenerateScenePrompts = useCallback(async (sceneNum: number) => {
-    setGeneratingPromptsScene(sceneNum);
-    try {
-      await runPromptsForScene(video.id, sceneNum);
-      setPromptTaskRunning(true);
-    } catch (err) {
-      toast.error(`Failed: ${(err as Error).message}`);
-      setGeneratingPromptsScene(null);
-    }
-  }, [video.id]);
-
-  const handleGenerateSegmentPrompt = useCallback(async (sceneNum: number, imageIndex: number) => {
-    const key = `${sceneNum}:${imageIndex}`;
-    setGeneratingPromptsSegment(key);
-    try {
-      await runPromptsForSegment(video.id, sceneNum, imageIndex);
-      setPromptTaskRunning(true);
-    } catch (err) {
-      toast.error(`Failed: ${(err as Error).message}`);
-      setGeneratingPromptsSegment(null);
-    }
-  }, [video.id]);
-
-  // ---------------------------------------------------------------------------
   // Scene editing helpers
   // ---------------------------------------------------------------------------
 
@@ -1163,7 +1085,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   // ---------------------------------------------------------------------------
 
   const isVoiceBusy = generatingVoiceAll || generatingVoiceScene !== null || voiceTaskRunning;
-  const isPromptBusy = generatingPromptsAll || generatingPromptsScene !== null || generatingPromptsSegment !== null || promptTaskRunning;
 
   // ---- Advance stage ----
   const [advancing, setAdvancing] = useState(false);
@@ -1422,19 +1343,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               )}
                               {isExpanded ? "Collapse" : "Expand"}
                               <span className="font-mono">{scene.sentences.length}</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleGenerateScenePrompts(scene.sceneNumber)}
-                              disabled={isPromptBusy}
-                              title="Generate image prompts for this scene"
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[9px] font-medium transition-all"
-                              style={{
-                                color: generatingPromptsScene === scene.sceneNumber ? "var(--purple)" : "var(--text-tertiary)",
-                                background: generatingPromptsScene === scene.sceneNumber ? "rgba(168, 85, 247, 0.12)" : "transparent",
-                              }}
-                            >
-                              {generatingPromptsScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
                             </button>
 
                             <button
@@ -1746,41 +1654,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                                       </div>
                                     )}
 
-                                    {/* Image prompt — always visible in expanded view */}
-                                    <div className="mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        <Pencil size={9} style={{ color: "var(--purple)" }} />
-                                        <span
-                                          className="text-[9px] font-medium uppercase tracking-wider"
-                                          style={{ color: "var(--purple)" }}
-                                        >
-                                          Image Prompt
-                                        </span>
-                                        <div className="flex-1" />
-                                        <button
-                                          onClick={() => handleGenerateSegmentPrompt(scene.sceneNumber, sent.imageIndex!)}
-                                          disabled={isPromptBusy || sent.imageIndex == null}
-                                          title="Generate image prompt for this segment"
-                                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-medium transition-all hover:brightness-110 disabled:opacity-40"
-                                          style={{ background: "rgba(168, 85, 247, 0.12)", color: "var(--purple)" }}
-                                        >
-                                          <Wand2 size={8} /> Generate
-                                        </button>
-                                      </div>
-                                      <textarea
-                                        value={sent.imagePrompt || ""}
-                                        placeholder="No image prompt yet — click Generate"
-                                        readOnly
-                                        rows={2}
-                                        className="w-full text-[11px] font-mono leading-relaxed resize-none outline-none rounded-lg px-2 py-1.5"
-                                        style={{
-                                          color: sent.imagePrompt ? "var(--text-secondary)" : "var(--text-tertiary)",
-                                          background: "rgba(168, 85, 247, 0.04)",
-                                          border: "1px solid rgba(168, 85, 247, 0.1)",
-                                          opacity: sent.imagePrompt ? 1 : 0.6,
-                                        }}
-                                      />
-                                    </div>
                                   </div>
                                 ))}
                               </motion.div>

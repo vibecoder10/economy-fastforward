@@ -131,7 +131,7 @@ if the characters are represented and the scenes/characters are well defined.
 Each phase lists the root fix, the key files (from the audit), and the proof. Phase 0 is the
 keystone - most other phases port their fix INTO the unified path it creates.
 
-### Phase 0 - Unify on ONE pipeline (keystone) `[code-complete 2026-06-29: status-map + Claude orchestrator swapped to coverage (run_coverage_stage); false-proof signals dead. NEEDS a Model-A-Video/autopilot run to verify end-to-end (user-test). Remaining: confirm/redirect the legacy /storyboards + /prompts + /images routes, own-channel ingestion, prod zero-row purge.]`
+### Phase 0 - Unify on ONE pipeline (keystone) `[code-complete 2026-06-29: status-map + Claude orchestrator swapped to coverage (run_coverage_stage); false-proof signals dead. Legacy routes now RETIRED: /prompts /storyboards /storyboard-images /storyboard-extract /images return 410 (reversible). The one live frontend leak (Script & Voice tab "Generate image prompts" buttons) removed; dead components (both VisualsTab variants, image-segment-card) + orphaned /visuals + /storyboard pages deleted (backup at storyengine/.legacy-backup-20260629-*); 4 dead api.ts wrappers removed. Backend compiles, frontend builds clean. LOCAL ONLY - not deployed. NEEDS a Model-A-Video/autopilot run to verify end-to-end (user-test, paid). Remaining: own-channel ingestion, prod zero-row purge.]`
 The whole pass depends on this. Make coverage the single live image/clip path and kill the
 competing routes.
 - Make `generate_coverage_for_video` (coverage) the only image generator a user can reach. Route
@@ -300,3 +300,16 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   confirm the unified path draws correctly and stops at the pictures checkpoint. Legacy explicit
   routes (/storyboards, /prompts, /images) still call the old grid; need a frontend-usage check
   before redirect/retire.
+- 2026-06-29 (Phase 0 finish - legacy route retirement, LOCAL only, not deployed): traced every
+  legacy route from backend -> api.ts -> component -> mount point. Finding: exactly ONE live leak
+  to the old grid - the Script & Voice tab's "Generate image prompts" buttons (scene + segment)
+  calling /prompts. Everything else (/images, /storyboards, /storyboard-images, /storyboard-extract,
+  both VisualsTab variants, image-segment-card, /visuals + /storyboard top-level pages) was already
+  dead/unmounted. Actions: (1) removed the prompt buttons + orphaned state/handlers/effect/imports
+  from ScriptVoiceTab so it's script+voice only; (2) deleted the 3 dead components + 2 orphaned
+  pages (backup at .legacy-backup-20260629-*); (3) removed 4 dead api.ts wrappers
+  (runPromptsForScene/Segment, runImageForSegment/Variants); (4) retired the 5 backend routes with
+  a reversible 410 Gone guard. runSplit (/split) kept - it's the legit script segment-splitter.
+  Verified: backend py_compile OK, frontend `npm run build` OK (route table shows /visuals +
+  /storyboard gone, /pipeline/[videoId]/storyboards + /review intact). Still owed: deploy + the
+  paid Model-A-Video end-to-end proof, own-channel ingestion, prod zero-row purge.
