@@ -1868,6 +1868,70 @@ async def _score_and_rank_ideas(api_key, ideas, rows, niche) -> list[dict[str, A
         return ideas
 
 
+async def _detect_reference_style_preset(tenant_id, reference_url, state):
+    """Cheap, cached vision classification of the reference video's in-video style
+    into one of the LOOK preset ids, so the chat can RECOMMEND it (the creator can
+    still pick another). Cached in state per reference. Fail-soft -> None."""
+    if state.get("_ref_style_for") == reference_url:
+        return state.get("_ref_style_preset") or None
+    preset = None
+    try:
+        from routes.model_video import _parse_youtube_id, _scene_frame_urls
+        yid = _parse_youtube_id(reference_url or "")
+        frames = _scene_frame_urls(yid) if yid else None
+        api_key = await get_secret("anthropic_api_key", tenant_id) if frames else None
+        if frames and api_key:
+            from shared.clients.vision_client import vision_call
+            prompt = (
+                "These are real frames from a video. Classify its visual style as EXACTLY "
+                "ONE of these ids and return ONLY the id: pixar_3d (3D Pixar/Disney CG), "
+                "flat_2d (2D flat/vector animation), realistic (live-action/photoreal), "
+                "anime, watercolor (storybook/painted), comic (graphic-novel/inked)."
+            )
+            out = await vision_call(prompt, frames, anthropic_key=api_key, tier="fast", max_tokens=12)
+            cand = (out or "").strip().lower()
+            from producer_prompt import VISUAL_PRESETS
+            for pid in VISUAL_PRESETS:
+                if pid in cand:
+                    preset = pid
+                    break
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: reference style detect failed: %s", e)
+    state["_ref_style_for"] = reference_url
+    state["_ref_style_preset"] = preset or ""
+    return preset
+
+
+async def _annotate_style_recommendation(data, tenant_id, state):
+    """When a reference video is in play, detect its style and (1) mark the matching
+    LOOK option 'recommended' on the style card so the creator sees the suggestion at
+    pick time, and (2) stamp a friendly detected-style label on the plan spec. The
+    creator can still pick any look; an explicit pick is left untouched. Fail-soft."""
+    plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
+    spec = plan.get("spec") if plan and isinstance(plan.get("spec"), dict) else None
+    ref = state.get("pending_reference_url") or (spec.get("reference_url") if spec else None)
+    if not ref:
+        return
+    if spec and str(spec.get("visual_style") or "").strip():
+        return  # creator already picked a look — don't override the recommendation
+    try:
+        preset = await _detect_reference_style_preset(tenant_id, ref, state)
+    except Exception:  # noqa: BLE001
+        preset = None
+    if not preset:
+        return
+    from producer_prompt import VISUAL_PRESETS
+    label = VISUAL_PRESETS.get(preset, {}).get("label") or preset
+    cards = data.get("cards")
+    if isinstance(cards, list):
+        for c in cards:
+            if isinstance(c, dict) and c.get("id") == "style":
+                c["recommended_value"] = preset
+                c["recommended_hint"] = f"Closest to the video you're modeling ({label})"
+    if spec:
+        spec["detected_style_label"] = label
+
+
 async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     """Hand off into the producer seeded with a chosen/typed idea: start a fresh
     producer transcript and run one intake turn."""
@@ -1887,6 +1951,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     )
     data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
     await _stamp_length_default(data, tenant_id)
+    await _annotate_style_recommendation(data, tenant_id, state)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
@@ -2284,6 +2349,7 @@ async def chat_turn(
     )
     data = call_producer(transcript, system_prompt, api_key=api_key)
     await _stamp_length_default(data, tenant_id)
+    await _annotate_style_recommendation(data, tenant_id, state)
     transcript.append(_assistant_turn(data))
 
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None

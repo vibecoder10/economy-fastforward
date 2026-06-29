@@ -856,17 +856,26 @@ function SelectorCards({
               // Style options render the same preview image as the New Video flow.
               const preset = visualPresetById(opt.value);
               if (preset) {
+                const isRec = card.recommended_value === opt.value;
                 return (
                   <button
                     key={opt.value}
                     onClick={() => onToggle(card, opt.value)}
-                    title={opt.hint}
-                    className="flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all active:scale-[0.98]"
+                    title={isRec ? (card.recommended_hint || opt.hint) : opt.hint}
+                    className="relative flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all active:scale-[0.98]"
                     style={{
                       background: sel ? "rgba(0,212,170,0.1)" : "var(--bg-deep)",
-                      border: `1px solid ${sel ? "var(--turquoise)" : "var(--border-subtle)"}`,
+                      border: `1px solid ${sel || isRec ? "var(--turquoise)" : "var(--border-subtle)"}`,
                     }}
                   >
+                    {isRec && (
+                      <span
+                        className="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                        style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                      >
+                        ✨ Recommended
+                      </span>
+                    )}
                     <img
                       src={preset.icon}
                       alt={preset.label}
@@ -875,7 +884,7 @@ function SelectorCards({
                     />
                     <span
                       className="text-xs font-medium"
-                      style={{ color: sel ? "var(--turquoise)" : "var(--text-secondary)" }}
+                      style={{ color: sel || isRec ? "var(--turquoise)" : "var(--text-secondary)" }}
                     >
                       {opt.label}
                     </span>
@@ -917,7 +926,7 @@ function ProductionPlanCard({ plan, onApprove }: { plan: ProductionPlan; onAppro
   // Surface the visual style so the creator confirms what will actually generate.
   // An explicit pick WINS over the reference (modeling no longer clobbers it), so
   // show the picked look first; only fall back to "matched from reference".
-  const spec = (plan.spec ?? {}) as { reference_url?: string; visual_style_label?: string; visual_style?: string };
+  const spec = (plan.spec ?? {}) as { reference_url?: string; visual_style_label?: string; visual_style?: string; detected_style_label?: string };
   const PRESET_LABELS: Record<string, string> = {
     pixar_3d: "Pixar 3D", flat_2d: "2D Flat", realistic: "Realistic",
     anime: "Anime", watercolor: "Watercolor", comic: "Comic",
@@ -925,7 +934,11 @@ function ProductionPlanCard({ plan, onApprove }: { plan: ProductionPlan; onAppro
   const picked = spec.visual_style_label
     || (spec.visual_style ? (PRESET_LABELS[spec.visual_style] || spec.visual_style) : "");
   const styleText = picked
-    || (spec.reference_url ? "Matched from your reference video" : "Cinematic (default)");
+    || (spec.reference_url
+          ? (spec.detected_style_label
+              ? `Matched from your reference — looks like ${spec.detected_style_label}`
+              : "Matched from your reference video")
+          : "Cinematic (default)");
   return (
     <GlassCard className="flex flex-col gap-4" style={{ borderColor: "var(--turquoise-dim)" }}>
       <div className="flex items-center gap-2">

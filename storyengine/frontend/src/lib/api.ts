@@ -2273,6 +2273,10 @@ export interface ChatCard {
   // Proposed-prompt cards (id "prompt_apply") carry the full draft here so the dock
   // can show it in an editable box; Apply sends back the edited text as prompt_text.
   body?: string;
+  // Style card: the option value the system recommends (e.g. the reference video's
+  // detected look) so the UI can badge it. The creator can still pick any option.
+  recommended_value?: string;
+  recommended_hint?: string;
 }
 export interface ProductionPlan {
   story_concept?: string;

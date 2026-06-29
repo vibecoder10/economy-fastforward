@@ -220,9 +220,13 @@ Realistic became the reference's Pixar. Fixed both model_video UPDATEs to
 reference only fills a blank. (b) The plan-card "Look" line said "Matched from
 reference" even when a style was picked — now the pick label wins. (c) Ghost
 "Continue" button: an empty selector card rendered alongside the plan — suppressed
-SelectorCards when a plan is present. STILL WANTED (Ryan, enhancement): at pick time
-RECOMMEND the detected style ("this looks closest to Pixar — match it or pick your
-own"), i.e. sync style-detect before the LOOK card, not just silent auto-apply.
+SelectorCards when a plan is present. RECOMMENDATION (built 2026-06-29): when a reference is in play, a cheap cached
+vision pass (`_detect_reference_style_preset`, fast tier, 3 real frames) classifies
+it into one of the 6 LOOK presets; `_annotate_style_recommendation` then badges that
+option "✨ Recommended" on the style card AND stamps a `detected_style_label` on the
+plan spec ("looks like Pixar 3D"). The creator still picks any look; an explicit
+pick is left untouched (and now wins, per the bug fix above). So: detect → recommend
+→ creator chooses → they always see what generates.
 
 Connect the two good halves on the chat path.
 - "Worth modeling" click and "model this" must pass the reference video id/url so the chat-created
