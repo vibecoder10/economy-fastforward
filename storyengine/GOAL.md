@@ -199,7 +199,21 @@ Make channel intelligence always-on, not a one-time onboarding seed.
 - **Proof:** open the home chat as an onboarded user; it pitches a specific modeled idea and the
   producer references real competitor titles/hooks.
 
-### Phase 3 - Style: detect -> recommend -> apply `[todo]`
+### Phase 3 - Style: detect -> recommend -> apply `[DONE 2026-06-29]`
+Verified (no spend) that the CORE was already wired during the chat-first work (the
+stale text below overstated the gaps): reference_url now flows "Make one like this"
+-> spec -> create_video, which fires _run_modeling; modeling detects the in-video
+style (_describe_scene_style) and writes it to image_style_override; coverage reads
+image_style_override so modeled videos render in the matched style (confirmed on
+real videos: "Photorealistic 3D CG animation, Pixar-quality render..."). Non-modeled
+videos get their look from the producer LOOK card. The only real gap was that it was
+all SILENT. Fixed 2026-06-29: (1) the chat production-plan card now shows a "Look"
+line (modeled -> "Matched from your reference video"; picked -> the chosen look;
+else "Cinematic (default)") so the creator confirms the style before "Make it"; (2)
+the pipeline page header shows a style badge (preset label, or the detected style's
+first clause + "· from reference" when visual_style is empty but image_style_override
+is set == modeled). Frontend-only, no spend.
+
 Connect the two good halves on the chat path.
 - "Worth modeling" click and "model this" must pass the reference video id/url so the chat-created
   video is `is_modeled` and `_run_modeling` fires (today `ChatCore.tsx:431` sends plain text;

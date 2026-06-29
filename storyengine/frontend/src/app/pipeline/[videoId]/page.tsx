@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
   BarChart3, Search, Video, Upload, Loader2, Brain, Volume2, Download, ExternalLink, X,
-  Users, MoreHorizontal, MapPin, MessageCircle,
+  Users, MoreHorizontal, MapPin, MessageCircle, Palette,
 } from "lucide-react";
 import { ChatCore } from "@/components/chat/ChatCore";
 import Link from "next/link";
@@ -425,6 +425,30 @@ export default function VideoDetailPage() {
                 {video.video_length_minutes} min
               </span>
             )}
+            {(() => {
+              // Show the visual style so the creator sees what look the video uses.
+              // A preset id -> friendly label; otherwise the detected style's first
+              // clause. visual_style empty + image_style_override set == modeled
+              // (the look was detected from the reference video, not picked).
+              const PRESET: Record<string, string> = {
+                pixar_3d: "Pixar 3D", flat_2d: "2D Flat", realistic: "Realistic",
+                anime: "Anime", watercolor: "Watercolor", comic: "Comic",
+              };
+              const vs = (video.visual_style || "").trim();
+              const iso = (video.image_style_override || "").trim();
+              const label = vs ? (PRESET[vs] || vs) : (iso ? iso.split(/[.,;]/)[0].trim() : "");
+              if (!label) return null;
+              const fromRef = !vs && !!iso;
+              return (
+                <span
+                  className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
+                  style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+                  title={iso || label}
+                >
+                  <Palette size={11} /> {label}{fromRef ? " · from reference" : ""}
+                </span>
+              );
+            })()}
           </div>
         </div>
         <div className="flex items-center gap-4">

@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
@@ -914,6 +914,11 @@ function SelectorCards({
 // --- production plan ------------------------------------------------------
 
 function ProductionPlanCard({ plan, onApprove }: { plan: ProductionPlan; onApprove: () => void }) {
+  // Surface the visual style so the creator confirms the look, not a silent default.
+  const spec = (plan.spec ?? {}) as { reference_url?: string; visual_style_label?: string; visual_style?: string };
+  const styleText = spec.reference_url
+    ? "Matched from your reference video"
+    : (spec.visual_style_label || spec.visual_style || "Cinematic (default)");
   return (
     <GlassCard className="flex flex-col gap-4" style={{ borderColor: "var(--turquoise-dim)" }}>
       <div className="flex items-center gap-2">
@@ -922,6 +927,13 @@ function ProductionPlanCard({ plan, onApprove }: { plan: ProductionPlan; onAppro
           Your production plan
         </span>
       </div>
+
+      <Section title="Look">
+        <p className="text-sm flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+          <Palette size={14} className="shrink-0" style={{ color: "var(--turquoise)" }} />
+          {styleText}
+        </p>
+      </Section>
 
       {plan.story_concept && (
         <Section title="The story">
