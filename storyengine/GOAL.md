@@ -180,11 +180,12 @@ idea pitch (_generate_competitor_ideas -> _present_ideas_turn) instead of the
 static _GREETING, fail-soft to the greeting. Fixed the lying producer_prompt
 docstring. DEPLOYED + proven: channel_intel populated for Ryan's tenant (it derived
 the A1-A2 named-character hook pattern; the producer's reply referenced it).
-FRONTEND WIRING (the missing trigger) done 2026-06-29: ChatCore now fires an empty
-chat turn on home load for returning/onboarded users, gated once per browser SESSION
-(sessionStorage PITCH_KEY) so reloads don't re-spend; it only flips into the chat
-view when the backend returns idea cards, else keeps the welcome + "worth modeling"
-landing. NEEDS: Ryan's visual click-through (open a fresh tab -> see the pitch).
+FRONTEND (final design, Ryan's call): a "✨ Suggest a video idea" button by the
+composer triggers the pitch ON DEMAND (turn({})), instead of auto-firing on load.
+Predictable (home always opens to the clean landing), repeatable, and the model
+call only happens when the creator clicks. The earlier auto-fire-on-load (once per
+session) was removed. Backend pitch path proven in the browser: clicking yields
+"Here are 3 ideas I'd model" + a "PICK ONE TO BUILD" card citing real live videos.
 
 Make channel intelligence always-on, not a one-time onboarding seed.
 - Persist a rich creator brief on `channel_profiles` (top titles, hook patterns, thumbnail motifs,
