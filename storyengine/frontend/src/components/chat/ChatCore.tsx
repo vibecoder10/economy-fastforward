@@ -35,6 +35,9 @@ import {
 // button stashes the active conversation so ChatCore can resume it when Google
 // sends the user back to /?connected=yt|drive.
 const CHAT_CID_KEY = "se_chat_cid";
+// Gate the home proactive idea-pitch to once per browser SESSION so reloads don't
+// re-spend a model call; a new tab/session pitches a fresh idea again.
+const PITCH_KEY = "se_home_pitched";
 // The dock caches a SEPARATE conversation id per video (instant reload). Never
 // reuse the tenant-level home thread for a video's co-pilot, and vice versa.
 const dockCidKey = (videoId: string) => `se_chat_cid_${videoId}`;
@@ -269,6 +272,30 @@ export function ChatCore({
         }
       } catch {
         // status check failed — just show the normal welcome
+      }
+      // Returning, onboarded creator: proactively pitch a fresh modeled idea
+      // (Phase 2). Once per browser SESSION so reloads don't re-spend a model call.
+      // Only flip into the chat if the backend actually returns idea cards;
+      // otherwise fall through to the normal welcome + "worth modeling" landing.
+      let alreadyPitched = false;
+      try { alreadyPitched = sessionStorage.getItem(PITCH_KEY) === "1"; } catch { /* private mode: allow */ }
+      if (!cancelled && !alreadyPitched) {
+        try { sessionStorage.setItem(PITCH_KEY, "1"); } catch { /* private mode */ }
+        try {
+          const res = await sendChatTurn({ conversation_id: null });
+          if (!cancelled && res.cards?.length) {
+            setConversationId(res.conversation_id);
+            try { localStorage.setItem(CHAT_CID_KEY, res.conversation_id); } catch { /* private mode */ }
+            setMessages((m) => [
+              ...m,
+              { role: "assistant", text: res.assistant_text, cards: res.cards, plan: res.plan },
+            ]);
+            if (!cancelled) setChecking(false);
+            return; // pitched — show the chat with the idea cards
+          }
+        } catch {
+          // pitch failed — fall through to the welcome
+        }
       }
       if (!cancelled) setChecking(false);
     })();

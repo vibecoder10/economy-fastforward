@@ -168,7 +168,7 @@ zeros (23 of 50 rows for the owner tenant).
 - **Proof:** re-run onboarding/model-a-video for a channel; confirm competitor_videos rows carry
   real views/duration/vph; home "Worth modeling" shows real numbers.
 
-### Phase 2 - Director chat intelligence `[built 2026-06-29, LOCAL - pending deploy + prod proof]`
+### Phase 2 - Director chat intelligence `[SHIPPED 2026-06-29; proactive pitch now wired to the home]`
 BUILT: (1) migration 066 adds channel_profiles.channel_intel JSONB; (2) chat.py
 _compute_channel_intel / _get_channel_intel / _channel_intel_brief mine
 competitor_videos (top titles, title/hook pattern, thumbnail motifs from
@@ -178,9 +178,13 @@ build_system_prompt sites (intake turn + _seed_producer); (4) proactive open tur
 a returning onboarded user opening a fresh home conversation now gets a modeled
 idea pitch (_generate_competitor_ideas -> _present_ideas_turn) instead of the
 static _GREETING, fail-soft to the greeting. Fixed the lying producer_prompt
-docstring. Verified locally: py_compile + a stubbed-DB unit test (median/cadence
-math, brief text, empty-data fallback all pass). NEEDS: deploy (pull + backend
-restart auto-applies 066) + the real prod proof on Ryan's tenant.
+docstring. DEPLOYED + proven: channel_intel populated for Ryan's tenant (it derived
+the A1-A2 named-character hook pattern; the producer's reply referenced it).
+FRONTEND WIRING (the missing trigger) done 2026-06-29: ChatCore now fires an empty
+chat turn on home load for returning/onboarded users, gated once per browser SESSION
+(sessionStorage PITCH_KEY) so reloads don't re-spend; it only flips into the chat
+view when the backend returns idea cards, else keeps the welcome + "worth modeling"
+landing. NEEDS: Ryan's visual click-through (open a fresh tab -> see the pitch).
 
 Make channel intelligence always-on, not a one-time onboarding seed.
 - Persist a rich creator brief on `channel_profiles` (top titles, hook patterns, thumbnail motifs,
