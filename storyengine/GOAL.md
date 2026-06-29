@@ -199,7 +199,17 @@ Connect the two good halves on the chat path.
 - **Proof:** model a Pixar video via chat; storyboard + frames render Pixar (screenshot), style
   was shown and confirmed.
 
-### Phase 4 - Length from the SPECIFIC modeled video `[todo]`
+### Phase 4 - Length from the SPECIFIC modeled video `[partial 2026-06-29: deterministic slider backstop done]`
+DONE (2026-06-29): the chat length slider now anchors its DEFAULT to the channel's
+real competitor median runtime via a deterministic backstop in `_stamp_length_default`
+(shared `_competitor_median_seconds`). If the producer picks a normal-form length
+below the channel median, the slider opens on the channel median instead (creator can
+still drag down); intentional short-form (<2 min) is left alone. Caught live: a "kid
+won't clean room" turn defaulted to 5 min though the channel runs ~8 min median / ~15
+min top-performers. Unit-tested. STILL TODO: anchor on the SPECIFIC modeled video's
+runtime (not just the median) when there's a reference, and unify with the
+model_video.py exact-runtime path (which clamps to a 3-min minimum).
+
 - Anchor the recommendation on the chosen video's runtime, not the tenant median
   (`_modeled_runtime_hint`, `chat.py:1411`). Unify with the `model_video.py` exact-runtime path
   (which today never asks and clamps to a 3-min minimum).

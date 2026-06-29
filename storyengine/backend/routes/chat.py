@@ -134,11 +134,16 @@ def _selections_to_text(selections: dict[str, Any]) -> str:
     return "My choices — " + ", ".join(parts)
 
 
-def _stamp_length_default(data: dict[str, Any]) -> None:
-    """Pre-set the length slider to the producer's recommended length so it opens on the
-    director's suggestion (in seconds), not the generic 1-minute floor. Works in both the
-    asking phase (the producer puts recommended_minutes on the length card) and the plan
-    phase (falls back to the plan spec's video_length_minutes)."""
+async def _stamp_length_default(data: dict[str, Any], tenant_id=None) -> None:
+    """Pre-set the length slider so it opens on a sensible default, not the generic
+    1-minute floor. Source order: the producer's recommended_minutes (asking phase),
+    else the plan spec's video_length_minutes.
+
+    Deterministic length backstop (GOAL v2 Phase 4): a real channel runtime should
+    anchor the default. If we know the typical runtime of the videos this creator
+    models and the producer picked a NORMAL-form length below it, open the slider on
+    the channel runtime instead — the creator can still drag it down. Intentional
+    short-form (< 2 min) is left alone so 'make a 30s short' stays short."""
     cards = data.get("cards")
     if not isinstance(cards, list):
         return
@@ -150,6 +155,11 @@ def _stamp_length_default(data: dict[str, Any]) -> None:
             spec_min = float(spec.get("video_length_minutes") or 0) or None
         except (TypeError, ValueError):
             spec_min = None
+    channel_min = None
+    if tenant_id is not None:
+        med_s = await _competitor_median_seconds(tenant_id)
+        if med_s >= 60:
+            channel_min = round(med_s / 60)  # whole minutes, matches the slider's granularity
     for c in cards:
         if not (isinstance(c, dict) and (c.get("id") == "length" or c.get("type") == "slider")):
             continue
@@ -159,6 +169,12 @@ def _stamp_length_default(data: dict[str, Any]) -> None:
         except (TypeError, ValueError):
             mins = None
         mins = mins or spec_min
+        # Backstop: anchor a normal-form default up to the channel's real runtime.
+        if channel_min:
+            if not mins:
+                mins = channel_min
+            elif 2 <= mins < channel_min:
+                mins = channel_min
         if not mins:
             continue
         secs = max(LENGTH_MIN_SECONDS, int(round(mins * 60)))
@@ -1439,19 +1455,25 @@ def _creator_brief(state: dict) -> str:
     return "WHO YOU'RE TALKING TO (from their setup — remember this): " + " ".join(bits) + tailor
 
 
-async def _modeled_runtime_hint(tenant_id) -> str:
-    """A length anchor for the producer: the typical runtime of the videos this creator
-    models (their competitors' winners). Real data — competitor_videos.duration_seconds is
-    populated at modeling time. Fail-soft; empty when there's nothing solid to anchor on."""
+async def _competitor_median_seconds(tenant_id) -> int:
+    """Median runtime (seconds) of the videos this creator models. The shared length
+    anchor for both the producer hint and the slider backstop. 0 if unknown. Fail-soft."""
     try:
         row = await fetch_one(
             "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_seconds) AS med "
             "FROM competitor_videos WHERE tenant_id = $1 AND duration_seconds > 0",
             tenant_id,
         )
-        med = int((row or {}).get("med") or 0)
+        return int((row or {}).get("med") or 0)
     except Exception:  # noqa: BLE001
-        return ""
+        return 0
+
+
+async def _modeled_runtime_hint(tenant_id) -> str:
+    """A length anchor for the producer: the typical runtime of the videos this creator
+    models (their competitors' winners). Real data — competitor_videos.duration_seconds is
+    populated at modeling time. Fail-soft; empty when there's nothing solid to anchor on."""
+    med = await _competitor_median_seconds(tenant_id)
     if med < 30:
         return ""
     return (f"\nLENGTH ANCHOR: the videos this creator models typically run ~{_format_runtime(med)}. "
@@ -1863,7 +1885,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         + await _channel_intel_brief(tenant_id)
     )
     data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
-    _stamp_length_default(data)
+    await _stamp_length_default(data, tenant_id)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
@@ -2257,7 +2279,7 @@ async def chat_turn(
         + await _channel_intel_brief(tenant_id)
     )
     data = call_producer(transcript, system_prompt, api_key=api_key)
-    _stamp_length_default(data)
+    await _stamp_length_default(data, tenant_id)
     transcript.append(_assistant_turn(data))
 
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
