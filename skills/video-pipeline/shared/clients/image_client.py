@@ -835,35 +835,38 @@ class ImageClient:
         if reference_image_url:
             return await self.generate_thumbnail_gpt2(prompt, reference_image_url, aspect_ratio)
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        payload = {
-            "model": "gpt-image-2-text-to-image",
-            "input": {"prompt": prompt, "aspect_ratio": aspect_ratio, "resolution": "2K"},
-        }
-        print("      🎨 Generating scene (gpt-image-2 text-to-image)...")
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.CREATE_TASK_URL, headers=headers, json=payload, timeout=60.0,
-                )
-                if response.status_code != 200:
-                    print(f"      ❌ API error: {response.status_code} - {response.text}")
-                    return None
-                task_data = response.json()
-                if task_data.get("code") != 200:
-                    print(f"      ❌ API error: {task_data.get('msg')}")
-                    return None
-                task_id = task_data.get("data", {}).get("taskId")
-                if not task_id:
-                    print("      ❌ No task ID returned")
-                    return None
-                await asyncio.sleep(5)
-                result_urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
-                if result_urls:
-                    return {"url": result_urls[0]}
+
+        async def _run(model: str, extra: dict, label: str):
+            payload = {"model": model, "input": {"prompt": prompt, "aspect_ratio": aspect_ratio, **extra}}
+            print(f"      🎨 Generating ({label} text-to-image)...")
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(self.CREATE_TASK_URL, headers=headers, json=payload, timeout=60.0)
+                    if response.status_code != 200:
+                        print(f"      ❌ {label} API error: {response.status_code} - {response.text[:160]}")
+                        return None
+                    task_data = response.json()
+                    if task_data.get("code") != 200:
+                        print(f"      ❌ {label} API error: {task_data.get('msg')}")
+                        return None
+                    task_id = task_data.get("data", {}).get("taskId")
+                    if not task_id:
+                        print(f"      ❌ {label}: no task ID returned")
+                        return None
+                    await asyncio.sleep(5)
+                    urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
+                    return urls[0] if urls else None
+            except Exception as e:
+                print(f"      ❌ {label} error: {e}")
                 return None
-        except Exception as e:
-            print(f"      ❌ GPT Image 2 (scene) error: {e}")
-            return None
+
+        # GPT Image 2 FIRST (the studio standard), nano-banana-2 FALLBACK — catches GPT Image 2
+        # content-policy refusals (e.g. it won't render reference sheets of children) and any blip.
+        url = await _run("gpt-image-2-text-to-image", {"resolution": "2K"}, "gpt-image-2")
+        if not url:
+            print("      ↩️  GPT Image 2 returned nothing — falling back to nano-banana-2...")
+            url = await _run("nano-banana-2", {"output_format": "png"}, "nano-banana-2")
+        return {"url": url} if url else None
 
     async def generate_talking_video(
         self,

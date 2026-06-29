@@ -147,8 +147,8 @@ Return ONLY valid JSON:
 
 
 async def _generate_portrait(api_key: str, description: str, style_dna: str, name: str = "") -> str:
-    """One character MODEL SHEET via nano-banana-2 (GPT Image 2 refuses kid reference sheets;
-    see note below). A polished animation-studio
+    """One character MODEL SHEET — GPT Image 2 first, nano-banana-2 fallback (GPT Image 2
+    refuses kid reference sheets; see note below). A polished animation-studio
     reference sheet — TURNAROUND (5 views) + EXPRESSIONS + POSE STUDIES + a left info
     panel — so every storyboard panel, clip and thumbnail can lock the character's full
     look, angles and emotions. The art_style leads so the cast and the locations share
@@ -177,46 +177,16 @@ async def _generate_portrait(api_key: str, description: str, style_dna: str, nam
         "unrelated characters, scene backgrounds, watermarks, distorted faces, mismatched outfits or "
         "proportions, malformed hands, paragraphs of tiny gibberish text, misspelled or blurry labels."
     )
-    # MODEL CHOICE: nano-banana-2, NOT GPT Image 2. Everything else (scenes, thumbnails)
-    # is GPT Image 2, but it hard-refuses a reference SHEET of a child (multiple
-    # catalogued images of a minor) — OpenAI content policy 400s it even with wholesome
-    # framing (tested 2026-06-29). nano-banana renders these kid model sheets fine; its
-    # only weakness is small panel text, which the minimal-text prompt above keeps in check.
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
-        create_resp = await client.post(
-            KIE_CREATE_TASK_URL,
-            json={"model": PORTRAIT_MODEL,
-                  "input": {"prompt": prompt[:2400], "aspect_ratio": "4:3", "output_format": "png"}},
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        )
-        if create_resp.status_code != 200:
-            raise RuntimeError(f"Kie.ai {create_resp.status_code}: {create_resp.text[:200]}")
-        data = create_resp.json().get("data") or {}
-        task_id = data.get("task_id") or data.get("taskId")
-        if not task_id:
-            raise RuntimeError(f"No task id from Kie: {create_resp.text[:200]}")
-
-        for _ in range(60):
-            await asyncio.sleep(5)
-            poll = await client.get(
-                KIE_RECORD_INFO_URL,
-                params={"taskId": task_id},
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            if poll.status_code != 200:
-                continue
-            pdata = poll.json().get("data") or {}
-            state = str(pdata.get("state", "")).lower()
-            if (pdata.get("status") == 3 or state in ("fail", "failed", "failure", "error")):
-                raise RuntimeError(pdata.get("errorMessage") or pdata.get("failMsg") or "generation failed")
-            result_json = pdata.get("resultJson")
-            if result_json:
-                if isinstance(result_json, str):
-                    result_json = json.loads(result_json)
-                urls = result_json.get("resultUrls") or []
-                if urls:
-                    return urls[0]
-    raise RuntimeError("Portrait generation timed out")
+    # All character images route through GPT Image 2 first with an automatic nano-banana-2
+    # fallback (ImageClient.generate_scene_image_gpt). GPT Image 2 content-policy REFUSES a
+    # reference SHEET of a child (tested 2026-06-29), so kid casts come back from the nano
+    # fallback; adult / object / creature characters use GPT Image 2 (clean labels).
+    from shared.clients.image_client import ImageClient
+    res = await ImageClient(api_key=api_key).generate_scene_image_gpt(prompt, None, aspect_ratio="4:3")
+    url = (res or {}).get("url")
+    if not url:
+        raise RuntimeError("Portrait generation failed")
+    return url
 
 
 async def _persist_portrait_url(tenant_id, video_id: str, char_id: str, temp_url: str) -> str:
