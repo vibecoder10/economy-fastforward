@@ -131,7 +131,7 @@ if the characters are represented and the scenes/characters are well defined.
 Each phase lists the root fix, the key files (from the audit), and the proof. Phase 0 is the
 keystone - most other phases port their fix INTO the unified path it creates.
 
-### Phase 0 - Unify on ONE pipeline (keystone) `[partial 2026-06-24: false-proof + interactive path done; status-map swap deferred]`
+### Phase 0 - Unify on ONE pipeline (keystone) `[code-complete 2026-06-29: status-map + Claude orchestrator swapped to coverage (run_coverage_stage); false-proof signals dead. NEEDS a Model-A-Video/autopilot run to verify end-to-end (user-test). Remaining: confirm/redirect the legacy /storyboards + /prompts + /images routes, own-channel ingestion, prod zero-row purge.]`
 The whole pass depends on this. Make coverage the single live image/clip path and kill the
 competing routes.
 - Make `generate_coverage_for_video` (coverage) the only image generator a user can reach. Route
@@ -290,3 +290,13 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   Both verified with real calls. KNOWN MINOR (todo, fold into Phase 4): modeling sets length via
   COALESCE(video_length_minutes, ref) so it keeps the create-form default instead of adopting the
   reference's real runtime.
+- 2026-06-29: Phase 0 finished in code. New `run_coverage_stage` (mirrors the proven chat
+  auto-build image phase) is now what the autopilot status map (`ready_for_storyboards`/
+  `_images`/`_extraction`) and the Claude orchestrator (`storyboard`/`images`) call — the old 3x3
+  grid handlers are no longer reachable from those paths. Killed the last lying false-proof
+  signal (chat.py "handlers no-op now" comment; they actually ran the full old grid). The chat
+  build path was already coverage; this brings the autopilot/orchestrator onto the same single
+  path. NOT yet verified end-to-end — needs one Model-A-Video/autopilot run (paid, ~$1-2) to
+  confirm the unified path draws correctly and stops at the pictures checkpoint. Legacy explicit
+  routes (/storyboards, /prompts, /images) still call the old grid; need a frontend-usage check
+  before redirect/retire.

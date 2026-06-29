@@ -2175,9 +2175,12 @@ separate scenes."""
             "approved": self.run_research,
             "ready_for_scripting": self.run_script,
             "ready_for_image_prompts": self.run_prompts,
-            "ready_for_storyboards": self.run_storyboard_prompts,
-            "ready_for_storyboard_images": self.run_storyboard_images,
-            "ready_for_storyboard_extraction": self.run_storyboard_extract,
+            # GOAL v2 Phase 0: the image stages now draw via the unified coverage path
+            # (run_coverage_stage), not the old 3x3 grid. Coverage does prompts+images in
+            # one paid draw and advances to ready_for_images, so all three map to it.
+            "ready_for_storyboards": self.run_coverage_stage,
+            "ready_for_storyboard_images": self.run_coverage_stage,
+            "ready_for_storyboard_extraction": self.run_coverage_stage,
             "ready_for_sound_design": self.run_sound_prompts,
             "ready_for_sound_effects": self.run_sound_effects,
             "ready_for_video_scripts": self.run_video_scripts,
@@ -2215,6 +2218,46 @@ separate scenes."""
         coverage. Replaces the old grid run_storyboard_prompts+run_storyboard_images."""
         from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
         return await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
+
+    async def run_coverage_stage(self, video_id: str) -> dict:
+        """Unified image STAGE (GOAL v2 Phase 0): draw the real per-shot, multi-angle
+        pictures via coverage — the single live image path — mirroring the proven chat
+        auto-build image phase (routes/chat.py). This is what the autopilot status map
+        and the Claude orchestrator now call instead of the old 3x3 grid handlers
+        (run_storyboard_prompts/run_storyboard_images), so no entry point produces a
+        different result. Satisfies the storyboard gates + writes the Story Bible first
+        (same as chat), then stops at ready_for_images (the pictures-review checkpoint)."""
+        await self._ensure_initialized()
+        bot_name = "Storyboard Bot"
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        # Satisfy the storyboard gates + write the Story Bible (continuity anchor),
+        # exactly as the chat auto-build does before calling coverage.
+        await execute(
+            "UPDATE videos SET environments_approved_at = COALESCE(environments_approved_at, now()), "
+            "characters_approved_at = COALESCE(characters_approved_at, now()), updated_at = now() "
+            "WHERE id = $1 AND tenant_id = $2",
+            video_id, self.tenant_id)
+        try:
+            await self.run_story_bible(video_id)
+        except Exception:  # noqa: BLE001 — bible is best-effort, coverage still draws
+            pass
+        await self._log_activity(bot_name, video_id, "started",
+                                 "Drawing the storyboard pictures (coverage)")
+        from scripts.coverage_to_app import generate_coverage_for_video
+        cov = await generate_coverage_for_video(video_id, self.tenant_id) or {}
+        if cov.get("status") == "completed":
+            await execute(
+                "UPDATE videos SET status = 'ready_for_images', updated_at = now() "
+                "WHERE id = $1 AND tenant_id = $2",
+                video_id, self.tenant_id)
+            await self._log_activity(bot_name, video_id, "completed",
+                                     "Storyboard pictures drawn (coverage)")
+            return {"status": "ready_for_images", "video_id": video_id}
+        err = cov.get("error") or "Couldn't draw the pictures."
+        await self._log_activity(bot_name, video_id, "failed", err)
+        return {"status": "failed", "error": err}
 
     async def run_characters(self, video_id: str, scene: int = None) -> dict:
         """Design/redesign the cast — the 4-view character reference sheets the storyboard

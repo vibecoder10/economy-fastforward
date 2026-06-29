@@ -296,8 +296,10 @@ Respond with a JSON object:
             "script": executor.run_script,
             "voice": executor.run_voice,
             "image_prompts": executor.run_prompts,
-            "storyboard": executor.run_storyboard_prompts,
-            "images": executor.run_images,
+            # GOAL v2 Phase 0: storyboard + images draw via the unified coverage path,
+            # not the old 3x3 grid (run_storyboard_prompts/run_images).
+            "storyboard": executor.run_coverage_stage,
+            "images": executor.run_coverage_images,
             "sound": executor.run_sound_prompts,
             "video_motion": executor.run_video_scripts,
             "thumbnail": executor.run_thumbnail,

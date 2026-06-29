@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -50,6 +51,10 @@ _GREETING = (
 
 # The length slider's floor (matches the frontend: 5s..30min in 5s steps).
 LENGTH_MIN_SECONDS = 5
+YOUTUBE_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:youtube\.com/watch\?v=[^\s&]+|youtu\.be/[^\s?&]+|youtube\.com/shorts/[^\s?&]+)[^\s]*",
+    re.I,
+)
 
 
 def _format_runtime(secs: int) -> str:
@@ -159,6 +164,16 @@ def _stamp_length_default(data: dict[str, Any]) -> None:
         secs = max(LENGTH_MIN_SECONDS, int(round(mins * 60)))
         if secs > 0:
             c["recommended_seconds"] = secs
+
+
+def _extract_youtube_url(text: str | None) -> Optional[str]:
+    """Return the first YouTube URL from a chat turn, cleaned of trailing prose punctuation."""
+    if not text:
+        return None
+    m = YOUTUBE_URL_RE.search(text)
+    if not m:
+        return None
+    return m.group(0).rstrip("),.]}'\"")
 
 
 # --- conversation persistence (tenant-scoped) -------------------------------
@@ -281,8 +296,9 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # Scenes-page "pictures" button uses (generate_coverage_for_video). Coverage
                 # builds its own cast sheet from the script when no characters are locked
                 # (chat auto-builds don't lock a cast), then saves real picture assets.
-                # The old status-map storyboard handlers no-op now, so we call coverage
-                # directly, then stop at the pictures-review checkpoint.
+                # The status-map image stages now also route to coverage (run_coverage_stage,
+                # GOAL v2 Phase 0); we call coverage directly here so the chat build controls
+                # its own progress updates and stops at the pictures-review checkpoint.
                 if status in ("ready_for_image_prompts", "ready_for_storyboards",
                               "ready_for_storyboard_images", "ready_for_storyboard_extraction"):
                     # Satisfy the storyboard gates (env skipped, characters approved) and
@@ -401,6 +417,7 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
         lock_in_identity=bool(spec.get("lock_in_identity", False)),
         aspect_ratio=aspect,
         pipeline_stages=stages,
+        reference_url=(spec.get("reference_url") or None),
     )
 
 
@@ -1701,6 +1718,8 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
+        if state.get("pending_reference_url") and not plan["spec"].get("reference_url"):
+            plan["spec"]["reference_url"] = state["pending_reference_url"]
         state["last_spec"] = plan["spec"]
     phase = "plan" if plan else "asking"
     await _persist(conversation_id, tenant_id, transcript, state, phase)
@@ -2033,7 +2052,11 @@ async def chat_turn(
     # 4. Normal intake turn. Append the user's message and/or card selections.
     user_parts: list[str] = []
     if body.message and body.message.strip():
-        user_parts.append(body.message.strip())
+        msg_text = body.message.strip()
+        user_parts.append(msg_text)
+        ref = _extract_youtube_url(msg_text)
+        if ref:
+            state["pending_reference_url"] = ref
     if body.selections:
         user_parts.append(_selections_to_text(body.selections))
         state.setdefault("selections", {}).update(body.selections)
@@ -2069,6 +2092,8 @@ async def chat_turn(
 
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
+        if state.get("pending_reference_url") and not plan["spec"].get("reference_url"):
+            plan["spec"]["reference_url"] = state["pending_reference_url"]
         state["last_spec"] = plan["spec"]
     phase = "plan" if plan else "asking"
     await _persist(conversation_id, tenant_id, transcript, state, phase)
