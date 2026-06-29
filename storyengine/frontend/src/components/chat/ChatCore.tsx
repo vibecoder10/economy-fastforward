@@ -428,7 +428,7 @@ export function ChatCore({
             data={suggested}
             onPick={(v) =>
               turn(
-                { message: `Make a video modeled on "${v.title}" from ${suggested.channel ?? "the channel I'm modeling"} — same hook and winning format, but my own spin.` },
+                { message: `Make a video modeled on "${v.title}" from ${suggested.channel ?? "the channel I'm modeling"} — same hook and winning format, but my own spin.${v.url ? ` Reference: ${v.url}` : ""}` },
                 `Make one like “${v.title}”`,
               )
             }

@@ -395,7 +395,36 @@ function OnboardingContent() {
         )}
 
         {/* Progress Bar */}
-        <div className="mb-8 max-w-full overflow-x-auto pb-2 sm:mb-10">
+        <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 sm:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: "var(--text-tertiary)" }}>
+                Step {step + 1} of {STEPS.length}
+              </p>
+              <p className="mt-1 text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--gold)" }}>
+                {STEPS[step]?.label}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5" aria-hidden="true">
+              {STEPS.map((s, i) => (
+                <span
+                  key={s.key}
+                  className="h-2 rounded-full transition-all"
+                  style={{
+                    width: i === step ? 24 : 8,
+                    background:
+                      i < step
+                        ? "var(--turquoise)"
+                        : i === step
+                          ? "var(--gold)"
+                          : "rgba(255,255,255,0.18)",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mb-8 hidden max-w-full overflow-x-auto pb-2 sm:mb-10 sm:block">
           <div className="flex min-w-max items-start justify-center gap-0 px-1 sm:min-w-0 sm:px-0">
             {STEPS.map((s, i) => {
               const Icon = s.icon;

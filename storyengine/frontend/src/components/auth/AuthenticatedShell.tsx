@@ -101,20 +101,20 @@ function VerifyEmailBanner() {
 
   return (
     <div
-      className="px-4 py-3 flex items-center justify-between gap-3"
+      className="px-4 py-3 pl-16 flex flex-col items-stretch gap-3 sm:pl-4 sm:flex-row sm:items-center sm:justify-between"
       style={{
         background: "rgba(0, 212, 170, 0.08)",
         borderBottom: "1px solid rgba(0, 212, 170, 0.2)",
       }}
     >
-      <div className="flex items-center gap-2 text-sm font-body" style={{ color: "var(--text-primary)" }}>
-        <Mail size={16} style={{ color: "var(--accent)" }} />
-        <span>Confirm your email to start creating videos. Check your inbox for the link.</span>
+      <div className="flex items-start gap-2 text-sm font-body sm:items-center" style={{ color: "var(--text-primary)" }}>
+        <Mail size={16} className="mt-0.5 shrink-0 sm:mt-0" style={{ color: "var(--accent)" }} />
+        <span className="leading-snug">Confirm your email to start creating videos. Check your inbox for the link.</span>
       </div>
       <button
         onClick={resend}
         disabled={state !== "idle"}
-        className="shrink-0 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+        className="w-full shrink-0 px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 sm:w-auto sm:py-1.5"
         style={{ background: "var(--accent)", color: "#0A0A0B", opacity: state === "idle" ? 1 : 0.7 }}
       >
         {state === "sent" ? "Sent — check your inbox" : state === "sending" ? "Sending…" : "Resend email"}

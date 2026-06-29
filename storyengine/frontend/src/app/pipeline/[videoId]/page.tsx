@@ -220,8 +220,9 @@ export default function VideoDetailPage() {
   const [taskRunning, setTaskRunning] = useState(false);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
 
-  // Co-pilot dock: a collapsible right panel scoped to this video. Remembers
-  // open/closed (read on the client to avoid an SSR localStorage access).
+  // Co-pilot dock/drawer: desktop gets the right panel; mobile gets a bottom
+  // drawer. Same video-scoped ChatCore so the co-pilot is present on every page.
+  // Remembers open/closed (read on the client to avoid an SSR localStorage access).
   const [dockOpen, setDockOpen] = useState(false);
   useEffect(() => {
     try { setDockOpen(localStorage.getItem("se_pipeline_chat_open") === "1"); } catch { /* private mode */ }
@@ -714,10 +715,9 @@ export default function VideoDetailPage() {
       )}
     </motion.div>
 
-      {/* Co-pilot dock — slides in from the right; page content reflows on desktop,
-          and the panel is hidden below lg so mobile is unaffected. Live progress is
-          free: the page's 5s poll + SSE + task poller already reflect any work it kicks
-          off in the stepper and tabs. */}
+      {/* Co-pilot dock — slides in from the right; page content reflows on desktop.
+          Mobile uses the bottom drawer below. Live progress is free: the page's
+          5s poll + SSE + task poller already reflect any work it kicks off. */}
       <aside className="hidden lg:block overflow-hidden">
         {dockOpen && (
           <div
@@ -744,6 +744,48 @@ export default function VideoDetailPage() {
           </div>
         )}
       </aside>
+
+      {/* Mobile co-pilot drawer — phone access to the same video-scoped co-pilot. */}
+      <button
+        onClick={toggleDock}
+        className="lg:hidden fixed bottom-24 right-5 z-[70] h-14 w-14 rounded-full flex items-center justify-center shadow-2xl active:scale-95 transition-transform"
+        style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        aria-label={dockOpen ? "Close video co-pilot" : "Open video co-pilot"}
+      >
+        {dockOpen ? <X size={22} /> : <MessageCircle size={22} />}
+      </button>
+
+      {dockOpen && (
+        <div className="lg:hidden fixed inset-0 z-[80] flex items-end" role="dialog" aria-modal="true" aria-label="Co-pilot">
+          <button
+            onClick={toggleDock}
+            className="absolute inset-0 bg-black/60"
+            aria-label="Close co-pilot overlay"
+          />
+          <div
+            className="relative z-10 w-full h-[82vh] rounded-t-3xl overflow-hidden flex flex-col shadow-2xl"
+            style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+              <div className="flex items-center gap-2">
+                <MessageCircle size={16} style={{ color: "var(--turquoise)" }} />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Co-pilot</span>
+              </div>
+              <button
+                onClick={toggleDock}
+                className="p-2 rounded-xl transition-all hover:bg-[var(--bg-surface)]"
+                style={{ color: "var(--text-tertiary)" }}
+                aria-label="Close chat"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <ChatCore videoId={videoId} docked uiContext={{ tab: rawTab }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
