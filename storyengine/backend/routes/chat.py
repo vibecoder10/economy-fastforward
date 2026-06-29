@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any, Optional
 
@@ -1461,7 +1462,7 @@ async def _competitor_median_seconds(tenant_id) -> int:
     try:
         row = await fetch_one(
             "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_seconds) AS med "
-            "FROM competitor_videos WHERE tenant_id = $1 AND duration_seconds > 0",
+            "FROM competitor_videos WHERE tenant_id = $1 AND duration_seconds > 0 AND removed_at IS NULL",
             tenant_id,
         )
         return int((row or {}).get("med") or 0)
@@ -1545,7 +1546,7 @@ async def _compute_channel_intel(tenant_id, api_key) -> dict:
         rows = await fetch_all(
             """SELECT title, views, vph, duration_seconds, thumbnail_style_json, published_date
                  FROM competitor_videos
-                WHERE tenant_id = $1 AND views > 0 AND title IS NOT NULL
+                WHERE tenant_id = $1 AND views > 0 AND title IS NOT NULL AND removed_at IS NULL
                 ORDER BY vph DESC NULLS LAST, views DESC NULLS LAST
                 LIMIT 12""",
             tenant_id,
@@ -1689,7 +1690,7 @@ async def _recent_competitor_rows(tenant_id) -> list[dict[str, Any]]:
     rows = await fetch_all(
         """SELECT title, channel, views, vph, hours_old
              FROM competitor_videos
-            WHERE tenant_id = $1 AND title IS NOT NULL
+            WHERE tenant_id = $1 AND title IS NOT NULL AND removed_at IS NULL
               AND hours_old IS NOT NULL AND hours_old <= 240
             ORDER BY vph DESC NULLS LAST, views DESC NULLS LAST
             LIMIT 12""",
@@ -1699,7 +1700,7 @@ async def _recent_competitor_rows(tenant_id) -> list[dict[str, Any]]:
         rows = await fetch_all(
             """SELECT title, channel, views, vph, hours_old
                  FROM competitor_videos
-                WHERE tenant_id = $1 AND title IS NOT NULL
+                WHERE tenant_id = $1 AND title IS NOT NULL AND removed_at IS NULL
                 ORDER BY published_date DESC NULLS LAST, views DESC NULLS LAST
                 LIMIT 12""",
             tenant_id,
@@ -2373,20 +2374,56 @@ async def _model_rationales(tenant_id, rows: list) -> dict:
     return fallback
 
 
+async def _drop_removed_videos(tenant_id, rows: list[dict]) -> list[dict]:
+    """Filter out competitor rows whose YouTube video no longer exists, and soft-flag
+    them (removed_at) so they stay pruned. Fail-soft: returns rows unchanged when the
+    liveness check can't run (no key / API hiccup) so we never blank the home page."""
+    api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+    if not api_key or not rows:
+        return rows
+    from youtube_data_api import fetch_live_video_ids
+    ids = [r["video_id"] for r in rows if r.get("video_id")]
+    try:
+        live = await fetch_live_video_ids(ids, api_key)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("suggested-models: liveness check failed: %s", e)
+        return rows
+    dead = [i for i in ids if i not in live]
+    if dead:
+        try:
+            await execute(
+                "UPDATE competitor_videos SET removed_at = now() "
+                "WHERE tenant_id = $1 AND video_id = ANY($2::text[])",
+                tenant_id, dead,
+            )
+            logger.info("suggested-models: flagged %d removed videos for %s", len(dead), tenant_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("suggested-models: removed-flag write failed: %s", e)
+    return [r for r in rows if r.get("video_id") in live]
+
+
 @router.get("/suggested-models")
 async def suggested_models(tenant_id=Depends(get_tenant_id)):
     """Top videos worth modeling from the creator's modeled channel, with metrics +
     a cached AI 'why'. Empty when they have no competitor data (the home page then
     falls back to the generic example prompts)."""
+    # Fetch a WIDER candidate set than we show, then drop any whose YouTube video
+    # has been removed/made private (data-freshness: a dead video must never rank as
+    # a "worth modeling" top pick). The liveness check + soft-flag prune the dead
+    # rows so they stay gone. Fail-soft: if the check can't run, show what we have.
     rows = await fetch_all(
         "SELECT video_id, title, url, channel, views, vph, hours_old, model_rationale "
-        "FROM competitor_videos WHERE tenant_id = $1 AND views > 0 "
-        "ORDER BY vph DESC NULLS LAST LIMIT 5",
+        "FROM competitor_videos WHERE tenant_id = $1 AND views > 0 AND removed_at IS NULL "
+        "ORDER BY vph DESC NULLS LAST LIMIT 15",
         tenant_id,
     )
     if not rows:
         return {"channel": None, "videos": []}
     rows = [dict(r) for r in rows]
+    rows = await _drop_removed_videos(tenant_id, rows)
+    if not rows:
+        return {"channel": None, "videos": []}
+    rows = rows[:5]
     # Generate + cache a rationale for any row that doesn't have one yet.
     missing = [r for r in rows if not (r.get("model_rationale") or "").strip()]
     if missing:

@@ -127,6 +127,38 @@ async def fetch_single_video(youtube_id: str, api_key: str) -> Optional[dict]:
         }
 
 
+async def fetch_live_video_ids(youtube_ids, api_key: str) -> set:
+    """Return the subset of youtube_ids that STILL EXIST and are reachable on
+    YouTube. Removed/deleted/private videos are simply absent from a videos.list
+    response, so the returned set is the live ones. Batches 50 ids per call
+    (part=id => 1 quota unit each).
+
+    Fail-soft: on a missing key or any API error returns ALL input ids (treats them
+    as live) so a hiccup never wrongly flags real videos as removed.
+    """
+    ids = [i for i in {(x or "").strip() for x in (youtube_ids or [])} if i]
+    if not ids:
+        return set()
+    if not api_key:
+        return set(ids)
+    live: set = set()
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            for i in range(0, len(ids), 50):
+                batch = ids[i : i + 50]
+                r = await client.get(
+                    f"{API_BASE}/videos",
+                    params={"part": "id", "id": ",".join(batch), "key": api_key},
+                )
+                r.raise_for_status()
+                for v in r.json().get("items", []):
+                    if v.get("id"):
+                        live.add(v["id"])
+    except Exception:  # noqa: BLE001 — never drop videos on an API hiccup
+        return set(ids)
+    return live
+
+
 async def fetch_channel_videos(
     channel_url: str, api_key: str, max_results: int = 30
 ) -> list[dict]:

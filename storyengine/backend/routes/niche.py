@@ -1092,6 +1092,31 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
         else:
             distilled_count = 0
 
+        # Data freshness: prune competitor videos that no longer exist on YouTube
+        # (removed by the uploader / made private). A liveness check by id flags them
+        # so dead rows stop surfacing as "worth modeling" top picks. Non-blocking.
+        if api_key:
+            try:
+                from youtube_data_api import fetch_live_video_ids
+                existing = await fetch_all(
+                    "SELECT video_id FROM competitor_videos "
+                    "WHERE tenant_id = $1 AND removed_at IS NULL AND video_id IS NOT NULL",
+                    tenant_id,
+                )
+                check_ids = [r["video_id"] for r in (existing or [])]
+                if check_ids:
+                    live = await fetch_live_video_ids(check_ids, api_key)
+                    dead = [i for i in check_ids if i not in live]
+                    if dead:
+                        await execute(
+                            "UPDATE competitor_videos SET removed_at = now() "
+                            "WHERE tenant_id = $1 AND video_id = ANY($2::text[])",
+                            tenant_id, dead,
+                        )
+                        print(f"[Scrape] Pruned {len(dead)} removed videos")
+            except Exception as e:
+                print(f"[Scrape] Prune failed (non-blocking): {e}")
+
         _scrape_tasks[tenant_id] = {
             "running": False,
             "videos_found": len(all_video_stubs),

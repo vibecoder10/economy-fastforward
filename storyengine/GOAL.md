@@ -146,7 +146,15 @@ competing routes.
 - **Proof:** one real chat-built video; confirm via DB + screenshots that every image/clip came
   from the coverage path and no old-path entry point is reachable.
 
-### Phase 1 - Data foundation (real numbers) `[mostly done 2026-06-24: model-a-video + onboarding on the API; own-channel ingestion + prod zero-row purge remain]`
+### Phase 1 - Data foundation (real numbers) `[mostly done; dead-video pruning added 2026-06-29]`
+DEAD-VIDEO FRESHNESS (2026-06-29): UI test caught the #1 and #2 "Worth modeling"
+picks pointing at videos REMOVED from YouTube yet shown as fresh/accelerating (gray
+thumbnail = dead). Fix shipped: migration 067 adds competitor_videos.removed_at;
+`youtube_data_api.fetch_live_video_ids` batch-checks ids (removed/private => absent);
+the /suggested-models endpoint fetches a wider set, soft-flags dead rows (removed_at),
+and returns the top 5 LIVE; `_run_scrape` prunes the whole table each run; recent-rows
+/ channel-intel / median queries all exclude removed_at IS NOT NULL. All fail-soft.
+STILL REMAIN: own-channel ingestion + prod zero-row purge (the older Phase 1 items).
 Confirmed half-broken: key is set, daily scrape works, but onboarding + model-a-video write
 zeros (23 of 50 rows for the owner tenant).
 - Extract one shared `youtube_data_api` helper (single-video + channel) and route EVERY ingestion
