@@ -326,19 +326,30 @@ async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, s
         if style and style.strip()
         else " Photoreal and realistic, matching the attached cast reference's exact look and "
              "rendering style; never 2D illustration or cartoon.")
+    # Use the SAME multi-angle generator the Characters tab / "Redesign Cast" uses, so the
+    # auto-build produces a proper 4-view reference SHEET per character (the 360 consistency
+    # anchor) and ALWAYS persists it — with retry. The old path only made an image when an
+    # on-disk cast sheet happened to be present, and used a single-view prompt, which left
+    # reference_url NULL and the Characters tab empty.
+    from routes.characters import _generate_portrait, _persist_portrait_url
     chars = await extract_characters(claude, script_text, model=claude_model)
     n = 0
     for i, ch in enumerate(chars):
-        ref = None
-        if cast_url:
-            prompt = ch["portrait"] + style_clause
-            res = await ic.generate_thumbnail_gpt2(prompt, [cast_url], "16:9")  # GPT Image 2
-            ref = await _stable_url(res.get("url") if isinstance(res, dict) else res,
-                                    f"{vid}/characters/{i}_{ch['name'].replace(' ', '_')}.png", tenant)
-        await execute(
-            "INSERT INTO video_characters (tenant_id, video_id, name, description, reference_url, "
-            "status, source, sort) VALUES ($1,$2,$3,$4,$5,'approved','generated',$6)",
-            tenant, vid, ch["name"], ch["description"], ref, i)
+        row = await fetch_one(
+            "INSERT INTO video_characters (tenant_id, video_id, name, description, "
+            "status, source, sort) VALUES ($1,$2,$3,$4,'approved','generated',$5) RETURNING id",
+            tenant, vid, ch["name"], ch["description"], i)
+        char_id = str(row["id"])
+        for attempt in range(3):
+            try:
+                temp_url = await _generate_portrait(ic.api_key, ch.get("description") or ch["name"], style or "")
+                ref = await _persist_portrait_url(tenant, vid, char_id, temp_url)
+                await execute("UPDATE video_characters SET reference_url=$1, updated_at=now() WHERE id=$2",
+                              ref, char_id)
+                break
+            except Exception as e:  # noqa: BLE001
+                print(f"  character {ch['name']} sheet attempt {attempt+1} failed: {str(e)[:120]}")
+                await asyncio.sleep(2 * (attempt + 1))
         n += 1
         print(f"  character: {ch['name']}")
     return n
