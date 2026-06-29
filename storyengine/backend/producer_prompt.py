@@ -105,11 +105,12 @@ When you have the look, the length, and how far to take it, move to phase "plan"
 def build_system_prompt(channel_brief: str = "") -> str:
     """The producer system prompt, with an optional channel brief appended.
 
-    The brief is whatever the caller passes. TODAY that is a thin creator brief
-    (intent/goals/niche/channel + competitor NAMES) plus a runtime length anchor.
-    It does NOT yet carry the competitors' proven titles/hooks/thumbnails — wiring
-    that real format intelligence into every turn is GOAL v2 Phase 2. Empty brief
-    -> the generic producer behavior.
+    The brief is whatever the caller passes. As of GOAL v2 Phase 2 the chat path
+    passes the creator brief (intent/goals/niche/channel + competitor names), a
+    real runtime length anchor, AND the channel intelligence brief (the channel's
+    top-performing titles, the winning title/hook pattern, thumbnail motifs, and
+    upload cadence — mined from competitor_videos). Empty brief -> the generic
+    producer behavior.
     """
     brief = (channel_brief or "").strip()
     if brief:

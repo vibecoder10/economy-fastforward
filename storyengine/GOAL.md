@@ -160,7 +160,20 @@ zeros (23 of 50 rows for the owner tenant).
 - **Proof:** re-run onboarding/model-a-video for a channel; confirm competitor_videos rows carry
   real views/duration/vph; home "Worth modeling" shows real numbers.
 
-### Phase 2 - Director chat intelligence `[todo]`
+### Phase 2 - Director chat intelligence `[built 2026-06-29, LOCAL - pending deploy + prod proof]`
+BUILT: (1) migration 066 adds channel_profiles.channel_intel JSONB; (2) chat.py
+_compute_channel_intel / _get_channel_intel / _channel_intel_brief mine
+competitor_videos (top titles, title/hook pattern, thumbnail motifs from
+thumbnail_style_json, median runtime, upload cadence) - lazy-first, cached with a
+12h TTL, all fail-soft; (3) the rich brief is injected at BOTH producer
+build_system_prompt sites (intake turn + _seed_producer); (4) proactive open turn:
+a returning onboarded user opening a fresh home conversation now gets a modeled
+idea pitch (_generate_competitor_ideas -> _present_ideas_turn) instead of the
+static _GREETING, fail-soft to the greeting. Fixed the lying producer_prompt
+docstring. Verified locally: py_compile + a stubbed-DB unit test (median/cadence
+math, brief text, empty-data fallback all pass). NEEDS: deploy (pull + backend
+restart auto-applies 066) + the real prod proof on Ryan's tenant.
+
 Make channel intelligence always-on, not a one-time onboarding seed.
 - Persist a rich creator brief on `channel_profiles` (top titles, hook patterns, thumbnail motifs,
   median cadence/runtime), refreshed when scrapes complete - not just the 5 thin `_BRIEF_KEYS`

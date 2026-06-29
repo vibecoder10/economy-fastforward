@@ -1500,6 +1500,151 @@ async def _hydrate_creator_brief(tenant_id, state) -> None:
             state[k] = v
 
 
+# --- Channel intelligence brief (Phase 2) ----------------------------------
+#
+# A cached, data-backed picture of the channel the creator models — top winning
+# titles, the recurring title/hook pattern, thumbnail motifs, upload cadence —
+# mined from competitor_videos and fed into EVERY producer turn so the chat's
+# suggestions are genuinely modeled, not generic. Lazy-first: computed on demand,
+# cached on channel_profiles.channel_intel, recomputed only when stale. All
+# fail-soft — channel intelligence is a bonus, it must never block a turn.
+
+_CHANNEL_INTEL_TTL_S = 12 * 3600  # recompute at most twice a day
+
+
+async def _compute_channel_intel(tenant_id, api_key) -> dict:
+    """Mine competitor_videos for the channel's real winning patterns. Cheap:
+    deterministic SQL aggregates over existing columns + ONE small Claude distill
+    for the title/hook pattern and thumbnail motifs. Returns {} when there isn't
+    enough real data to model (fewer than 3 videos with views)."""
+    import asyncio
+    import time
+    try:
+        rows = await fetch_all(
+            """SELECT title, views, vph, duration_seconds, thumbnail_style_json, published_date
+                 FROM competitor_videos
+                WHERE tenant_id = $1 AND views > 0 AND title IS NOT NULL
+                ORDER BY vph DESC NULLS LAST, views DESC NULLS LAST
+                LIMIT 12""",
+            tenant_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: channel_intel query failed: %s", e)
+        return {}
+    rows = [dict(r) for r in (rows or [])]
+    if len(rows) < 3:
+        return {}
+
+    top_titles = [r["title"] for r in rows if r.get("title")][:8]
+
+    durs = sorted(int(r["duration_seconds"]) for r in rows if r.get("duration_seconds"))
+    median_runtime_s = durs[len(durs) // 2] if durs else 0
+
+    cadence_days = 0
+    dates = sorted(d for d in (r.get("published_date") for r in rows) if d)
+    if len(dates) >= 2:
+        gaps = sorted((dates[i + 1] - dates[i]).days for i in range(len(dates) - 1))
+        cadence_days = gaps[len(gaps) // 2]
+
+    # Raw thumbnail-style snippets we already have (no new vision spend) — fed to
+    # the distill so it can name the recurring motifs.
+    thumb_snippets: list[str] = []
+    for r in rows:
+        tj = r.get("thumbnail_style_json")
+        if tj and isinstance(tj, str) and tj.strip():
+            thumb_snippets.append(tj.strip()[:300])
+        if len(thumb_snippets) >= 6:
+            break
+
+    hook_pattern = ""
+    thumbnail_motifs: list[str] = []
+    if api_key and top_titles:
+        try:
+            prompt = (
+                "A YouTube channel's top-performing videos. Find what repeats.\n\n"
+                "TOP TITLES:\n" + "\n".join(f"- {t}" for t in top_titles)
+            )
+            if thumb_snippets:
+                prompt += "\n\nTHUMBNAIL STYLE NOTES:\n" + "\n".join(f"- {s}" for s in thumb_snippets)
+            prompt += (
+                "\n\nIn ONE sentence, describe the recurring TITLE/HOOK pattern that drives the "
+                "clicks (structure + emotional trigger + formula). Also list up to 4 recurring "
+                "THUMBNAIL MOTIFS (short noun phrases) if the notes show any.\n"
+                'Return ONE JSON object and nothing else: {"pattern":"...","thumbnail_motifs":["..."]}.'
+            )
+            data = await asyncio.to_thread(_claude_json, api_key, prompt, 400)
+            if isinstance(data, dict):
+                hook_pattern = str(data.get("pattern") or "").strip()
+                motifs = data.get("thumbnail_motifs")
+                if isinstance(motifs, list):
+                    thumbnail_motifs = [str(m).strip() for m in motifs if str(m).strip()][:4]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: channel_intel distill failed: %s", e)
+
+    return {
+        "top_titles": top_titles,
+        "hook_pattern": hook_pattern,
+        "thumbnail_motifs": thumbnail_motifs,
+        "median_runtime_s": median_runtime_s,
+        "cadence_days": cadence_days,
+        "computed_at": time.time(),
+    }
+
+
+async def _get_channel_intel(tenant_id) -> dict:
+    """Return the cached channel-intel dict, recomputing when missing or stale.
+    Fail-soft: returns {} (never raises) so a bad turn just loses the bonus."""
+    import time
+    try:
+        row = await fetch_one(
+            "SELECT channel_intel FROM channel_profiles WHERE tenant_id = $1", tenant_id
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: channel_intel read failed: %s", e)
+        return {}
+    intel = _as_dict((row or {}).get("channel_intel"))
+    if intel and (time.time() - float(intel.get("computed_at") or 0)) < _CHANNEL_INTEL_TTL_S:
+        return intel
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    fresh = await _compute_channel_intel(tenant_id, api_key)
+    if not fresh:
+        return intel  # keep the last good cache if we couldn't refresh
+    try:
+        await execute(
+            "UPDATE channel_profiles SET channel_intel = $2::jsonb, updated_at = now() "
+            "WHERE tenant_id = $1",
+            tenant_id, json.dumps(fresh),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: channel_intel write failed: %s", e)
+    return fresh
+
+
+async def _channel_intel_brief(tenant_id) -> str:
+    """Format the cached channel intel as a compact block for the producer system
+    prompt. Empty string when there's no intel yet (fail-soft)."""
+    intel = await _get_channel_intel(tenant_id)
+    if not intel:
+        return ""
+    bits: list[str] = []
+    titles = intel.get("top_titles") or []
+    if titles:
+        bits.append("Their channel's top-performing titles: " + "; ".join(f'"{t}"' for t in titles[:6]) + ".")
+    if intel.get("hook_pattern"):
+        bits.append("The title/hook pattern that wins for them: " + intel["hook_pattern"])
+    motifs = intel.get("thumbnail_motifs") or []
+    if motifs:
+        bits.append("Recurring thumbnail motifs: " + ", ".join(motifs) + ".")
+    cadence = int(intel.get("cadence_days") or 0)
+    if cadence > 0:
+        bits.append(f"They publish about every {cadence} day(s).")
+    if not bits:
+        return ""
+    return ("\nCHANNEL INTELLIGENCE (real data from the videos this creator models — model your "
+            "ideas, titles, hooks and thumbnail concepts on these, don't be generic):\n- "
+            + "\n- ".join(bits))
+
+
 async def _wait_for_scrape(state) -> None:
     """Bounded wait (~40s) for the background competitor scrape to finish."""
     import asyncio
@@ -1712,7 +1857,11 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         transcript.append(_assistant_turn({"assistant_text": msg, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
-    brief = _creator_brief(state) + await _modeled_runtime_hint(tenant_id)
+    brief = (
+        _creator_brief(state)
+        + await _modeled_runtime_hint(tenant_id)
+        + await _channel_intel_brief(tenant_id)
+    )
     data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
     _stamp_length_default(data)
     transcript.append(_assistant_turn(data))
@@ -2062,8 +2211,24 @@ async def chat_turn(
         state.setdefault("selections", {}).update(body.selections)
 
     if not user_parts:
-        # Nothing said yet — greet (no Claude call needed).
+        # Nothing said yet. For a RETURNING, onboarded creator opening a FRESH
+        # conversation, proactively pitch a modeled idea (Phase 2) instead of a
+        # static greeting. Gated to the first open (empty transcript), so it
+        # fires once per conversation, not on every poll. Fail-soft to the greeting.
         if not transcript:
+            ideas = None
+            if state.get("channel") or state.get("competitors"):
+                try:
+                    ideas = await _generate_competitor_ideas(
+                        tenant_id, state, niche=state.get("niche_angle")
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("chat: proactive idea pitch failed: %s", e)
+                    ideas = None
+            if ideas:
+                return await _present_ideas_turn(
+                    conversation_id, tenant_id, transcript, state, ideas
+                )
             transcript.append(_assistant_turn({"assistant_text": _GREETING, "phase": "asking"}))
             await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(
@@ -2084,8 +2249,13 @@ async def chat_turn(
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
 
-    # Channel intelligence brief is injected in Phase 4; empty for now.
-    system_prompt = build_system_prompt(_creator_brief(state) + await _modeled_runtime_hint(tenant_id))
+    # Producer sees the durable creator brief + a real length anchor + the channel
+    # intelligence brief (top titles / hook pattern / thumbnail motifs / cadence).
+    system_prompt = build_system_prompt(
+        _creator_brief(state)
+        + await _modeled_runtime_hint(tenant_id)
+        + await _channel_intel_brief(tenant_id)
+    )
     data = call_producer(transcript, system_prompt, api_key=api_key)
     _stamp_length_default(data)
     transcript.append(_assistant_turn(data))
