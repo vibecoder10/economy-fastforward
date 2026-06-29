@@ -311,5 +311,9 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   (runPromptsForScene/Segment, runImageForSegment/Variants); (4) retired the 5 backend routes with
   a reversible 410 Gone guard. runSplit (/split) kept - it's the legit script segment-splitter.
   Verified: backend py_compile OK, frontend `npm run build` OK (route table shows /visuals +
-  /storyboard gone, /pipeline/[videoId]/storyboards + /review intact). Still owed: deploy + the
-  paid Model-A-Video end-to-end proof, own-channel ingestion, prod zero-row purge.
+  /storyboard gone, /pipeline/[videoId]/storyboards + /review intact). DEPLOYED to prod (commit
+  e2fe3dfc; pulled on VPS, frontend rebuilt, both systemd units bounced via kill -9 + revive).
+  PROVEN live on storyengine.dev: /visuals + /storyboard now 404 (deleted pages gone),
+  /pipeline/x/storyboards + /review + /login still 200. Still owed: the paid Model-A-Video
+  end-to-end proof (does the unified coverage path draw correctly + stop at pictures), own-channel
+  ingestion, prod zero-row purge.
