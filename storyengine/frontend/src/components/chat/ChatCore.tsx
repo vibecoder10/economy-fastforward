@@ -577,10 +577,10 @@ function ModelSuggestions({ data, onPick }: { data: SuggestedModels; onPick: (v:
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
                     title="Open the source video on YouTube to verify it's real and current"
-                    className="inline-flex items-center gap-1 hover:underline"
-                    style={{ color: "var(--text-secondary)" }}
+                    className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 hover:brightness-110"
+                    style={{ color: "var(--turquoise)" }}
                   >
-                    <Youtube size={12} /> Watch
+                    <Youtube size={12} /> Watch on YouTube
                   </a>
                 )}
               </div>
