@@ -837,6 +837,7 @@ class ImageClient:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         async def _run(model: str, extra: dict, label: str):
+            """Returns (status, url): 'ok' | 'blocked' (content policy) | 'fail' (transient)."""
             payload = {"model": model, "input": {"prompt": prompt, "aspect_ratio": aspect_ratio, **extra}}
             print(f"      🎨 Generating ({label} text-to-image)...")
             try:
@@ -844,29 +845,43 @@ class ImageClient:
                     response = await client.post(self.CREATE_TASK_URL, headers=headers, json=payload, timeout=60.0)
                     if response.status_code != 200:
                         print(f"      ❌ {label} API error: {response.status_code} - {response.text[:160]}")
-                        return None
+                        return ("fail", None)
                     task_data = response.json()
                     if task_data.get("code") != 200:
                         print(f"      ❌ {label} API error: {task_data.get('msg')}")
-                        return None
+                        return ("fail", None)
                     task_id = task_data.get("data", {}).get("taskId")
                     if not task_id:
                         print(f"      ❌ {label}: no task ID returned")
-                        return None
+                        return ("fail", None)
                     await asyncio.sleep(5)
                     urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
-                    return urls[0] if urls else None
+                    return ("ok", urls[0]) if urls else ("fail", None)
             except Exception as e:
+                msg = str(e)
+                if CONTENT_POLICY_MARKER in msg or _is_content_block(msg):
+                    print(f"      🚫 {label} refused (content policy)")
+                    return ("blocked", None)
+                if KIE_BLOCK_MARKER in msg:
+                    raise  # banned / out-of-credit is terminal; nano shares the same key
                 print(f"      ❌ {label} error: {e}")
-                return None
+                return ("fail", None)
 
-        # GPT Image 2 FIRST (the studio standard), nano-banana-2 FALLBACK — catches GPT Image 2
-        # content-policy refusals (e.g. it won't render reference sheets of children) and any blip.
-        url = await _run("gpt-image-2-text-to-image", {"resolution": "2K"}, "gpt-image-2")
-        if not url:
-            print("      ↩️  GPT Image 2 returned nothing — falling back to nano-banana-2...")
-            url = await _run("nano-banana-2", {"output_format": "png"}, "nano-banana-2")
-        return {"url": url} if url else None
+        # GPT Image 2 is the engine. nano-banana-2 is used ONLY when GPT genuinely can't:
+        # a CONTENT-POLICY block (e.g. reference sheets of children) switches to nano right
+        # away; a transient blip just RETRIES GPT (better quality), with nano as a last resort.
+        status = "fail"
+        for attempt in range(2):
+            status, url = await _run("gpt-image-2-text-to-image", {"resolution": "2K"}, "gpt-image-2")
+            if status == "ok":
+                return {"url": url}
+            if status == "blocked":
+                break  # GPT will never render this — switch to nano now
+            await asyncio.sleep(2 * (attempt + 1))  # transient — retry GPT
+        why = "content-policy block" if status == "blocked" else "GPT Image 2 unavailable after retries"
+        print(f"      ↩️  {why} — switching to nano-banana-2...")
+        status, url = await _run("nano-banana-2", {"output_format": "png"}, "nano-banana-2")
+        return {"url": url} if status == "ok" and url else None
 
     async def generate_talking_video(
         self,

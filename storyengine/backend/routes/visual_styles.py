@@ -199,85 +199,20 @@ async def generate_character(
 
     full_prompt = f"{prompt_prefix.rstrip('.')}. {req.prompt.strip()}. No text, no watermarks."
 
-    # Call Kie.ai API — correct format per image_client.py
+    # GPT Image 2 first, intelligent nano-banana-2 fallback (shared ImageClient): style
+    # samples go on GPT Image 2 like everything else, dropping to nano only on a content
+    # block or a true GPT outage.
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
-            # Create task
-            create_resp = await client.post(
-                "https://api.kie.ai/api/v1/jobs/createTask",
-                json={
-                    "model": "nano-banana-2",
-                    "input": {
-                        "prompt": full_prompt,
-                        "aspect_ratio": "1:1",
-                        "output_format": "png",
-                    },
-                },
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-            if create_resp.status_code != 200:
-                raise HTTPException(
-                    status_code=502,
-                    detail=humanize_error(
-                        f"Kie.ai {create_resp.status_code}: {create_resp.text[:300]}",
-                        context="We couldn't start character generation",
-                    ),
-                )
-
-            task_data = create_resp.json()
-            data = task_data.get("data", {})
-            task_id = data.get("task_id") or data.get("taskId") or task_data.get("task_id") or task_data.get("taskId")
-
-            if not task_id:
-                raise HTTPException(
-                    status_code=500,
-                    detail=humanize_error(
-                        f"No task_id in response: {json.dumps(task_data)[:300]}",
-                        context="Character generation didn't start correctly",
-                    ),
-                )
-
-            # Poll for completion — correct endpoint: /jobs/recordInfo?taskId=xxx
-            # 5s interval, 60 attempts (5 minutes)
-            for attempt in range(60):
-                await asyncio.sleep(5)
-                status_resp = await client.get(
-                    "https://api.kie.ai/api/v1/jobs/recordInfo",
-                    params={"taskId": task_id},
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                if status_resp.status_code != 200:
-                    continue  # Transient error, keep polling
-
-                status_data = status_resp.json()
-                data = status_data.get("data", {})
-                task_status = data.get("status")
-                task_state = data.get("state")
-
-                # Check for failure (status=3 or state contains "fail")
-                if (task_status == 3
-                    or str(task_status).lower() in ("failed", "failure", "error")
-                    or str(task_state).lower() in ("fail", "failed", "failure", "error")):
-                    error_msg = data.get("errorMessage") or data.get("error") or "Unknown error"
-                    raise HTTPException(
-                        status_code=500,
-                        detail=humanize_error(error_msg, context="We couldn't generate your character image"),
-                    )
-
-                # Check for completion — extract from resultJson.resultUrls
-                result_json = data.get("resultJson")
-                if result_json:
-                    if isinstance(result_json, str):
-                        result_json = json.loads(result_json)
-                    result_urls = result_json.get("resultUrls", [])
-                    if result_urls:
-                        return {"status": "ok", "image_url": result_urls[0], "prompt": full_prompt}
-
-            raise HTTPException(status_code=504, detail="Generation timed out after 5 minutes")
-
+        from shared.clients.image_client import ImageClient
+        res = await ImageClient(api_key=api_key).generate_scene_image_gpt(
+            full_prompt, None, aspect_ratio="1:1")
+        image_url = (res or {}).get("url")
+        if not image_url:
+            raise HTTPException(
+                status_code=502,
+                detail=humanize_error("Image generation returned no result",
+                                      context="We couldn't generate your style sample"))
+        return {"status": "ok", "image_url": image_url, "prompt": full_prompt}
     except HTTPException:
         raise
     except Exception as e:

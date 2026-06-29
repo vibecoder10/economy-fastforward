@@ -177,41 +177,15 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
         "exclude": "no people, no text, no watermarks",
     }
     prompt = json.dumps(spec, ensure_ascii=False)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
-        create_resp = await client.post(
-            KIE_CREATE_TASK_URL,
-            json={"model": PORTRAIT_MODEL,
-                  "input": {"prompt": prompt[:1800], "aspect_ratio": aspect_ratio or "16:9", "output_format": "png"}},
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        )
-        if create_resp.status_code != 200:
-            raise RuntimeError(f"Kie.ai {create_resp.status_code}: {create_resp.text[:200]}")
-        data = create_resp.json().get("data") or {}
-        task_id = data.get("task_id") or data.get("taskId")
-        if not task_id:
-            raise RuntimeError(f"No task id from Kie: {create_resp.text[:200]}")
-
-        for _ in range(60):
-            await asyncio.sleep(5)
-            poll = await client.get(
-                KIE_RECORD_INFO_URL,
-                params={"taskId": task_id},
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            if poll.status_code != 200:
-                continue
-            pdata = poll.json().get("data") or {}
-            state = str(pdata.get("state", "")).lower()
-            if (pdata.get("status") == 3 or state in ("fail", "failed", "failure", "error")):
-                raise RuntimeError(pdata.get("errorMessage") or pdata.get("failMsg") or "generation failed")
-            result_json = pdata.get("resultJson")
-            if result_json:
-                if isinstance(result_json, str):
-                    result_json = json.loads(result_json)
-                urls = result_json.get("resultUrls") or []
-                if urls:
-                    return urls[0]
-    raise RuntimeError("Environment generation timed out")
+    # GPT Image 2 first, intelligent nano-banana-2 fallback (shared ImageClient) — locations
+    # have no kid-content obstacle, so they render on GPT Image 2; nano only on a real outage.
+    from shared.clients.image_client import ImageClient
+    res = await ImageClient(api_key=api_key).generate_scene_image_gpt(
+        prompt, None, aspect_ratio=aspect_ratio or "16:9")
+    url = (res or {}).get("url")
+    if not url:
+        raise RuntimeError("Environment generation failed")
+    return url
 
 
 # ---------------------------------------------------------------------------
