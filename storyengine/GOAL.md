@@ -7,6 +7,13 @@ that shows real camera angles and moves the story forward, locks the characters,
 clean grok-imagine clips with real motion. It should feel like an ultra-smart director in the
 room.
 
+**Ryan directive (2026-06-27):** the chat is the product's Higgsfield-style MCP / Claude co-pilot
+for video production. It must be proactive on every page and every generation step, suggest good
+video ideas before the user has to ask, critique and improve prompts, analyze generated images to
+judge whether angles make sense for the storyline, and let the creator change channel/modeling
+strategy conversationally by dropping YouTube links or saying things like "model this channel for
+the highest chance of success." This file is the live source of truth for that behavior.
+
 **This pass is a full sweep to make the system exactly that, fixed at the root.** It is grounded
 in an end-to-end multi-agent audit (2026-06-24, 19 agents, adversarially verified at high
 confidence). Old GOAL (the chat-first producer build, Phases 1-7, mostly shipped) is preserved in
