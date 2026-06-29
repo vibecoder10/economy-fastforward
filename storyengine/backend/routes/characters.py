@@ -147,7 +147,8 @@ Return ONLY valid JSON:
 
 
 async def _generate_portrait(api_key: str, description: str, style_dna: str, name: str = "") -> str:
-    """One character MODEL SHEET via Kie (nano-banana-2). A polished animation-studio
+    """One character MODEL SHEET via nano-banana-2 (GPT Image 2 refuses kid reference sheets;
+    see note below). A polished animation-studio
     reference sheet — TURNAROUND (5 views) + EXPRESSIONS + POSE STUDIES + a left info
     panel — so every storyboard panel, clip and thumbnail can lock the character's full
     look, angles and emotions. The art_style leads so the cast and the locations share
@@ -176,6 +177,11 @@ async def _generate_portrait(api_key: str, description: str, style_dna: str, nam
         "unrelated characters, scene backgrounds, watermarks, distorted faces, mismatched outfits or "
         "proportions, malformed hands, paragraphs of tiny gibberish text, misspelled or blurry labels."
     )
+    # MODEL CHOICE: nano-banana-2, NOT GPT Image 2. Everything else (scenes, thumbnails)
+    # is GPT Image 2, but it hard-refuses a reference SHEET of a child (multiple
+    # catalogued images of a minor) — OpenAI content policy 400s it even with wholesome
+    # framing (tested 2026-06-29). nano-banana renders these kid model sheets fine; its
+    # only weakness is small panel text, which the minimal-text prompt above keeps in check.
     async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
         create_resp = await client.post(
             KIE_CREATE_TASK_URL,
