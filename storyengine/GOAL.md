@@ -108,7 +108,7 @@ behind the command center. Mostly wiring, little new intelligence.
 ideas, score them (extend Autopilot's breakdown with feasibility/monetization), recommend the top
 2 with the angle + the one differentiator, all in chat. Do before onboarding customers.
 
-**Phase C - Close the loop in chat (G5 + G1).** Conversational performance diagnosis on synced
+**Phase C - Close the loop in chat (G5 + G1). [SHIPPED 2026-06-30, main @ 5e8d898e]** Conversational performance diagnosis on synced
 analytics ("low impressions vs low CTR vs low retention -> the fix"), and the content-gap +
 opportunity map. This is what makes the product get smarter about THEIR channel every week - the
 moat for "10 customers actually using it."
@@ -203,3 +203,12 @@ any clip spend.
   differentiator, then offers to build the winner. Proven live: a clean scorecard for competitor
   winners, and correctly tanked two off-niche pasted ideas while picking the on-format one.
   NEXT: Phase C (G5 conversational post-video diagnosis + G1 content-gap / opportunity map).
+- 2026-06-30: Phase C SHIPPED (main @ 5e8d898e) - closed the loop in chat. G5 post-video diagnosis:
+  funnel logic (impressions -> CTR -> retention) on the creator's own synced analytics, names the
+  one biggest fix, drafts a better title; honest "nothing synced yet" + accepts pasted stats.
+  Proven live: correctly diagnosed 62k impr / 2.1% CTR / 24% retention as a packaging problem with
+  a quantified fix. G1 opportunity map: covered territory + 3-5 ranked adjacent gaps with
+  why-it-wins + differentiator, from real competitor data. Proven live (School / family-twist /
+  workplace / doctor / friendship gaps for the ESL niche). Phases A+B+C of the command center are
+  now all shipped. REMAINING backlog: G3 hook engineering, G4 strategic calendar + shorts
+  repurposing, D1 per-scene shot budget, D2 Scene-1 clip-motion proof.
