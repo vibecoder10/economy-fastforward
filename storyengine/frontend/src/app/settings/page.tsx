@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard, Palette, Bell, FolderOpen, X, ExternalLink } from "lucide-react";
+import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard, Bell, FolderOpen, X, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/spinner";
@@ -13,7 +13,6 @@ import {
   getCurrentProject,
   updateProject,
   getSubscription,
-  getChannelProfile,
   updateChannelProfile,
   getNotificationPreferences,
   updateNotificationPreferences,
@@ -38,20 +37,6 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
 };
 
-// The 10 canonical frameworks
-const ALL_FRAMEWORKS = [
-  "Machiavelli",
-  "Thucydides Trap",
-  "Taleb",
-  "Game Theory",
-  "Sun Tzu",
-  "Brzezinski",
-  "Kindleberger Trap",
-  "Schelling",
-  "Mancur Olson",
-  "Joseph Nye",
-];
-
 export default function SettingsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -73,16 +58,6 @@ export default function SettingsPage() {
     queryKey: ["subscription"],
     queryFn: getSubscription,
   });
-
-  // Brand Kit
-  const { data: channelProfile } = useQuery({
-    queryKey: ["channelProfile"],
-    queryFn: getChannelProfile,
-  });
-  const [brandAccent, setBrandAccent] = useState("");
-  const [brandLogo, setBrandLogo] = useState("");
-  const [brandSaving, setBrandSaving] = useState(false);
-  const [brandSaved, setBrandSaved] = useState(false);
 
   // Google Drive connection
   const [driveSaving, setDriveSaving] = useState(false);
@@ -206,28 +181,18 @@ export default function SettingsPage() {
 
   // Local form state
   const [channelName, setChannelName] = useState("");
-  const [niche, setNiche] = useState("Geopolitics");
+  const [niche, setNiche] = useState("");
   const [targetAudience, setTargetAudience] = useState("");
-  const [enabledFrameworks, setEnabledFrameworks] = useState<string[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Sync from server data
   useEffect(() => {
     if (project) {
       setChannelName(project.name);
-      setNiche(project.niche || "Geopolitics");
+      setNiche(project.niche || "");
       setTargetAudience(project.target_audience);
-      setEnabledFrameworks(project.frameworks || []);
     }
   }, [project]);
-
-  // Sync brand kit from channel profile
-  useEffect(() => {
-    if (channelProfile) {
-      setBrandAccent(channelProfile.accent_color || "#00D4AA");
-      setBrandLogo(channelProfile.logo_url || "");
-    }
-  }, [channelProfile]);
 
   // Save mutation
   const saveMutation = useMutation({
@@ -266,14 +231,6 @@ export default function SettingsPage() {
     }
   };
 
-  const toggleFramework = (name: string) => {
-    const next = enabledFrameworks.includes(name)
-      ? enabledFrameworks.filter((f) => f !== name)
-      : [...enabledFrameworks, name];
-    setEnabledFrameworks(next);
-    setHasUnsavedChanges(true);
-  };
-
   // Save All handler
   const handleSaveAll = async () => {
     setSaveAllStatus("saving");
@@ -282,7 +239,6 @@ export default function SettingsPage() {
         name: channelName,
         niche,
         target_audience: targetAudience,
-        frameworks: enabledFrameworks,
       });
       queryClient.invalidateQueries({ queryKey: ["currentProject"] });
       setSaveAllStatus("saved");
@@ -392,50 +348,6 @@ export default function SettingsPage() {
         </GlassCard>
       </motion.div>
 
-      {/* Frameworks */}
-      <motion.div variants={item}>
-        <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
-          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
-            Frameworks
-          </h2>
-          <SavedIndicator visible={savedField === "frameworks"} />
-        </div>
-        <GlassCard className="p-6">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {ALL_FRAMEWORKS.map((fw) => {
-              const enabled = enabledFrameworks.includes(fw);
-              return (
-                <button
-                  key={fw}
-                  onClick={() => toggleFramework(fw)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-sm"
-                  style={{
-                    background: enabled ? "var(--turquoise-dim)" : "var(--bg-elevated)",
-                    border: `1px solid ${enabled ? "var(--turquoise)" : "var(--border-subtle)"}`,
-                    color: enabled ? "var(--turquoise)" : "var(--text-secondary)",
-                  }}
-                >
-                  {/* Toggle pill */}
-                  <div
-                    className="w-8 h-4 rounded-full relative transition-all shrink-0"
-                    style={{ background: enabled ? "var(--turquoise)" : "var(--bg-surface)" }}
-                  >
-                    <div
-                      className="w-3 h-3 rounded-full absolute top-0.5 transition-all"
-                      style={{
-                        background: enabled ? "var(--bg-void)" : "var(--text-tertiary)",
-                        left: enabled ? "calc(100% - 14px)" : "2px",
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs font-medium truncate">{fw}</span>
-                </button>
-              );
-            })}
-          </div>
-        </GlassCard>
-      </motion.div>
-
       {/* Visual Identity — Link to /profile */}
       <motion.div variants={item}>
         <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
@@ -516,103 +428,6 @@ export default function SettingsPage() {
           <p className="text-[11px] mt-3" style={{ color: "var(--text-tertiary)" }}>
             One-click connect — no API keys needed. Reconnect to grant upload permission or switch channels.
           </p>
-        </GlassCard>
-      </motion.div>
-
-      {/* Brand Kit */}
-      <motion.div variants={item}>
-        <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--gold)", paddingLeft: 16 }}>
-          <Palette size={18} style={{ color: "var(--gold)" }} />
-          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
-            Brand Kit
-          </h2>
-          {brandSaved && <SavedIndicator visible />}
-        </div>
-        <GlassCard className="p-6">
-          <div className="space-y-5">
-            {/* Accent Color */}
-            <div>
-              <label className="text-[11px] font-medium uppercase tracking-wider block mb-2" style={{ color: "var(--text-secondary)" }}>
-                Accent Color
-              </label>
-              <div className="flex items-center gap-2 flex-wrap">
-                {[
-                  { label: "Teal", value: "#00D4AA" },
-                  { label: "Amber", value: "#FFB800" },
-                  { label: "Crimson", value: "#C44545" },
-                  { label: "Purple", value: "#8B5CF6" },
-                ].map((c) => (
-                  <button
-                    key={c.value}
-                    onClick={() => setBrandAccent(c.value)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all"
-                    style={{
-                      background: brandAccent === c.value ? `${c.value}22` : "transparent",
-                      border: `1px solid ${brandAccent === c.value ? c.value : "var(--border-subtle)"}`,
-                    }}
-                  >
-                    <span className="w-4 h-4 rounded-full" style={{ background: c.value }} />
-                    <span className="text-[10px] font-medium" style={{ color: brandAccent === c.value ? c.value : "var(--text-secondary)" }}>
-                      {c.label}
-                    </span>
-                  </button>
-                ))}
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    value={brandAccent}
-                    onChange={(e) => setBrandAccent(e.target.value)}
-                    maxLength={7}
-                    className="w-20 px-2 py-1.5 rounded-lg text-xs font-mono outline-none"
-                    style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-                    placeholder="#hex"
-                  />
-                  <span className="w-5 h-5 rounded" style={{ background: brandAccent, border: "1px solid var(--border-subtle)" }} />
-                </div>
-              </div>
-            </div>
-
-            {/* Logo URL */}
-            <div>
-              <label className="text-[11px] font-medium uppercase tracking-wider block mb-2" style={{ color: "var(--text-secondary)" }}>
-                Logo URL
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={brandLogo}
-                  onChange={(e) => setBrandLogo(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg text-sm font-body outline-none"
-                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-                  placeholder="https://example.com/logo.png"
-                />
-                {brandLogo && (
-                  <img src={brandLogo} alt="Logo preview" className="w-8 h-8 rounded object-contain" style={{ background: "var(--bg-elevated)" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                )}
-              </div>
-            </div>
-
-            {/* Save */}
-            <button
-              onClick={async () => {
-                setBrandSaving(true);
-                try {
-                  await updateChannelProfile({ accent_color: brandAccent, logo_url: brandLogo });
-                  queryClient.invalidateQueries({ queryKey: ["channelProfile"] });
-                  setBrandSaved(true);
-                  setTimeout(() => setBrandSaved(false), 2000);
-                } finally {
-                  setBrandSaving(false);
-                }
-              }}
-              disabled={brandSaving}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
-              style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid var(--gold)" }}
-            >
-              {brandSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-              {brandSaving ? "Saving..." : "Save Brand Kit"}
-            </button>
-          </div>
         </GlassCard>
       </motion.div>
 
