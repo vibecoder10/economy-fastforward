@@ -18,7 +18,10 @@ const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "
 const PRO_PATHS = ["/autopilot", "/learnings", "/competitors", "/discovery"];
 
 function isPlanAtLeast(plan: string | undefined, required: "starter" | "pro" | "agency"): boolean {
-  const tiers: Record<string, number> = { free: 0, starter: 1, pro: 2, agency: 3 };
+  // "unlimited" is the comped / owner tier (mirrors backend rate_limit.py) and must
+  // outrank every paid tier — without it, unlimited accounts fell through to 0 (free)
+  // and got locked out of Pro features like Autopilot.
+  const tiers: Record<string, number> = { free: 0, starter: 1, pro: 2, agency: 3, unlimited: 99 };
   return (tiers[plan || "free"] ?? 0) >= (tiers[required] ?? 0);
 }
 
