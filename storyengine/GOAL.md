@@ -443,3 +443,21 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   (render_stitch.py) already existed and is solid — this was page wiring + a gate relax, not a
   rebuild. NOTE: verified via the executor (same path the route calls) because no JWT was available
   locally; the route gate change is deployed + compiles.
+- 2026-06-29 (UPLOAD page: channel-agnostic SEO + per-tenant YouTube upload, deployed HEAD 27f48e25):
+  Killed the Power Doctrine leak + the broken legacy upload path. New backend/youtube_publish.py:
+  generate_and_store_seo() writes content-driven SEO (description + tags + hashtags) from the
+  video's own title/script + the tenant's real channel brand → stored on videos.seo_*; no hardcoded
+  niche/hashtags/subscribe link; Education category default. upload_video_to_youtube() authenticates
+  with the creator's OWN connected channel (channel_profiles.youtube_refresh_token + the same
+  GOOGLE_OAUTH_CLIENT_* that minted it), downloads final MP4 + thumbnail from Drive, uploads as an
+  unlisted draft, writes youtube_url/upload_status back. routes/videos.py: POST /{id}/generate-seo +
+  PATCH /{id}/seo. pipeline_executor.run_upload uses the per-tenant path when a channel is connected
+  (only auto-generates SEO when none exists — never clobbers edits). UploadTab.tsx: removed the
+  hardcoded "#economy #geopolitics #finance" + title-only tag scraping; loads/edits/saves the stored
+  SEO with Generate/Regenerate + Save; upload saves the on-screen SEO first.
+  VERIFIED: generate_and_store_seo on the fish video produced correct ESL SEO (channel "Slow English",
+  Education category, relevant tags, #SlowEnglish/#BeginnerEnglish/#ESLStory, a real content-driven
+  description) and stored it. UPLOAD HELD per Ryan: the connected YouTube channel is still "Power
+  Doctrine" (UCwhlmkOJozg7wr5JdQ6jQ4g), so no real upload was run — wait until the correct Slow
+  English channel is connected in Settings. Legacy skills/video-pipeline/upload seo_generator.py
+  (Power Doctrine) is now bypassed by the per-tenant path but still on disk.
