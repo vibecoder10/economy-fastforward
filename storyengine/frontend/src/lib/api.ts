@@ -2366,6 +2366,19 @@ export const sendChatTurn = (body: ChatTurnRequest) =>
     body: JSON.stringify(body),
   });
 
+// Onboarding secure key box: posts the pasted key straight to the vault path so
+// it never rides in as a chat message. Returns which provider it detected.
+export interface OnboardingKeyResponse {
+  ok: boolean;
+  provider?: "kie" | "claude" | null;
+  message: string;
+}
+export const setOnboardingKey = (value: string) =>
+  fetchApi<OnboardingKeyResponse>("/api/chat/onboarding-key", {
+    method: "POST",
+    body: JSON.stringify({ value }),
+  });
+
 // One prior message of a video's co-pilot conversation, flattened for the dock.
 export interface ChatHistoryMessage {
   role: "user" | "assistant";

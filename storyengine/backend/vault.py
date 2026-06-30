@@ -1,6 +1,8 @@
 """API key storage using a simple secrets table.
 
-Uses a regular PostgreSQL table for secret storage.
+Uses a regular PostgreSQL table for secret storage. Values are encrypted at rest
+with Fernet when SECRETS_MASTER_KEY is configured (see the encryption section
+below); without it, values are stored plaintext for a safe gradual rollout.
 Falls back to environment variables if database secrets don't exist.
 
 Usage:
@@ -45,6 +47,70 @@ SECRET_ENV_MAP: dict[str, str] = {
 
 # Feature flag: when True, get_secret resolves user-key first, then tenant-fallback.
 PER_USER_KEYS_ENABLED: bool = os.getenv("PER_USER_KEYS_ENABLED", "false").lower() == "true"
+
+
+# --- encryption at rest ------------------------------------------------------
+# Secrets are stored encrypted with a master key (SECRETS_MASTER_KEY) using
+# Fernet (AES-128-CBC + HMAC). MultiFernet lets us rotate: the env var may hold
+# several comma-separated keys — the FIRST encrypts, ALL can decrypt.
+#
+# Two design choices keep the rollout safe (the vault is the single point of
+# failure for text + images + video):
+#   1. Stored ciphertext carries an `enc::` marker. On read, a value WITHOUT the
+#      marker is treated as legacy plaintext and passed through unchanged — so
+#      existing keys keep working the instant this ships, before any backfill.
+#   2. If SECRETS_MASTER_KEY is unset, _encrypt stores plaintext (the pre-
+#      encryption behavior). A deploy that forgets the env var therefore can't
+#      brick key intake; encryption simply switches on once the key is present.
+_ENC_PREFIX = "enc::"
+_fernet_cache: dict[str, object] = {}
+
+
+def _fernet():
+    """Build a MultiFernet from SECRETS_MASTER_KEY, or None if it's unset/invalid.
+    Cached per distinct env value so tests and key rotation pick up changes."""
+    raw = os.getenv("SECRETS_MASTER_KEY", "").strip()
+    if not raw:
+        return None
+    if raw not in _fernet_cache:
+        try:
+            from cryptography.fernet import Fernet, MultiFernet
+            keys = [Fernet(k.strip().encode()) for k in raw.split(",") if k.strip()]
+            _fernet_cache[raw] = MultiFernet(keys) if keys else None
+        except Exception as e:  # noqa: BLE001 — bad key must not crash the process
+            print(f"SECURITY WARNING: SECRETS_MASTER_KEY is set but invalid ({e}); "
+                  "secrets will be stored/read as PLAINTEXT until it's fixed.")
+            _fernet_cache[raw] = None
+    return _fernet_cache[raw]
+
+
+def _encrypt(value: Optional[str]) -> Optional[str]:
+    """Encrypt a secret for storage. Returns plaintext unchanged when no master
+    key is configured (safe rollout). Marker prefix tags real ciphertext."""
+    if not value:
+        return value
+    f = _fernet()
+    if f is None:
+        return value
+    return _ENC_PREFIX + f.encrypt(value.encode()).decode()
+
+
+def _decrypt(stored: Optional[str]) -> Optional[str]:
+    """Reverse of _encrypt. Legacy plaintext (no marker) passes through unchanged.
+    An encrypted value we can't read (missing/wrong key) returns None rather than
+    crashing the caller — it's treated as 'not configured', and the user re-pastes."""
+    if not stored or not stored.startswith(_ENC_PREFIX):
+        return stored
+    f = _fernet()
+    if f is None:
+        print("SECURITY WARNING: an encrypted secret was found but SECRETS_MASTER_KEY "
+              "is unset/invalid — cannot decrypt it.")
+        return None
+    try:
+        return f.decrypt(stored[len(_ENC_PREFIX):].encode()).decode()
+    except Exception as e:  # noqa: BLE001 — a bad token must not 500 the pipeline
+        print(f"Failed to decrypt secret: {e}")
+        return None
 
 
 async def _ensure_secrets_table() -> bool:
@@ -103,7 +169,7 @@ async def get_secret(name: str, tenant_id: Optional[str] = None, user_id: Option
                 f"{tenant_id}:{user_id}:{name}",
             )
             if user_row and user_row.get("value"):
-                return user_row["value"]
+                return _decrypt(user_row["value"])
 
             # Tier 2: tenant-shared fallback
             tenant_row = await fetch_one(
@@ -111,7 +177,7 @@ async def get_secret(name: str, tenant_id: Optional[str] = None, user_id: Option
                 f"{tenant_id}:{name}",
             )
             if tenant_row and tenant_row.get("value"):
-                return tenant_row["value"]
+                return _decrypt(tenant_row["value"])
         except Exception as e:
             # Log so operators can diagnose DB outages vs genuinely missing keys
             print(f"Warning: DB error resolving per-user key '{name}' "
@@ -139,7 +205,7 @@ async def get_secret(name: str, tenant_id: Optional[str] = None, user_id: Option
             full_name,
         )
         if row and row.get("value"):
-            return row["value"]
+            return _decrypt(row["value"])
     except Exception:
         # Table might not exist - fall back to env vars only if no tenant
         pass
@@ -181,7 +247,7 @@ async def set_secret(
 
         desc = description or f"API key: {name}"
 
-        # Upsert the secret
+        # Upsert the secret — encrypted at rest when SECRETS_MASTER_KEY is set.
         await execute(
             """INSERT INTO secrets (name, value, description, updated_at)
                VALUES ($1, $2, $3, now())
@@ -189,7 +255,7 @@ async def set_secret(
                    value = EXCLUDED.value,
                    description = EXCLUDED.description,
                    updated_at = now()""",
-            full_name, value, desc,
+            full_name, _encrypt(value), desc,
         )
 
         return True
@@ -295,7 +361,7 @@ async def get_secret_status(name: str, tenant_id: Optional[str] = None) -> dict:
             full_name,
         )
         if row and row.get("value"):
-            db_value = row["value"]
+            db_value = _decrypt(row["value"])
     except Exception:
         pass
 

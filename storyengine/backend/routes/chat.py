@@ -1301,16 +1301,41 @@ _SKIP_WORDS = {"skip", "no", "none", "n/a", "nope", "later"}
 # it to the Vault and validate it with the same test_api_key the Settings page
 # uses, so a bad paste is caught here instead of failing three steps later.
 _KEY_URL = "https://kie.ai/api-key"
+_CLAUDE_KEY_URL = "https://console.anthropic.com/settings/keys"
 _KEY_PROMPT = (
     "Quick bit of setup: StoryEngine runs on **your own AI key**, so your work stays "
-    "private and you only pay for what you make. I recommend **Kie.ai** — one key powers "
+    "private and you only pay for what you make. Start with **Kie.ai** — one key powers "
     "scripts, voices, images, and video.\n\n"
     "**Get your key in about 2 minutes:**\n"
     f"1. [Open kie.ai to create your key →]({_KEY_URL}) — sign up and add a few dollars of credit\n"
     "2. Click **Create API Key**, then copy it\n"
-    "3. Paste it right here in the chat 👇\n\n"
-    "Already have an Anthropic (Claude) key? Paste that instead — I'll detect it automatically."
+    "3. Paste it into the secure box below 👇\n\n"
+    "Already have an Anthropic (Claude) key? Paste that here instead — I'll detect it automatically."
 )
+# After the required Kie key lands, we offer Claude as an optional speed upgrade.
+# Direct-to-Anthropic skips Kie's gateway hop, so text (scripts, ideas, hooks) is
+# faster. Kie still does the images, video, and voices — this is additive, not a
+# second required step. Skipping is always fine.
+_CLAUDE_OFFER = (
+    "Want it **faster**? Add a **Claude** key too — totally optional. StoryEngine sends "
+    "all the text work (scripts, ideas, hooks) straight to Claude, which is quicker than "
+    "routing it through Kie. Kie keeps doing your images, video, and voices.\n\n"
+    f"Grab one at [console.anthropic.com →]({_CLAUDE_KEY_URL}) → **API Keys** → **Create Key**, "
+    "then paste it into the secure box below. Or skip — Kie already does everything."
+)
+
+
+def _secure_key_card(*, optional: bool) -> dict:
+    """The inline secure key box (same masked input the Settings page uses). The
+    frontend renders id 'secure_key' as a password field that POSTs straight to
+    /api/chat/onboarding-key, so the raw key never rides in as a chat message.
+    `optional` adds a Skip button (used for the Claude upgrade step)."""
+    return {
+        "id": "secure_key",
+        "label": "Add your Claude key" if optional else "Paste your key",
+        "type": "single",
+        "options": [{"value": "skip", "label": "Skip for now"}] if optional else [],
+    }
 
 
 def _pick_key(raw: str):
@@ -1345,6 +1370,18 @@ async def _has_generation_key(tenant_id) -> bool:
         except Exception:  # noqa: BLE001 — a missing key is the common case, not an error
             pass
     return False
+
+
+async def _after_key_setup(conversation_id, tenant_id, transcript, state, ack):
+    """Key(s) are in the Vault — move on to channel (storytellers) or goals.
+    Shared by every path out of the key steps so the next prompt stays identical."""
+    if state.get("intent") == "stories":
+        state["onboarding_step"] = "channel"
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            ack + "If you have a channel, paste its URL so I can match its vibe (or say “skip”).")
+    state["onboarding_step"] = "goals"
+    return await _ob_reply(conversation_id, tenant_id, transcript, state,
+        ack + "Now — what should I handle for you?", cards=[ONBOARDING_GOALS_CARD])
 
 
 # --- account-connect steps (YouTube analytics + Google Drive) ---------------
@@ -2459,7 +2496,7 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
             lead = ("A storyteller — love it. " if intent == "stories"
                     else "Nice — let's put your channel on autopilot. ")
             return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                lead + _KEY_PROMPT)
+                lead + _KEY_PROMPT, cards=[_secure_key_card(optional=False)])
         if intent == "stories":
             state["onboarding_step"] = "channel"
             return await _ob_reply(conversation_id, tenant_id, transcript, state,
@@ -2471,30 +2508,74 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
             cards=[ONBOARDING_GOALS_CARD])
 
     if step == "key":
+        # Preferred path: the secure box already saved + validated the key via
+        # /api/chat/onboarding-key, so the raw key never entered this turn. We get
+        # a benign selection {secure_key: "saved", key_provider: ...} instead.
+        if sel.get("secure_key") == "saved" or (not msg and await _has_generation_key(tenant_id)):
+            provider = sel.get("key_provider") or state.get("key_provider") or "kie"
+            state["key_provider"] = provider
+            ack = "✅ You're powered up. "
+            # If they led with a Claude key, the fast text path is already on —
+            # no point offering it again. Kie keys get the optional Claude upgrade.
+            if provider == "claude":
+                return await _after_key_setup(conversation_id, tenant_id, transcript, state, ack)
+            state["onboarding_step"] = "key_claude"
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                ack + _CLAUDE_OFFER, cards=[_secure_key_card(optional=True)])
+        # Fallback: a key arrived as composer text (legacy paste-in-chat). Still
+        # works, but route it through the same save + validate so nothing changes.
         raw = (body.message or "").strip()
         if not raw:
-            # They tapped the link but haven't pasted yet — re-show the ask.
-            return await _ob_reply(conversation_id, tenant_id, transcript, state, _KEY_PROMPT)
+            # They tapped the link but haven't pasted yet — re-show the ask + box.
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                _KEY_PROMPT, cards=[_secure_key_card(optional=False)])
         slot, val = _pick_key(raw)
         if not slot:
             return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                (val or "Paste the whole key — it's a long string with no spaces.") + "\n\n" + _KEY_PROMPT)
+                (val or "Paste the whole key — it's a long string with no spaces.") + "\n\n" + _KEY_PROMPT,
+                cards=[_secure_key_card(optional=False)])
         from vault import set_secret, test_api_key
         await set_secret(slot, val, tenant_id=tenant_id, description="Onboarding generation key")
         result = await test_api_key(slot, tenant_id)
         if not result.get("success"):
             return await _ob_reply(conversation_id, tenant_id, transcript, state,
                 f"That key didn't go through — {result.get('message') or 'please double-check it'}. "
-                "Copy the whole key and paste it again 👇")
+                "Copy the whole key and paste it again 👇",
+                cards=[_secure_key_card(optional=False)])
         state["key_provider"] = "claude" if slot == "anthropic_api_key" else "kie"
         ack = f"✅ You're powered up — {result.get('message')}. "
-        if state.get("intent") == "stories":
-            state["onboarding_step"] = "channel"
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                ack + "If you have a channel, paste its URL so I can match its vibe (or say “skip”).")
-        state["onboarding_step"] = "goals"
+        if state["key_provider"] == "claude":
+            return await _after_key_setup(conversation_id, tenant_id, transcript, state, ack)
+        state["onboarding_step"] = "key_claude"
         return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            ack + "Now — what should I handle for you?", cards=[ONBOARDING_GOALS_CARD])
+            ack + _CLAUDE_OFFER, cards=[_secure_key_card(optional=True)])
+
+    if step == "key_claude":
+        # Optional Claude upgrade. Secure box → {secure_key: "saved"}; Skip →
+        # {secure_key: "skip"}. A pasted Claude key (fallback) is saved here too.
+        if sel.get("secure_key") == "saved":
+            return await _after_key_setup(conversation_id, tenant_id, transcript, state,
+                "✅ Claude connected — your text will fly now. ")
+        if sel.get("secure_key") == "skip" or (msg and msg.lower() in _SKIP_WORDS):
+            return await _after_key_setup(conversation_id, tenant_id, transcript, state,
+                "No problem — Kie's got you covered. ")
+        raw = (body.message or "").strip()
+        if raw:
+            slot, val = _pick_key(raw)
+            if slot == "anthropic_api_key":
+                from vault import set_secret, test_api_key
+                await set_secret(slot, val, tenant_id=tenant_id, description="Onboarding Claude key")
+                result = await test_api_key(slot, tenant_id)
+                if result.get("success"):
+                    state["key_provider"] = "claude"
+                    return await _after_key_setup(conversation_id, tenant_id, transcript, state,
+                        "✅ Claude connected — your text will fly now. ")
+            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                "That didn't look like a Claude key (they start with `sk-ant-`). Paste it in the "
+                "secure box below, or skip — Kie already does everything.",
+                cards=[_secure_key_card(optional=True)])
+        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            _CLAUDE_OFFER, cards=[_secure_key_card(optional=True)])
 
     if step == "goals":
         goals = sel.get("goals")
@@ -2621,6 +2702,41 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
     state["mode"] = "producer"
     return await _ob_reply(conversation_id, tenant_id, transcript, state,
         "All set — what should we make first?", phase="asking")
+
+
+# --- secure onboarding key intake -------------------------------------------
+# The chat's secure box POSTs the pasted key here instead of sending it as a
+# chat message. We detect, save, and validate it exactly like the in-chat path,
+# so the raw key never becomes a transcript entry or reaches the producer model.
+
+class OnboardingKeyRequest(BaseModel):
+    value: str
+
+
+class OnboardingKeyResponse(BaseModel):
+    ok: bool
+    provider: Optional[str] = None  # "kie" | "claude"
+    message: str
+
+
+@router.post("/onboarding-key", response_model=OnboardingKeyResponse)
+async def onboarding_key(body: OnboardingKeyRequest, tenant_id=Depends(get_tenant_id)):
+    slot, val = _pick_key((body.value or "").strip())
+    if not slot:
+        return OnboardingKeyResponse(
+            ok=False, message=val or "Paste the whole key — it's a long string with no spaces.")
+    from vault import set_secret, test_api_key
+    await set_secret(slot, val, tenant_id=tenant_id, description="Onboarding generation key")
+    result = await test_api_key(slot, tenant_id)
+    if not result.get("success"):
+        return OnboardingKeyResponse(
+            ok=False,
+            message=f"That key didn't go through — {result.get('message') or 'please double-check it'}.")
+    return OnboardingKeyResponse(
+        ok=True,
+        provider="claude" if slot == "anthropic_api_key" else "kie",
+        message=result.get("message") or "Key verified",
+    )
 
 
 # --- the endpoint ------------------------------------------------------------

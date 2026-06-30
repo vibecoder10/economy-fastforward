@@ -19,6 +19,7 @@ import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { visualPresetById } from "@/lib/visual-presets";
 import {
   sendChatTurn,
+  setOnboardingKey,
   getOnboardingStatus,
   getYouTubeConnectUrl,
   getDriveConnectUrl,
@@ -33,6 +34,7 @@ import {
   type SuggestedModelVideo,
   type ChatConversationSummary,
 } from "@/lib/api";
+import { PasswordInput } from "@/components/forms";
 
 // localStorage keys for the OAuth round-trip during onboarding: the connect
 // button stashes the active conversation so ChatCore can resume it when Google
@@ -187,7 +189,7 @@ export function ChatCore({
   const activeCards = showActive ? last.cards : null;
   const activePlan = showActive ? last.plan : null;
   // One-tap action cards: the spend confirm and the editable proposed-prompt card.
-  const actionCard = activeCards?.find((c) => c.id === "confirm_action" || c.id === "prompt_apply") ?? null;
+  const actionCard = activeCards?.find((c) => c.id === "confirm_action" || c.id === "prompt_apply" || c.id === "secure_key") ?? null;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -410,6 +412,14 @@ export function ChatCore({
         <ConfirmActionCard
           card={actionCard}
           onChoose={(value, label) => turn({ selections: { confirm_action: value } }, label)}
+        />
+      )}
+      {actionCard?.id === "secure_key" && !sending && (
+        <SecureKeyCard
+          key={`sk-${messages.length}`}
+          card={actionCard}
+          onSaved={(provider) => turn({ selections: { secure_key: "saved", key_provider: provider } }, "🔒 Key saved")}
+          onSkip={() => turn({ selections: { secure_key: "skip" } }, "Skip for now")}
         />
       )}
       {activeCards && !actionCard && !activePlan && !sending && (
@@ -896,6 +906,88 @@ function ConfirmActionCard({
           {no?.label ?? "Cancel"}
         </button>
       </div>
+    </GlassCard>
+  );
+}
+
+// --- secure key card (onboarding key intake) ------------------------------
+// The same masked input the Settings/keys page uses, rendered inline in chat.
+// On save it POSTs the key straight to /api/chat/onboarding-key (vault path) —
+// the raw key never enters the message stream — then advances onboarding with a
+// benign selection. The Claude-upgrade step passes a "skip" option so we show a
+// Skip button; the required Kie step has none.
+function SecureKeyCard({
+  card,
+  onSaved,
+  onSkip,
+}: {
+  card: ChatCard;
+  onSaved: (provider: string) => void;
+  onSkip: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const skippable = !!card.options?.find((o) => o.value === "skip");
+
+  async function save() {
+    const v = value.trim();
+    if (!v || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await setOnboardingKey(v);
+      if (!res.ok) {
+        setError(res.message);
+        setSaving(false);
+        return;
+      }
+      setValue("");
+      onSaved(res.provider ?? "kie");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save that — try again.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <GlassCard className="flex flex-col gap-3" style={{ borderColor: "var(--turquoise-dim)" }}>
+      <div className="flex items-center gap-2">
+        <Sparkles size={16} style={{ color: "var(--turquoise)" }} />
+        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{card.label}</span>
+      </div>
+      <PasswordInput
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }}
+        placeholder="Paste your API key — it stays hidden"
+        autoFocus
+        disabled={saving}
+        error={error ?? undefined}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={!value.trim() || saving}
+          className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {saving ? "Saving…" : "Save key 🔒"}
+        </button>
+        {skippable && (
+          <button
+            onClick={onSkip}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98]"
+            style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+          >
+            Skip
+          </button>
+        )}
+      </div>
+      <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+        🔒 Saved straight to your encrypted vault — it never appears in the chat.
+      </p>
     </GlassCard>
   );
 }

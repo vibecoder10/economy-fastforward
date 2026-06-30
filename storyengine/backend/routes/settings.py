@@ -148,7 +148,8 @@ async def set_api_key(
 ):
     """Set or update an API key.
 
-    Stores the key in Supabase Vault with encryption.
+    Stores the key in the `secrets` table, encrypted at rest with Fernet when
+    SECRETS_MASTER_KEY is configured (see vault.set_secret).
     """
     if key_name not in SECRET_ENV_MAP:
         raise HTTPException(status_code=404, detail=f"Unknown key: {key_name}")
