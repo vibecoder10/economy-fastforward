@@ -1653,8 +1653,22 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     results.append(f"Add {url} from the Competitors page, I can't pull it in from here right now.")
                     continue
                 import uuid as _uuid
-                from routes.onboarding import _run_competitor_analysis
-                job_id = _uuid.uuid4().hex
+                # _run_competitor_analysis reports progress through onboarding's
+                # in-memory _analyze_jobs dict and does `_analyze_jobs[job_id]` up
+                # front, so the entry MUST exist before we schedule it (same shape
+                # the /competitors/analyze route registers).
+                from routes.onboarding import _run_competitor_analysis, _analyze_jobs
+                job_id = _uuid.uuid4().hex[:8]
+                _analyze_jobs[job_id] = {
+                    "tenant_id": tenant_id,
+                    "status": "starting",
+                    "channels_total": 1,
+                    "channels_complete": 0,
+                    "current_channel": None,
+                    "channel_results": {},
+                    "intelligence_ready": False,
+                    "error": None,
+                }
                 background_tasks.add_task(_run_competitor_analysis, job_id, tenant_id, [url])
                 results.append(f"Added {url} to your competitors, pulling its top videos now.")
             elif kind == "remove_competitor":
