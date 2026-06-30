@@ -212,3 +212,10 @@ any clip spend.
   workplace / doctor / friendship gaps for the ESL niche). Phases A+B+C of the command center are
   now all shipped. REMAINING backlog: G3 hook engineering, G4 strategic calendar + shorts
   repurposing, D1 per-scene shot budget, D2 Scene-1 clip-motion proof.
+- 2026-06-30: G4 strategic calendar SHIPPED (main @ 06f71076) - "plan + one-click build" (Ryan's
+  pick; shorts repurposing deferred). GET /api/dashboard/calendar/plan sequences the top unmodeled
+  competitor winners (reusing the autopilot scoring engine) into dated slots paced to cadence,
+  easy-wins-first, channel-spread to avoid fatigue; Calendar page renders "Your strategic plan" with
+  a one-click Build per slot (launchCandidate -> pipeline); producer gained a "plan ahead" capability.
+  Proven live (15 slots / 30 days). Also: account-unlock bug fixed (unlimited tier missing from the
+  frontend plan gate, main @ df488f2e). REMAINING: shorts repurposing, D1 shot budget, D2 clip proof.
