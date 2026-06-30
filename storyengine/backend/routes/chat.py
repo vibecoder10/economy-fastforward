@@ -1482,6 +1482,228 @@ async def _modeled_runtime_hint(tenant_id) -> str:
             "shorter or longer — and say so.")
 
 
+async def _reference_brief(state: dict, reference_url: str | None) -> str:
+    """When the creator is modeling a specific YouTube video, fetch its REAL public
+    data (title, channel, views, runtime, what it's actually about) and hand it to
+    the producer so the proposal is grounded in THE REFERENCE, not invented from the
+    creator's own channel persona. Without this the producer hallucinates a title
+    from past videos (e.g. an ESL-kids title for a trucking documentary). Uses the
+    YouTube Data API (YOUTUBE_API_KEY) which, unlike yt-dlp scraping, is not
+    IP-bot-blocked. Cached in state per URL. Fail-soft -> ''."""
+    if not reference_url:
+        return ""
+    if state.get("_ref_brief_for") == reference_url:
+        return state.get("_ref_brief") or ""
+    brief = ""
+    try:
+        api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+        from routes.model_video import _parse_youtube_id
+        yid = _parse_youtube_id(reference_url) if reference_url else None
+        info = None
+        if api_key and yid:
+            from youtube_data_api import fetch_single_video
+            info = await fetch_single_video(yid, api_key)
+        if info and info.get("title"):
+            dur = int(info.get("duration_seconds") or 0)
+            runtime = _format_runtime(dur) if dur else "unknown"
+            views = int(info.get("views") or 0)
+            desc = " ".join((info.get("description") or "").split())
+            if len(desc) > 600:
+                desc = desc[:600].rstrip() + "..."
+            lines = [
+                "\n--- THE REFERENCE VIDEO THIS CREATOR IS MODELING (REAL DATA, GROUND YOUR PROPOSAL IN THIS) ---",
+                f"Title: {info['title']}",
+                f"Channel: {info.get('channel') or 'unknown'}",
+                f"Views: {views:,}   Runtime: ~{runtime}   Published: {info.get('published_at') or 'unknown'}",
+            ]
+            if desc:
+                lines.append(f"What it's actually about: {desc}")
+            lines.append(
+                "Propose a concrete new TITLE that adapts THIS video's proven formula AND its "
+                "actual subject and genre to the creator: keep its hook structure and topic lane. "
+                "Do NOT snap back to an unrelated topic from the creator's past videos. Anchor the "
+                f"recommended length to this video's runtime (~{runtime})."
+            )
+            brief = "\n".join(lines) + "\n"
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: reference brief fetch failed: %s", e)
+        brief = ""
+    state["_ref_brief_for"] = reference_url
+    state["_ref_brief"] = brief
+    return brief
+
+
+_URL_RE = re.compile(r"https?://[^\s)]+", re.I)
+
+
+def _first_url(text: str | None) -> Optional[str]:
+    """First http(s) URL in a string (any host, not just YouTube watch links)."""
+    if not text:
+        return None
+    m = _URL_RE.search(text)
+    return m.group(0).rstrip("),.]}'\"") if m else None
+
+
+async def _profile_state_brief(tenant_id) -> str:
+    """The creator's CURRENT channel setup, so the producer can confirm and edit it
+    against real values: the competitor channels on file plus the saved channel
+    name / niche / audience / default look. Fail-soft -> ''."""
+    lines: list[str] = []
+    try:
+        comps = await fetch_all(
+            "SELECT channel_name, channel_url FROM competitor_channels "
+            "WHERE tenant_id = $1 AND active = true ORDER BY channel_name",
+            tenant_id,
+        ) or []
+        if comps:
+            names = ", ".join((c.get("channel_name") or c.get("channel_url") or "?") for c in comps[:12])
+            lines.append(f"Competitor channels on file ({len(comps)}): {names}")
+        else:
+            lines.append("Competitor channels on file: none yet.")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: profile state (competitors) failed: %s", e)
+    try:
+        row = await fetch_one(
+            "SELECT channel_name, niche, target_audience, style_description "
+            "FROM channel_profiles WHERE tenant_id = $1",
+            tenant_id,
+        )
+        if row:
+            if row.get("channel_name"):
+                lines.append(f"Saved channel name: {row['channel_name']}")
+            if row.get("niche"):
+                lines.append(f"Saved niche: {row['niche']}")
+            if row.get("target_audience"):
+                lines.append(f"Saved audience: {row['target_audience']}")
+            if row.get("style_description"):
+                lines.append(f"Saved default look: {row['style_description']}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: profile state (profile) failed: %s", e)
+    if not lines:
+        return ""
+    return ("\n--- THIS CREATOR'S CURRENT SETUP (you can change any of this when they ask) ---\n"
+            + "\n".join(lines) + "\n")
+
+
+async def _delete_competitor(tenant_id, channel_id) -> None:
+    """Remove a competitor channel and cascade-delete its scraped videos, matching
+    the niche.remove_channel route's cascade so analytics don't orphan."""
+    ch = await fetch_one(
+        "SELECT channel_url, channel_name FROM competitor_channels WHERE id = $1 AND tenant_id = $2",
+        channel_id, tenant_id,
+    )
+    if ch:
+        url = ch.get("channel_url") or ""
+        name = ch.get("channel_name") or ""
+        key_col, key_val = ("channel_url", url) if url else (("channel", name) if name else (None, None))
+        if key_col:
+            await execute(
+                f"UPDATE discovery_ideas SET competitor_video_id = NULL WHERE tenant_id = $1 "
+                f"AND competitor_video_id IN (SELECT id FROM competitor_videos "
+                f"WHERE tenant_id = $1 AND {key_col} = $2)",
+                tenant_id, key_val,
+            )
+            await execute(
+                f"DELETE FROM competitor_videos WHERE tenant_id = $1 AND {key_col} = $2",
+                tenant_id, key_val,
+            )
+    await execute(
+        "DELETE FROM competitor_channels WHERE id = $1 AND tenant_id = $2",
+        channel_id, tenant_id,
+    )
+
+
+# Profile-edit ops the producer may emit -> channel_profiles columns.
+_PROFILE_FIELD_COLS = {
+    "set_channel_name": "channel_name",
+    "set_niche": "niche",
+    "set_audience": "target_audience",
+    "set_visual_style": "style_description",
+}
+_PROFILE_FIELD_LABELS = {
+    "set_channel_name": "channel name",
+    "set_niche": "niche",
+    "set_audience": "audience",
+    "set_visual_style": "default look",
+}
+
+
+async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[str]:
+    """Execute the producer's requested profile / competitor changes against the real
+    tables and return short, TRUTHFUL confirmation lines (so we never claim a change
+    the database didn't accept). Adding a competitor runs the existing add+scrape job
+    in the background. Fail-soft per op."""
+    results: list[str] = []
+    if not isinstance(ops, list):
+        return results
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        kind = str(op.get("op") or "").strip()
+        val = str(op.get("value") or "").strip()
+        if not kind:
+            continue
+        try:
+            if kind == "add_competitor":
+                url = _first_url(val) or (val if "youtu" in val.lower() else "")
+                if not url or "youtu" not in url.lower():
+                    results.append(f"To add a competitor I need its YouTube channel link, and \"{val}\" isn't one.")
+                    continue
+                if background_tasks is None:
+                    results.append(f"Add {url} from the Competitors page, I can't pull it in from here right now.")
+                    continue
+                import uuid as _uuid
+                from routes.onboarding import _run_competitor_analysis
+                job_id = _uuid.uuid4().hex
+                background_tasks.add_task(_run_competitor_analysis, job_id, tenant_id, [url])
+                results.append(f"Added {url} to your competitors, pulling its top videos now.")
+            elif kind == "remove_competitor":
+                row = await fetch_one(
+                    "SELECT id, channel_name FROM competitor_channels "
+                    "WHERE tenant_id = $1 AND (lower(channel_name) = lower($2) OR channel_url = $2) LIMIT 1",
+                    tenant_id, val,
+                )
+                if not row:
+                    results.append(f"Couldn't find a competitor matching \"{val}\" to remove.")
+                    continue
+                await _delete_competitor(tenant_id, row["id"])
+                results.append(f"Removed {row.get('channel_name') or val} from your competitors.")
+            elif kind in _PROFILE_FIELD_COLS:
+                if not val:
+                    continue
+                col = _PROFILE_FIELD_COLS[kind]
+                await execute(
+                    f"INSERT INTO channel_profiles (tenant_id, {col}) VALUES ($1, $2) "
+                    f"ON CONFLICT (tenant_id) DO UPDATE SET {col} = $2, updated_at = now()",
+                    tenant_id, val,
+                )
+                if kind == "set_niche":
+                    state["niche_angle"] = val
+                elif kind == "set_channel_name":
+                    state["channel"] = val
+                results.append(f"Updated your {_PROFILE_FIELD_LABELS[kind]} to \"{val}\".")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: profile op %s failed: %s", kind, e)
+            results.append("I hit a snag saving one of those changes, mind trying again?")
+    return results
+
+
+async def _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks) -> str:
+    """Run any profile_ops the producer emitted, fold the TRUTHFUL result lines into
+    the turn's assistant_text (so the creator sees exactly what actually changed, not
+    just what the model promised), and return the final text. Mutates `data` so the
+    saved transcript matches what we show. Returns the (possibly unchanged) text."""
+    text = data.get("assistant_text", "") or ""
+    ops = data.get("profile_ops")
+    if ops:
+        results = await _apply_profile_ops(tenant_id, ops, state, background_tasks)
+        if results:
+            joined = "\n".join(results)
+            text = f"{text}\n\n{joined}".strip() if text else joined
+            data["assistant_text"] = text
+    return text
+
+
 # The durable subset of conversation `state` that defines a creator across sessions.
 _BRIEF_KEYS = ("intent", "goals", "niche_angle", "channel", "competitors")
 
@@ -1948,10 +2170,13 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         _creator_brief(state)
         + await _modeled_runtime_hint(tenant_id)
         + await _channel_intel_brief(tenant_id)
+        + await _reference_brief(state, state.get("pending_reference_url"))
+        + await _profile_state_brief(tenant_id)
     )
     data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
     await _stamp_length_default(data, tenant_id)
     await _annotate_style_recommendation(data, tenant_id, state)
+    assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, None)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
@@ -1961,7 +2186,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     phase = "plan" if plan else "asking"
     await _persist(conversation_id, tenant_id, transcript, state, phase)
     return ChatTurnResponse(
-        conversation_id=conversation_id, assistant_text=data.get("assistant_text", ""),
+        conversation_id=conversation_id, assistant_text=assistant_text,
         cards=data.get("cards") if isinstance(data.get("cards"), list) else None,
         plan=plan, ready_to_create=bool(plan), phase=phase,
     )
@@ -2341,15 +2566,21 @@ async def chat_turn(
         return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
 
     # Producer sees the durable creator brief + a real length anchor + the channel
-    # intelligence brief (top titles / hook pattern / thumbnail motifs / cadence).
+    # intelligence brief (top titles / hook pattern / thumbnail motifs / cadence) +
+    # REAL data on any video being modeled (so it grounds the proposal in the
+    # reference, not the creator's own channel) + the current channel setup it can
+    # edit (competitors, name, niche, look).
     system_prompt = build_system_prompt(
         _creator_brief(state)
         + await _modeled_runtime_hint(tenant_id)
         + await _channel_intel_brief(tenant_id)
+        + await _reference_brief(state, state.get("pending_reference_url"))
+        + await _profile_state_brief(tenant_id)
     )
     data = call_producer(transcript, system_prompt, api_key=api_key)
     await _stamp_length_default(data, tenant_id)
     await _annotate_style_recommendation(data, tenant_id, state)
+    assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
     transcript.append(_assistant_turn(data))
 
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
@@ -2362,7 +2593,7 @@ async def chat_turn(
 
     return ChatTurnResponse(
         conversation_id=conversation_id,
-        assistant_text=data.get("assistant_text", ""),
+        assistant_text=assistant_text,
         cards=data.get("cards") if isinstance(data.get("cards"), list) else None,
         plan=plan,
         ready_to_create=bool(plan),
