@@ -12,7 +12,6 @@ import { ExampleChannels } from "@/components/channels/ExampleChannels";
 import {
   getCurrentProject,
   updateProject,
-  getApiKeys,
   getSubscription,
   getChannelProfile,
   updateChannelProfile,
@@ -22,6 +21,9 @@ import {
   getDriveConnectUrl,
   getDriveAccessToken,
   disconnectDrive as apiDisconnectDrive,
+  getYouTubeStatus,
+  getYouTubeConnectUrl,
+  disconnectYouTube,
   type Project,
   type ProjectUpdate,
   type NotificationPreferences,
@@ -50,17 +52,6 @@ const ALL_FRAMEWORKS = [
   "Joseph Nye",
 ];
 
-const INTEGRATION_ICONS: Record<string, React.ElementType> = {
-  YouTube: Youtube,
-  "Google Drive": HardDrive,
-};
-
-// Map integration names to the API keys that indicate connectivity
-const INTEGRATION_KEY_MAP: Record<string, string[]> = {
-  YouTube: ["google_client_id", "google_refresh_token"],
-  "Google Drive": ["google_client_id", "google_refresh_token"],
-};
-
 export default function SettingsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -77,11 +68,6 @@ export default function SettingsPage() {
   });
 
   // Fetch API keys for integration status
-  const { data: keysData } = useQuery({
-    queryKey: ["apiKeys"],
-    queryFn: getApiKeys,
-  });
-
   // Fetch subscription status (used for billing link card)
   const { data: subscription } = useQuery({
     queryKey: ["subscription"],
@@ -128,6 +114,28 @@ export default function SettingsPage() {
     const { auth_url } = await getDriveConnectUrl();
     window.location.href = auth_url;
   }, []);
+
+  // YouTube connection — real OAuth status (channel_profiles.youtube_refresh_token),
+  // NOT the legacy API-key check. Connect requests the youtube.upload scope.
+  const { data: ytStatus, refetch: refetchYtStatus } = useQuery({
+    queryKey: ["youtubeStatus"],
+    queryFn: getYouTubeStatus,
+    refetchOnWindowFocus: true,
+  });
+  const [ytDisconnecting, setYtDisconnecting] = useState(false);
+  const connectYouTube = useCallback(async () => {
+    const { auth_url } = await getYouTubeConnectUrl();
+    window.location.href = auth_url;
+  }, []);
+  const disconnectYt = useCallback(async () => {
+    setYtDisconnecting(true);
+    try {
+      await disconnectYouTube();
+      await refetchYtStatus();
+    } finally {
+      setYtDisconnecting(false);
+    }
+  }, [refetchYtStatus]);
 
   const openDrivePicker = useCallback(async () => {
     // Get a fresh access token from our backend (uses stored refresh token)
@@ -284,15 +292,6 @@ export default function SettingsPage() {
       setSaveAllStatus("idle");
     }
   };
-
-  // Compute integration statuses from API keys data
-  const integrationStatuses = Object.entries(INTEGRATION_KEY_MAP).map(([name, keys]) => {
-    const connected = keys.every((keyName) => {
-      const keyStatus = keysData?.keys.find((k) => k.name === keyName);
-      return keyStatus?.configured ?? false;
-    });
-    return { name, connected };
-  });
 
   if (projectLoading) {
     return (
@@ -468,48 +467,56 @@ export default function SettingsPage() {
             Integrations
           </h2>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {integrationStatuses.map((integration) => {
-            const Icon = INTEGRATION_ICONS[integration.name] || HardDrive;
-            return (
-              <GlassCard key={integration.name} className="p-5">
-                <div className="flex items-center gap-3 mb-3">
+        <GlassCard className="p-5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-lg flex items-center justify-center"
+                style={{ background: "var(--bg-elevated)" }}
+              >
+                <Youtube size={20} style={{ color: "var(--text-secondary)" }} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  YouTube
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5">
                   <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center"
-                    style={{ background: "var(--bg-elevated)" }}
-                  >
-                    <Icon size={20} style={{ color: "var(--text-secondary)" }} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {integration.name}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <div
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ background: integration.connected ? "var(--green)" : "var(--red)" }}
-                      />
-                      <span className="text-[10px]" style={{ color: integration.connected ? "var(--green)" : "var(--red)" }}>
-                        {integration.connected ? "Connected" : "Disconnected"}
-                      </span>
-                    </div>
-                  </div>
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: ytStatus?.connected ? "var(--green)" : "var(--red)" }}
+                  />
+                  <span className="text-[10px]" style={{ color: ytStatus?.connected ? "var(--green)" : "var(--red)" }}>
+                    {ytStatus?.connected
+                      ? `Connected${ytStatus.channel_name ? ` · ${ytStatus.channel_name}` : ""}`
+                      : "Disconnected"}
+                  </span>
                 </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {ytStatus?.connected && (
                 <button
-                  onClick={() => router.push("/settings/keys")}
-                  className="w-full py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    color: "var(--text-secondary)",
-                    border: "1px solid var(--border-subtle)",
-                  }}
+                  onClick={disconnectYt}
+                  disabled={ytDisconnecting}
+                  className="px-3 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110 disabled:opacity-50"
+                  style={{ background: "transparent", color: "var(--red)", border: "1px solid rgba(239,68,68,0.3)" }}
                 >
-                  Configure
+                  {ytDisconnecting ? "..." : "Disconnect"}
                 </button>
-              </GlassCard>
-            );
-          })}
-        </div>
+              )}
+              <button
+                onClick={connectYouTube}
+                className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+              >
+                {ytStatus?.connected ? "Reconnect" : "Connect YouTube"}
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] mt-3" style={{ color: "var(--text-tertiary)" }}>
+            One-click connect — no API keys needed. Reconnect to grant upload permission or switch channels.
+          </p>
+        </GlassCard>
       </motion.div>
 
       {/* Brand Kit */}
