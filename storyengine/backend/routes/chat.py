@@ -1330,11 +1330,23 @@ def _secure_key_card(*, optional: bool) -> dict:
     frontend renders id 'secure_key' as a password field that POSTs straight to
     /api/chat/onboarding-key, so the raw key never rides in as a chat message.
     `optional` adds a Skip button (used for the Claude upgrade step)."""
+    if optional:
+        return {
+            "id": "secure_key",
+            "label": "Add your Claude key (optional — faster text)",
+            "type": "single",
+            "placeholder": "Paste your Claude API key — it stays hidden",
+            "options": [{"value": "skip", "label": "Skip for now"}],
+        }
+    # Required step. Name the key explicitly (Kie.ai) so it's unambiguous which
+    # one to paste — though the backend still auto-detects a Claude key if that's
+    # what the creator pastes here instead.
     return {
         "id": "secure_key",
-        "label": "Add your Claude key" if optional else "Paste your key",
+        "label": "Paste your Kie.ai key",
         "type": "single",
-        "options": [{"value": "skip", "label": "Skip for now"}] if optional else [],
+        "placeholder": "Paste your Kie.ai API key — it stays hidden",
+        "options": [],
     }
 
 

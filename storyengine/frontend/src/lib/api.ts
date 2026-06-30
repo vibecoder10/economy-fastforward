@@ -2330,6 +2330,9 @@ export interface ChatCard {
   // detected look) so the UI can badge it. The creator can still pick any option.
   recommended_value?: string;
   recommended_hint?: string;
+  // Secure key card (id "secure_key"): the input placeholder, so each step names
+  // the exact key being asked for (e.g. "Paste your Kie.ai API key…").
+  placeholder?: string;
 }
 export interface ProductionPlan {
   story_concept?: string;

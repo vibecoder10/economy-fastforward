@@ -960,7 +960,7 @@ function SecureKeyCard({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }}
-        placeholder="Paste your API key — it stays hidden"
+        placeholder={card.placeholder ?? "Paste your API key — it stays hidden"}
         autoFocus
         disabled={saving}
         error={error ?? undefined}
