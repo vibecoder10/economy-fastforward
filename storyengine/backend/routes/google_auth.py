@@ -795,7 +795,7 @@ async def google_drive_access_token(user: AuthUser = Depends(verify_token)):
 # YouTube OAuth — server-side flow for per-user YouTube analytics access
 # ---------------------------------------------------------------------------
 
-YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly"
+YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly"
 
 
 @router.get("/youtube/connect")
