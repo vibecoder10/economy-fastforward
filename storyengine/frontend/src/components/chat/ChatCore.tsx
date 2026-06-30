@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
@@ -61,6 +61,24 @@ const EXAMPLES = [
   "A video about a dragon who finds a lonely owner, becomes his best friend, and they go on an adventure",
   "A 60-second explainer on why the sky is blue, made for curious kids",
   "A cinematic short about a lighthouse keeper who talks to the sea",
+];
+
+// One-click on-ramps to the command-center capabilities (Phases A-C + G3/G4). Each
+// either sends a message (fires the capability) or prefills the composer (when the
+// creator still needs to add something, like a link to model).
+const QUICK_ACTIONS: {
+  label: string;
+  icon: typeof Sparkles;
+  message?: string;
+  prefill?: string;
+}[] = [
+  { label: "What to make next", icon: Lightbulb, message: "What should I make next? Score my best options and tell me which one to build and why." },
+  { label: "What's working", icon: TrendingUp, message: "What's working on my competitors right now? Show their top videos with the numbers." },
+  { label: "Plan my month", icon: CalendarDays, message: "Plan my next 30 days of videos." },
+  { label: "Find an opening", icon: Compass, message: "Give me an opportunity map — where can I win that my competitors aren't covering?" },
+  { label: "Model a video", icon: Link2, prefill: "Model this video: " },
+  { label: "How are my videos doing?", icon: Activity, message: "How are my published videos doing? Diagnose the latest and tell me the one fix." },
+  { label: "Update my channel", icon: Settings2, message: "I want to update my channel setup — my competitors, niche, and look." },
 ];
 const DOCK_HINT =
   "Ask about this video, or tell me what to do next — e.g. “animate scene 2”, “redo the thumbnail”, or “how much has this cost?”";
@@ -436,6 +454,28 @@ export function ChatCore({
           >
             <Sparkles size={14} /> New here? Start here — I'll set up your channel
           </button>
+        </div>
+
+        {/* One-click on-ramps to the command-center capabilities */}
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          {QUICK_ACTIONS.map((a) => {
+            const Icon = a.icon;
+            return (
+              <button
+                key={a.label}
+                onClick={() => {
+                  if (a.message) turn({ message: a.message }, a.label);
+                  else if (a.prefill) setInput(a.prefill);
+                }}
+                disabled={sending}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all hover:brightness-110 disabled:opacity-50"
+                style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+              >
+                <Icon size={14} style={{ color: "var(--turquoise)" }} />
+                {a.label}
+              </button>
+            );
+          })}
         </div>
 
         {suggested?.videos?.length ? (
