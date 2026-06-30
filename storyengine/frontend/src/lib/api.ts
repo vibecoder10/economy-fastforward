@@ -267,6 +267,24 @@ export type CalendarVideo = {
 export const getCalendarVideos = (start: string, end: string) =>
   fetchApi<Record<string, CalendarVideo[]>>(`/api/dashboard/calendar?start=${start}&end=${end}`);
 
+export interface CalendarPlanSlot {
+  date: string;
+  candidate_id: string;
+  source_title: string;
+  source_channel: string;
+  source_url?: string | null;
+  views: number;
+  score: number;
+  why: string;
+}
+export interface CalendarPlan {
+  interval_days: number;
+  slots: CalendarPlanSlot[];
+  note?: string;
+}
+export const getCalendarPlan = (days?: number) =>
+  fetchApi<CalendarPlan>(`/api/dashboard/calendar/plan?days=${days || 30}`);
+
 // Videos
 export const getVideos = (status?: string) =>
   fetchApi<VideoSummary[]>(`/api/videos${status ? `?status=${status}` : ""}`);

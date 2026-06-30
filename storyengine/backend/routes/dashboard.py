@@ -303,3 +303,83 @@ async def complete_onboarding(tenant_id: str = Depends(get_tenant_id)):
         tenant_id,
     )
     return {"completed": True}
+
+
+@router.get("/calendar/plan")
+async def get_calendar_plan(days: int = Query(30, ge=7, le=60), tenant_id: str = Depends(get_tenant_id)):
+    """Strategic forward plan: sequence the creator's strongest UNMODELED competitor
+    winners into dated production slots (easy wins first; similar channels spaced to
+    avoid fatigue), paced to their production cadence. Each slot is one-click buildable
+    via the autopilot launch (it carries the competitor_videos id). Reuses the autopilot
+    scoring engine so chat, this page, and a future agent all rank the same way."""
+    from datetime import timedelta
+    from routes.autopilot import (
+        calculate_confidence_with_breakdown, _get_proven_patterns,
+        _get_niche_recommendations, _title_matches_patterns,
+    )
+    cfg = await fetch_one(
+        "SELECT production_interval_days FROM autopilot_config WHERE tenant_id = $1", tenant_id
+    )
+    interval = max(1, int((cfg or {}).get("production_interval_days") or 0) or 2)
+    n_slots = max(1, days // interval)
+
+    rows = await fetch_all(
+        """SELECT cv.id, cv.title, cv.url, cv.channel, cv.views, cv.vph, cv.hours_old,
+                  cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at
+           FROM competitor_videos cv
+           WHERE cv.tenant_id = $1 AND cv.views > 0 AND cv.removed_at IS NULL
+             AND (cv.modeled = false OR cv.modeled IS NULL)
+           ORDER BY cv.vph DESC NULLS LAST
+           LIMIT 40""",
+        tenant_id,
+    )
+    if not rows:
+        return {"interval_days": interval, "slots": [],
+                "note": "Add competitor channels and run a scrape to plan from real winners."}
+
+    proven = await _get_proven_patterns(tenant_id)
+    niche = await _get_niche_recommendations(tenant_id)
+    scored = []
+    for r in rows:
+        vph = float(r.get("vph") or 0)
+        h = r.get("hours_old")
+        hours = float(h) if h is not None else 9999.0
+        intel = {
+            "has_dna": r.get("distilled_at") is not None,
+            "like_ratio": float(r["like_ratio"]) if r.get("like_ratio") else None,
+            "views_per_sub_ratio": float(r["views_per_sub_ratio"]) if r.get("views_per_sub_ratio") else None,
+        }
+        lm = _title_matches_patterns(r.get("title", ""), proven)
+        bd = calculate_confidence_with_breakdown(vph, hours, intel, lm, niche)
+        scored.append((bd.total_score, bd, dict(r)))
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Fatigue spread: greedy reorder so no two consecutive slots share a channel.
+    pool = list(scored)
+    ordered = []
+    last_channel = None
+    while pool and len(ordered) < n_slots:
+        pick_idx = 0
+        for i, (_s, _bd, r) in enumerate(pool):
+            if (r.get("channel") or "") != last_channel:
+                pick_idx = i
+                break
+        item = pool.pop(pick_idx)
+        ordered.append(item)
+        last_channel = item[2].get("channel") or ""
+
+    today = date_type.today()
+    slots = []
+    for i, (score, bd, r) in enumerate(ordered):
+        d = today + timedelta(days=i * interval)
+        slots.append({
+            "date": d.isoformat(),
+            "candidate_id": str(r["id"]),
+            "source_title": r.get("title") or "Untitled",
+            "source_channel": r.get("channel") or "",
+            "source_url": r.get("url"),
+            "views": int(r.get("views") or 0),
+            "score": round(float(score)),
+            "why": f"{bd.vph_reasoning}; {bd.freshness_reasoning}",
+        })
+    return {"interval_days": interval, "slots": slots}

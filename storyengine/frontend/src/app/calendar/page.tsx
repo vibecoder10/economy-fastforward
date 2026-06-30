@@ -2,13 +2,14 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { getCalendarVideos, CalendarVideo } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { getCalendarVideos, CalendarVideo, getCalendarPlan, CalendarPlanSlot, launchCandidate } from "@/lib/api";
 import { getStageLabel, getStageColor } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
-import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Rocket, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 function formatMonth(date: Date): string {
@@ -80,6 +81,18 @@ export default function CalendarPage() {
     queryFn: () => getCalendarVideos(start, end),
   });
 
+  const router = useRouter();
+  const { data: plan } = useQuery({
+    queryKey: ["calendar-plan"],
+    queryFn: () => getCalendarPlan(30),
+  });
+  const [buildingId, setBuildingId] = useState<string | null>(null);
+  const buildMutation = useMutation({
+    mutationFn: launchCandidate,
+    onSuccess: (res) => router.push(`/pipeline/${res.video_id}`),
+    onError: () => setBuildingId(null),
+  });
+
   const days = useMemo(() => getCalendarDays(year, month), [year, month]);
   const todayStr = toDateStr(today);
   const totalVideos = useMemo(() => {
@@ -131,6 +144,73 @@ export default function CalendarPage() {
           Today
         </button>
       </div>
+
+      {/* Strategic plan (forward-looking, one-click build) */}
+      {plan && plan.slots.length > 0 && (
+        <div
+          className="mb-8 rounded-xl p-4"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+        >
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <CalendarDays size={16} style={{ color: "var(--turquoise)" }} />
+            <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Your strategic plan
+            </h2>
+            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              next {plan.slots.length} videos · ~every {plan.interval_days}d · easy wins first
+            </span>
+          </div>
+          <p className="text-[11px] mb-3" style={{ color: "var(--text-tertiary)" }}>
+            Ranked from what is winning in your niche, spaced to avoid format fatigue. Build any one with a click.
+          </p>
+          <div className="space-y-2">
+            {plan.slots.map((s: CalendarPlanSlot) => (
+              <div
+                key={s.candidate_id}
+                className="flex items-center gap-3 rounded-lg p-2.5"
+                style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
+              >
+                <div className="text-center flex-shrink-0 w-12">
+                  <p className="text-[9px] uppercase" style={{ color: "var(--text-tertiary)" }}>
+                    {new Date(s.date + "T00:00:00").toLocaleDateString(undefined, { month: "short" })}
+                  </p>
+                  <p className="text-base font-bold leading-none" style={{ color: "var(--text-primary)" }}>
+                    {new Date(s.date + "T00:00:00").getDate()}
+                  </p>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                    {s.source_title}
+                  </p>
+                  <p className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }}>
+                    {s.source_channel} · {s.why}
+                  </p>
+                </div>
+                <div className="flex-shrink-0 text-center w-10">
+                  <p className="text-sm font-bold" style={{ color: "var(--turquoise)" }}>{s.score}</p>
+                  <p className="text-[8px]" style={{ color: "var(--text-tertiary)" }}>score</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setBuildingId(s.candidate_id);
+                    buildMutation.mutate(s.candidate_id);
+                  }}
+                  disabled={buildingId === s.candidate_id}
+                  className="flex-shrink-0 flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                  style={{ background: "var(--turquoise)", color: "#0a0a0a" }}
+                >
+                  {buildingId === s.candidate_id ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Rocket size={12} />
+                  )}
+                  Build
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Month nav */}
       <div className="flex items-center gap-4 mb-6">
