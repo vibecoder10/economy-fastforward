@@ -36,8 +36,10 @@ import {
   syncYouTubeMetrics,
   getYouTubeSyncStatus,
   getAutopilotTasks,
+  getAutopilotScorecards,
   type AutopilotSummary,
   type AutopilotTasks,
+  type VideoScorecard,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 
@@ -125,6 +127,14 @@ export default function AutopilotPage() {
   const { data: bgTasks } = useQuery({
     queryKey: ["autopilot-tasks"],
     queryFn: getAutopilotTasks,
+  });
+
+  // Live-updating per-video scorecards (refresh so post-publish lessons appear as
+  // analytics sync). 60s keeps it feeling live without hammering the API.
+  const { data: scorecards } = useQuery({
+    queryKey: ["autopilot-scorecards"],
+    queryFn: () => getAutopilotScorecards(12),
+    refetchInterval: 60000,
   });
 
   const handleSync = async () => {
@@ -533,6 +543,28 @@ export default function AutopilotPage() {
             actionLabel="Set Up Competitors"
             actionHref="/competitors"
           />
+        </motion.div>
+      )}
+      {scorecards && scorecards.length > 0 && (
+        <motion.div variants={item}>
+          <GlassCard>
+            <div className="flex items-center justify-between mb-5">
+              <h2
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Video Scorecards
+              </h2>
+              <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                what the engine did + what each video taught us
+              </span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {scorecards.map((sc) => (
+                <ScorecardCard key={sc.video_id} sc={sc} />
+              ))}
+            </div>
+          </GlassCard>
         </motion.div>
       )}
       {candidates.length > 0 && (
@@ -1057,5 +1089,82 @@ export default function AutopilotPage() {
         </motion.div>
       )}
     </motion.div>
+  );
+}
+
+function ScorecardCard({ sc }: { sc: VideoScorecard }) {
+  const dot = (s: string) =>
+    s === "win" ? "#1D9E75" : s === "weak" ? "#D85A30" : "var(--text-tertiary)";
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+    >
+      {sc.thumbnail_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={sc.thumbnail_url} alt="" className="w-full aspect-video object-cover" />
+      ) : (
+        <div
+          className="w-full aspect-video flex items-center justify-center text-[10px]"
+          style={{ background: "rgba(255,255,255,0.04)", color: "var(--text-tertiary)" }}
+        >
+          no thumbnail yet
+        </div>
+      )}
+      <div className="p-3">
+        <p
+          className="text-xs font-semibold mb-2"
+          style={{
+            color: "var(--text-primary)",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {sc.youtube_url ? (
+            <a href={sc.youtube_url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125">
+              {sc.title}
+            </a>
+          ) : (
+            sc.title
+          )}
+        </p>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] mb-3" style={{ color: "var(--text-secondary)" }}>
+          {sc.views != null && <span>{sc.views.toLocaleString()} views</span>}
+          {sc.ctr != null && <span>{sc.ctr.toFixed(1)}% CTR</span>}
+          {sc.avg_retention != null && <span>{Math.round(sc.avg_retention)}% retention</span>}
+          {!sc.synced && <span style={{ color: "var(--text-tertiary)" }}>analytics pending</span>}
+        </div>
+        {sc.applied.length > 0 && (
+          <div className="mb-2.5">
+            <p className="text-[9px] uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>
+              what the system did
+            </p>
+            {sc.applied.map((a, i) => (
+              <p key={i} className="text-[10px] leading-snug mb-0.5" style={{ color: "var(--text-secondary)" }}>
+                · {a}
+              </p>
+            ))}
+          </div>
+        )}
+        <div>
+          <p className="text-[9px] uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>
+            lessons
+          </p>
+          {sc.lessons.map((l, i) => (
+            <div key={i} className="flex items-start gap-1.5 mb-0.5">
+              <span
+                className="mt-1 rounded-full flex-shrink-0"
+                style={{ width: 6, height: 6, background: dot(l.state) }}
+              />
+              <p className="text-[10px] leading-snug" style={{ color: "var(--text-secondary)" }}>
+                <span style={{ color: "var(--text-primary)" }}>{l.component}:</span> {l.text}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

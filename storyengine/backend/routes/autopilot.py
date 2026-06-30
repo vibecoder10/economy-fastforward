@@ -1021,3 +1021,118 @@ async def get_niche_recommendations(
         "status": "ok",
         "recommendations": recs,
     }
+
+
+# --- Video Scorecards (G3 transparency: what the engine did + what we learned) ---
+
+class ScorecardLesson(BaseModel):
+    component: str           # "Title + thumbnail" | "Script + hook"
+    state: str               # "win" | "weak" | "pending"
+    text: str
+
+
+class VideoScorecard(BaseModel):
+    video_id: str
+    title: str
+    thumbnail_url: Optional[str] = None
+    status: str = ""
+    youtube_url: Optional[str] = None
+    views: Optional[int] = None
+    ctr: Optional[float] = None
+    impressions: Optional[int] = None
+    avg_retention: Optional[float] = None
+    synced: bool = False
+    applied: List[str] = []
+    lessons: List[ScorecardLesson] = []
+
+
+@router.get("/scorecards", response_model=List[VideoScorecard])
+async def get_scorecards(limit: int = Query(12, le=30), tenant_id: str = Depends(get_tenant_id)):
+    """A running scorecard per launched video: what the intelligence engine APPLIED
+    when making it (from videos.applied_intelligence), plus what we LEARNED from its
+    real performance (CTR -> title/thumbnail, retention -> script/hook). Lessons are
+    'pending' until YouTube analytics sync, so the card lights up over time."""
+    import json as _json
+    rows = await fetch_all(
+        """SELECT id, video_title, thumbnail_url, status, youtube_url, youtube_video_id,
+                  views, ctr, impressions, avg_retention, last_analytics_sync, applied_intelligence
+           FROM videos
+           WHERE tenant_id = $1
+             AND (thumbnail_url IS NOT NULL OR youtube_video_id IS NOT NULL
+                  OR status IN ('rendered', 'uploaded', 'done'))
+           ORDER BY created_at DESC NULLS LAST
+           LIMIT $2""",
+        tenant_id, limit,
+    )
+    cards: List[VideoScorecard] = []
+    for r in rows or []:
+        ai = r.get("applied_intelligence")
+        if isinstance(ai, str):
+            try:
+                ai = _json.loads(ai)
+            except (ValueError, TypeError):
+                ai = {}
+        ai = ai or {}
+
+        applied: List[str] = []
+        for l in (ai.get("learnings_used") or []):
+            pattern = l.get("pattern")
+            cat = l.get("category") or "pattern"
+            if not pattern:
+                continue
+            if l.get("verdict") == "AVOID":
+                applied.append(f"Avoided a weak {cat} pattern: {pattern}")
+            else:
+                applied.append(f"Used your proven {cat} pattern: {pattern}")
+        rg = ai.get("retention_grade") or {}
+        if rg.get("fired"):
+            gates = ", ".join(rg.get("failing_gates") or []) or "hook pacing"
+            applied.append(f"Strengthened the hook for retention (was weak on: {gates})")
+        elif rg:
+            applied.append("Hook passed the retention check")
+
+        ctr = float(r["ctr"]) if r.get("ctr") is not None else None
+        ret = float(r["avg_retention"]) if r.get("avg_retention") is not None else None
+        lessons: List[ScorecardLesson] = []
+        if ctr is not None:
+            if ctr <= 3:
+                lessons.append(ScorecardLesson(component="Title + thumbnail", state="weak",
+                    text=f"{ctr:.1f}% CTR - weak packaging; the title/thumbnail need a sharper hook"))
+            elif ctr >= 5:
+                lessons.append(ScorecardLesson(component="Title + thumbnail", state="win",
+                    text=f"{ctr:.1f}% CTR - strong packaging; keep this title/thumbnail style"))
+            else:
+                lessons.append(ScorecardLesson(component="Title + thumbnail", state="win",
+                    text=f"{ctr:.1f}% CTR - solid packaging"))
+        else:
+            lessons.append(ScorecardLesson(component="Title + thumbnail", state="pending",
+                text="CTR pending - needs YouTube analytics"))
+        if ret is not None:
+            if ret <= 30:
+                lessons.append(ScorecardLesson(component="Script + hook", state="weak",
+                    text=f"{ret:.0f}% retention - viewers dropped early; open faster next time"))
+            elif ret >= 45:
+                lessons.append(ScorecardLesson(component="Script + hook", state="win",
+                    text=f"{ret:.0f}% retention - the hook held; this structure works"))
+            else:
+                lessons.append(ScorecardLesson(component="Script + hook", state="win",
+                    text=f"{ret:.0f}% retention - decent hold"))
+        else:
+            lessons.append(ScorecardLesson(component="Script + hook", state="pending",
+                text="Retention pending - needs YouTube analytics"))
+
+        cards.append(VideoScorecard(
+            video_id=str(r["id"]),
+            title=r.get("video_title") or "Untitled",
+            thumbnail_url=r.get("thumbnail_url"),
+            status=r.get("status") or "",
+            youtube_url=r.get("youtube_url"),
+            views=int(r["views"]) if r.get("views") is not None else None,
+            ctr=ctr,
+            impressions=int(r["impressions"]) if r.get("impressions") is not None else None,
+            avg_retention=ret,
+            synced=bool(r.get("last_analytics_sync")),
+            applied=applied,
+            lessons=lessons,
+        ))
+    return cards

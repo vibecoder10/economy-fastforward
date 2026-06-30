@@ -683,6 +683,28 @@ export interface AutopilotTasks {
 
 export const getAutopilotTasks = () => fetchApi<AutopilotTasks>("/api/autopilot/tasks");
 
+export interface ScorecardLesson {
+  component: string;
+  state: "win" | "weak" | "pending";
+  text: string;
+}
+export interface VideoScorecard {
+  video_id: string;
+  title: string;
+  thumbnail_url?: string | null;
+  status: string;
+  youtube_url?: string | null;
+  views?: number | null;
+  ctr?: number | null;
+  impressions?: number | null;
+  avg_retention?: number | null;
+  synced: boolean;
+  applied: string[];
+  lessons: ScorecardLesson[];
+}
+export const getAutopilotScorecards = (limit?: number) =>
+  fetchApi<VideoScorecard[]>(`/api/autopilot/scorecards?limit=${limit || 12}`);
+
 export const launchCandidate = (candidateId: string) =>
   fetchApi<{ status: string; candidate_id: string; video_id: string; video_title: string; message: string }>(
     `/api/autopilot/launch/${candidateId}`,
