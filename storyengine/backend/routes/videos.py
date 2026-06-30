@@ -436,6 +436,41 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     return {"status": "updated", "video_id": video_id}
 
 
+@router.post("/{video_id}/generate-seo")
+async def generate_video_seo(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Generate channel-appropriate YouTube SEO from the video's own content and store
+    it on the video. Channel-agnostic — no hardcoded niche/brand."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    from youtube_publish import generate_and_store_seo
+    try:
+        result = await generate_and_store_seo(video_id, tenant_id)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Couldn't generate SEO: {e}")
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.patch("/{video_id}/seo")
+async def save_video_seo(video_id: str, body: dict, tenant_id: str = Depends(get_tenant_id)):
+    """Persist creator-edited SEO (title/description/tags) so the upload uses exactly
+    what they see on screen."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    from youtube_publish import save_seo
+    tags = body.get("tags")
+    if isinstance(tags, str):
+        tags = [t for t in (x.strip() for x in tags.split(",")) if t]
+    return await save_seo(
+        video_id, tenant_id,
+        title=body.get("title"), description=body.get("description"), tags=tags)
+
+
 @router.patch("/{video_id}/advance")
 async def advance_video(video_id: str, to: Optional[str] = None,
                         tenant_id: str = Depends(get_tenant_id)):

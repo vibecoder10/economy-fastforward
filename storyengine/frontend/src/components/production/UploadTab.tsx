@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Upload, Copy, ExternalLink, CheckCircle, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
+import { Upload, Copy, ExternalLink, CheckCircle, AlertTriangle, ChevronRight, Loader2, Sparkles, Save } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage, advanceVideo } from "@/lib/api";
+import { runPipelineStage, advanceVideo, generateVideoSeo, saveVideoSeo } from "@/lib/api";
 import type { VideoDetail } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/toast";
@@ -47,37 +47,10 @@ interface UploadTabProps {
   onAdvanced?: () => void;
 }
 
-function buildDescription(
-  hookScript?: string | null,
-  thesis?: string | null,
-  title?: string,
-): string {
-  const parts: string[] = [];
-  if (thesis) parts.push(thesis);
-  if (hookScript) parts.push(`\n\n${hookScript}`);
-  if (parts.length === 0) {
-    return `${title || "Video"}\n\n#economy #geopolitics #finance`;
-  }
-  parts.push("\n\n#economy #geopolitics #finance");
-  return parts.join("");
-}
-
 function extractVideoId(url: string | null | undefined): string | null {
   if (!url) return null;
   const match = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
   return match ? match[1] : null;
-}
-
-function extractTags(title: string): string[] {
-  const stopWords = new Set([
-    "the", "and", "for", "that", "this", "with", "from", "are",
-    "was", "has", "its", "how", "why", "what",
-  ]);
-  return title
-    .replace(/[^a-zA-Z0-9\s]/g, "")
-    .split(/\s+/)
-    .filter((w) => w.length >= 3 && !stopWords.has(w.toLowerCase()))
-    .slice(0, 8);
 }
 
 export function UploadTab({ video, onAdvanced }: UploadTabProps) {
@@ -93,18 +66,52 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
   const vid = video as any;
   const videoTitle = vid.video_title || video.title || "";
 
-  const defaultDescription = useMemo(
-    () => buildDescription(video.hook_script, video.thesis, videoTitle),
-    [video.hook_script, video.thesis, videoTitle],
-  );
-  const tags = useMemo(() => extractTags(videoTitle), [videoTitle]);
-
+  // SEO comes from the stored, content-driven metadata (videos.seo_*). No more
+  // hardcoded #economy #geopolitics #finance, no title-only tag scraping.
   const [title, setTitle] = useState(videoTitle);
-  const [description, setDescription] = useState(defaultDescription);
+  const [description, setDescription] = useState<string>((vid.seo_description as string) || "");
+  const [tagsStr, setTagsStr] = useState<string>(
+    ((vid.seo_tags as string) || "").split(",").map((t: string) => t.trim()).filter(Boolean).join(", "),
+  );
+  const tags = useMemo(
+    () => tagsStr.split(",").map((t) => t.trim()).filter(Boolean),
+    [tagsStr],
+  );
+  const hasSeo = description.trim().length > 0;
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmUpload, setConfirmUpload] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(!!youtubeUrl);
+
+  const handleRegenerate = useCallback(async () => {
+    setGenerating(true);
+    try {
+      const seo = await generateVideoSeo(video.id);
+      setDescription(seo.description || "");
+      setTagsStr((seo.tags || []).join(", "));
+      toast.success("SEO generated from the video's content.");
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      toast.error(`Couldn't generate SEO: ${(err as Error).message}`);
+    } finally {
+      setGenerating(false);
+    }
+  }, [video.id, queryClient, toast]);
+
+  const handleSaveSeo = useCallback(async () => {
+    setSaving(true);
+    try {
+      await saveVideoSeo(video.id, { title, description, tags });
+      toast.success("SEO saved — this is what gets uploaded.");
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      toast.error(`Couldn't save SEO: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [video.id, title, description, tags, queryClient, toast]);
 
   const [advancing, setAdvancing] = useState(false);
   const handleAdvanceStage = useCallback(async () => {
@@ -130,15 +137,18 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
   const handleUpload = useCallback(async () => {
     setIsUploading(true);
     try {
+      // Persist exactly what's on screen first, so the upload uses the creator's
+      // edited title/description/tags — not a stale or regenerated version.
+      await saveVideoSeo(video.id, { title, description, tags });
       await runPipelineStage(video.id, "upload");
       setUploadComplete(true);
-    } catch {
-      toast.error("Upload failed. Try using the Slack `upload` command instead.");
+    } catch (err) {
+      toast.error(`Upload failed: ${(err as Error).message}`);
     } finally {
       setIsUploading(false);
       setConfirmUpload(false);
     }
-  }, [video.id]);
+  }, [video.id, title, description, tags, toast]);
 
   if (isNotRendered) {
     return (
@@ -240,12 +250,43 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
 
         {/* SEO Preview */}
         <GlassCard className="p-5">
-          <h3
-            className="text-xs font-semibold uppercase tracking-wider mb-4"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            SEO Preview
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              SEO Preview
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRegenerate}
+                disabled={generating}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold disabled:opacity-50 transition-all hover:brightness-110"
+                style={{ color: "var(--turquoise)", border: "1px solid rgba(0,212,170,0.3)" }}
+              >
+                {generating ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                {hasSeo ? "Regenerate" : "Generate SEO"}
+              </button>
+              <button
+                onClick={handleSaveSeo}
+                disabled={saving || !hasSeo}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
+                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+              >
+                {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                Save
+              </button>
+            </div>
+          </div>
+
+          {!hasSeo && (
+            <div
+              className="rounded-lg px-3 py-2 mb-4 text-[11px]"
+              style={{ background: "rgba(0,212,170,0.06)", border: "1px solid rgba(0,212,170,0.2)", color: "var(--text-secondary)" }}
+            >
+              No SEO yet. Tap <strong>Generate SEO</strong> to write a description + tags from this video&apos;s actual content.
+            </div>
+          )}
 
           <div className="mb-4">
             <label
@@ -297,15 +338,29 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
             />
           </div>
 
-          {tags.length > 0 && (
-            <div className="mb-4">
-              <label
-                className="text-[10px] font-medium uppercase tracking-wider block mb-2"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                Tags
-              </label>
-              <div className="flex flex-wrap gap-1.5">
+          <div className="mb-1">
+            <label
+              className="text-[10px] font-medium uppercase tracking-wider block mb-1"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              Tags (comma-separated)
+            </label>
+            <input
+              type="text"
+              value={tagsStr}
+              onChange={(e) => setTagsStr(e.target.value)}
+              placeholder="learn english, esl, slow english, listening practice"
+              className="w-full px-3 py-2 rounded-lg text-sm font-body outline-none transition-all"
+              style={{
+                background: "var(--bg-elevated)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border)",
+              }}
+              onFocus={(e) => { e.target.style.borderColor = "var(--turquoise)"; }}
+              onBlur={(e) => { e.target.style.borderColor = "var(--border)"; }}
+            />
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
                 {tags.map((tag) => (
                   <span
                     key={tag}
@@ -320,8 +375,8 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
                   </span>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </GlassCard>
 
         {/* YouTube URL display */}

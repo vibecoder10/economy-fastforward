@@ -3871,6 +3871,29 @@ separate scenes."""
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Uploading to YouTube")
 
+            # Supabase-native, per-tenant path: if the creator has connected their OWN
+            # YouTube channel, upload there using the stored SEO (no Airtable, no shared
+            # token, no Power Doctrine defaults). Falls back to the legacy bot otherwise.
+            cp = await fetch_one(
+                "SELECT youtube_refresh_token FROM channel_profiles WHERE tenant_id=$1",
+                self.tenant_id)
+            if cp and cp.get("youtube_refresh_token"):
+                from youtube_publish import generate_and_store_seo, upload_video_to_youtube
+                # Only auto-generate when there's no SEO yet — never clobber the
+                # creator's edited/saved description+tags.
+                if not (video.get("seo_description") or "").strip():
+                    seo = await generate_and_store_seo(video_id, self.tenant_id)
+                    if seo.get("error"):
+                        raise Exception(seo["error"])
+                up = await upload_video_to_youtube(video_id, self.tenant_id)
+                if up.get("error"):
+                    raise Exception(up["error"])
+                await self._log_activity(
+                    bot_name, video_id, "completed",
+                    f"Uploaded to YouTube ({up.get('channel') or 'your channel'}) as an unlisted draft")
+                return {"status": "uploaded_draft", "video_id": video_id,
+                        "video_url": up.get("youtube_url")}
+
             self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_upload_bot()

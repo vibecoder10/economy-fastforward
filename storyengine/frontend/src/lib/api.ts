@@ -377,6 +377,19 @@ export const rejectVideo = (id: string, reason?: string) =>
     body: JSON.stringify({ reason }),
   });
 
+export const generateVideoSeo = (id: string) =>
+  fetchApi<{ description: string; tags: string[]; hashtags: string[]; channel?: string }>(
+    `/api/videos/${id}/generate-seo`, { method: "POST" });
+
+export const saveVideoSeo = (
+  id: string,
+  data: { title?: string; description?: string; tags?: string[] | string },
+) =>
+  fetchApi<{ status: string }>(`/api/videos/${id}/seo`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
 export const getVideoAssets = (id: string) => fetchApi<Asset[]>(`/api/videos/${id}/assets`);
 
 export const getImageVariants = (videoId: string, scene: number, index: number) =>
