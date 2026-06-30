@@ -2384,6 +2384,21 @@ export interface ChatConversation {
 export const getChatConversation = (videoId: string) =>
   fetchApi<ChatConversation>(`/api/chat/conversation?video_id=${encodeURIComponent(videoId)}`);
 
+export interface ChatConversationSummary {
+  conversation_id: string;
+  title: string;
+  preview: string;
+  phase: string;
+  video_id?: string | null;
+  updated_at?: string | null;
+}
+export const listChatConversations = (limit?: number) =>
+  fetchApi<ChatConversationSummary[]>(`/api/chat/conversations?limit=${limit || 20}`);
+export const getChatConversationById = (conversationId: string) =>
+  fetchApi<ChatConversation & { video_id?: string | null }>(
+    `/api/chat/conversation/${encodeURIComponent(conversationId)}`
+  );
+
 // "Worth modeling" — the real top videos from the channel the creator is modeling,
 // with metrics + an AI 'why model this'. Empty when they have no competitor data.
 export interface SuggestedModelVideo {

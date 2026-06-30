@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2 } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
@@ -24,11 +24,14 @@ import {
   getDriveConnectUrl,
   getChatConversation,
   getSuggestedModels,
+  listChatConversations,
+  getChatConversationById,
   type ChatCard,
   type ChatTurnRequest,
   type ProductionPlan,
   type SuggestedModels,
   type SuggestedModelVideo,
+  type ChatConversationSummary,
 } from "@/lib/api";
 
 // localStorage keys for the OAuth round-trip during onboarding: the connect
@@ -277,6 +280,22 @@ export function ChatCore({
     }
 
     (async () => {
+      // Resume where you left off: if a conversation is saved, hydrate it instead of
+      // dropping into a blank welcome (chat no longer vanishes on refresh).
+      let savedCid: string | null = null;
+      try { savedCid = localStorage.getItem(CHAT_CID_KEY); } catch { /* private mode */ }
+      if (savedCid) {
+        try {
+          const data = await getChatConversationById(savedCid);
+          if (!cancelled && data.messages?.length) {
+            setConversationId(data.conversation_id);
+            setMessages(data.messages.map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
+            setCreatedVideoId(data.video_id ?? null);
+            setChecking(false);
+            return;
+          }
+        } catch { /* stale id — fall through to the normal welcome */ }
+      }
       try {
         const s = await getOnboardingStatus();
         const brandNew =
@@ -303,6 +322,29 @@ export function ChatCore({
     if (!text || sending) return;
     setInput("");
     turn({ message: text }, text);
+  }
+
+  // History (home only): start a clean thread, or resume a past one.
+  function newChat() {
+    if (sending) return;
+    setMessages([]);
+    setConversationId(null);
+    setCreatedVideoId(null);
+    setInput("");
+    try { localStorage.removeItem(CHAT_CID_KEY); } catch { /* private mode */ }
+  }
+
+  async function loadConversation(cid: string) {
+    if (sending) return;
+    try {
+      const data = await getChatConversationById(cid);
+      setConversationId(data.conversation_id);
+      setMessages((data.messages || []).map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
+      setCreatedVideoId(data.video_id ?? null);
+      try { localStorage.setItem(CHAT_CID_KEY, cid); } catch { /* private mode */ }
+    } catch {
+      /* gone — keep current state */
+    }
   }
 
   function togglePick(card: ChatCard, value: string) {
@@ -415,6 +457,9 @@ export function ChatCore({
   if (!started) {
     return (
       <div className="max-w-3xl mx-auto flex flex-col items-center text-center pt-10 md:pt-20">
+        <div className="w-full flex justify-end mb-2">
+          <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} />
+        </div>
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
           style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
@@ -515,6 +560,9 @@ export function ChatCore({
   // --- HOME conversation ---
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-4 pb-32">
+      <div className="flex justify-end -mb-1">
+        <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} />
+      </div>
       <MessageThread messages={messages} />
 
       {sending && <Thinking />}
@@ -654,6 +702,82 @@ function ModelSuggestions({ data, onPick }: { data: SuggestedModels; onPick: (v:
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// --- history menu (recent chats + new chat) -------------------------------
+function ChatHistoryMenu({
+  onPick,
+  onNew,
+  disabled,
+}: {
+  onPick: (cid: string) => void;
+  onNew: () => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<ChatConversationSummary[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next) {
+      setLoading(true);
+      try {
+        setItems(await listChatConversations(20));
+      } catch {
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={toggle}
+        disabled={disabled}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:brightness-110 disabled:opacity-50"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+      >
+        <History size={14} /> History
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 mt-2 w-72 max-h-96 overflow-auto rounded-xl z-20 p-1.5"
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", boxShadow: "0 8px 30px rgba(0,0,0,0.4)" }}
+          >
+            <button
+              onClick={() => { onNew(); setOpen(false); }}
+              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:brightness-110"
+              style={{ color: "var(--turquoise)" }}
+            >
+              <Plus size={14} /> New chat
+            </button>
+            <div className="my-1 h-px" style={{ background: "var(--border-subtle)" }} />
+            {loading && <div className="px-3 py-2 text-xs" style={{ color: "var(--text-tertiary)" }}>Loading…</div>}
+            {!loading && items && items.length === 0 && (
+              <div className="px-3 py-2 text-xs" style={{ color: "var(--text-tertiary)" }}>No past chats yet.</div>
+            )}
+            {!loading && items && items.map((c) => (
+              <button
+                key={c.conversation_id}
+                onClick={() => { onPick(c.conversation_id); setOpen(false); }}
+                className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:brightness-110"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>{c.title}</p>
+                {c.preview && <p className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>{c.preview}</p>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

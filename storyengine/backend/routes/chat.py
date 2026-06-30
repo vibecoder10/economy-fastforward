@@ -2945,3 +2945,75 @@ async def get_conversation_for_video(video_id: str, tenant_id=Depends(get_tenant
                 "plan": d.get("plan"),
             })
     return {"conversation_id": str(conv["id"]), "messages": messages, "phase": conv.get("phase") or "created"}
+
+
+# --- Chat history (sidebar list + resume any past conversation by id) ---
+
+def _flatten_transcript(transcript) -> list:
+    """Transcript rows -> the {role, text, cards?, plan?} shape ChatCore renders."""
+    out: list = []
+    for t in _as_list(transcript):
+        if t.get("role") == "user":
+            out.append({"role": "user", "text": t.get("content") or ""})
+        elif t.get("role") == "assistant":
+            d = _as_dict(t.get("content"))
+            out.append({
+                "role": "assistant",
+                "text": d.get("assistant_text") or "",
+                "cards": d.get("cards"),
+                "plan": d.get("plan"),
+            })
+    return out
+
+
+@router.get("/conversations")
+async def list_conversations(limit: int = 20, tenant_id=Depends(get_tenant_id)):
+    """Recent chat history for the sidebar: id + a title (the first thing the creator
+    said) + a short preview (last reply) + when it was last touched. Skips empty
+    threads. Tenant-scoped."""
+    rows = await fetch_all(
+        """SELECT id, transcript, phase, video_id, updated_at
+             FROM chat_conversations
+            WHERE tenant_id = $1 AND jsonb_array_length(transcript) > 0
+            ORDER BY updated_at DESC LIMIT $2""",
+        tenant_id, limit * 3,
+    )
+    out: list = []
+    for c in rows or []:
+        tr = _as_list(c.get("transcript"))
+        title = None
+        last_assistant = None
+        for t in tr:
+            if t.get("role") == "user" and not title:
+                title = (t.get("content") or "").strip()
+            elif t.get("role") == "assistant":
+                d = _as_dict(t.get("content"))
+                if d.get("assistant_text"):
+                    last_assistant = d["assistant_text"]
+        if not title:
+            continue
+        out.append({
+            "conversation_id": str(c["id"]),
+            "title": title[:80],
+            "preview": (last_assistant or "")[:140],
+            "phase": c.get("phase") or "asking",
+            "video_id": str(c["video_id"]) if c.get("video_id") else None,
+            "updated_at": c["updated_at"].isoformat() if c.get("updated_at") else None,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+@router.get("/conversation/{conversation_id}")
+async def get_conversation_by_id(conversation_id: str, tenant_id=Depends(get_tenant_id)):
+    """Hydrate any past conversation by id, so the creator can resume from history."""
+    conv = await _load_conversation(conversation_id, tenant_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {
+        "conversation_id": str(conv["id"]),
+        "messages": _flatten_transcript(conv.get("transcript")),
+        "phase": conv.get("phase") or "asking",
+        "video_id": str(conv["video_id"]) if conv.get("video_id") else None,
+    }
