@@ -46,8 +46,34 @@ const STEPS = [
 export default function OnboardingPage() {
   return (
     <Suspense>
-      <OnboardingContent />
+      <OnboardingGateway />
     </Suspense>
+  );
+}
+
+// The conversational onboarding in the home chat (`/`) is now the front door:
+// it locks identity, collects keys, models competitors, and builds the first
+// video in one guided flow. This form is retired as the default entry — anyone
+// landing on /onboarding is sent to the chat. The full form (OnboardingContent)
+// is preserved and still reachable at /onboarding?manual=1 as an advanced /
+// manual setup path, so it can be resurrected without un-deleting anything.
+function OnboardingGateway() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const manual = searchParams.get("manual") === "1";
+
+  useEffect(() => {
+    if (!manual) router.replace("/");
+  }, [manual, router]);
+
+  if (manual) return <OnboardingContent />;
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center"
+      style={{ background: "var(--bg-void)", color: "var(--text-secondary)" }}
+    >
+      <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Taking you to setup…</p>
+    </div>
   );
 }
 

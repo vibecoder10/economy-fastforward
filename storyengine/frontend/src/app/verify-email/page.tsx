@@ -71,10 +71,10 @@ function VerifyEmailInner() {
               Email confirmed
             </h1>
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              You&apos;re all set — you can start creating videos.
+              You&apos;re all set — let&apos;s set up your channel together.
             </p>
-            <a href="/dashboard" className="text-sm font-semibold" style={{ color: "var(--accent)" }}>
-              Go to your dashboard
+            <a href="/" className="text-sm font-semibold" style={{ color: "var(--accent)" }}>
+              Start setting up your channel
             </a>
           </div>
         )}

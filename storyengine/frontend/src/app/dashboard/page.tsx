@@ -163,13 +163,12 @@ export default function DashboardPage() {
     return items.slice(0, 6);
   }, [pendingReview]);
 
-  // Redirect to onboarding if not completed — UNLESS the user explicitly
-  // clicked "Skip for now" on Step 2. In that case let them into the
-  // dashboard and render a persistent FinishSetupBanner up top so they
-  // can come back on their own time.
-  //
-  // Also clear the skip flag the moment onboarding completes, so the
-  // banner disappears for good.
+  // Send not-yet-onboarded users to the home chat (`/`), which runs the
+  // conversational onboarding (identity -> keys -> competitor modeling ->
+  // first video). The old form at /onboarding is retired as the entry point.
+  // EXCEPT when the user explicitly clicked "Skip for now": let them into the
+  // dashboard with a persistent FinishSetupBanner so they can return on their
+  // own time. Clear the skip flag the moment onboarding completes.
   useEffect(() => {
     if (onboardingLoading || !onboarding) return;
     if (onboarding.completed) {
@@ -182,7 +181,7 @@ export default function DashboardPage() {
       typeof window !== "undefined" &&
       window.localStorage.getItem(STEP2_SKIPPED_KEY) === "1";
     if (!skipped) {
-      router.replace("/onboarding");
+      router.replace("/");
     }
   }, [onboardingLoading, onboarding, router]);
 
@@ -212,7 +211,7 @@ export default function DashboardPage() {
       {showFinishSetupBanner && (
         <motion.div variants={item}>
           <Link
-            href="/onboarding"
+            href="/"
             data-testid="finish-setup-banner"
             className="flex items-center justify-between gap-4 px-5 py-4 rounded-xl transition-all hover:brightness-110"
             style={{

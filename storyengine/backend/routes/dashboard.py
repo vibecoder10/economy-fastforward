@@ -178,7 +178,8 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     # Step 1: channel configured?
     try:
         cp = await fetch_one(
-            "SELECT channel_name, user_type, style_description, youtube_refresh_token "
+            "SELECT channel_name, user_type, style_description, youtube_refresh_token, "
+            "onboarding_completed_at "
             "FROM channel_profiles WHERE tenant_id = $1",
             tenant_id,
         )
@@ -255,8 +256,15 @@ async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
     )
     display_name = (account_row.get("display_name") or "") if account_row else ""
 
-    # Completion: channel + all required keys + first video (style + YouTube are optional)
-    completed = (
+    # Completion. The conversational onboarding (home chat) sets
+    # onboarding_completed_at when the creator finishes the guided setup
+    # (identity + keys + competitor modeling), right before it pitches the first
+    # video. Honor that flag as the source of truth so someone who completed the
+    # chat flow isn't bounced back to setup while their first video is still
+    # building. Fall back to the legacy signal (channel + keys + first video) for
+    # users onboarded before the chat flow set the flag.
+    onboarding_done_flag = bool(cp and cp.get("onboarding_completed_at"))
+    completed = onboarding_done_flag or (
         channel_configured
         and configured_count == len(required_keys)
         and first_video_created
