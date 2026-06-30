@@ -1072,12 +1072,33 @@ class PipelineExecutor:
                 "UPDATE videos SET writer_guidance = $1 WHERE id = $2",
                 updated, video_id,
             )
+            # Capture WHAT was applied so the creator can see it (autopilot scorecard
+            # + chat) - transparency, not a black box.
+            try:
+                import json as _json
+                applied = [
+                    {
+                        "category": l.get("category", ""),
+                        "pattern": l.get("pattern", ""),
+                        "verdict": ("PROVEN" if float(l.get("confidence", 0)) >= 60
+                                    else "AVOID" if float(l.get("confidence", 0)) <= 40 else "TESTING"),
+                    }
+                    for l in learnings
+                ]
+                await execute(
+                    "UPDATE videos SET applied_intelligence = "
+                    "COALESCE(applied_intelligence, '{}'::jsonb) || jsonb_build_object('learnings_used', $1::jsonb) "
+                    "WHERE id = $2",
+                    _json.dumps(applied), video_id,
+                )
+            except Exception as _e:
+                print(f"[Script] record applied learnings failed: {_e}")
             print(f"[Script] Injected {len(learnings)} learnings into writer_guidance for {video_id[:8]}")
 
         except Exception as e:
             print(f"[Script] Error injecting learnings: {e}")
 
-    async def _grade_and_maybe_revise_script(self, video_id: str) -> None:
+    async def _grade_and_maybe_revise_script(self, video_id: str, regenerate=None) -> None:
         """Phase 2 retention gate: grade the freshly generated script against the
         YouTube retention rules (hook speed, but/therefore causality, escalating
         stakes, a delivered payoff, specificity). On a 'revise'/'regenerate'
@@ -1124,13 +1145,16 @@ class PipelineExecutor:
             print(f"[Script] retention grade {video_id[:8]}: {grade.verdict} "
                   f"(score {grade.score}) gates={grade.failing_gates}", flush=True)
 
-            if not grade.needs_revision or not (grade.rewrite_guidance or "").strip():
+            regenerating = bool(grade.needs_revision and (grade.rewrite_guidance or "").strip())
+            # Capture the grade so the creator can SEE it (autopilot scorecard + chat),
+            # whether or not we re-rolled - transparency, not a black box.
+            await self._record_applied_retention(video_id, grade, regenerating)
+            if not regenerating:
                 return
 
-            # Append the grader's guidance and regenerate exactly once.
-            # writer_guidance is the same column run_brief_translator already
-            # reads (see _inject_learnings_into_writer_guidance), so the re-run
-            # picks it up.
+            # Append the grader's guidance and regenerate exactly once. writer_guidance
+            # is read by BOTH the documentary brief_translator and the modeled-script
+            # prompt, so the re-run picks it up on either pathway.
             existing = (video.get("writer_guidance") or "")
             block = (
                 "\n\n--- RETENTION REVISION (auto, internal) ---\n"
@@ -1141,13 +1165,46 @@ class PipelineExecutor:
                 "UPDATE videos SET writer_guidance = $1 WHERE id = $2",
                 existing + block, video_id,
             )
-            self._load_idea_from_video(video_id)
-            await self._pipeline.run_brief_translator()
+            # Modeled videos must re-roll through the MODELED generator, not the
+            # documentary brief_translator (which would steamroll their style).
+            if regenerate is not None:
+                await regenerate()
+            else:
+                self._load_idea_from_video(video_id)
+                await self._pipeline.run_brief_translator()
             print(f"[Script] regenerated {video_id[:8]} once after retention grade", flush=True)
             # ponytail: one re-roll only. If the rewrite is still weak it ships -
             # a silent nudge, not a hard gate; looping would risk stalling a run.
         except Exception as e:
             print(f"[Script] retention grade skipped for {video_id[:8]}: {str(e)[:200]}", flush=True)
+
+    async def _record_applied_retention(self, video_id: str, grade, regenerated: bool) -> None:
+        """Persist the retention grade onto videos.applied_intelligence so the creator
+        can see what the hook/retention engine did (autopilot scorecard + chat).
+        Best-effort; never blocks the pipeline."""
+        try:
+            import json as _json
+            rec = {
+                "fired": bool(regenerated),
+                "score": getattr(grade, "score", None),
+                "verdict": getattr(grade, "verdict", None),
+                "failing_gates": list(getattr(grade, "failing_gates", []) or []),
+            }
+            await execute(
+                "UPDATE videos SET applied_intelligence = "
+                "COALESCE(applied_intelligence, '{}'::jsonb) || jsonb_build_object('retention_grade', $1::jsonb) "
+                "WHERE id = $2",
+                _json.dumps(rec), video_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[Script] record retention grade failed: {str(e)[:160]}")
+
+    async def _regen_modeled_script(self, video_id: str) -> None:
+        """Re-roll a modeled script through the MODELED generator (used by the
+        retention grade so a modeled video keeps its replicated style on revision)."""
+        v = await self._get_video(video_id)
+        if v:
+            await self._run_modeled_script(video_id, v)
 
     @staticmethod
     def _parse_modeled_scenes(raw: str) -> list:
@@ -1351,8 +1408,18 @@ separate scenes."""
 
             # Style-replicated videos get a dedicated script path — the
             # brief_translator's documentary machinery ignores their style.
+            # Jarvis: modeled videos still go through the SAME hook/retention loop as
+            # every other pathway. Inject learnings first (the modeled prompt reads
+            # writer_guidance), generate, then grade + maybe re-roll via the MODELED
+            # generator (not the documentary brief_translator).
             if video.get("source") == "modeled" and video.get("script_system_prompt"):
-                return await self._run_modeled_script(video_id, video)
+                await self._inject_learnings_into_writer_guidance(video_id)
+                video = await self._get_video(video_id)
+                result = await self._run_modeled_script(video_id, video)
+                await self._grade_and_maybe_revise_script(
+                    video_id, regenerate=lambda: self._regen_modeled_script(video_id)
+                )
+                return result
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
 

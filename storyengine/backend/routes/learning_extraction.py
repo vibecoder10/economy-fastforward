@@ -173,13 +173,32 @@ def _detect_competitor_hook_patterns(transcript: str) -> list[str]:
 
 
 def _get_verdict(ctr: float) -> tuple[str, int]:
-    """Determine KEEP/DISCARD/NEUTRAL from CTR."""
+    """Determine KEEP/DISCARD/NEUTRAL from CTR (the right signal for TITLES)."""
     if ctr >= CTR_STRONG:
         return "KEEP", 60
     elif ctr <= CTR_WEAK:
         return "DISCARD", 40
     else:
         return "NEUTRAL", 50
+
+
+# Hooks and script structure live or die on RETENTION, not CTR (CTR is packaging).
+# avg_retention is a percent (e.g. 35 = 35%).
+RET_STRONG = 45.0  # >= this = the hook held viewers -> KEEP
+RET_WEAK = 30.0    # <= this = viewers bailed early -> DISCARD
+
+
+def _get_hook_verdict(ctr: float, retention: Optional[float]) -> tuple[str, int]:
+    """Verdict for HOOK / SCRIPT / FRAMEWORK patterns. Judge on retention when we
+    have it (a hook's real job is to hold the first 30s); fall back to CTR otherwise.
+    This is what lets 'a video got bad retention' flip its hook to AVOID for next time."""
+    if retention is not None:
+        if retention >= RET_STRONG:
+            return "KEEP", 65
+        if retention <= RET_WEAK:
+            return "DISCARD", 40
+        return "NEUTRAL", 50
+    return _get_verdict(ctr)
 
 
 def _format_pattern_name(category: str, pattern: str) -> str:
@@ -332,14 +351,16 @@ async def extract_learnings(
         retention = float(video["avg_retention"]) if video.get("avg_retention") else None
         hook = video.get("hook_script", "")
         framework = video.get("framework_angle", "")
-        verdict, confidence = _get_verdict(ctr)
+        verdict, confidence = _get_verdict(ctr)          # CTR-based -> titles
+        hv, hc = _get_hook_verdict(ctr, retention)        # retention-based -> hooks/script/framework
 
-        # Skip NEUTRAL videos — they don't provide clear signals
-        if verdict == "NEUTRAL":
+        # Skip only when NEITHER axis is decisive (a strong-CTR / weak-retention video
+        # still teaches us about its hook, so don't drop it on the CTR axis alone).
+        if verdict == "NEUTRAL" and hv == "NEUTRAL":
             continue
 
-        # Detect title patterns
-        for pattern in _detect_title_patterns(title):
+        # Detect title patterns (titles judged on CTR)
+        for pattern in (_detect_title_patterns(title) if verdict != "NEUTRAL" else []):
             pattern_name = _format_pattern_name("title", pattern)
             ep = ExtractedPattern(
                 category="title", pattern=pattern_name, verdict=verdict,
@@ -357,58 +378,58 @@ async def extract_learnings(
             elif result == "updated":
                 updated_count += 1
 
-        # Detect hook patterns
-        for pattern in _detect_hook_patterns(hook):
+        # Detect hook patterns (hooks judged on RETENTION)
+        for pattern in (_detect_hook_patterns(hook) if hv != "NEUTRAL" else []):
             pattern_name = _format_pattern_name("hook", pattern)
             ep = ExtractedPattern(
-                category="hook", pattern=pattern_name, verdict=verdict,
-                confidence=confidence, avg_ctr=ctr, avg_retention=retention,
+                category="hook", pattern=pattern_name, verdict=hv,
+                confidence=hc, avg_ctr=ctr, avg_retention=retention,
                 source_video=title,
             )
             all_patterns.append(ep)
 
             result = await _upsert_learning(
                 tenant_id, "hook", pattern_name, ctr, retention, title,
-                verdict, confidence, existing_set,
+                hv, hc, existing_set,
             )
             if result == "new":
                 new_count += 1
             elif result == "updated":
                 updated_count += 1
 
-        # Extract framework pattern
-        if framework:
+        # Extract framework pattern (structure -> judged on RETENTION)
+        if framework and hv != "NEUTRAL":
             pattern_name = f"Framework: {framework}"
             ep = ExtractedPattern(
-                category="framework", pattern=pattern_name, verdict=verdict,
-                confidence=confidence, avg_ctr=ctr, avg_retention=retention,
+                category="framework", pattern=pattern_name, verdict=hv,
+                confidence=hc, avg_ctr=ctr, avg_retention=retention,
                 source_video=title,
             )
             all_patterns.append(ep)
 
             result = await _upsert_learning(
                 tenant_id, "framework", pattern_name, ctr, retention, title,
-                verdict, confidence, existing_set,
+                hv, hc, existing_set,
             )
             if result == "new":
                 new_count += 1
             elif result == "updated":
                 updated_count += 1
 
-        # Detect script structure patterns (from full script text)
+        # Detect script structure patterns (from full script text -> RETENTION)
         script_text = video.get("script", "")
-        for pattern in _detect_script_patterns(script_text):
+        for pattern in (_detect_script_patterns(script_text) if hv != "NEUTRAL" else []):
             pattern_name = _format_pattern_name("script", pattern)
             ep = ExtractedPattern(
-                category="script", pattern=pattern_name, verdict=verdict,
-                confidence=confidence, avg_ctr=ctr, avg_retention=retention,
+                category="script", pattern=pattern_name, verdict=hv,
+                confidence=hc, avg_ctr=ctr, avg_retention=retention,
                 source_video=title,
             )
             all_patterns.append(ep)
 
             result = await _upsert_learning(
                 tenant_id, "script", pattern_name, ctr, retention, title,
-                verdict, confidence, existing_set,
+                hv, hc, existing_set,
             )
             if result == "new":
                 new_count += 1
