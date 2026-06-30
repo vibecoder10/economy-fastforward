@@ -1904,6 +1904,38 @@ async def _channel_intel_brief(tenant_id) -> str:
             + "\n- ".join(bits))
 
 
+async def _competitor_winners_brief(tenant_id) -> str:
+    """Top competitor videos RIGHT NOW with real numbers (views, views/hour, age)
+    so the producer can answer 'what's working on my competitors?' with specifics
+    and ground title/thumbnail ideas in actual winners. Compact top 8 by vph.
+    Mirrors the /suggested-models query. Fail-soft -> ''."""
+    try:
+        rows = await fetch_all(
+            "SELECT title, channel, views, vph, hours_old FROM competitor_videos "
+            "WHERE tenant_id = $1 AND views > 0 AND removed_at IS NULL "
+            "ORDER BY vph DESC NULLS LAST LIMIT 8",
+            tenant_id,
+        ) or []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: competitor winners brief failed: %s", e)
+        return ""
+    if not rows:
+        return ""
+    lines: list[str] = []
+    for r in rows:
+        views = int(r.get("views") or 0)
+        vph = r.get("vph")
+        vph_s = f"~{int(round(float(vph))):,}/hr" if vph else "?/hr"
+        days = round((float(r.get("hours_old") or 0)) / 24)
+        age = f"{days}d old" if days > 0 else "new"
+        ch = r.get("channel") or "?"
+        title = (r.get("title") or "").strip()
+        lines.append(f'"{title}" - {ch} - {views:,} views, {vph_s}, {age}')
+    return ("\nTOP COMPETITOR VIDEOS RIGHT NOW (real numbers from the channels they model - when they ask "
+            "what's working or how a competitor is doing, cite these specifics; and model title/thumbnail "
+            "ideas on these proven winners):\n- " + "\n- ".join(lines))
+
+
 async def _wait_for_scrape(state) -> None:
     """Bounded wait (~40s) for the background competitor scrape to finish."""
     import asyncio
@@ -2184,6 +2216,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         _creator_brief(state)
         + await _modeled_runtime_hint(tenant_id)
         + await _channel_intel_brief(tenant_id)
+        + await _competitor_winners_brief(tenant_id)
         + await _reference_brief(state, state.get("pending_reference_url"))
         + await _profile_state_brief(tenant_id)
     )
@@ -2588,6 +2621,7 @@ async def chat_turn(
         _creator_brief(state)
         + await _modeled_runtime_hint(tenant_id)
         + await _channel_intel_brief(tenant_id)
+        + await _competitor_winners_brief(tenant_id)
         + await _reference_brief(state, state.get("pending_reference_url"))
         + await _profile_state_brief(tenant_id)
     )
