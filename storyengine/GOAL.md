@@ -97,13 +97,14 @@ data. We are not missing the workflow. The two real moves are:
 
 ## Phases (the plan we execute against)
 
-**Phase A - Surface the loop in chat (the through-line).** Let the chat read, run, and narrate the
+**Phase A - Surface the loop in chat (the through-line). [SHIPPED 2026-06-30, main @ fc476ad6]**
+Let the chat read, run, and narrate the
 existing engine: "what's working on my competitors" (done), "what should I make next" (drive
 Autopilot candidates + scoring), "how did my last video do" (read the analytics sync), "what have
 we learned" (read learnings), and run a modeled build. This unifies everything we already have
 behind the command center. Mostly wiring, little new intelligence.
 
-**Phase B - Idea -> score -> pick (G2).** The daily driver: pull real competitor winners, generate
+**Phase B - Idea -> score -> pick (G2). [SHIPPED 2026-06-30, main @ 101616f4]** The daily driver: pull real competitor winners, generate
 ideas, score them (extend Autopilot's breakdown with feasibility/monetization), recommend the top
 2 with the angle + the one differentiator, all in chat. Do before onboarding customers.
 
@@ -192,3 +193,13 @@ any clip spend.
   learnings + analytics), so the plan is to surface them in chat (Phase A) + close 5 gaps
   (G1-G5) + 2 director remnants (D1 shot budget, D2 clip proof). Commits a4991cc8, 22505e98,
   8edb89c7, 0ea3e5f1. (Older director-pass log preserved in GOAL.md.bak-20260630-075433.)
+- 2026-06-30: Phase A SHIPPED (main @ fc476ad6) - chat now drives the loop: `_loop_brief` injects
+  what-to-make-next (scored 0-100 via Autopilot's confidence fn), the creator's own published-video
+  analytics, and learnings into the producer every turn; "mastered faceless YouTube" framing.
+  Proven live (ranked picks, honest "nothing synced yet", real proven-formula readout).
+- 2026-06-30: Phase B SHIPPED (main @ 101616f4) - idea -> score -> pick. Producer scores options
+  (competitor winners, fresh angles, AND pasted ideas) on velocity x2 / channel-fit x2 / feasibility
+  / monetization, ranks them, names a pick + runner-up with the exact title, hook, and the one
+  differentiator, then offers to build the winner. Proven live: a clean scorecard for competitor
+  winners, and correctly tanked two off-niche pasted ideas while picking the on-format one.
+  NEXT: Phase C (G5 conversational post-video diagnosis + G1 content-gap / opportunity map).
