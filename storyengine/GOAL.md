@@ -424,3 +424,22 @@ On the unified path, build Scene 1 end to end and verify against the gate above.
   thing still unproven; (3) downgrade Phases 5/8/9 from "build" to "spot-check / verify". ALSO: the
   dry-run estimator (CLI fixed 3-moments → ~$0.65) badly under-quotes the live dialogue-sized path
   (~$1.80 actual) — fix the estimator to use _coverage_shape.
+- 2026-06-29 (components marked off by Ryan + RENDER PAGE finished & PROVEN, deployed HEAD 5c97f278):
+  Ryan confirmed the other pipeline components (clips/animation, voice, Phase 1 channel data,
+  thumbnails) are working and marked them off for now; focus moved to the Finish/render page.
+  SHIPPED + deployed to prod: (1) RenderTab.tsx — removed the disabled Music/Format dropdowns + the
+  "overrides coming soon" stub note; added a wired Auto/16:9/9:16 orientation toggle (passed as the
+  `orientation` query param into /render); honest specs (resolution from orientation, real FPS 24,
+  clips-ready count, scenes ready/total, stitched length summed from actual clip durations); a clear
+  "stitches N clips (scenes X-Y) with FFmpeg" summary + a gold partial-render warning; Render Now
+  disabled when zero clips. (2) routes/pipeline.py /render — relaxed the gate so a stitch is allowed
+  whenever generated clips exist (not only at exactly ready_to_render), honoring "render whatever's
+  been generated." Download stays as the final-MP4 link (Ryan's call — final video only).
+  VERIFIED on prod by actually rendering the fish video (973c9bd6) via run_render: stitched all
+  44 clips (scenes 1-3 only — the partial case) into a 208.7s / 728x1080 portrait MP4 (orientation
+  auto-followed the clips), status→rendered, final_video_url set; the prod media proxy serves it
+  (HTTP 200, video/mp4, 36.7 MB) and an extracted frame is a clean Pixar-style render. Rendering is
+  free (clips already generated; stitch is just FFmpeg on the VPS). The heavy FFmpeg engine
+  (render_stitch.py) already existed and is solid — this was page wiring + a gate relax, not a
+  rebuild. NOTE: verified via the executor (same path the route calls) because no JWT was available
+  locally; the route gate change is deployed + compiles.
