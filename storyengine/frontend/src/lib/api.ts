@@ -19,16 +19,24 @@ function reportError(path: string, status: number, body: string, method: string)
   } catch {}
 }
 
+// Command center: the operator's currently-selected client workspace. When set,
+// every request carries it as X-Active-Tenant and the backend re-scopes to that
+// tenant (after a membership check). Unset for normal users -> no header -> the
+// backend behaves exactly as before. Phase 2's switcher writes this key.
+export const ACTIVE_TENANT_KEY = "se_active_tenant";
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   // Get token from localStorage, fallback to "dev-token" for development
   const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const token = storedToken || "dev-token";
+  const activeTenant = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_TENANT_KEY) : null;
 
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...(activeTenant ? { "X-Active-Tenant": activeTenant } : {}),
       ...options?.headers,
     },
   });

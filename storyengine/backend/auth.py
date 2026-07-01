@@ -3,7 +3,7 @@
 import os
 import uuid as _uuid
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Header, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
@@ -89,11 +89,45 @@ def verify_token(
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
 
-async def get_tenant_id(user: AuthUser = Depends(verify_token)) -> _uuid.UUID:
-    """Get tenant_id for the current user as a UUID.
+async def _user_has_membership(user_id: str, tenant_id: _uuid.UUID) -> bool:
+    """True iff this user has a membership row in the given tenant. This is the
+    authorization boundary for the command center's workspace switch — nothing
+    else may be trusted to decide which tenant a request is allowed to act as."""
+    from database import fetch_one
+    row = await fetch_one(
+        "SELECT 1 AS ok FROM memberships WHERE user_id = $1 AND tenant_id = $2 LIMIT 1",
+        user_id, tenant_id,
+    )
+    return bool(row)
+
+
+async def get_tenant_id(
+    user: AuthUser = Depends(verify_token),
+    x_active_tenant: Optional[str] = Header(None, alias="X-Active-Tenant"),
+) -> _uuid.UUID:
+    """Get the tenant_id this request should act as, as a UUID.
+
+    Normally the JWT's tenant (or the user's first membership). The Channel
+    Manager command center can override it with an `X-Active-Tenant` header to
+    switch between client channels — but ONLY to a tenant the user actually
+    belongs to. An override naming a non-member tenant is a hard 403, never a
+    silent fallback, so the switch can never become a cross-tenant data leak.
+
+    SECURITY: with no header this is byte-for-byte the prior behavior, so normal
+    single-channel requests are entirely unaffected.
 
     Returns UUID so asyncpg can match against UUID columns directly.
     """
+    # Active-workspace override (command center) — validate membership first.
+    if x_active_tenant:
+        try:
+            requested = _uuid.UUID(x_active_tenant)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid X-Active-Tenant header")
+        if not await _user_has_membership(user.id, requested):
+            raise HTTPException(status_code=403, detail="Not a member of that workspace")
+        return requested
+
     if user.tenant_id:
         return _uuid.UUID(user.tenant_id)
 
