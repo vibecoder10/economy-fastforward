@@ -248,9 +248,17 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
     loop is hard-capped + stops on no-progress so it can never run away."""
     from pipeline_executor import PipelineExecutor
     from routes.pipeline import _clear_task_status, _set_task_status
-    from status_map import get_next_status_supabase
+    from status_map import get_next_status_supabase, parse_stage_plan, resolve_planned_status
 
     async def _advance(to_status: str):
+        # Honor the video's reduced stage plan: a raw natural-next status here
+        # would drag a reduced-plan video into a disabled stage (e.g. a static
+        # documentary into sound/animate). Reroute to the next ENABLED stage.
+        prow = await fetch_one(
+            "SELECT pipeline_stages FROM videos WHERE id=$1 AND tenant_id=$2",
+            video_id, tenant_id)
+        plan = parse_stage_plan((prow or {}).get("pipeline_stages"))
+        to_status = resolve_planned_status(to_status, plan)
         prev = await fetch_one(
             "SELECT status FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
         await execute("UPDATE videos SET status=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
