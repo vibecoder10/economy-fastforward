@@ -7,12 +7,13 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, ChevronsUpDown, Check, Plus } from "lucide-react";
+import { Building2, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react";
 import {
   getWorkspaces,
   getActiveTenant,
   setActiveTenant,
   createWorkspace,
+  removeWorkspace,
 } from "@/lib/api";
 
 export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
@@ -41,6 +42,23 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
     } catch (e) {
       alert(e instanceof Error ? e.message : "Couldn't create workspace");
       setCreating(false);
+    }
+  }
+
+  async function remove(w: { tenant_id: string; name: string }) {
+    const okToRemove = window.confirm(
+      `Remove "${w.name}" from your command center?\n\n` +
+        "This only unlinks it from your switcher — the channel's videos, keys, and " +
+        "settings are kept, and you can re-add it later.",
+    );
+    if (!okToRemove) return;
+    try {
+      await removeWorkspace(w.tenant_id);
+      // If we removed the one we're currently in, drop back to home; else refresh.
+      if (getActiveTenant() === w.tenant_id) setActiveTenant(null);
+      else window.location.reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't remove workspace");
     }
   }
 
@@ -95,19 +113,34 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
             Client channels
           </div>
           {data.workspaces.map((w) => (
-            <button
+            <div
               key={w.tenant_id}
-              onClick={() => setActiveTenant(w.tenant_id)}
-              className="flex items-center gap-2 w-full px-3 py-2 text-left transition-colors hover:bg-[var(--bg-surface)]"
+              className="group flex items-center transition-colors hover:bg-[var(--bg-surface)]"
             >
-              <Building2 size={14} className="shrink-0" style={{ color: "var(--text-tertiary)" }} />
-              <span className="text-sm font-body truncate flex-1" style={{ color: "var(--text-primary)" }}>
-                {w.name}
-              </span>
-              {w.tenant_id === current?.tenant_id && (
-                <Check size={14} className="shrink-0" style={{ color: "var(--turquoise)" }} />
+              <button
+                onClick={() => setActiveTenant(w.tenant_id)}
+                className="flex items-center gap-2 flex-1 min-w-0 px-3 py-2 text-left"
+              >
+                <Building2 size={14} className="shrink-0" style={{ color: "var(--text-tertiary)" }} />
+                <span className="text-sm font-body truncate flex-1" style={{ color: "var(--text-primary)" }}>
+                  {w.name}
+                </span>
+                {w.tenant_id === current?.tenant_id && (
+                  <Check size={14} className="shrink-0" style={{ color: "var(--turquoise)" }} />
+                )}
+              </button>
+              {/* Remove control — hidden on the home workspace so you can't unlink your base. */}
+              {w.tenant_id !== homeTenant && (
+                <button
+                  onClick={() => remove(w)}
+                  title={`Remove ${w.name} from command center`}
+                  className="shrink-0 px-2 py-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  <Trash2 size={13} />
+                </button>
               )}
-            </button>
+            </div>
           ))}
           {data.is_operator && (
             <button

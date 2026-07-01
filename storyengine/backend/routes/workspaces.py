@@ -100,3 +100,28 @@ async def create_workspace(body: CreateWorkspaceRequest, user: AuthUser = Depend
         tenant_id,
     )
     return Workspace(tenant_id=tenant_id, name=name, role="owner", channel_name=None, youtube_connected=False)
+
+
+@router.delete("/{tenant_id}")
+async def remove_workspace(tenant_id: str, user: AuthUser = Depends(verify_token)):
+    """Remove a workspace from the operator's command center by unlinking their
+    membership. This is intentionally NON-destructive: the channel's tenant + all
+    its data (videos, keys, profile) are preserved, so the channel can be re-added
+    later and a client's work is never obliterated by a click. Operator-only."""
+    if not await _is_operator(user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    try:
+        tid = uuid.UUID(tenant_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid workspace id")
+    mine = await fetch_one(
+        "SELECT 1 AS ok FROM memberships WHERE user_id = $1 AND tenant_id = $2", user.id, tid
+    )
+    if not mine:
+        raise HTTPException(status_code=404, detail="Workspace not found in your command center")
+    # Never leave the operator with zero workspaces (would break tenant resolution).
+    cnt = await fetch_one("SELECT COUNT(*) AS c FROM memberships WHERE user_id = $1", user.id)
+    if cnt and cnt["c"] <= 1:
+        raise HTTPException(status_code=400, detail="Can't remove your only workspace")
+    await execute("DELETE FROM memberships WHERE user_id = $1 AND tenant_id = $2", user.id, tid)
+    return {"status": "removed"}

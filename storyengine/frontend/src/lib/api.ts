@@ -2422,6 +2422,10 @@ export const createWorkspace = (name: string) =>
     method: "POST",
     body: JSON.stringify({ name }),
   });
+// Non-destructive: unlinks the workspace from the operator's switcher; the
+// channel's tenant + data are preserved.
+export const removeWorkspace = (tenantId: string) =>
+  fetchApi<{ status: string }>(`/api/workspaces/${tenantId}`, { method: "DELETE" });
 
 // One prior message of a video's co-pilot conversation, flattened for the dock.
 export interface ChatHistoryMessage {
