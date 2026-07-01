@@ -1,5 +1,7 @@
 "use client";
 
+import { HubTabs, PROFILE_TABS } from "@/components/nav/hub-tabs";
+
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -270,6 +272,7 @@ export default function SettingsPage() {
     // initial="hidden" the fade-in starts at opacity 0, and if it never runs
     // (tab backgrounded on load / RAF stall) the whole page stays invisible.
     <motion.div className="space-y-8 max-w-3xl mx-auto" variants={container} initial={false} animate="show">
+      <HubTabs tabs={PROFILE_TABS} />
       {/* Header */}
       <motion.div variants={item}>
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>

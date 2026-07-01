@@ -1,5 +1,7 @@
 "use client";
 
+import { HubTabs, PROFILE_TABS } from "@/components/nav/hub-tabs";
+
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -249,6 +251,7 @@ export default function ApiKeysPage() {
 
   return (
     <div className="space-y-6">
+      <HubTabs tabs={PROFILE_TABS} />
       <h1 className="text-xl font-bold">Settings</h1>
 
       <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />

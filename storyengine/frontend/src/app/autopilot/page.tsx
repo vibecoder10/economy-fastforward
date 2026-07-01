@@ -1,5 +1,7 @@
 "use client";
 
+import { HubTabs, AUTOPILOT_TABS } from "@/components/nav/hub-tabs";
+
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -260,6 +262,7 @@ export default function AutopilotPage() {
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
+      <HubTabs tabs={AUTOPILOT_TABS} />
       {/* Header with toggle */}
       <motion.div variants={item} className="flex items-center justify-between">
         <div className="flex items-center gap-4">

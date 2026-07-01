@@ -1,5 +1,7 @@
 "use client";
 
+import { HubTabs, AUTOPILOT_TABS } from "@/components/nav/hub-tabs";
+
 import { useState } from "react";
 import { motion } from "framer-motion";
 import {
@@ -92,6 +94,7 @@ export default function LearningsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-[1200px] mx-auto space-y-6">
+      <HubTabs tabs={AUTOPILOT_TABS} />
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

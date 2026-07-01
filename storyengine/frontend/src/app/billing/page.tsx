@@ -1,5 +1,7 @@
 "use client";
 
+import { HubTabs, PROFILE_TABS } from "@/components/nav/hub-tabs";
+
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -140,6 +142,7 @@ export default function BillingPage() {
       animate="show"
       className="max-w-4xl mx-auto px-4 py-8 space-y-8"
     >
+      <HubTabs tabs={PROFILE_TABS} />
       {/* Header */}
       <motion.div variants={item}>
         <h1 className="text-3xl font-display font-bold mb-1" style={{ color: "var(--text-primary)" }}>

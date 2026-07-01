@@ -1,5 +1,7 @@
 "use client";
 
+import { HubTabs, PROFILE_TABS } from "@/components/nav/hub-tabs";
+
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -348,6 +350,7 @@ export default function ProfilePage() {
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
+      <HubTabs tabs={PROFILE_TABS} />
       {/* Page Header */}
       <motion.div variants={item}>
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>

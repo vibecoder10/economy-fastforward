@@ -12,13 +12,9 @@ import {
   List,
   BarChart3,
   Settings,
-  Palette,
-  Key,
-  CreditCard,
   Bot,
   Users,
   Lightbulb,
-  Brain,
   CheckSquare,
   CalendarDays,
   ScrollText,
@@ -40,20 +36,19 @@ const primaryNav = [
   { href: "/", icon: MessageSquare, label: "Chat" },
   { href: "/dashboard", icon: LayoutGrid, label: "Dashboard" },
 ];
+// API Keys, Billing, and Visual Styles now live as tabs under Profile; Learnings
+// lives as a tab under Autopilot (see components/nav/hub-tabs). `match` keeps the
+// hub entry highlighted while you're on one of its sub-route tabs.
 const advancedNav = [
   { href: "/pipeline", icon: List, label: "Videos" },
   { href: "/review", icon: CheckSquare, label: "Review" },
-  { href: "/autopilot", icon: Bot, label: "Autopilot" },
+  { href: "/autopilot", icon: Bot, label: "Autopilot", match: ["/learnings"] },
   { href: "/competitors", icon: Users, label: "Competitors" },
   { href: "/discovery", icon: Lightbulb, label: "Discovery" },
-  { href: "/learnings", icon: Brain, label: "Learnings" },
-  { href: "/profile", icon: Palette, label: "Visual Styles" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/system-prompts", icon: ScrollText, label: "System Prompts" },
-  { href: "/billing", icon: CreditCard, label: "Billing" },
-  { href: "/settings", icon: Settings, label: "Profile" },
-  { href: "/settings/keys", icon: Key, label: "API Keys" },
+  { href: "/settings", icon: Settings, label: "Profile", match: ["/settings/keys", "/billing", "/profile"] },
   { href: "/docs", icon: BookOpen, label: "Getting Started" },
 ];
 
@@ -88,9 +83,12 @@ export function Sidebar() {
     router.replace("/login");
   };
 
-  const renderNavItem = ({ href, icon: Icon, label }: { href: string; icon: typeof LayoutGrid; label: string }) => {
+  const renderNavItem = ({ href, icon: Icon, label, match }: { href: string; icon: typeof LayoutGrid; label: string; match?: string[] }) => {
+    const base = href.split("?")[0];
     const isActive =
-      href === "/" ? pathname === "/" : pathname.startsWith(href.split("?")[0]);
+      href === "/"
+        ? pathname === "/"
+        : pathname.startsWith(base) || (match?.some((m) => pathname.startsWith(m)) ?? false);
     const showBadge = href === "/review" && pendingCount > 0;
     const isLocked = PRO_PATHS.some((p) => href.startsWith(p)) && !isPlanAtLeast(user?.plan, "pro");
 
