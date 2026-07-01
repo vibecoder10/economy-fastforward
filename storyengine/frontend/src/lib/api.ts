@@ -25,6 +25,19 @@ function reportError(path: string, status: number, body: string, method: string)
 // backend behaves exactly as before. Phase 2's switcher writes this key.
 export const ACTIVE_TENANT_KEY = "se_active_tenant";
 
+export const getActiveTenant = (): string | null =>
+  typeof window !== "undefined" ? localStorage.getItem(ACTIVE_TENANT_KEY) : null;
+
+// Switch the active workspace. Passing null clears it (back to the home tenant).
+// A full reload is intentional: it guarantees no stale cross-tenant data lingers
+// in memory when re-scoping the whole app to another client channel.
+export const setActiveTenant = (tenantId: string | null) => {
+  if (typeof window === "undefined") return;
+  if (tenantId) localStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
+  else localStorage.removeItem(ACTIVE_TENANT_KEY);
+  window.location.assign("/");
+};
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   // Get token from localStorage, fallback to "dev-token" for development
   const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -2388,6 +2401,26 @@ export const setOnboardingKey = (value: string) =>
   fetchApi<OnboardingKeyResponse>("/api/chat/onboarding-key", {
     method: "POST",
     body: JSON.stringify({ value }),
+  });
+
+// --- Workspaces (command center) ---
+export interface Workspace {
+  tenant_id: string;
+  name: string;
+  role: string;
+  channel_name?: string | null;
+  youtube_connected: boolean;
+}
+export interface WorkspacesResponse {
+  is_operator: boolean;
+  workspaces: Workspace[];
+}
+export const getWorkspaces = () =>
+  fetchApi<WorkspacesResponse>("/api/workspaces");
+export const createWorkspace = (name: string) =>
+  fetchApi<Workspace>("/api/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name }),
   });
 
 // One prior message of a video's co-pilot conversation, flattened for the dock.

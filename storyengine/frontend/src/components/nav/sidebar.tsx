@@ -32,6 +32,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { isPlanAtLeast, PRO_PATHS } from "@/components/auth/AuthenticatedShell";
+import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
 
 // Chat is the primary surface; Dashboard is now secondary. Everything else lives
 // under "Advanced" so the chat-first experience stays uncluttered.
@@ -144,6 +145,9 @@ export function Sidebar() {
           </span>
         )}
       </div>
+
+      {/* Workspace switcher (command center) — operators only; hidden otherwise */}
+      <WorkspaceSwitcher collapsed={collapsed} />
 
       {/* Nav items */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
