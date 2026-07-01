@@ -44,6 +44,9 @@ class VideoDetail(VideoSummary):
     characters_approved_at: Optional[str] = None
     story_locked_at: Optional[str] = None
     dialogue_audio: Optional[str] = None
+    # NULL = normal (clip stitch / narrator). 'static_docu' = static-image
+    # documentary: images held over narration, no animate stage.
+    render_mode: Optional[str] = None
     # Per-video pipeline plan: which stages this video runs (None = full
     # pipeline). The UI hides the tabs for stages that are turned off.
     skip_voice: bool = False

@@ -1583,7 +1583,7 @@ async def run_render(
     await check_plan_limits(tenant_id, "render")
 
     video = await fetch_one(
-        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages, render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
@@ -1594,17 +1594,32 @@ async def run_render(
     # Render whatever's been generated: a stitch only needs clips to exist. Allow it
     # once the video is at/past ready_to_render OR any clips have been generated (so a
     # partially-animated video can be stitched into a final from the clips it has).
+    # Static documentaries have no clips ever — they need images + narration instead.
     if not is_at_or_past_stage(video["status"], "ready_to_render"):
-        clip_row = await fetch_one(
-            "SELECT count(*) AS n FROM assets "
-            "WHERE video_id = $1 AND tenant_id = $2 AND video_clip_url IS NOT NULL",
-            video_id, tenant_id,
-        )
-        if not (clip_row and clip_row["n"] > 0):
-            raise HTTPException(
-                status_code=400,
-                detail=f"No clips generated yet to stitch (status: {video['status']})",
+        if (video.get("render_mode") or "") == "static_docu":
+            ready = await fetch_one(
+                "SELECT (SELECT count(*) FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+                "        AND image_url IS NOT NULL) AS imgs, "
+                "       (SELECT count(*) FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+                "        AND voice_over_url IS NOT NULL) AS voiced",
+                video_id, tenant_id,
             )
+            if not (ready and ready["imgs"] > 0 and ready["voiced"] > 0):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Static render needs the images and the voiceover first (status: {video['status']})",
+                )
+        else:
+            clip_row = await fetch_one(
+                "SELECT count(*) AS n FROM assets "
+                "WHERE video_id = $1 AND tenant_id = $2 AND video_clip_url IS NOT NULL",
+                video_id, tenant_id,
+            )
+            if not (clip_row and clip_row["n"] > 0):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No clips generated yet to stitch (status: {video['status']})",
+                )
 
     if _get_task_status(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")

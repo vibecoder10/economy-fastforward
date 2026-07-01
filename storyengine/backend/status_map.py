@@ -309,6 +309,33 @@ def normalize_stage_plan(stages: Optional[list[str]]) -> Optional[list[str]]:
     return [s for s in STAGE_ORDER if s in enabled_set]
 
 
+def static_stage_plan(stages: Optional[list[str]]) -> list[str]:
+    """The stage plan for a static-documentary video (render_mode='static_docu').
+
+    Static docs never animate: the render holds one image per segment over the
+    narration, so 'video' and 'sound' are dropped and render's prerequisite
+    becomes images+voice instead of video. Always returns an explicit list
+    (never None) — a static video must not fall back to the full pipeline,
+    which would run the animate stage.
+    """
+    requested = [s for s in (stages or STAGE_ORDER) if s in STAGE_ORDER]
+    selected = {s for s in requested if s not in ("video", "sound")}
+    if not selected:
+        selected = {"render"}
+    prereqs = dict(STAGE_PREREQS)
+    prereqs["render"] = ["images", "voice"]
+    out = set(selected)
+    changed = True
+    while changed:
+        changed = False
+        for stage in list(out):
+            for need in prereqs.get(stage, []):
+                if need not in out:
+                    out.add(need)
+                    changed = True
+    return [s for s in STAGE_ORDER if s in out]
+
+
 def first_status_for_plan(plan: Optional[list[str]]) -> str:
     """The Supabase status a video on this plan should START at — the first
     enabled stage's status. None (full pipeline) starts at the very beginning."""

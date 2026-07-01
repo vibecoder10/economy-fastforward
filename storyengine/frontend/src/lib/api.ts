@@ -1393,6 +1393,9 @@ export interface VideoDetail extends VideoSummary {
   characters_approved_at?: string | null;
   story_locked_at?: string | null;
   dialogue_audio?: string | null;
+  // null = normal (clip stitch / narrator). 'static_docu' = static-image
+  // documentary: images held over the narration, no animate stage.
+  render_mode?: string | null;
   aspect_ratio?: string | null;
   // Per-video pipeline plan: enabled stages (null = full pipeline). The video
   // page hides the tabs for stages that aren't in this list.

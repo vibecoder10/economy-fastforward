@@ -325,6 +325,23 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         "characters_approved_at = COALESCE(characters_approved_at, now()), "
                         "updated_at = now() WHERE id = $1 AND tenant_id = $2",
                         video_id, tenant_id)
+                    # STATIC-DOCU videos take one archival image per segment
+                    # (no cast, no story bible, no multi-angle coverage) — the
+                    # image is the whole shot, held over the narration.
+                    if (video.get("render_mode") or "") == "static_docu":
+                        _set_task_status(video_id, "running", "Creating one image per segment…", tenant_id=tenant_id)
+
+                        def _static_progress(m):
+                            _set_task_status(video_id, "running", m, tenant_id=tenant_id)
+
+                        from static_docu import generate_static_images_for_video
+                        st = await generate_static_images_for_video(
+                            video_id, tenant_id, progress=_static_progress) or {}
+                        if st.get("status") == "completed":
+                            await _advance("ready_for_images")
+                            continue
+                        _set_task_status(video_id, "failed", st.get("error") or "Couldn't create the images.", tenant_id=tenant_id)
+                        return
                     try:
                         await ex.run_story_bible(video_id)
                     except Exception:  # noqa: BLE001

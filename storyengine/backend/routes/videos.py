@@ -200,12 +200,30 @@ async def create_video(
     # skip_voice flags are derived from it so existing gates keep working. A
     # full plan (or none) stores NULL → unchanged full-pipeline behavior.
     plan = normalize_stage_plan(body.pipeline_stages)
+
+    # Static-documentary channels (identity says the format is held images +
+    # Ken Burns over narration, e.g. Designed vs Used) never animate: their
+    # videos get render_mode='static_docu' and a plan without video/sound.
+    # Voice is mandatory there — the narration IS the audio track.
+    from static_docu import static_mode_for_tenant, STATIC_RENDER_MODE
+    from status_map import static_stage_plan
+    render_mode = None
+    try:
+        if await static_mode_for_tenant(tenant_id):
+            render_mode = STATIC_RENDER_MODE
+            plan = static_stage_plan(body.pipeline_stages)
+    except Exception as e:  # detection must never block creation
+        import logging
+        logging.getLogger(__name__).warning("static-mode detection failed: %s", e)
+
     if plan is not None:
         skip_research = "research" not in plan
         skip_voice = "voice" not in plan
     else:
         skip_research = body.skip_research
         skip_voice = body.skip_voice
+    if render_mode == STATIC_RENDER_MODE:
+        skip_voice = False
 
     # Optional "copy this video's style" reference (Create-form modeling path).
     # When a valid YouTube link is given, the video is created in "modeled" mode:
@@ -238,13 +256,14 @@ async def create_video(
 
     style_override = (body.image_style_override or "").strip() or None
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, source_val, body.framework_angle,
         body.video_length_minutes, body.writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
+        render_mode,
     )
 
     await increment_usage(tenant_id, "videos_created")
@@ -297,7 +316,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
                   accent_color, visual_style, image_style_override, image_model_override, video_model,
-                  dialogue_audio, skip_voice, pipeline_stages,
+                  dialogue_audio, render_mode, skip_voice, pipeline_stages,
                   video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   source_views, source_channel, source_urls,
@@ -393,6 +412,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         # banner re-offered "Lock the story" on already-locked videos.
         story_locked_at=r.get("story_locked_at"),
         dialogue_audio=r.get("dialogue_audio"),
+        render_mode=r.get("render_mode"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )

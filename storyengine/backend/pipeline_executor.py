@@ -659,6 +659,33 @@ class PipelineExecutor:
             resolved = resolve_prompt(per_video, tenant, prompt_key, self._identity)
             setattr(self._pipeline, pipeline_attr, resolved)
 
+        # Channel thumbnail formula: when the identity builder extracted a
+        # repeatable thumbnail_style from the channel's own top videos (vision
+        # pass, channel_profiles.channel_identity), every generated thumbnail
+        # must match that formula — it's the channel's visual brand. Appended
+        # (never replacing) so custom overrides keep working.
+        try:
+            row = await fetch_one(
+                "SELECT channel_identity->'thumbnail_style' AS ts "
+                "FROM channel_profiles WHERE tenant_id = $1", self.tenant_id)
+            ts = (row or {}).get("ts")
+            if isinstance(ts, str):
+                import json as _json_ts
+                ts = _json_ts.loads(ts)
+            if isinstance(ts, dict) and ts:
+                base = getattr(self._pipeline, "thumbnail_system_prompt", None) or ""
+                import json as _json_ts
+                formula = _json_ts.dumps(ts, indent=2)
+                setattr(
+                    self._pipeline, "thumbnail_system_prompt",
+                    base + "\n\nCHANNEL THUMBNAIL FORMULA (extracted from this "
+                    "channel's own top-performing thumbnails — match its style, "
+                    "text treatment, composition and mood; the composition itself "
+                    "must still be fresh for this video):\n" + formula,
+                )
+        except Exception as e:
+            _logger.warning("thumbnail formula injection skipped: %s", e)
+
         # Slop-proofing (anti-demonetization), baked into the prompts:
         #   - SCRIPT: Wall 1 (a real point of view) + Wall 2 (a genuinely NEW
         #     PLOT vs this channel's recent videos), so every video tells a
@@ -2241,7 +2268,13 @@ separate scenes."""
             "idea_logged": self.run_research,
             "approved": self.run_research,
             "ready_for_scripting": self.run_script,
-            "ready_for_image_prompts": self.run_prompts,
+            # Static documentaries route their image stage to run_coverage_stage,
+            # whose static branch creates one image per segment; the legacy
+            # prompt bot must never run for them.
+            "ready_for_image_prompts": (
+                self.run_coverage_stage
+                if (video.get("render_mode") or "") == "static_docu"
+                else self.run_prompts),
             # GOAL v2 Phase 0: the image stages now draw via the unified coverage path
             # (run_coverage_stage), not the old 3x3 grid. Coverage does prompts+images in
             # one paid draw and advances to ready_for_images, so all three map to it.
@@ -2299,6 +2332,25 @@ separate scenes."""
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
+        # STATIC-DOCU videos take one archival image per segment instead of
+        # multi-angle coverage (no cast, no story bible) — same branch as the
+        # chat auto-build, so every entry point produces the same result.
+        if (video.get("render_mode") or "") == "static_docu":
+            await self._log_activity(bot_name, video_id, "started",
+                                     "Creating one image per segment (static documentary)")
+            from static_docu import generate_static_images_for_video
+            st = await generate_static_images_for_video(video_id, self.tenant_id) or {}
+            if st.get("status") == "completed":
+                await execute(
+                    "UPDATE videos SET status = 'ready_for_images', updated_at = now() "
+                    "WHERE id = $1 AND tenant_id = $2",
+                    video_id, self.tenant_id)
+                await self._log_activity(bot_name, video_id, "completed",
+                                         st.get("message") or "Segment images created")
+                return {"status": "ready_for_images", "video_id": video_id}
+            err = st.get("error") or "Couldn't create the segment images."
+            await self._log_activity(bot_name, video_id, "failed", err)
+            return {"status": "failed", "error": err}
         # Satisfy the storyboard gates + write the Story Bible (continuity anchor),
         # exactly as the chat auto-build does before calling coverage.
         await execute(
@@ -3847,6 +3899,57 @@ separate scenes."""
             "method": result["method"],
         }
 
+    async def _run_static_render(
+        self, video_id: str, video: dict, current_status: str,
+    ) -> dict:
+        """Static-documentary render (render_mode='static_docu') — one image
+        per narration segment held with a Ken Burns pan over the voiceover,
+        rendered with the existing Remotion composition. No animated clips.
+        See render_static.py."""
+        bot_name = "Render Bot"
+        await self._log_activity(
+            bot_name, video_id, "started", "Rendering the static documentary"
+        )
+
+        async def _progress(msg: str) -> None:
+            await self._log_activity(bot_name, video_id, "running", msg)
+
+        from render_static import render_static_video
+
+        result = await render_static_video(
+            video_id,
+            self.tenant_id,
+            title=video.get("video_title") or "",
+            on_progress=_progress,
+        )
+
+        final_url = result["final_video_url"]
+        await execute(
+            "UPDATE videos SET final_video_url = $1 WHERE id = $2",
+            final_url, video_id,
+        )
+        await self._update_video_status(video_id, to_supabase("rendered"))
+        await self._log_transition(video_id, current_status, to_supabase("rendered"), "api")
+
+        duration_min = max(1, round(result.get("duration_seconds", 0) / 60))
+        await self._charge_render_minutes(video_id, duration_min)
+
+        await self._log_activity(
+            bot_name, video_id, "completed",
+            f"Rendered {result['scene_count']} held segments "
+            f"({result['duration_seconds']:.0f}s, {result.get('resolution', '?')}) "
+            f"into the final documentary",
+        )
+        return {
+            "status": to_supabase("rendered"),
+            "video_id": video_id,
+            "final_video_url": final_url,
+            "scene_count": result["scene_count"],
+            "duration_seconds": result["duration_seconds"],
+            "resolution": result.get("resolution"),
+            "method": result["method"],
+        }
+
     async def _charge_render_minutes(self, video_id: str, minutes) -> None:
         """Charge render minutes idempotently — only the delta above what this
         video was already charged. Re-renders (edit/retry) of one deliverable
@@ -3888,6 +3991,11 @@ separate scenes."""
             # that differ in orientation are normalized onto one canvas. Each
             # render is isolated (own temp dir), so many can run at once.
             # voice_over videos still use the Remotion timeline (narrator) below.
+            # static_docu videos (image-per-segment documentaries) render via
+            # the Supabase-native Remotion path — checked FIRST since their
+            # dialogue_audio is voice_over.
+            if (video.get("render_mode") or "") == "static_docu":
+                return await self._run_static_render(video_id, video, current_status)
             if (video.get("dialogue_audio") or "voice_over") == "grok_native":
                 return await self._run_stitch_render(
                     video_id, video, current_status, orientation)

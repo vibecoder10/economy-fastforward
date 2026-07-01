@@ -114,7 +114,18 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
           : `scenes ${clipScenes.join(", ")}`;
   const totalScenes = scriptScenes.length;
   const isPartial = clipCount > 0 && totalScenes > 0 && clipScenes.length < totalScenes;
-  const resLabel = orientation === "portrait" ? "1080×1920" : orientation === "landscape" ? "1920×1080" : "Auto (from clips)";
+
+  // Static documentaries render held images over the narration (no clips ever),
+  // so readiness = images + voiceover instead of clips.
+  const isStaticDocu = video.render_mode === "static_docu";
+  const staticImageCount = assets.filter((a) => a.image_url).length;
+  const voicedScenes = scriptScenes.filter((s) => s.voice_over_url).length;
+  const staticReady = staticImageCount > 0 && voicedScenes > 0;
+  const canRender = isStaticDocu ? staticReady : clipCount > 0;
+
+  const resLabel = isStaticDocu
+    ? "1920×1080"
+    : orientation === "portrait" ? "1080×1920" : orientation === "landscape" ? "1920×1080" : "Auto (from clips)";
   const fpsLabel = "24";
 
   const handleRender = useCallback(async () => {
@@ -386,8 +397,9 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
       {/* Sidebar */}
       <div className="space-y-4">
         <GlassCard className="p-5">
-          {/* Orientation — the one render override that's wired end to end. */}
-          <div className="mb-4">
+          {/* Orientation — the one render override that's wired end to end.
+              Static documentaries always render 16:9, so the toggle is hidden. */}
+          <div className="mb-4" style={isStaticDocu ? { display: "none" } : undefined}>
             <span className="text-xs block mb-1.5" style={{ color: "var(--text-secondary)" }}>
               Orientation
             </span>
@@ -423,9 +435,13 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
             {[
               { label: "Resolution", value: resLabel },
               { label: "FPS", value: fpsLabel },
-              { label: "Clips ready", value: String(clipCount) },
-              { label: "Scenes", value: totalScenes > 0 ? `${clipScenes.length}/${totalScenes}` : String(clipScenes.length) },
-              { label: "Stitched length", value: stitchSeconds > 0 ? `≈ ${fmtSecs(stitchSeconds)}` : duration },
+              isStaticDocu
+                ? { label: "Images ready", value: String(staticImageCount) }
+                : { label: "Clips ready", value: String(clipCount) },
+              isStaticDocu
+                ? { label: "Scenes voiced", value: totalScenes > 0 ? `${voicedScenes}/${totalScenes}` : String(voicedScenes) }
+                : { label: "Scenes", value: totalScenes > 0 ? `${clipScenes.length}/${totalScenes}` : String(clipScenes.length) },
+              { label: isStaticDocu ? "Length" : "Stitched length", value: stitchSeconds > 0 ? `≈ ${fmtSecs(stitchSeconds)}` : duration },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -449,7 +465,18 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
               className="rounded-lg px-3 py-2 text-[11px]"
               style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}
             >
-              {clipCount > 0 ? (
+              {isStaticDocu ? (
+                staticReady ? (
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    Renders <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{staticImageCount} held images</span>{" "}
+                    over the narration ({voicedScenes}/{totalScenes} scenes voiced) with a slow documentary pan.
+                  </span>
+                ) : (
+                  <span style={{ color: "var(--text-tertiary)" }}>
+                    Needs the segment images and the voiceover first — this format holds one image per segment over the narration.
+                  </span>
+                )
+              ) : clipCount > 0 ? (
                 <>
                   <span style={{ color: "var(--text-secondary)" }}>
                     Stitches <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{clipCount} clips</span>
@@ -471,9 +498,11 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
           {confirmRender ? (
             <>
               <p className="text-[11px] text-center mb-2" style={{ color: "var(--text-secondary)" }}>
-                {isPartial
-                  ? `Stitch the ${clipCount} clips you've generated into a final video? Scenes without clips are skipped.`
-                  : "This will stitch your clips into the final video. Continue?"}
+                {isStaticDocu
+                  ? `Render the ${staticImageCount} held images over the narration into the final documentary?`
+                  : isPartial
+                    ? `Stitch the ${clipCount} clips you've generated into a final video? Scenes without clips are skipped.`
+                    : "This will stitch your clips into the final video. Continue?"}
               </p>
               <ActionButton
                 variant="warning"
@@ -497,9 +526,13 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
               variant="warning"
               className="w-full"
               onClick={() => setConfirmRender(true)}
-              disabled={renderActive || clipCount === 0}
+              disabled={renderActive || !canRender}
             >
-              {renderActive ? "Rendering..." : clipCount === 0 ? "No clips to render" : "Render Now"}
+              {renderActive
+                ? "Rendering..."
+                : !canRender
+                  ? (isStaticDocu ? "Needs images + voiceover" : "No clips to render")
+                  : "Render Now"}
             </ActionButton>
           )}
         </div>
