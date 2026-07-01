@@ -2716,6 +2716,84 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         "All set — what should we make first?", phase="asking")
 
 
+# --- channel identity commands (home chat) ---------------------------------
+# Let the operator build/query a channel's identity conversationally: analyze the
+# channel's OWN top videos (Firecrawl transcripts -> LLM) into a voice/format
+# profile, or read back what's stored. See identity_builder.build_channel_identity.
+
+def _identity_intent(msg: str) -> Optional[str]:
+    """Detect a channel-identity command. The topic word (identity/voice/style)
+    must be explicit so ordinary 'make a video' asks fall through to the producer."""
+    m = (msg or "").lower()
+    if not any(t in m for t in ("identity", "voice", "style")):
+        return None
+    if any(v in m for v in ("build", "rebuild", "analyze", "analyse", "learn", "study", "extract")):
+        return "build"
+    if any(v in m for v in ("what", "whats", "what's", "show", "tell", "who", "describe")):
+        return "show"
+    return None
+
+
+def _format_identity(ident: dict, header: str) -> str:
+    rows = [
+        ("Voice", ident.get("voice_tone")),
+        ("Cadence", ident.get("cadence")),
+        ("Hook", ident.get("hook_style")),
+        ("Research", ident.get("research_depth")),
+        ("Structure", ident.get("structure")),
+        ("Format", ident.get("inferred_format")),
+    ]
+    lines = [header, ""]
+    lines += [f"**{k}:** {v}" for k, v in rows if v]
+    sig = ident.get("signature_phrases") or []
+    if sig:
+        lines.append("**Signature phrases:** " + "; ".join(f'"{s}"' for s in sig[:6]))
+    return "\n".join(lines)
+
+
+async def _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text):
+    if user_msg:
+        transcript.append({"role": "user", "content": user_msg})
+    transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
+    await _persist(conversation_id, tenant_id, transcript, state, "asking")
+    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+
+
+async def _handle_build_identity(conversation_id, tenant_id, transcript, state, user_msg):
+    try:
+        from identity_builder import build_channel_identity
+        res = await build_channel_identity(str(tenant_id))
+    except Exception as e:  # noqa: BLE001 — never crash the chat turn
+        logger.warning("chat: build identity failed: %s", e)
+        res = {"ok": False, "error": "something went wrong analyzing the videos"}
+    if not res.get("ok"):
+        text = (f"I couldn't build the identity yet — {res.get('error')}. Make sure the channel "
+                "is connected and its videos have imported, then try again.")
+        return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+    vids = res.get("videos_analyzed") or []
+    header = f"✅ Learned this channel from its top {len(vids)} videos ({', '.join(vids)}):"
+    body = _format_identity(res["identity"], header)
+    body += ("\n\nThis is now the channel's identity — every video I make here matches it. "
+             "Ask “what's his voice?” anytime, or just give me a topic to make one.")
+    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, body)
+
+
+async def _handle_show_identity(conversation_id, tenant_id, transcript, state, user_msg):
+    row = await fetch_one(
+        "SELECT channel_identity, youtube_channel_name FROM channel_profiles WHERE tenant_id=$1",
+        str(tenant_id),
+    )
+    ident = _as_dict((row or {}).get("channel_identity"))
+    if not ident or not ident.get("voice_tone"):
+        text = ("I haven't learned this channel yet. Say “build his identity” and I'll analyze "
+                "the channel's top videos to work out his voice, format, and style.")
+        return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+    name = (row or {}).get("youtube_channel_name") or "this channel"
+    body = _format_identity(ident, f"Here's what I've learned about **{name}** (from his own top videos):")
+    body += "\n\nWant me to refresh it from his latest top videos? Say “rebuild his identity.”"
+    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, body)
+
+
 # --- secure onboarding key intake -------------------------------------------
 # The chat's secure box POSTs the pasted key here instead of sending it as a
 # chat message. We detect, save, and validate it exactly like the in-chat path,
@@ -2804,6 +2882,17 @@ async def chat_turn(
         return await _handle_approve(
             state["last_spec"], conversation_id, tenant_id, transcript, state, background_tasks
         )
+
+    # 3.5 Channel-identity commands ("build his identity" / "what's his voice?").
+    #     Runs before producer intake so it doesn't get treated as a video request.
+    if body.message and body.message.strip():
+        _iid = _identity_intent(body.message)
+        if _iid == "build":
+            return await _handle_build_identity(
+                conversation_id, tenant_id, transcript, state, body.message.strip())
+        if _iid == "show":
+            return await _handle_show_identity(
+                conversation_id, tenant_id, transcript, state, body.message.strip())
 
     # 4. Normal intake turn. Append the user's message and/or card selections.
     user_parts: list[str] = []

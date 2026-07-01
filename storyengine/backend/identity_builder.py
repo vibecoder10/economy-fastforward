@@ -12,6 +12,7 @@ Outputs land on channel_profiles:
 And each analyzed transcript is cached back onto channel_videos so we don't re-scrape.
 """
 
+import asyncio
 import json
 import os
 import re
@@ -124,10 +125,14 @@ async def build_channel_identity(tenant_id: str, top_n: int = 3) -> dict[str, An
     if not top:
         return {"ok": False, "error": "No videos imported for this channel yet."}
 
+    # Fetch the top videos' transcripts concurrently — keeps a chat-triggered
+    # build well under gateway timeouts (3 sequential scrapes would be ~1 min).
+    fetched = await asyncio.gather(
+        *[_firecrawl_transcript(v["video_id"]) for v in top], return_exceptions=True
+    )
     analyzed: list[tuple[str, str]] = []
-    for v in top:
-        transcript = await _firecrawl_transcript(v["video_id"])
-        if not transcript:
+    for v, transcript in zip(top, fetched):
+        if not isinstance(transcript, str) or not transcript:
             continue
         await execute(
             "UPDATE channel_videos SET transcript=$1, transcript_source='firecrawl', "
