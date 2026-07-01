@@ -48,6 +48,9 @@ IDENTITY_PROMPT = (
     '  "signature_phrases": [3-6 recurring framing patterns/devices they actually use],\n'
     '  "visual_format": {"style": overall visual style, "motion": static images vs animation vs '
     'footage, "segmentation": how segments are divided, "on_camera": is there an on-camera host},\n'
+    '  "cadence_example": ONE verbatim sentence copied EXACTLY from a transcript that best shows the cadence,\n'
+    '  "structure_example": ONE verbatim sentence copied EXACTLY from a transcript that shows a structural '
+    "moment (a cold-open fact or a closing verdict),\n"
     '  "style_description": one 150-250 word paragraph of direct guidance for an AI scriptwriter '
     "to reproduce this voice (tone, vocabulary, hook, structure, audience).\n"
 )
@@ -59,6 +62,28 @@ THUMB_PROMPT = (
     "size/casing, \"color_palette\": dominant colors, \"mood\": overall feel, \"recurring_elements\": "
     "anything that repeats across them}."
 )
+
+
+def _norm(s: str) -> str:
+    """Lowercase, strip quotes/punctuation-ish, collapse whitespace — for matching
+    an LLM-quoted example against the real transcript text."""
+    return re.sub(r"\s+", " ", re.sub(r"[\"'“”‘’.,;:!?—-]", " ", (s or "").lower())).strip()
+
+
+def _opening(transcript: str, max_chars: int = 220) -> str:
+    """The literal first sentence(s) of a transcript — a provably-real hook example."""
+    t = re.sub(r"\s+", " ", transcript or "").strip()
+    m = re.match(r"(.{40,%d}?[.!?])(\s|$)" % max_chars, t)
+    return (m.group(1) if m else t[:max_chars]).strip()
+
+
+def _verify_quote(quote: str, corpus_norm: str) -> bool:
+    """True if a meaningful chunk of the quote actually appears in the transcripts —
+    so we never show an 'example' the model invented."""
+    q = _norm(quote)
+    if len(q) < 20:
+        return False
+    return q[:60] in corpus_norm
 
 
 def _parse_json(raw: str) -> dict[str, Any]:
@@ -207,6 +232,17 @@ async def build_channel_identity(tenant_id: str, top_n: int = 3) -> dict[str, An
     if thumb_style:
         identity["thumbnail_style"] = thumb_style
     identity["_source_videos"] = [t for t, _ in analyzed]
+
+    # Ground the traits in provably-real examples. Hook examples are the literal
+    # openings of each analyzed video; model-picked examples are dropped unless they
+    # actually appear in the transcripts (so nothing shown is invented).
+    corpus_norm = _norm(" ".join(tr for _, tr in analyzed))
+    identity["hook_examples"] = [{"video": title, "line": _opening(tr)} for title, tr in analyzed]
+    for k in ("cadence_example", "structure_example"):
+        if identity.get(k) and not _verify_quote(identity[k], corpus_norm):
+            identity.pop(k, None)
+    if identity.get("real_quotes"):
+        identity["real_quotes"] = [q for q in identity["real_quotes"] if _verify_quote(q, corpus_norm)]
 
     prose = (identity.get("style_description") or "").strip()
     await execute(

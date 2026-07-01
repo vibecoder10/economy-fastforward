@@ -2743,30 +2743,64 @@ def _fmt_field(val) -> str:
     return str(val)
 
 
+def _dict_bullets(val: dict) -> str:
+    return "\n".join(f"- **{k.replace('_', ' ')}:** {v}" for k, v in val.items() if v)
+
+
 def _format_identity(ident: dict, header: str) -> str:
-    L = [header, ""]
-    fields = [
-        ("🎙️", "Voice", ident.get("voice_tone")),
-        ("🎵", "Cadence", ident.get("cadence")),
-        ("🪝", "Hook", ident.get("hook_style")),
-        ("🧱", "Structure", ident.get("structure")),
-        ("🔍", "Research", ident.get("research_approach") or ident.get("research_depth")),
-        ("📼", "Video visuals", ident.get("visual_format") or ident.get("inferred_format")),
-        ("🖼️", "Thumbnail style", ident.get("thumbnail_style")),
-    ]
-    for emoji, label, val in fields:
-        if val:
-            L.append(f"{emoji} **{label}** — {_fmt_field(val)}")
+    out: list[str] = [header]
+
+    def section(text: str) -> None:
+        out.append("")  # blank line between sections so it's not one wall of text
+        out.append(text)
+
+    if ident.get("voice_tone"):
+        section(f"🎙️ **Voice** — {_fmt_field(ident['voice_tone'])}")
+
+    if ident.get("cadence"):
+        block = f"🎵 **Cadence** — {_fmt_field(ident['cadence'])}"
+        if ident.get("cadence_example"):
+            block += f"\n> {ident['cadence_example']}"
+        section(block)
+
+    if ident.get("hook_style"):
+        block = f"🪝 **Hook** — {_fmt_field(ident['hook_style'])}"
+        exs = ident.get("hook_examples") or []
+        if exs:
+            block += "\n\n_How his top videos actually open:_"
+            for ex in exs[:3]:
+                v = (ex.get("video") or "").strip()
+                line = ex.get("line", "")
+                block += f"\n> **{v}** — {line}" if v else f"\n> {line}"
+        section(block)
+
+    if ident.get("structure"):
+        block = f"🧱 **Structure** — {_fmt_field(ident['structure'])}"
+        if ident.get("structure_example"):
+            block += f"\n> {ident['structure_example']}"
+        section(block)
+
+    extra = {"research_approach": ident.get("research_depth"), "visual_format": ident.get("inferred_format")}
+    for emoji, label, key in (("🔍", "Research", "research_approach"),
+                              ("📼", "Video visuals", "visual_format"),
+                              ("🖼️", "Thumbnail style", "thumbnail_style")):
+        val = ident.get(key) or extra.get(key)
+        if not val:
+            continue
+        if isinstance(val, dict):
+            section(f"{emoji} **{label}**\n{_dict_bullets(val)}")
+        else:
+            section(f"{emoji} **{label}** — {val}")
+
     sig = ident.get("signature_phrases") or []
     if sig:
-        L.append("✍️ **Signature patterns** — " + "; ".join(f'"{s}"' for s in sig[:6]))
-    quotes = ident.get("real_quotes") or []
-    if quotes:
-        L.append("")
-        L.append("💬 **Real lines from his videos:**")
-        for q in quotes[:8]:
-            L.append(f"> {q}")
-    return "\n".join(L)
+        section("✍️ **Signature patterns**\n" + "\n".join(f"- {s}" for s in sig[:6]))
+
+    rq = ident.get("real_quotes") or []
+    if rq:
+        section("💬 **More real lines from his videos:**\n" + "\n".join(f"> {q}" for q in rq[:6]))
+
+    return "\n".join(out)
 
 
 async def _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text):
