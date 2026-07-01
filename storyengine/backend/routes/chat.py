@@ -2063,6 +2063,29 @@ async def _own_performance_brief(tenant_id) -> str:
             "retention = hook/pacing):\n- " + "\n- ".join(lines))
 
 
+async def _own_catalog_brief(tenant_id) -> str:
+    """The creator's OWN existing catalog (scraped from their channel via channel_videos),
+    ranked by real view count. Lets the chat pitch ideas modeled on their PROVEN top
+    performers even without synced YouTube analytics (which need the OAuth connection).
+    Top 8 by views. Fail-soft -> ''."""
+    try:
+        rows = await fetch_all(
+            "SELECT title, view_count FROM channel_videos "
+            "WHERE tenant_id = $1 AND title IS NOT NULL "
+            "ORDER BY view_count DESC NULLS LAST LIMIT 8",
+            tenant_id,
+        ) or []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: own catalog brief failed: %s", e)
+        return ""
+    rows = [r for r in rows if (r.get("view_count") or 0) > 0]
+    if not rows:
+        return ""
+    lines = [f'"{(r.get("title") or "").strip()}" - {int(r.get("view_count") or 0):,} views' for r in rows]
+    return ("\nYOUR OWN TOP-PERFORMING VIDEOS (from this channel, ranked by real views — these ARE the "
+            "creator's top performers; model new ideas on what already works here):\n- " + "\n- ".join(lines))
+
+
 async def _learnings_brief(tenant_id) -> str:
     """Proven patterns this channel has LEARNED (title/hook/script patterns that
     correlate with higher CTR, mined from its own results). Lets the chat cite 'what
@@ -2098,6 +2121,7 @@ async def _loop_brief(tenant_id) -> str:
     parts = [
         await _next_to_make_brief(tenant_id),
         await _own_performance_brief(tenant_id),
+        await _own_catalog_brief(tenant_id),
         await _learnings_brief(tenant_id),
     ]
     return "".join(p for p in parts if p)
