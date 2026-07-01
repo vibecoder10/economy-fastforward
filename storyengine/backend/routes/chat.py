@@ -2734,21 +2734,39 @@ def _identity_intent(msg: str) -> Optional[str]:
     return None
 
 
+def _fmt_field(val) -> str:
+    """Render an identity field that may be a string, a dict, or a list."""
+    if isinstance(val, dict):
+        return "; ".join(f"{k.replace('_', ' ')}: {v}" for k, v in val.items() if v)
+    if isinstance(val, list):
+        return "; ".join(str(x) for x in val)
+    return str(val)
+
+
 def _format_identity(ident: dict, header: str) -> str:
-    rows = [
-        ("Voice", ident.get("voice_tone")),
-        ("Cadence", ident.get("cadence")),
-        ("Hook", ident.get("hook_style")),
-        ("Research", ident.get("research_depth")),
-        ("Structure", ident.get("structure")),
-        ("Format", ident.get("inferred_format")),
+    L = [header, ""]
+    fields = [
+        ("🎙️", "Voice", ident.get("voice_tone")),
+        ("🎵", "Cadence", ident.get("cadence")),
+        ("🪝", "Hook", ident.get("hook_style")),
+        ("🧱", "Structure", ident.get("structure")),
+        ("🔍", "Research", ident.get("research_approach") or ident.get("research_depth")),
+        ("📼", "Video visuals", ident.get("visual_format") or ident.get("inferred_format")),
+        ("🖼️", "Thumbnail style", ident.get("thumbnail_style")),
     ]
-    lines = [header, ""]
-    lines += [f"**{k}:** {v}" for k, v in rows if v]
+    for emoji, label, val in fields:
+        if val:
+            L.append(f"{emoji} **{label}** — {_fmt_field(val)}")
     sig = ident.get("signature_phrases") or []
     if sig:
-        lines.append("**Signature phrases:** " + "; ".join(f'"{s}"' for s in sig[:6]))
-    return "\n".join(lines)
+        L.append("✍️ **Signature patterns** — " + "; ".join(f'"{s}"' for s in sig[:6]))
+    quotes = ident.get("real_quotes") or []
+    if quotes:
+        L.append("")
+        L.append("💬 **Real lines from his videos:**")
+        for q in quotes[:8]:
+            L.append(f"> {q}")
+    return "\n".join(L)
 
 
 async def _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text):
@@ -2759,23 +2777,22 @@ async def _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, 
     return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
 
 
-async def _handle_build_identity(conversation_id, tenant_id, transcript, state, user_msg):
-    try:
-        from identity_builder import build_channel_identity
-        res = await build_channel_identity(str(tenant_id))
-    except Exception as e:  # noqa: BLE001 — never crash the chat turn
-        logger.warning("chat: build identity failed: %s", e)
-        res = {"ok": False, "error": "something went wrong analyzing the videos"}
-    if not res.get("ok"):
-        text = (f"I couldn't build the identity yet — {res.get('error')}. Make sure the channel "
-                "is connected and its videos have imported, then try again.")
-        return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
-    vids = res.get("videos_analyzed") or []
-    header = f"✅ Learned this channel from its top {len(vids)} videos ({', '.join(vids)}):"
-    body = _format_identity(res["identity"], header)
-    body += ("\n\nThis is now the channel's identity — every video I make here matches it. "
-             "Ask “what's his voice?” anytime, or just give me a topic to make one.")
-    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, body)
+async def _handle_build_identity(conversation_id, tenant_id, transcript, state, user_msg, background_tasks):
+    # Run the analysis in the background — Firecrawl (3 sequential scrapes + retries)
+    # plus two model calls can exceed a chat turn's gateway window. We ack now and
+    # the operator reads it back with "show his identity" once it's stored.
+    async def _job():
+        try:
+            from identity_builder import build_channel_identity
+            await build_channel_identity(str(tenant_id))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: background identity build failed: %s", e)
+
+    background_tasks.add_task(_job)
+    text = ("🔍 On it — analyzing his **top 3 videos** for voice, research style, real quotes, and "
+            "thumbnail format. This takes about a minute. Say **“show his identity”** in a moment and "
+            "I'll lay out the full locked profile.")
+    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
 
 
 async def _handle_show_identity(conversation_id, tenant_id, transcript, state, user_msg):
@@ -2889,7 +2906,7 @@ async def chat_turn(
         _iid = _identity_intent(body.message)
         if _iid == "build":
             return await _handle_build_identity(
-                conversation_id, tenant_id, transcript, state, body.message.strip())
+                conversation_id, tenant_id, transcript, state, body.message.strip(), background_tasks)
         if _iid == "show":
             return await _handle_show_identity(
                 conversation_id, tenant_id, transcript, state, body.message.strip())

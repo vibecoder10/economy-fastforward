@@ -1,15 +1,19 @@
-"""Build a creator's channel identity from their OWN top-performing videos.
+"""Build a creator's LOCKED channel identity from their OWN top-performing videos.
 
-The source of truth is the videos, not the operator's words. We rank the channel's
-imported videos by real view count (YouTube Data API), pull the transcripts +
-metadata of the top few via Firecrawl (which scrapes from its own IP, past the
-YouTube bot-block that hits our server), then distill a voice/cadence/format
-profile with the tenant's text model.
+Source of truth = the videos, not operator input. We rank the channel's imported
+videos by real view count (YouTube Data API), pull transcripts + metadata for the
+top few via Firecrawl (its own IP, past the YouTube bot-block on our server),
+then distill a comprehensive identity:
 
-Outputs land on channel_profiles:
-  - style_description  : prose voice guidance the producer already injects
-  - channel_identity   : the full structured JSON profile (queryable, re-buildable)
-And each analyzed transcript is cached back onto channel_videos so we don't re-scrape.
+  - script voice: tone, cadence, hook, structure
+  - research_approach: what sourcing/facts the channel relies on + what to look for
+  - real_quotes: VERBATIM lines pulled from the actual transcripts (real examples)
+  - signature_phrases: recurring framing patterns
+  - visual_format: how the videos look (static vs motion, segmentation, on-camera?)
+  - thumbnail_style: repeatable thumbnail formula (vision analysis of top thumbnails)
+  - style_description: prose guidance the producer injects
+
+Outputs land on channel_profiles (style_description + channel_identity JSONB).
 """
 
 import asyncio
@@ -24,27 +28,40 @@ from database import execute, fetch_all
 
 FIRECRAWL_URL = "https://api.firecrawl.dev/v1/scrape"
 _YT_VIDEOS_API = "https://www.googleapis.com/youtube/v3/videos"
+_KIE_CLAUDE_URL = "https://api.kie.ai/claude/v1/messages"
 
 IDENTITY_PROMPT = (
-    "You are analyzing a YouTube creator's OWN top-performing videos to extract the "
-    "channel's identity, so an AI can write NEW scripts and design thumbnails that match "
-    "their real voice and format. The transcripts below ARE the ground truth — infer "
-    "everything from them, not from assumptions.\n\n"
-    "Return STRICT JSON (no prose outside the JSON) with these keys:\n"
-    '  "voice_tone": short phrase,\n'
-    '  "cadence": how they pace/deliver,\n'
-    '  "hook_style": how they open,\n'
-    '  "research_depth": how deep/what kind of sourcing,\n'
-    '  "structure": how a typical video is organized,\n'
-    '  "signature_phrases": array of 3-6 recurring phrases/framing devices actually seen,\n'
-    '  "inferred_format": one line on the format (length, static vs dynamic, segmentation),\n'
-    '  "style_description": a single 150-250 word paragraph of direct guidance for an AI '
-    "scriptwriter to reproduce this voice (tone, vocabulary, hook, structure, audience).\n"
+    "You are reverse-engineering a YouTube channel's identity from its OWN top videos so "
+    "an AI can produce NEW videos that are indistinguishable from the creator's. The "
+    "transcripts below are the ground truth — infer everything from them.\n\n"
+    "Return STRICT JSON (nothing outside the JSON) with these keys:\n"
+    '  "voice_tone": short phrase for the narration voice,\n'
+    '  "cadence": how they pace and deliver,\n'
+    '  "hook_style": exactly how they open a video,\n'
+    '  "structure": how a typical video is organized start to finish,\n'
+    '  "research_approach": {"sources": what kinds of sources/evidence they cite, '
+    '"fact_types": the specific fact types they lean on (dates, designations, costs, names...), '
+    '"depth": how deep/rigorous, "what_to_look_for": a directive telling a researcher exactly '
+    'what to dig up for a new video in this channel},\n'
+    '  "real_quotes": [6-10 VERBATIM sentences copied WORD-FOR-WORD from the transcripts — '
+    "the most characteristic lines that capture the voice; do NOT paraphrase or use brackets/placeholders],\n"
+    '  "signature_phrases": [3-6 recurring framing patterns/devices they actually use],\n'
+    '  "visual_format": {"style": overall visual style, "motion": static images vs animation vs '
+    'footage, "segmentation": how segments are divided, "on_camera": is there an on-camera host},\n'
+    '  "style_description": one 150-250 word paragraph of direct guidance for an AI scriptwriter '
+    "to reproduce this voice (tone, vocabulary, hook, structure, audience).\n"
+)
+
+THUMB_PROMPT = (
+    "These are thumbnails from ONE YouTube channel. Extract the repeatable thumbnail FORMULA so "
+    "we can generate matching ones. Return STRICT JSON: {\"layout\": composition/where elements sit, "
+    "\"subject\": the main visual subject and how it's treated, \"text_style\": title text placement/"
+    "size/casing, \"color_palette\": dominant colors, \"mood\": overall feel, \"recurring_elements\": "
+    "anything that repeats across them}."
 )
 
 
-def _parse_identity(raw: str) -> dict[str, Any]:
-    """Pull the JSON object out of an LLM reply, tolerating ```json fences / preamble."""
+def _parse_json(raw: str) -> dict[str, Any]:
     if not raw:
         return {}
     text = raw.strip()
@@ -52,41 +69,42 @@ def _parse_identity(raw: str) -> dict[str, Any]:
     if fence:
         text = fence.group(1)
     else:
-        start, end = text.find("{"), text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            text = text[start : end + 1]
+        s, e = text.find("{"), text.rfind("}")
+        if s != -1 and e > s:
+            text = text[s : e + 1]
     try:
         return json.loads(text)
-    except Exception:  # noqa: BLE001 — a malformed reply shouldn't crash onboarding
+    except Exception:  # noqa: BLE001
         return {}
 
 
-async def _firecrawl_transcript(video_id: str) -> Optional[str]:
-    """Scrape a video's page via Firecrawl and return the transcript body, if present."""
+async def _firecrawl_transcript(video_id: str, retries: int = 1) -> Optional[str]:
+    """Scrape a video page via Firecrawl and return the transcript body. Retries
+    once because a cold/rate-limited call sometimes misses the transcript panel."""
     key = os.getenv("FIRECRAWL_API_KEY")
     if not key:
         return None
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as c:
-            r = await c.post(
-                FIRECRAWL_URL,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"url": f"https://www.youtube.com/watch?v={video_id}", "formats": ["markdown"]},
-            )
-        if r.status_code != 200:
-            return None
-        md = (r.json().get("data") or {}).get("markdown") or ""
-    except Exception:  # noqa: BLE001
-        return None
-    parts = re.split(r"##\s*Transcript", md, maxsplit=1, flags=re.I)
-    if len(parts) < 2:
-        return None
-    body = parts[1].strip()
-    return body or None
+    for attempt in range(retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as c:
+                r = await c.post(
+                    FIRECRAWL_URL,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"url": f"https://www.youtube.com/watch?v={video_id}", "formats": ["markdown"]},
+                )
+            if r.status_code == 200:
+                md = (r.json().get("data") or {}).get("markdown") or ""
+                parts = re.split(r"##\s*Transcript", md, maxsplit=1, flags=re.I)
+                if len(parts) > 1 and parts[1].strip():
+                    return parts[1].strip()
+        except Exception:  # noqa: BLE001
+            pass
+        if attempt < retries:
+            await asyncio.sleep(2)
+    return None
 
 
 async def _enrich_views(tenant_id: str, video_ids: list[str]) -> None:
-    """Backfill real view counts from the YouTube Data API (not IP-blocked)."""
     key = os.getenv("YOUTUBE_API_KEY")
     if not key or not video_ids:
         return
@@ -104,7 +122,7 @@ async def _enrich_views(tenant_id: str, video_ids: list[str]) -> None:
                 )
 
 
-async def _top_videos(tenant_id: str, n: int) -> list[dict]:
+async def _ranked_videos(tenant_id: str, limit: int) -> list[dict]:
     q = ("SELECT video_id, title, view_count, thumbnail_url, duration_seconds "
          "FROM channel_videos WHERE tenant_id=$1 AND video_id IS NOT NULL")
     rows = await fetch_all(q, tenant_id)
@@ -114,25 +132,54 @@ async def _top_videos(tenant_id: str, n: int) -> list[dict]:
         await _enrich_views(tenant_id, [r["video_id"] for r in rows])
         rows = await fetch_all(q, tenant_id)
     rows.sort(key=lambda r: (r.get("view_count") or 0), reverse=True)
-    return rows[:n]
+    return rows[:limit]
+
+
+async def _thumbnail_style(tenant_id: str, thumb_urls: list[str]) -> Optional[dict]:
+    """Vision pass over the top thumbnails -> a repeatable thumbnail formula (JSON).
+    Uses the tenant's Kie Claude vision path (proven). Skips gracefully if no Kie key."""
+    from vault import get_secret
+    key = await get_secret("kie_ai_api_key", tenant_id)
+    if not key or not thumb_urls:
+        return None
+    content: list[dict] = [{"type": "text", "text": THUMB_PROMPT}]
+    for u in thumb_urls[:3]:
+        content.append({"type": "image", "source": {"type": "url", "url": u}})
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as c:
+            r = await c.post(
+                _KIE_CLAUDE_URL,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"model": "claude-haiku-4-5", "max_tokens": 700,
+                      "messages": [{"role": "user", "content": content}]},
+            )
+        body = r.json()
+        if "content" not in body:
+            return None
+        txt = "\n".join(b.get("text", "") for b in body["content"] if b.get("type") == "text")
+        return _parse_json(txt) or None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def build_channel_identity(tenant_id: str, top_n: int = 3) -> dict[str, Any]:
-    """Rank -> Firecrawl transcripts -> LLM distill -> store. Returns a result dict."""
+    """Rank -> Firecrawl transcripts (sequential + retry, extra candidates) -> LLM
+    distill + thumbnail vision -> store. Returns a result dict."""
     from kie_unified import get_text_client_for_tenant
 
-    top = await _top_videos(tenant_id, top_n)
-    if not top:
-        return {"ok": False, "error": "No videos imported for this channel yet."}
+    # Pull extra candidates so videos without captions / transient misses don't
+    # starve us below top_n.
+    candidates = await _ranked_videos(tenant_id, top_n + 4)
+    if not candidates:
+        return {"ok": False, "error": "no videos imported for this channel yet"}
 
-    # Fetch the top videos' transcripts concurrently — keeps a chat-triggered
-    # build well under gateway timeouts (3 sequential scrapes would be ~1 min).
-    fetched = await asyncio.gather(
-        *[_firecrawl_transcript(v["video_id"]) for v in top], return_exceptions=True
-    )
     analyzed: list[tuple[str, str]] = []
-    for v, transcript in zip(top, fetched):
-        if not isinstance(transcript, str) or not transcript:
+    thumbs: list[str] = []
+    for v in candidates:
+        if len(analyzed) >= top_n:
+            break
+        transcript = await _firecrawl_transcript(v["video_id"])
+        if not transcript:
             continue
         await execute(
             "UPDATE channel_videos SET transcript=$1, transcript_source='firecrawl', "
@@ -140,22 +187,27 @@ async def build_channel_identity(tenant_id: str, top_n: int = 3) -> dict[str, An
             transcript[:20000], tenant_id, v["video_id"],
         )
         analyzed.append((v.get("title") or "", transcript[:6000]))
+        if v.get("thumbnail_url"):
+            thumbs.append(v["thumbnail_url"])
 
     if not analyzed:
-        return {"ok": False, "error": "Could not fetch transcripts (Firecrawl) for the top videos."}
+        return {"ok": False, "error": "could not fetch transcripts (Firecrawl) for the top videos"}
 
-    client = await get_text_client_for_tenant(tenant_id)  # raises MissingGenerationKeyError if keyless
+    client = await get_text_client_for_tenant(tenant_id)  # raises if keyless
     body = "\n\n".join(f"VIDEO: {title}\nTRANSCRIPT:\n{tr}" for title, tr in analyzed)
-    # AnthropicDirect needs an explicit current model id; the Kie client keeps a valid default.
-    kwargs: dict[str, Any] = {"prompt": IDENTITY_PROMPT + "\n\n" + body, "max_tokens": 1400}
+    kwargs: dict[str, Any] = {"prompt": IDENTITY_PROMPT + "\n\n" + body, "max_tokens": 2200}
     if type(client).__name__ == "AnthropicDirectClient":
         kwargs["model"] = "claude-sonnet-4-6"
     raw = await client.generate(**kwargs)
-    identity = _parse_identity(raw or "")
+    identity = _parse_json(raw or "")
     if not identity:
-        return {"ok": False, "error": "Identity model returned an unparseable reply."}
+        return {"ok": False, "error": "identity model returned an unparseable reply"}
 
+    thumb_style = await _thumbnail_style(tenant_id, thumbs)
+    if thumb_style:
+        identity["thumbnail_style"] = thumb_style
     identity["_source_videos"] = [t for t, _ in analyzed]
+
     prose = (identity.get("style_description") or "").strip()
     await execute(
         "UPDATE channel_profiles "
