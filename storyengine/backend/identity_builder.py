@@ -103,19 +103,26 @@ def _parse_json(raw: str) -> dict[str, Any]:
         return {}
 
 
-async def _firecrawl_transcript(video_id: str, retries: int = 1) -> Optional[str]:
-    """Scrape a video page via Firecrawl and return the transcript body. Retries
-    once because a cold/rate-limited call sometimes misses the transcript panel."""
+async def _firecrawl_transcript(video_id: str) -> Optional[str]:
+    """Scrape a video page via Firecrawl and return the transcript body.
+
+    YouTube 403s Firecrawl's default IP under load, returning an error page (HTTP
+    200, no transcript). So we try the cheap default proxy first and escalate to
+    Firecrawl's `stealth` proxy (costs more credits, but gets past the 403)."""
     key = os.getenv("FIRECRAWL_API_KEY")
     if not key:
         return None
-    for attempt in range(retries + 1):
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    for mode in (None, "stealth"):
+        payload: dict[str, Any] = {"url": url, "formats": ["markdown"]}
+        if mode:
+            payload["proxy"] = mode
         try:
-            async with httpx.AsyncClient(timeout=120.0) as c:
+            async with httpx.AsyncClient(timeout=150.0) as c:
                 r = await c.post(
                     FIRECRAWL_URL,
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"url": f"https://www.youtube.com/watch?v={video_id}", "formats": ["markdown"]},
+                    json=payload,
                 )
             if r.status_code == 200:
                 md = (r.json().get("data") or {}).get("markdown") or ""
@@ -124,8 +131,6 @@ async def _firecrawl_transcript(video_id: str, retries: int = 1) -> Optional[str
                     return parts[1].strip()
         except Exception:  # noqa: BLE001
             pass
-        if attempt < retries:
-            await asyncio.sleep(2)
     return None
 
 
