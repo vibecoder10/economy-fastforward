@@ -129,8 +129,9 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
                   <Check size={14} className="shrink-0" style={{ color: "var(--turquoise)" }} />
                 )}
               </button>
-              {/* Remove control — hidden on the home workspace so you can't unlink your base. */}
-              {w.tenant_id !== homeTenant && (
+              {/* Remove control — shown on every workspace when you have more than
+                  one (the backend refuses to remove your last one, so no lockout). */}
+              {data.workspaces.length > 1 && (
                 <button
                   onClick={() => remove(w)}
                   title={`Remove ${w.name} from command center`}
