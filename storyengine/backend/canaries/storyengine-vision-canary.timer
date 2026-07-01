@@ -1,13 +1,13 @@
 [Unit]
-Description=Fires storyengine-vision-canary.service every hour
+Description=Fires storyengine-vision-canary.service every 3 hours
 Requires=storyengine-vision-canary.service
 
 [Timer]
-# Hourly (vs the validator canary's 6h): vision drift silently degrades the
-# north-star modeling feature and the 2026-06-12 incident lasted under a
-# day — 6h detection would have missed most of it. ~$1.5/month at this rate.
+# Every 3h (vs the validator canary's 6h): vision drift silently degrades the
+# north-star modeling feature and the 2026-06-12 incident lasted under a day —
+# 3h still catches it same-day while cutting the Kie vision calls ~3x. ~$0.5/month.
 OnBootSec=10min
-OnUnitActiveSec=1h
+OnUnitActiveSec=3h
 AccuracySec=2min
 Persistent=true
 

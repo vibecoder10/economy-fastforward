@@ -17,7 +17,7 @@ the model actually SAW it:
   3. Kie Claude haiku, base64 — content check only (the gateway re-encodes
      base64 images so the token count is uninformative)
 
-Cost: ~$0.002 per run (3 small vision calls). Hourly ≈ $1.5/month —
+Cost: ~$0.002 per run (3 small vision calls). Every 3h ≈ $0.5/month —
 cheap insurance for the north-star modeling feature.
 
 Exit codes (validator_drift.py convention):
