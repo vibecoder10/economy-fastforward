@@ -113,8 +113,10 @@ async def _firecrawl_transcript(video_id: str) -> Optional[str]:
     if not key:
         return None
     url = f"https://www.youtube.com/watch?v={video_id}"
+    # waitFor lets YouTube's JS render the transcript panel before we read the page
+    # (without it Firecrawl grabs the page too early and the transcript is missing).
     for mode in (None, "stealth"):
-        payload: dict[str, Any] = {"url": url, "formats": ["markdown"]}
+        payload: dict[str, Any] = {"url": url, "formats": ["markdown"], "waitFor": 5000}
         if mode:
             payload["proxy"] = mode
         try:
