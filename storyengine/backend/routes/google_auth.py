@@ -21,7 +21,7 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from auth import verify_token, AuthUser
+from auth import verify_token, AuthUser, get_tenant_id
 from database import fetch_one, execute
 from email_service import send_welcome_email, send_reset_email, send_verification_email
 
@@ -623,7 +623,7 @@ DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file"
 
 
 @router.get("/google-drive/connect")
-async def google_drive_connect(user: AuthUser = Depends(verify_token)):
+async def google_drive_connect(tenant: uuid.UUID = Depends(get_tenant_id)):
     """Initiate Google OAuth for Drive access.
 
     Returns the authorization URL. Frontend redirects the user there.
@@ -643,7 +643,7 @@ async def google_drive_connect(user: AuthUser = Depends(verify_token)):
         "scope": DRIVE_SCOPES,
         "access_type": "offline",
         "prompt": "consent",
-        "state": str(user.tenant_id),
+        "state": str(tenant),
     }
     qs = "&".join(f"{k}={httpx.URL('').copy_with(params={k: v}).params[k]}" for k, v in params.items())
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{qs}"
@@ -658,7 +658,7 @@ class DriveCallbackRequest(BaseModel):
 @router.post("/google-drive/callback")
 async def google_drive_callback(
     body: DriveCallbackRequest,
-    user: AuthUser = Depends(verify_token),
+    tenant: uuid.UUID = Depends(get_tenant_id),
 ):
     """Exchange Google auth code for refresh token and store it.
 
@@ -702,7 +702,7 @@ async def google_drive_callback(
         )
 
     # Store refresh token on the tenant's channel profile
-    tenant_id = str(user.tenant_id)
+    tenant_id = str(tenant)
     existing = await fetch_one(
         "SELECT id FROM channel_profiles WHERE tenant_id = $1", tenant_id
     )
@@ -721,9 +721,9 @@ async def google_drive_callback(
 
 
 @router.get("/google-drive/status")
-async def google_drive_status(user: AuthUser = Depends(verify_token)):
+async def google_drive_status(tenant: uuid.UUID = Depends(get_tenant_id)):
     """Check if Google Drive is connected for this tenant."""
-    tenant_id = str(user.tenant_id)
+    tenant_id = str(tenant)
     row = await fetch_one(
         "SELECT google_drive_refresh_token, google_drive_folder_id, google_drive_folder_name "
         "FROM channel_profiles WHERE tenant_id = $1",
@@ -740,9 +740,9 @@ async def google_drive_status(user: AuthUser = Depends(verify_token)):
 
 
 @router.post("/google-drive/disconnect")
-async def google_drive_disconnect(user: AuthUser = Depends(verify_token)):
+async def google_drive_disconnect(tenant: uuid.UUID = Depends(get_tenant_id)):
     """Disconnect Google Drive — removes stored refresh token and folder selection."""
-    tenant_id = str(user.tenant_id)
+    tenant_id = str(tenant)
     await execute(
         "UPDATE channel_profiles SET google_drive_refresh_token = NULL, "
         "google_drive_folder_id = NULL, google_drive_folder_name = NULL, "
@@ -753,13 +753,13 @@ async def google_drive_disconnect(user: AuthUser = Depends(verify_token)):
 
 
 @router.post("/google-drive/access-token")
-async def google_drive_access_token(user: AuthUser = Depends(verify_token)):
+async def google_drive_access_token(tenant: uuid.UUID = Depends(get_tenant_id)):
     """Get a fresh access token for the Google Picker.
 
     Uses the stored refresh token to mint a short-lived access token.
     The frontend uses this to open the Picker — no API key needed.
     """
-    tenant_id = str(user.tenant_id)
+    tenant_id = str(tenant)
     row = await fetch_one(
         "SELECT google_drive_refresh_token FROM channel_profiles WHERE tenant_id = $1",
         tenant_id,
@@ -799,7 +799,7 @@ YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.goo
 
 
 @router.get("/youtube/connect")
-async def youtube_connect(user: AuthUser = Depends(verify_token)):
+async def youtube_connect(tenant: uuid.UUID = Depends(get_tenant_id)):
     """Initiate Google OAuth for YouTube access.
 
     Returns the authorization URL. Frontend redirects the user there.
@@ -819,7 +819,7 @@ async def youtube_connect(user: AuthUser = Depends(verify_token)):
         "scope": YOUTUBE_SCOPES,
         "access_type": "offline",
         "prompt": "consent",
-        "state": str(user.tenant_id),
+        "state": str(tenant),
     }
     qs = "&".join(f"{k}={httpx.URL('').copy_with(params={k: v}).params[k]}" for k, v in params.items())
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{qs}"
@@ -834,7 +834,7 @@ class YouTubeCallbackRequest(BaseModel):
 @router.post("/youtube/callback")
 async def youtube_callback(
     body: YouTubeCallbackRequest,
-    user: AuthUser = Depends(verify_token),
+    tenant: uuid.UUID = Depends(get_tenant_id),
 ):
     """Exchange YouTube auth code for refresh token, fetch channel info, and store.
 
@@ -903,7 +903,7 @@ async def youtube_callback(
         pass  # Channel info is nice-to-have, not blocking
 
     # Store on channel_profiles
-    tenant_id = str(user.tenant_id)
+    tenant_id = str(tenant)
     existing = await fetch_one(
         "SELECT id FROM channel_profiles WHERE tenant_id = $1", tenant_id
     )
@@ -931,9 +931,9 @@ async def youtube_callback(
 
 
 @router.get("/youtube/status")
-async def youtube_status(user: AuthUser = Depends(verify_token)):
+async def youtube_status(tenant: uuid.UUID = Depends(get_tenant_id)):
     """Check if YouTube is connected for this tenant."""
-    tenant_id = str(user.tenant_id)
+    tenant_id = str(tenant)
     row = await fetch_one(
         "SELECT youtube_refresh_token, youtube_channel_id, youtube_channel_name "
         "FROM channel_profiles WHERE tenant_id = $1",
@@ -950,9 +950,9 @@ async def youtube_status(user: AuthUser = Depends(verify_token)):
 
 
 @router.post("/youtube/disconnect")
-async def youtube_disconnect(user: AuthUser = Depends(verify_token)):
+async def youtube_disconnect(tenant: uuid.UUID = Depends(get_tenant_id)):
     """Disconnect YouTube — removes stored refresh token and channel info."""
-    tenant_id = str(user.tenant_id)
+    tenant_id = str(tenant)
     await execute(
         "UPDATE channel_profiles SET youtube_refresh_token = NULL, "
         "youtube_channel_id = NULL, youtube_channel_name = NULL, "

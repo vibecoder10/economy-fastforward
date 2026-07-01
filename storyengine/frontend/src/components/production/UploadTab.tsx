@@ -5,9 +5,9 @@ import { Upload, Copy, ExternalLink, CheckCircle, AlertTriangle, ChevronRight, L
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage, advanceVideo, generateVideoSeo, saveVideoSeo } from "@/lib/api";
+import { runPipelineStage, advanceVideo, generateVideoSeo, saveVideoSeo, getYouTubeStatus } from "@/lib/api";
 import type { VideoDetail } from "@/lib/api";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/toast";
 
 const PIPELINE_ORDER = [
@@ -56,6 +56,10 @@ function extractVideoId(url: string | null | undefined): string | null {
 export function UploadTab({ video, onAdvanced }: UploadTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  // The YouTube channel this upload will land on, for the ACTIVE workspace. Names
+  // the destination in the confirm so an operator never posts to the wrong client.
+  const { data: ytStatus } = useQuery({ queryKey: ["youtube-status"], queryFn: getYouTubeStatus });
+  const destChannel = ytStatus?.channel_name || null;
   const youtubeUrl = video.youtube_url;
   const videoIdYt = extractVideoId(youtubeUrl);
   const uploadStatus = getUploadStatus(video.status || "", youtubeUrl);
@@ -465,7 +469,8 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
         <div className="space-y-2">
           {confirmUpload ? (
             <>
-              {/* Confirmation warning */}
+              {/* Confirmation warning — names the destination channel so an
+                  operator can't upload to the wrong client by accident. */}
               <GlassCard className="p-3" style={{ borderColor: "var(--gold)", borderWidth: 1 }}>
                 <div className="flex items-start gap-2">
                   <AlertTriangle
@@ -473,10 +478,22 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
                     className="flex-shrink-0 mt-0.5"
                     style={{ color: "var(--gold)" }}
                   />
-                  <p className="text-[11px] leading-relaxed" style={{ color: "var(--gold)" }}>
-                    This will upload the video as an UNLISTED draft on YouTube.
-                    You will need to publish it manually.
-                  </p>
+                  <div className="text-[11px] leading-relaxed" style={{ color: "var(--gold)" }}>
+                    {destChannel ? (
+                      <p>
+                        Uploading to YouTube channel{" "}
+                        <span className="font-bold" style={{ color: "var(--text-primary)" }}>
+                          {destChannel}
+                        </span>{" "}
+                        as an UNLISTED draft. Wrong channel? Switch workspace first.
+                      </p>
+                    ) : (
+                      <p>
+                        No YouTube channel is connected for this workspace — connect one in
+                        Settings before uploading.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </GlassCard>
               <button
@@ -487,7 +504,7 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
                   border: "1px solid var(--gold)",
                 }}
                 onClick={handleUpload}
-                disabled={isUploading}
+                disabled={isUploading || !destChannel}
               >
                 <Upload size={16} />
                 {isUploading ? "Uploading..." : "Confirm Upload"}

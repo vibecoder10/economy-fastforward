@@ -25,6 +25,11 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
 
   const active = getActiveTenant();
   const current = data.workspaces.find((w) => w.tenant_id === active) ?? data.workspaces[0];
+  // "Operating a client channel" = an active workspace explicitly set to something
+  // other than the home (first/original) workspace. This is the danger state to
+  // make unmissable, so uploads/actions don't land on the wrong client.
+  const homeTenant = data.workspaces[0]?.tenant_id;
+  const isClient = !!active && active !== homeTenant;
 
   async function addClient() {
     const name = window.prompt("New client channel name (e.g. DesignedUsed):")?.trim();
@@ -41,15 +46,30 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
 
   return (
     <div className="relative px-2 pt-2">
+      {!collapsed && isClient && (
+        <div
+          className="px-1 pb-1 text-[9px] font-bold uppercase tracking-wider"
+          style={{ color: "var(--gold)" }}
+        >
+          ● Operating client channel
+        </div>
+      )}
       <button
         onClick={() => setOpen((o) => !o)}
-        title={collapsed ? current?.name : undefined}
+        title={collapsed ? `${isClient ? "Client: " : ""}${current?.name}` : undefined}
         className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg transition-colors hover:brightness-110 ${
           collapsed ? "justify-center" : ""
         }`}
-        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+        style={{
+          background: isClient ? "rgba(212, 168, 82, 0.12)" : "var(--bg-surface)",
+          border: `1px solid ${isClient ? "var(--gold)" : "var(--border-subtle)"}`,
+        }}
       >
-        <Building2 size={16} className="shrink-0" style={{ color: "var(--turquoise)" }} />
+        <Building2
+          size={16}
+          className="shrink-0"
+          style={{ color: isClient ? "var(--gold)" : "var(--turquoise)" }}
+        />
         {!collapsed && (
           <>
             <span
