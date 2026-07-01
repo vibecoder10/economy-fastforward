@@ -182,7 +182,10 @@ async def _thumbnail_style(tenant_id: str, thumb_urls: list[str]) -> Optional[di
             r = await c.post(
                 _KIE_CLAUDE_URL,
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"model": "claude-haiku-4-5", "max_tokens": 700,
+                # 1400 tokens: the formula JSON alone can exceed 700 and a
+                # truncated reply fails json.loads -> the style silently
+                # vanished from rebuilt identities (bit DVU 2026-07-01).
+                json={"model": "claude-haiku-4-5", "max_tokens": 1400,
                       "messages": [{"role": "user", "content": content}]},
             )
         body = r.json()
