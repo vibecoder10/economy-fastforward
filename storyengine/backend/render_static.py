@@ -40,6 +40,7 @@ from render_stitch import (
     _extract_drive_file_id,
     _google_client,
     _probe_duration,
+    _run_subprocess,
 )
 
 _REMOTION_DIR = Path(__file__).resolve().parents[2] / "remotion-video"
@@ -72,6 +73,24 @@ async def _download_to(url: str, dest: Path, gc) -> None:
         dest.write_bytes(await download_bytes(url))
     if not dest.exists() or dest.stat().st_size == 0:
         raise RuntimeError(f"asset downloaded empty: {url[:100]}")
+
+
+async def _normalize_audio(path: Path) -> None:
+    """Re-encode any staged audio to 48kHz stereo mp3 IN PLACE.
+
+    Every audio input must share ONE sample rate/layout: the TTS narration is
+    44.1kHz mono while the music library is 48kHz stereo, and Remotion's media
+    engine mixing the two produced pitched-up 'robotic gibberish' narration
+    (heard live on DVU v2). Uniform inputs mean no in-engine resampling."""
+    tmp = path.with_suffix(".norm.mp3")
+    rc, err = await _run_subprocess([
+        "ffmpeg", "-y", "-i", str(path),
+        "-ar", "48000", "-ac", "2", "-b:a", "192k", str(tmp),
+    ])
+    if rc != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(f"audio normalize failed for {path.name}: {err[-300:]}")
+    tmp.replace(path)
 
 
 async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
@@ -253,6 +272,7 @@ async def _select_music_beds(tenant_id: str, segments: list[dict],
             track = candidates[act % len(candidates)]  # deterministic variety
             if not (music_dir / track).exists():
                 shutil.copy2(_MUSIC_LIB_DIR / track, music_dir / track)
+                await _normalize_audio(music_dir / track)
             beds.append({"act": act, "file": track, "mood": mood, "volume": 0.03})
         return beds
     except Exception:  # noqa: BLE001
@@ -323,8 +343,9 @@ async def render_static_video(
         gc = _google_client()
         await _emit(on_progress, f"Downloading {len(segments)} segment assets")
         for seg in segments:
-            await _download_to(
-                seg["voice_url"], public_dir / f"Scene {seg['scene']}.mp3", gc)
+            voice_path = public_dir / f"Scene {seg['scene']}.mp3"
+            await _download_to(seg["voice_url"], voice_path, gc)
+            await _normalize_audio(voice_path)
             await _download_to(
                 seg["image_url"], public_dir / f"Scene_{seg['scene']:02d}_01.png", gc)
 
@@ -354,8 +375,14 @@ async def render_static_video(
         await _emit(on_progress, "Uploading the final video")
         data = out_file.read_bytes()
         safe = _safe_filename(title, video_id[:8])
+        # Unique name per render: re-using one filename REPLACED the Drive file
+        # in place, so anyone streaming the video mid-upload got a corrupted
+        # "robotic" stream (heard live). A new file per render swaps the URL
+        # atomically instead.
+        import uuid as _uuid
         url = await upload_bytes(
-            data, f"{video_id}/final/{safe}.mp4", "video/mp4", tenant_id)
+            data, f"{video_id}/final/{safe}_{_uuid.uuid4().hex[:6]}.mp4",
+            "video/mp4", tenant_id)
         duration = await _probe_duration(str(out_file))
         return {
             "final_video_url": url,
