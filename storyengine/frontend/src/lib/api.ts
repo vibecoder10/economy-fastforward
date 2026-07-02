@@ -335,6 +335,22 @@ export const patchQueueItem = (id: string, data: { title?: string; position?: nu
   });
 export const deleteQueueItem = (id: string) =>
   fetchApi<{ status: string }>(`/api/queue/${id}`, { method: "DELETE" });
+// --- Channel cast (locked brand identity) ---
+export interface ChannelCastMember {
+  name: string;
+  description?: string;
+  reference_url: string;
+}
+export const getChannelCast = () =>
+  fetchApi<{ characters: ChannelCastMember[]; cast_locked: boolean }>("/api/projects/current/cast");
+export const lockChannelCast = () =>
+  fetchApi<{ status: string }>("/api/projects/current/cast/lock", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+export const unlockChannelCast = () =>
+  fetchApi<{ status: string }>("/api/projects/current/cast/lock", { method: "DELETE" });
+
 // --- House script format (one template per channel) ---
 export interface ScriptTemplate {
   id: string;

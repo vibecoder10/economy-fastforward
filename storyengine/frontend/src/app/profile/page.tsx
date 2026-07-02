@@ -38,9 +38,13 @@ import {
   updateProfile,
   getScriptTemplates,
   deleteScriptTemplate,
+  getChannelCast,
+  lockChannelCast,
+  unlockChannelCast,
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
+import { toDisplayImageUrl } from "@/lib/utils";
 import { humanizeError } from "@/lib/errors";
 import { useToast } from "@/components/ui/toast";
 
@@ -361,6 +365,11 @@ export default function ProfilePage() {
         <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
           Your account and visual style settings.
         </p>
+      </motion.div>
+
+      {/* Channel cast (locked brand identity, saved from chat: "lock these in") */}
+      <motion.div variants={item}>
+        <ChannelCastCard />
       </motion.div>
 
       {/* House script format (saved from chat: "remember this format") */}
@@ -1040,6 +1049,89 @@ function ScriptFormatCard() {
             No format saved yet. Drop an example script into the chat and say
             {" "}&ldquo;remember how this script is built&rdquo; — every script after that follows it.
           </p>
+        )}
+      </GlassCard>
+    </>
+  );
+}
+
+// --- Channel cast card ---------------------------------------------------------
+// The project's saved cast + the identity Lock. Locked = every new video
+// auto-uses these sheets and skips character generation (brand assets).
+// Sheets get added from chat ("lock these in") or a video's Characters tab
+// (Save to project).
+function ChannelCastCard() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["channel-cast"],
+    queryFn: getChannelCast,
+  });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["channel-cast"] });
+  const lockMutation = useMutation({ mutationFn: lockChannelCast, onSuccess: refresh });
+  const unlockMutation = useMutation({ mutationFn: unlockChannelCast, onSuccess: refresh });
+  const cast = data?.characters ?? [];
+  const locked = data?.cast_locked ?? false;
+  const busy = lockMutation.isPending || unlockMutation.isPending;
+
+  return (
+    <>
+      <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
+        <User size={18} style={{ color: "var(--turquoise)" }} />
+        <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+          Channel cast
+        </h2>
+        {locked && (
+          <span
+            className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded"
+            style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+          >
+            Locked as identity
+          </span>
+        )}
+      </div>
+      <GlassCard className="p-6">
+        {cast.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            No saved cast yet. Drop your character sheets into the chat and say
+            {" "}&ldquo;lock these in as our channel&rsquo;s identity&rdquo; — or save a video&rsquo;s
+            approved cast to the project from its Characters tab.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-3">
+              {cast.map((c) => (
+                <div key={c.name} className="w-28 text-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={toDisplayImageUrl(c.reference_url)}
+                    alt={c.name}
+                    className="w-28 h-28 object-cover rounded-xl"
+                    style={{ border: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}
+                  />
+                  <p className="text-xs mt-1 truncate" style={{ color: "var(--text-primary)" }}>{c.name}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[11px] max-w-md" style={{ color: "var(--text-tertiary)" }}>
+                {locked
+                  ? "Every new video uses these exact sheets and skips character generation."
+                  : "Not locked — videos can still design their own cast. Lock it to make these the permanent channel identity."}
+              </p>
+              <button
+                onClick={() => (locked ? unlockMutation.mutate() : lockMutation.mutate())}
+                disabled={busy}
+                className="text-xs font-medium px-4 py-2 rounded-lg transition-all hover:brightness-110 disabled:opacity-50"
+                style={
+                  locked
+                    ? { border: "1px solid var(--border)", color: "var(--text-secondary)", background: "transparent" }
+                    : { background: "var(--turquoise)", color: "#0a0a0a" }
+                }
+              >
+                {busy ? "Working…" : locked ? "Unlock" : "Lock as channel identity"}
+              </button>
+            </div>
+          </div>
         )}
       </GlassCard>
     </>

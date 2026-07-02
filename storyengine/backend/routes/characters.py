@@ -771,3 +771,85 @@ async def import_cast_from_project(
         )
         imported += 1
     return {"status": "imported", "count": imported}
+
+
+# --- locked channel cast ("these sheets ARE our identity") --------------------
+#
+# The creator's own designed character sheets become permanent brand assets on
+# the project (character_references + cast_locked). Every new video then
+# auto-imports + auto-approves them and SKIPS generation — see the fast path in
+# pipeline_executor.run_characters. Fed from chat (dropped images, "lock these
+# in") and the profile page's Channel cast card.
+
+async def lock_project_cast(tenant_id, images: list[dict]) -> list[dict]:
+    """Add uploaded character images to the project's saved cast and lock it.
+    `images`: [{"url": ..., "name": optional}]. A vision pass names/describes
+    each sheet (fail-soft: falls back to generic names). Returns the merged
+    cast list."""
+    from routes.projects import _get_or_create_project
+    project = await _get_or_create_project(tenant_id)
+    project_id = str(project["id"])
+
+    creds = None
+    try:
+        from routes.model_video import _resolve_claude_creds
+        creds = await _resolve_claude_creds(tenant_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[lock_cast] no vision creds: %s", str(e)[:150])
+
+    described = []
+    base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+    for i, img in enumerate(images):
+        url = (img.get("url") or "").strip()
+        if not url:
+            continue
+        name = (img.get("name") or "").strip()
+        desc = ""
+        if creds:
+            try:
+                from shared.clients.vision_client import vision_call, _looks_like_refusal
+                fid = _drive_file_id(url)
+                img_url = f"{base}/api/media/drive/{fid}" if fid else url
+                raw = await vision_call(
+                    "This is a character design sheet for an animated series. Reply in EXACTLY "
+                    "this format, nothing else:\nNAME: <a short name for the character — use any "
+                    "name written on the sheet>\nDESCRIPTION: <40-60 words describing EXACTLY how "
+                    "the character looks so an image generator can redraw the SAME character: hair "
+                    "style + color, face/age, and every clothing item WITH ITS COLOR>",
+                    [img_url],
+                    kie_key=creds["key"] if creds["provider"] == "kie" else None,
+                    anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+                    tier="fast", max_tokens=300,
+                )
+                if raw and not _looks_like_refusal(raw):
+                    m_name = re.search(r"NAME:\s*(.+)", raw)
+                    m_desc = re.search(r"DESCRIPTION:\s*(.+)", raw, re.DOTALL)
+                    if not name and m_name:
+                        name = m_name.group(1).strip()[:120]
+                    if m_desc:
+                        desc = m_desc.group(1).strip()[:1000]
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[lock_cast] vision failed for image %d: %s", i + 1, str(e)[:150])
+        described.append({
+            "name": name or f"Character {i + 1}",
+            "description": desc,
+            "reference_url": url,
+        })
+    if not described:
+        raise ValueError("No usable character images to lock in.")
+
+    row = await fetch_one(
+        "SELECT character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+        project_id, tenant_id,
+    )
+    existing = _parse_json((row or {}).get("character_references")) or []
+    by_name = {c.get("name"): c for c in existing if isinstance(c, dict)}
+    for c in described:
+        by_name[c["name"]] = c
+    merged = list(by_name.values())[:MAX_CHARACTERS]
+    await execute(
+        "UPDATE projects SET character_references = $1, cast_locked = true, updated_at = now() "
+        "WHERE id = $2 AND tenant_id = $3",
+        json.dumps(merged), project_id, tenant_id,
+    )
+    return merged

@@ -111,7 +111,9 @@ USING A SUPPLIED SCRIPT (wired up): when the creator says a dropped file (or pas
 
 REMEMBERING A SCRIPT FORMAT (wired up): when the creator says to remember/learn HOW an example script is built ("write all my scripts like this one"), emit {"op":"save_script_template","value":{"asset_id":"<the file's id>","name":"<short name you pick from what it is, e.g. 'Machine review format'>"}}. The app distills the format (hook, structure, pacing, devices - never the topic) and EVERY future generated script follows it; a new example replaces the old format. This is different from use_script_for_video (which uses the words themselves for ONE video) - if it's unclear whether they want the script USED or its FORMAT REMEMBERED, ask.
 
-Only emit ops from this list; cast locking and format locking aren't wired yet - for those, say the filing feature is coming, do NOT claim you saved anything. If a file couldn't be read (the summary says so), say that honestly and ask them to paste the content instead.
+LOCKING THE CHANNEL CAST (wired up): when the creator drops character-sheet images and says these are the channel's characters / identity / "always use these", emit {"op":"lock_cast","value":{"asset_ids":["<the image ids from the brief>"]}}. The app names + describes each sheet, saves them as permanent brand assets, and every new video auto-uses them and SKIPS character generation. Only emit it when they clearly want the cast locked as the channel identity; images for a one-off video are different (say so and ask).
+
+Only emit ops from this list; channel-format locking isn't wired yet - for that, say the filing feature is coming, do NOT claim you saved anything. If a file couldn't be read (the summary says so), say that honestly and ask them to paste the content instead.
 
 OUTPUT FORMAT — every turn, reply with ONE JSON object and NOTHING else. No prose outside the JSON, no code fences. Schema:
 
@@ -130,7 +132,8 @@ OUTPUT FORMAT — every turn, reply with ONE JSON object and NOTHING else. No pr
     {"op": "add_competitor | remove_competitor | set_channel_name | set_niche | set_audience | set_visual_style", "value": "<the value>"},
     {"op": "queue_titles", "value": {"asset_id": "<uploaded file id>", "column": "<optional>"}},
     {"op": "use_script_for_video", "value": {"asset_id": "<uploaded file id>", "title": "<their title, or null to auto-name>"}},
-    {"op": "save_script_template", "value": {"asset_id": "<uploaded file id>", "name": "<a short name for the format>"}}
+    {"op": "save_script_template", "value": {"asset_id": "<uploaded file id>", "name": "<a short name for the format>"}},
+    {"op": "lock_cast", "value": {"asset_ids": ["<uploaded image ids>"]}}
   ],
   "plan": {
     "story_concept": "<2-3 sentences>",

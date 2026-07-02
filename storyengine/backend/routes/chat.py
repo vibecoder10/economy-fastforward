@@ -1788,6 +1788,42 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     f"Learned your script format (\"{tpl['name']}\") — every script I write "
                     "from now on follows it. Drop in a new example any time to replace it."
                 )
+            elif kind == "lock_cast":
+                # value: {"asset_ids": ["<chat_assets image ids>"]}
+                raw = op.get("value") if isinstance(op.get("value"), dict) else {}
+                ids = [str(a).strip() for a in (raw.get("asset_ids") or []) if str(a).strip()]
+                if not ids:
+                    results.append("I need the character-sheet images to lock in — drop them into the chat.")
+                    continue
+                arows = await fetch_all(
+                    "SELECT id, filename, storage_url FROM chat_assets "
+                    "WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND kind = 'image' "
+                    "AND storage_url IS NOT NULL ORDER BY created_at",
+                    tenant_id, ids,
+                )
+                if not arows:
+                    results.append("I couldn't find those images — drop the character sheets in again?")
+                    continue
+                from routes.characters import lock_project_cast
+                try:
+                    merged = await lock_project_cast(
+                        tenant_id,
+                        [{"url": r["storage_url"]} for r in arows],
+                    )
+                except ValueError as e:
+                    results.append(str(e))
+                    continue
+                await execute(
+                    "UPDATE chat_assets SET status = 'filed', filed_as = 'cast' "
+                    "WHERE tenant_id = $1 AND id = ANY($2::uuid[])",
+                    tenant_id, [str(r["id"]) for r in arows],
+                )
+                names = ", ".join(c["name"] for c in merged[:8])
+                results.append(
+                    f"Locked in your channel cast: {names}. Every new video uses these exact "
+                    "character sheets and skips character generation — they're brand assets now. "
+                    "Manage them under Profile → Channel cast."
+                )
             elif kind in _PROFILE_FIELD_COLS:
                 if not val:
                     continue

@@ -194,3 +194,73 @@ async def update_current_project(
 async def get_channel_profile_compat(tenant_id: str = Depends(get_tenant_id)):
     """Backward-compatible endpoint for channel profile reads."""
     return await get_current_project(tenant_id)
+
+
+# --- Channel cast (locked brand identity) -------------------------------------
+
+def _cast_refs(row) -> list:
+    val = (row or {}).get("character_references")
+    if isinstance(val, str):
+        try:
+            val = json.loads(val)
+        except (json.JSONDecodeError, ValueError):
+            val = []
+    return [c for c in (val or []) if isinstance(c, dict) and c.get("reference_url")]
+
+
+@router.get("/current/cast")
+async def get_channel_cast(tenant_id: str = Depends(get_tenant_id)):
+    """The project's saved cast + whether it's locked as the channel identity."""
+    row = await _get_or_create_project(tenant_id)
+    full = await fetch_one(
+        "SELECT character_references, cast_locked FROM projects WHERE id = $1 AND tenant_id = $2",
+        str(row["id"]), tenant_id,
+    )
+    return {
+        "characters": _cast_refs(full),
+        "cast_locked": bool((full or {}).get("cast_locked")),
+    }
+
+
+class CastLockRequest(BaseModel):
+    # Optional new images to add before locking: [{"url": ..., "name": optional}]
+    images: Optional[list[dict]] = None
+
+
+@router.post("/current/cast/lock")
+async def lock_channel_cast(
+    body: Optional[CastLockRequest] = None,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Lock the saved cast as the channel's identity: every new video
+    auto-uses these characters and skips generation. With `images`, they're
+    vision-described and merged into the saved cast first."""
+    if body and body.images:
+        from routes.characters import lock_project_cast
+        try:
+            merged = await lock_project_cast(tenant_id, body.images)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"status": "locked", "characters": merged}
+    row = await _get_or_create_project(tenant_id)
+    full = await fetch_one(
+        "SELECT character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+        str(row["id"]), tenant_id,
+    )
+    if not _cast_refs(full):
+        raise HTTPException(status_code=400, detail="No saved characters to lock — add character sheets first.")
+    await execute(
+        "UPDATE projects SET cast_locked = true, updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        str(row["id"]), tenant_id,
+    )
+    return {"status": "locked", "characters": _cast_refs(full)}
+
+
+@router.delete("/current/cast/lock")
+async def unlock_channel_cast(tenant_id: str = Depends(get_tenant_id)):
+    row = await _get_or_create_project(tenant_id)
+    await execute(
+        "UPDATE projects SET cast_locked = false, updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        str(row["id"]), tenant_id,
+    )
+    return {"status": "unlocked"}

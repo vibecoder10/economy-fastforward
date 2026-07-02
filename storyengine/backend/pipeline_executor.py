@@ -2502,6 +2502,65 @@ separate scenes."""
             return {"status": "failed", "error": "video not found"}
         video = dict(video)
         video["tenant_id"] = self.tenant_id
+
+        # LOCKED CHANNEL CAST: the creator's own sheets are brand assets — no
+        # generation, no approval step. Import the project cast, build the
+        # sheet, stamp the approval, done. This is also what lets queued /
+        # autopilot videos pass the cast gate autonomously.
+        if video.get("project_id"):
+            proj = await fetch_one(
+                "SELECT cast_locked, character_references FROM projects "
+                "WHERE id = $1 AND tenant_id = $2",
+                video["project_id"], self.tenant_id,
+            )
+            refs = (proj or {}).get("character_references")
+            if isinstance(refs, str):
+                import json as _cast_json
+                try:
+                    refs = _cast_json.loads(refs)
+                except (ValueError, TypeError):
+                    refs = []
+            refs = [c for c in (refs or []) if isinstance(c, dict) and c.get("reference_url")]
+            if proj and proj.get("cast_locked") and refs:
+                from routes.characters import _build_cast_sheet, _sync_bible_to_cast
+                existing = await fetch_all(
+                    "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
+                    video_id, self.tenant_id,
+                )
+                existing_names = {r["name"] for r in (existing or [])}
+                for i, c in enumerate(refs):
+                    if (c.get("name") or f"Character {i+1}") in existing_names:
+                        continue
+                    await execute(
+                        "INSERT INTO video_characters (tenant_id, video_id, name, description, "
+                        "reference_url, source, status, sort) VALUES ($1,$2,$3,$4,$5,'project','approved',$6)",
+                        self.tenant_id, video_id, (c.get("name") or f"Character {i+1}")[:120],
+                        (c.get("description") or "")[:1000], c["reference_url"], i,
+                    )
+                await execute(
+                    "UPDATE video_characters SET status = 'approved', updated_at = now() "
+                    "WHERE video_id = $1 AND tenant_id = $2",
+                    video_id, self.tenant_id,
+                )
+                cast_rows = await fetch_all(
+                    "SELECT name, reference_url FROM video_characters "
+                    "WHERE video_id = $1 AND tenant_id = $2 AND reference_url IS NOT NULL "
+                    "ORDER BY sort, created_at",
+                    video_id, self.tenant_id,
+                )
+                cast_list = [dict(r) for r in cast_rows]
+                sheet_url = await _build_cast_sheet(self.tenant_id, video_id, cast_list)
+                await _sync_bible_to_cast(video_id, self.tenant_id, [
+                    {**c, "description": c.get("description") or ""} for c in refs
+                ])
+                await execute(
+                    "UPDATE videos SET characters_approved_at = now(), character_reference_url = $1, "
+                    "updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                    sheet_url or refs[0]["reference_url"], video_id, self.tenant_id,
+                )
+                return {"status": "completed",
+                        "message": f"Using your locked channel cast ({len(cast_list)} characters) — no generation needed."}
+
         api_key = await get_secret("kie_ai_api_key", str(self.tenant_id))
         if not api_key:
             return {"status": "failed", "error": "Add your Kie.ai API key in Settings → Keys first."}
