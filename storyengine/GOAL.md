@@ -118,7 +118,7 @@ moat for "10 customers actually using it."
 **Phase E - Director remnants (parallel, cheap-first).** D1 shot budget (no spend, the real win),
 then the gated D2 Scene-1 clip proof (~$1-2).
 
-**Phase F - Chat asset intake ("drop it in the chat"). [F1 IN PROGRESS 2026-07-02]** Creators drop
+**Phase F - Chat asset intake ("drop it in the chat"). [ALL 6 SHIPPED + PROVEN 2026-07-02, main @ d52606fa]** Creators drop
 files into the home chat and the chat files them into the engine (full plan approved 2026-07-02,
 branch feat/chat-asset-intake). Decisions: CSV->queue first; autopilot drains the queue before its
 own scored picks; locked cast on Profile/Visual Styles with a Lock toggle; ONE house script
@@ -127,8 +127,13 @@ template per channel.
 - F2 production queue: CSV -> ordered calendar queue -> autopilot consumes queue-first (mig 074). `[done]` Proven on prod 2026-07-02: "queue these" chat op queued 3 CSV titles in order; calendar served them as the first slots; Build launched the front item; auto_produce_next held while in-flight/not-due and claimed the correct next item once due. Live proof caught + fixed: op belonged in the profile_ops schema, a swallowed elif, and soft-deleted videos blocking the lane.
 - F3 verbatim user script: use a supplied script, skip generation (videos.script_source, mig 075). `[done]` Proven on prod 2026-07-02: PDF script -> chat op created the video with both scenes VERBATIM (ready_for_voice, user_supplied); run_script passed through without rewriting a word.
 - F4 house script template: analyze an example, apply to every generated script (mig 076). `[done]` Proven on prod 2026-07-02: "remember this format" distilled real imperative format instructions (hook/structure/pacing/sign-off) and every new video carries them in script_system_prompt (verified). CAVEAT worth a follow-up: the brief_translator's own act/angle machinery competes with the template, so generated scripts follow it loosely, not strictly - to make the house format DOMINATE, inject it into the writer stage itself, not just the system prompt.
-- F5 locked channel cast: uploaded sheets = brand assets, characters stage auto-skips (mig 077). `[todo]`
-- F6 channel format lock: visual_format locked + fed into creation defaults. `[todo]`
+- F5 locked channel cast: uploaded sheets = brand assets, characters stage auto-skips (mig 077). `[done]` Proven on prod 2026-07-02: chat locked dropped sheets (vision named "Milo" from the sheet itself), run_characters imported + auto-approved + built the cast sheet with ZERO generation. Fixed live: media-proxy allowlist didn't cover chat uploads (vision/cast-sheet 404s).
+- F6 channel format lock: visual_format locked + fed into creation defaults. `[done]` Proven on prod 2026-07-02: one chat sentence locked a 4-field format; a bare-title video defaulted to flat_2d.
+
+Phase F remaining follow-ups (not blockers): make the house script FORMAT dominate the writer
+stage (F4 caveat - it currently rides the system prompt and competes with brief_translator's own
+act machinery); attachments in the video-scoped dock (home-chat only today); shorts repurposing
+(deferred from G4).
 
 **Sequencing:** A first (it ties the whole machine together and rides on today's chat work), then
 B, then C. D and E run alongside as capacity allows. Each phase proven by a real run on prod, never
@@ -196,6 +201,17 @@ any clip spend.
 - Multi-language until the Slow Spanish channel is the active model.
 
 ## Log
+- 2026-07-02 (later): Phase F COMPLETE - all 6 sub-phases shipped + proven on prod in one day
+  (final @ d52606fa). The chat now files dropped assets for real: CSV titles -> production_queue
+  -> calendar-first slots -> autopilot drains queue-first (proven incl. the FOR UPDATE SKIP
+  LOCKED claim + in-flight/cadence guards); PDF scripts -> verbatim videos (scene-split, zero
+  rewriting, run_script passes through); "remember this format" -> house script template applied
+  at every creation door; character sheets -> locked channel cast (vision-named, auto-approved,
+  generation skipped - queue videos no longer park at the cast gate once locked); one sentence
+  locks the channel format and defaults every build's look. Live-proof bugs fixed along the way:
+  producer ops must live in the OUTPUT FORMAT schema (model invented a sibling key), a swallowed
+  elif broke profile ops, soft-deleted videos blocked the queue lane, media-proxy allowlist
+  missed chat uploads, stale KIE model id 404'd direct-API calls.
 - 2026-07-02: Phase F started (chat asset intake, plan approved). F1 SHIPPED + PROVEN on prod
   (main @ 5f8bca95, deployed via the new scripts/vps-deploy.sh): drop a CSV/PDF into home chat,
   chat_assets row + Drive copy + honest producer read-back all verified live. Also shipped the
