@@ -92,12 +92,15 @@ async def run(pipeline) -> dict:
             pass
 
     # Build metadata for template selection + Gemini context
+    # NOTE: the Supabase adapter supplies these keys with None values (unlike
+    # Airtable, which omits empty fields), so .get(k, "") can still yield None
+    # — coalesce, or downstream .lower() calls crash.
     video_metadata = {
-        IdeaFields.VIDEO_TITLE: video_title,
-        IdeaFields.SUMMARY: video_summary,
-        "topic": pipeline.current_idea.get(IdeaFields.HEADLINE, ""),
-        IdeaFields.FRAMEWORK_ANGLE: pipeline.current_idea.get(IdeaFields.FRAMEWORK_ANGLE, ""),
-        IdeaFields.FRAMEWORK: pipeline.current_idea.get(IdeaFields.FRAMEWORK, ""),
+        IdeaFields.VIDEO_TITLE: video_title or "",
+        IdeaFields.SUMMARY: video_summary or "",
+        "topic": pipeline.current_idea.get(IdeaFields.HEADLINE) or "",
+        IdeaFields.FRAMEWORK_ANGLE: pipeline.current_idea.get(IdeaFields.FRAMEWORK_ANGLE) or "",
+        IdeaFields.FRAMEWORK: pipeline.current_idea.get(IdeaFields.FRAMEWORK) or "",
         "tags": [],
         # Gemini creative director context
         "research_payload": research_payload,
