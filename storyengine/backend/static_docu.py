@@ -83,6 +83,9 @@ For EACH numbered segment below, identify the segment's PRIMARY machine and
 reply with a JSON array only:
 [{{"scene": <n>,
    "machine": "<exact full designation, e.g. 'Douglas XB-42 Mixmaster'>",
+   "aliases": ["<other designations the SAME or sibling vehicle is known by, "
+               "e.g. the MBT-70's German twin 'Kampfpanzer 70', a redesignation, "
+               "or the manufacturer name — real names only>"],
    "caption_title": "<display name for the caption>",
    "caption_sub": "<type> • <operator> • <years>, e.g. 'Pusher-propeller bomber • USAAF • 1944–1948'>",
    "search_query": "<short Wikimedia Commons search for a real photo of it>"}}, ...]
@@ -229,7 +232,8 @@ def _designation_token(machine: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (machine or "").lower())[:12]
 
 
-async def _vision_confirms(tenant_id: str, image_url: str, machine: str) -> bool:
+async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
+                           aliases: Optional[list] = None) -> bool:
     """Vision sanity check: does this image actually show the machine, as a
     photograph/full rendering (not a sketch or scale model)?
 
@@ -266,9 +270,9 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str) -> bool
                        if b.get("type") == "text").strip().lower()
         if not txt:
             return True
-        norm = re.sub(r"[^a-z0-9 ]", "", txt)
-        token = _designation_token(machine)
-        named = bool(token) and token in norm.replace(" ", "")
+        norm = re.sub(r"[^a-z0-9 ]", "", txt).replace(" ", "")
+        tokens = [_designation_token(n) for n in [machine] + list(aliases or [])]
+        named = any(t and t in norm for t in tokens)
         is_flat = any(k in txt for k in ("drawing", "sketch", "diagram",
                                          "blueprint", "scale model", "schematic"))
         return named and not is_flat
@@ -303,6 +307,8 @@ async def _scene_subjects(tenant_id: str, scenes: list[dict],
         try:
             out[int(item["scene"])] = {
                 "machine": str(item.get("machine") or "").strip(),
+                "aliases": [str(a).strip() for a in (item.get("aliases") or [])
+                            if str(a).strip()][:4],
                 "caption_title": str(item.get("caption_title") or "").strip(),
                 "caption_sub": str(item.get("caption_sub") or "").strip(),
                 "search_query": str(item.get("search_query") or "").strip(),
@@ -405,7 +411,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 continue
             await execute(
                 "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, hosted)
-            if await _vision_confirms(tenant_id, hosted, machine):
+            if await _vision_confirms(tenant_id, hosted, machine, sub.get("aliases")):
                 ref_url, ref_src = hosted, cand
                 break
             _p(f"Segment {sc}: candidate photo rejected (not the {machine})")
@@ -434,7 +440,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # the machine? One bounded retry with a match-the-reference
         # reinforcement; a still-failing image ships with a warning (the
         # operator sees it in the progress feed) rather than blocking.
-        if not await _vision_confirms(tenant_id, url, machine):
+        if not await _vision_confirms(tenant_id, url, machine, sub.get("aliases")):
             if ref_url:
                 _p(f"Segment {sc}: render doesn't match the {machine} — retrying against the reference…")
                 res = await ic.generate_scene_image_gpt(
@@ -442,7 +448,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     "EXACTLY — same hull, turret, wheels and proportions.",
                     ref_url, aspect_ratio=v["aspect"])
                 url2 = (res or {}).get("url")
-                if url2 and await _vision_confirms(tenant_id, url2, machine):
+                if url2 and await _vision_confirms(tenant_id, url2, machine, sub.get("aliases")):
                     url = url2
                 else:
                     url = url2 or url
