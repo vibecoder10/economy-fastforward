@@ -400,6 +400,16 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                             await _advance(nxt)
                         continue
                     if target == "finish" and status in ("ready_for_images", "ready_for_thumbnail"):
+                        # A "finished" video includes its thumbnail — generate it
+                        # before passing the gate (previously the gate was passed
+                        # without ever running the thumbnail bot). Best-effort:
+                        # a thumbnail failure never blocks the render.
+                        if status == "ready_for_thumbnail" and not (video.get("thumbnail_url") or "").strip():
+                            _set_task_status(video_id, "running", "Designing the thumbnail…", tenant_id=tenant_id)
+                            try:
+                                await ex.run_thumbnail(video_id)
+                            except Exception:  # noqa: BLE001
+                                pass
                         nxt = get_next_status_supabase(status)  # already reviewed -> pass the gate
                         if nxt:
                             await _advance(nxt)
