@@ -31,7 +31,7 @@ import {
   clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
-  deleteClip, recropAsset, getEnvironments, updateVideoPrompt, updateImagePrompt, improvePrompt,
+  deleteClip, recropAsset, getEnvironments, getVideoCharacters, updateVideoPrompt, updateImagePrompt, improvePrompt,
 } from "@/lib/api";
 import { clipCost } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
@@ -110,10 +110,11 @@ interface ScenesWorkspaceTabProps {
   video: VideoDetail & { id: string };
   onGoToScriptVoice?: () => void;
   onGoToEnvironments?: () => void;
+  onGoToCharacters?: () => void;
   onAdvanced?: () => void;
 }
 
-export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironments, onAdvanced }: ScenesWorkspaceTabProps) {
+export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironments, onGoToCharacters, onAdvanced }: ScenesWorkspaceTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const model = video.video_model || "grok-imagine";
@@ -154,13 +155,29 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   });
   const environmentsReady = !!environmentsData?.approved_at;
 
+  // Cast gate mirror: a designed-but-unapproved cast parks storyboard
+  // generation server-side with no visible cue — the stage strip jumps here
+  // and it LOOKS like characters got skipped. Surface the parked cast with a
+  // banner (like the environments one) so the creator knows where to go.
+  const { data: charactersData } = useQuery({
+    queryKey: ["video-characters-gate", video.id],
+    queryFn: () => getVideoCharacters(video.id),
+    staleTime: 30_000,
+  });
+  const castDrafted = (charactersData?.characters?.length ?? 0) > 0;
+  const castReady = !castDrafted || !!charactersData?.approved_at;
+
   // Guard every storyboard-generating action: bounce with a clear message
   // (and a pointer to the Environments tab) instead of firing a doomed task.
   const requireEnvironments = useCallback(() => {
+    if (!castReady) {
+      toast.error("Approve your cast first — your characters are designed and waiting in the Characters tab.");
+      return false;
+    }
     if (environmentsReady) return true;
     toast.error('Design your environments first — open the Environments tab (or hit "No locations — skip" there) before generating storyboards.');
     return false;
-  }, [environmentsReady, toast]);
+  }, [castReady, environmentsReady, toast]);
 
   const hasVoice = useMemo(
     () => (scriptScenes ?? []).some((s) => !!s.voice_over_url),
@@ -861,6 +878,30 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // ── Render ──
   return (
     <div className="flex flex-col gap-4">
+      {/* Cast gate: characters were DESIGNED (often by the chat auto-build)
+          but not approved — without this banner the stage strip lands here
+          and the step looks silently skipped. */}
+      {!castReady && (
+        <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
+          style={{ background: "rgba(64, 224, 208, 0.08)", border: "1px solid rgba(64, 224, 208, 0.30)" }}>
+          <Sparkles size={16} style={{ color: "var(--turquoise)" }} className="shrink-0" />
+          <p className="text-sm flex-1 min-w-[12rem]" style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>Your cast is designed and waiting.</strong>{" "}
+            {charactersData?.characters?.length === 1
+              ? `${charactersData.characters[0].name} was created from the script — `
+              : `${charactersData?.characters?.length ?? 0} characters were created from the script — `}
+            review and approve them so every storyboard keeps the same faces.
+          </p>
+          {onGoToCharacters && (
+            <button
+              onClick={onGoToCharacters}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 shrink-0"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+              <Sparkles size={13} /> Review the cast
+            </button>
+          )}
+        </div>
+      )}
       {/* Environments gate: storyboards need locations locked (or skipped)
           first — guide the creator there instead of generating drifting
           backgrounds. The generation handlers are guarded too. */}
