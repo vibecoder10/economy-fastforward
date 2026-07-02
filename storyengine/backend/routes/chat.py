@@ -1712,6 +1712,13 @@ async def _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
     saved transcript matches what we show. Returns the (possibly unchanged) text."""
     text = data.get("assistant_text", "") or ""
     ops = data.get("profile_ops")
+    # Models sometimes invent a sibling key for filing ops (seen live: "queue_ops")
+    # instead of using profile_ops — accept those rather than silently dropping
+    # the creator's request on the floor.
+    for alt_key in ("queue_ops", "file_ops", "asset_ops"):
+        alt = data.get(alt_key)
+        if isinstance(alt, list) and alt:
+            ops = (ops if isinstance(ops, list) else []) + alt
     if ops:
         results = await _apply_profile_ops(tenant_id, ops, state, background_tasks)
         if results:
