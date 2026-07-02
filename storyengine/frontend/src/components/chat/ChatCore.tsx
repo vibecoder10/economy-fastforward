@@ -12,13 +12,14 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { visualPresetById } from "@/lib/visual-presets";
 import {
   sendChatTurn,
+  uploadChatAsset,
   setOnboardingKey,
   getOnboardingStatus,
   getYouTubeConnectUrl,
@@ -176,6 +177,9 @@ export function ChatCore({
   const [picks, setPicks] = useState<Record<string, string | string[]>>({});
   const [checking, setChecking] = useState(true); // first-load onboarding-status / hydrate
   const [suggested, setSuggested] = useState<SuggestedModels | null>(null); // "worth modeling" (home)
+  // Files dropped/attached but not yet sent with a message (home chat only).
+  const [attachments, setAttachments] = useState<{ id: string; filename: string; kind: string }[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const autoTriedRef = useRef(false);
 
@@ -324,9 +328,41 @@ export function ChatCore({
 
   function submitInput() {
     const text = input.trim();
-    if (!text || sending) return;
+    if ((!text && attachments.length === 0) || sending || uploadingFiles > 0) return;
     setInput("");
-    turn({ message: text }, text);
+    const ids = attachments.map((a) => a.id);
+    const names = attachments.map((a) => a.filename).join(", ");
+    setAttachments([]);
+    const bubble = text ? (names ? `${text}\n📎 ${names}` : text) : `📎 ${names}`;
+    turn({ message: text || null, attachments: ids.length ? ids : undefined }, bubble);
+  }
+
+  // Upload dropped/picked/pasted files right away; they ride the NEXT sent turn
+  // as chat_assets ids. Home chat only for now (the dock ignores attachments).
+  async function attachFiles(files: FileList | File[]) {
+    if (docked) return;
+    const list = Array.from(files).slice(0, Math.max(0, 5 - attachments.length));
+    for (const f of list) {
+      setUploadingFiles((n) => n + 1);
+      try {
+        const res = await uploadChatAsset(f, conversationId);
+        setAttachments((a) => [
+          ...a,
+          { id: res.asset.id, filename: res.asset.filename || f.name, kind: res.asset.kind },
+        ]);
+      } catch (e) {
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", text: `I couldn't take “${f.name}” — ${e instanceof Error ? e.message : "try again?"}` },
+        ]);
+      } finally {
+        setUploadingFiles((n) => n - 1);
+      }
+    }
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((a) => a.filter((x) => x.id !== id));
   }
 
   // History (home only): start a clean thread, or resume a past one.
@@ -494,6 +530,10 @@ export function ChatCore({
           onSubmit={submitInput}
           sending={sending}
           autoFocus
+          attachments={attachments}
+          uploading={uploadingFiles > 0}
+          onAttach={attachFiles}
+          onRemoveAttachment={removeAttachment}
         />
 
         <div className="mt-4 flex items-center justify-center gap-3 flex-wrap">
@@ -591,7 +631,17 @@ export function ChatCore({
       {/* composer pinned at the bottom of the shell */}
       <div className="fixed bottom-0 left-0 right-0 md:left-60 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
         <div className="max-w-3xl mx-auto">
-          <Composer input={input} setInput={setInput} onSubmit={submitInput} sending={sending} placeholder={createdVideoId ? "Ask for a change…" : "Reply…"} />
+          <Composer
+            input={input}
+            setInput={setInput}
+            onSubmit={submitInput}
+            sending={sending}
+            placeholder={createdVideoId ? "Ask for a change…" : "Reply…"}
+            attachments={attachments}
+            uploading={uploadingFiles > 0}
+            onAttach={attachFiles}
+            onRemoveAttachment={removeAttachment}
+          />
         </div>
       </div>
     </div>
@@ -807,6 +857,10 @@ function Composer({
   sending,
   placeholder = "Describe your video…",
   autoFocus,
+  attachments,
+  uploading,
+  onAttach,
+  onRemoveAttachment,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -814,36 +868,112 @@ function Composer({
   sending: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  // File drop-in (home chat only — the dock doesn't pass these).
+  attachments?: { id: string; filename: string; kind: string }[];
+  uploading?: boolean;
+  onAttach?: (files: FileList | File[]) => void;
+  onRemoveAttachment?: (id: string) => void;
 }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const canAttach = !!onAttach;
+  const hasAttachments = !!attachments?.length;
   return (
     <div
-      className="flex items-end gap-2 rounded-2xl px-3 py-2 w-full"
-      style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
+      className="w-full flex flex-col gap-1.5"
+      onDragOver={canAttach ? (e) => e.preventDefault() : undefined}
+      onDrop={
+        canAttach
+          ? (e) => {
+              e.preventDefault();
+              if (e.dataTransfer.files?.length) onAttach!(e.dataTransfer.files);
+            }
+          : undefined
+      }
     >
-      <textarea
-        autoFocus={autoFocus}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            onSubmit();
-          }
-        }}
-        rows={1}
-        placeholder={placeholder}
-        className="flex-1 bg-transparent resize-none outline-none text-sm py-2 px-1 max-h-40"
-        style={{ color: "var(--text-primary)" }}
-      />
-      <button
-        onClick={onSubmit}
-        disabled={sending || !input.trim()}
-        aria-label="Send"
-        className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all enabled:hover:brightness-110 disabled:opacity-30"
-        style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+      {hasAttachments && (
+        <div className="flex flex-wrap gap-1.5 px-1">
+          {attachments!.map((a) => (
+            <span
+              key={a.id}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+              style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+            >
+              <Paperclip size={11} /> {a.filename}
+              <button
+                onClick={() => onRemoveAttachment?.(a.id)}
+                aria-label={`Remove ${a.filename}`}
+                className="hover:brightness-125"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div
+        className="flex items-end gap-2 rounded-2xl px-3 py-2 w-full"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
       >
-        {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-      </button>
+        {canAttach && (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              hidden
+              accept=".csv,.pdf,.txt,.md,image/*"
+              onChange={(e) => {
+                if (e.target.files?.length) onAttach!(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={sending || !!uploading}
+              aria-label="Attach a file"
+              title="Drop in a CSV of titles, a script, or character sheets"
+              className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all enabled:hover:brightness-125 disabled:opacity-30"
+              style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+            >
+              {uploading ? <Loader2 size={15} className="animate-spin" /> : <Paperclip size={15} />}
+            </button>
+          </>
+        )}
+        <textarea
+          autoFocus={autoFocus}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+          onPaste={
+            canAttach
+              ? (e) => {
+                  if (e.clipboardData?.files?.length) {
+                    e.preventDefault();
+                    onAttach!(e.clipboardData.files);
+                  }
+                }
+              : undefined
+          }
+          rows={1}
+          placeholder={placeholder}
+          className="flex-1 bg-transparent resize-none outline-none text-sm py-2 px-1 max-h-40"
+          style={{ color: "var(--text-primary)" }}
+        />
+        <button
+          onClick={onSubmit}
+          disabled={sending || !!uploading || (!input.trim() && !hasAttachments)}
+          aria-label="Send"
+          className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all enabled:hover:brightness-110 disabled:opacity-30"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+        </button>
+      </div>
     </div>
   );
 }

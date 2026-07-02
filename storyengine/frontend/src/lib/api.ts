@@ -2423,6 +2423,8 @@ export interface ChatTurnRequest {
   video_id?: string | null;
   // What the creator is looking at, so "this image" resolves without naming it.
   ui_context?: { tab?: string; scene?: number; index?: number } | null;
+  // Files dropped into the chat this turn: chat_assets ids from uploadChatAsset.
+  attachments?: string[];
 }
 export interface ChatTurnResponse {
   conversation_id: string;
@@ -2439,6 +2441,32 @@ export const sendChatTurn = (body: ChatTurnRequest) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+// A file dropped into the chat: uploaded + parsed server-side, then referenced
+// by id on the next chat turn via ChatTurnRequest.attachments.
+export interface ChatAssetInfo {
+  id: string;
+  kind: "csv" | "pdf" | "text" | "image";
+  filename?: string | null;
+  summary: string;
+  preview?: unknown;
+}
+export const uploadChatAsset = async (
+  file: File,
+  conversationId?: string | null,
+): Promise<{ asset: ChatAssetInfo }> => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("file", file);
+  if (conversationId) formData.append("conversation_id", conversationId);
+  const res = await fetch(`${API_URL}/api/chat/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
 
 // Onboarding secure key box: posts the pasted key straight to the vault path so
 // it never rides in as a chat message. Returns which provider it detected.

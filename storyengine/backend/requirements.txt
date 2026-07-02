@@ -14,3 +14,4 @@ arq==0.28.0
 redis==5.2.1
 mutagen>=1.47.0  # MP3 duration for dialogue segment timing (graceful fallback if absent)
 cryptography>=42.0.0  # Fernet encryption-at-rest for vault secrets (already present transitively; pinned for reproducible deploys)
+pypdf==5.1.0

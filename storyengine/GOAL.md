@@ -118,6 +118,18 @@ moat for "10 customers actually using it."
 **Phase E - Director remnants (parallel, cheap-first).** D1 shot budget (no spend, the real win),
 then the gated D2 Scene-1 clip proof (~$1-2).
 
+**Phase F - Chat asset intake ("drop it in the chat"). [F1 IN PROGRESS 2026-07-02]** Creators drop
+files into the home chat and the chat files them into the engine (full plan approved 2026-07-02,
+branch feat/chat-asset-intake). Decisions: CSV->queue first; autopilot drains the queue before its
+own scored picks; locked cast on Profile/Visual Styles with a Lock toggle; ONE house script
+template per channel.
+- F1 intake layer: upload + parse (csv/pdf/text/image, chat_assets, mig 073) + producer awareness. `[in progress]`
+- F2 production queue: CSV -> ordered calendar queue -> autopilot consumes queue-first (mig 074). `[todo]`
+- F3 verbatim user script: use a supplied script, skip generation (videos.script_source, mig 075). `[todo]`
+- F4 house script template: analyze an example, apply to every generated script (mig 076). `[todo]`
+- F5 locked channel cast: uploaded sheets = brand assets, characters stage auto-skips (mig 077). `[todo]`
+- F6 channel format lock: visual_format locked + fed into creation defaults. `[todo]`
+
 **Sequencing:** A first (it ties the whole machine together and rides on today's chat work), then
 B, then C. D and E run alongside as capacity allows. Each phase proven by a real run on prod, never
 a self-test (the anti-rot rule that kept this project honest).

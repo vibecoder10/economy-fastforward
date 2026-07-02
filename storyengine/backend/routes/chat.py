@@ -20,7 +20,7 @@ import os
 import re
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from auth import get_tenant_id
@@ -94,6 +94,8 @@ class ChatTurnRequest(BaseModel):
     # What the creator is looking at in the dock, so "this image" / "image 1"
     # resolves without naming the scene: {"scene": int, "index": int, "tab": str}.
     ui_context: Optional[dict[str, Any]] = None
+    # Files dropped into the chat this turn: chat_assets ids from POST /api/chat/upload.
+    attachments: Optional[list[str]] = None
 
 
 class ChatTurnResponse(BaseModel):
@@ -134,6 +136,128 @@ def _assistant_turn(data: dict[str, Any]) -> dict[str, str]:
     """A transcript entry for an assistant turn — store the raw JSON so the model
     sees its own prior cards/plan on replay."""
     return {"role": "assistant", "content": json.dumps(data)}
+
+
+# --- chat asset uploads ("drop it in the chat") -----------------------------
+#
+# A dropped file becomes a chat_assets row: raw bytes to storage (Drive), the
+# parsed content + a one-line summary in the row so the producer can read it
+# on every turn without re-fetching. Filing the asset somewhere real (queue /
+# script / cast / template) happens via producer ops in later phases.
+
+@router.post("/upload")
+async def upload_chat_asset(
+    file: UploadFile = File(...),
+    conversation_id: Optional[str] = Form(None),
+    tenant_id=Depends(get_tenant_id),
+):
+    import uuid as _uuid
+
+    import asset_intake
+
+    content = await file.read()
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 15 MB).")
+    if not content:
+        raise HTTPException(status_code=400, detail="That file is empty.")
+
+    kind = asset_intake.detect_kind(file.filename, file.content_type)
+    parsed, parsed_text = None, None
+    try:
+        if kind == "csv":
+            parsed = asset_intake.parse_csv(content)
+        elif kind == "pdf":
+            parsed_text = asset_intake.parse_pdf(content)
+        elif kind == "text":
+            parsed_text = asset_intake.parse_text(content)
+    except Exception as e:  # noqa: BLE001 — an unreadable file is still an asset
+        logger.warning("chat: asset parse failed (%s): %s", file.filename, e)
+    summary = asset_intake.summarize_asset(kind, file.filename, parsed, parsed_text)
+
+    asset_id = str(_uuid.uuid4())
+    storage_url = None
+    try:
+        from storage import upload_bytes
+
+        ext = (file.filename or "file.bin").rsplit(".", 1)[-1].lower()[:8] or "bin"
+        storage_url = await upload_bytes(
+            content, f"chat-assets/{asset_id}.{ext}",
+            file.content_type or "application/octet-stream", str(tenant_id),
+        )
+    except Exception as e:  # noqa: BLE001 — the parsed content is in the row either way
+        logger.warning("chat: asset storage upload failed (%s): %s", file.filename, e)
+
+    await execute(
+        "INSERT INTO chat_assets (id, tenant_id, conversation_id, kind, filename, "
+        "content_type, storage_url, parsed, parsed_text, summary) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)",
+        asset_id, tenant_id, conversation_id or None, kind,
+        (file.filename or "")[:255] or None, file.content_type,
+        storage_url, json.dumps(parsed) if parsed is not None else None,
+        parsed_text, summary,
+    )
+
+    if kind == "csv" and parsed:
+        preview: Any = parsed.get("rows", [])[:5]
+    elif kind == "image":
+        preview = storage_url
+    else:
+        preview = (parsed_text or "")[:400] or None
+    return {"asset": {"id": asset_id, "kind": kind, "filename": file.filename,
+                      "summary": summary, "preview": preview}}
+
+
+async def _attach_assets(tenant_id, conversation_id, asset_ids, state, user_parts) -> None:
+    """Fold this turn's uploaded files into the conversation: bind them to the
+    conversation row, describe each in the user turn (so the producer sees what
+    arrived), and remember them in state for the assets brief. Fail-soft."""
+    try:
+        ids = [str(a) for a in (asset_ids or []) if a][:5]
+        if not ids:
+            return
+        rows = await fetch_all(
+            "SELECT id, summary FROM chat_assets "
+            "WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY created_at",
+            tenant_id, ids,
+        )
+        if not rows:
+            return
+        await execute(
+            "UPDATE chat_assets SET conversation_id = $1 "
+            "WHERE tenant_id = $2 AND id = ANY($3::uuid[])",
+            conversation_id, tenant_id, [str(r["id"]) for r in rows],
+        )
+        for r in rows:
+            user_parts.append(f"[Attached file: {r['summary']}]")
+        pending = [str(x) for x in (state.get("pending_assets") or [])]
+        pending += [str(r["id"]) for r in rows if str(r["id"]) not in pending]
+        state["pending_assets"] = pending[-5:]  # the last few are plenty of context
+    except Exception as e:  # noqa: BLE001 — a bad attachment must not kill the turn
+        logger.warning("chat: attach assets failed: %s", e)
+
+
+async def _assets_brief(tenant_id, state) -> str:
+    """What the creator has dropped into this conversation, for the producer.
+    Fail-soft: no assets (or any error) -> empty string."""
+    try:
+        ids = [str(a) for a in (state.get("pending_assets") or [])]
+        if not ids:
+            return ""
+        rows = await fetch_all(
+            "SELECT id, kind, filename, summary, status, filed_as FROM chat_assets "
+            "WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY created_at",
+            tenant_id, ids,
+        )
+        if not rows:
+            return ""
+        lines = ["\n\nFILES THE CREATOR DROPPED INTO THIS CONVERSATION:"]
+        for r in rows:
+            where = f" (already filed: {r['filed_as']})" if r.get("filed_as") else " (not filed anywhere yet)"
+            lines.append(f"- [{r['kind']}] {r['summary']}{where}")
+        return "\n".join(lines)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: assets brief failed: %s", e)
+        return ""
 
 
 def _selections_to_text(selections: dict[str, Any]) -> str:
@@ -2221,6 +2345,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         + await _reference_brief(state, state.get("pending_reference_url"))
         + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
+        + await _assets_brief(tenant_id, state)
     )
     data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
     await _stamp_length_default(data, tenant_id)
@@ -2795,6 +2920,8 @@ async def chat_turn(
     if body.selections:
         user_parts.append(_selections_to_text(body.selections))
         state.setdefault("selections", {}).update(body.selections)
+    if body.attachments:
+        await _attach_assets(tenant_id, conversation_id, body.attachments, state, user_parts)
 
     if not user_parts:
         # Nothing said yet. For a RETURNING, onboarded creator opening a FRESH
@@ -2852,6 +2979,7 @@ async def chat_turn(
         + await _reference_brief(state, state.get("pending_reference_url"))
         + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
+        + await _assets_brief(tenant_id, state)
     )
     data = call_producer(transcript, system_prompt, api_key=api_key)
     await _stamp_length_default(data, tenant_id)
