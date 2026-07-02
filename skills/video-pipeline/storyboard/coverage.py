@@ -346,6 +346,28 @@ async def resolve_cast_url(cast_url, image_client, *, cast_prompt=None, story_bi
     return url
 
 
+def enforce_shot_budget(moments: list, max_moments: int, angles_max: int) -> list:
+    """HARD shot budget (D1): the directive prompt ASKS for at most max_moments
+    and angles_max angles, but the planner is an LLM and overshoots (observed
+    live: 17 moments / 35 frames against a 12/0 budget). Enforce in code BEFORE
+    any drawing spend: trim extra angles per moment, then drop tail moments past
+    the cap. Dialogue lines are never lost — the caller's reconcile folds
+    overflow turns onto the last speaking shot."""
+    planned = sum(1 + len(m.get("angles") or []) for m in moments)
+    for m in moments:
+        if isinstance(m.get("angles"), list) and len(m["angles"]) > angles_max:
+            m["angles"] = m["angles"][:angles_max]
+    if len(moments) > max_moments:
+        moments = moments[:max_moments]
+        for i, m in enumerate(moments, start=1):
+            m["moment_number"] = i
+    budgeted = sum(1 + len(m.get("angles") or []) for m in moments)
+    if budgeted < planned:
+        print(f"  [budget] planner wanted {planned} frames — trimmed to {budgeted} "
+              f"(max {max_moments} moments, {angles_max} angles each)", flush=True)
+    return moments
+
+
 async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_prompt=None,
                        video_title="", profile=None, story_bible=None, beat_scenes=None,
                        env_url=None, image_prompts=None, directive_text=None,
@@ -375,6 +397,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     moments = parse_coverage(directive_text)
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
+    moments = enforce_shot_budget(moments, max_moments, angles_max)
 
     # Draw all moments CONCURRENTLY (each: master first, then its angles in parallel),
     # with one shared semaphore capping total in-flight Kie image gens. Collapses ~12
