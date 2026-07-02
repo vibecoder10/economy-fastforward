@@ -153,8 +153,13 @@ def summarize_asset(
         cols = ", ".join(headers[:6]) + ("…" if len(headers) > 6 else "")
         rows = p.get("rows") or []
         col = p.get("title_column")
-        first = (rows[0].get(col) or next(iter(rows[0].values()), "")) if rows else ""
-        looks = f'; looks like a list of video titles (e.g. "{first}")' if col and first else ""
+        looks = ""
+        if col and rows:
+            titles = [t for t in (r.get(col, "").strip() for r in rows[:8]) if t]
+            if titles:
+                shown = "; ".join(f'"{t}"' for t in titles)
+                more = f" (+{n - len(titles)} more)" if n > len(titles) else ""
+                looks = f"; looks like a list of video titles: {shown}{more}"
         return f'"{name}" — a CSV with {n} rows, columns: {cols}{looks}.'
     if kind in ("pdf", "text"):
         text = (parsed_text or "").strip()

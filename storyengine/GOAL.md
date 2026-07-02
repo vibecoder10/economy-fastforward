@@ -123,7 +123,7 @@ files into the home chat and the chat files them into the engine (full plan appr
 branch feat/chat-asset-intake). Decisions: CSV->queue first; autopilot drains the queue before its
 own scored picks; locked cast on Profile/Visual Styles with a Lock toggle; ONE house script
 template per channel.
-- F1 intake layer: upload + parse (csv/pdf/text/image, chat_assets, mig 073) + producer awareness. `[in progress]`
+- F1 intake layer: upload + parse (csv/pdf/text/image, chat_assets, mig 073) + producer awareness. `[done]` Proven on prod 2026-07-02: CSV + PDF uploaded via /api/chat/upload, rows stored+bound+Drive-backed, producer described both correctly and honestly said filing isn't wired yet.
 - F2 production queue: CSV -> ordered calendar queue -> autopilot consumes queue-first (mig 074). `[todo]`
 - F3 verbatim user script: use a supplied script, skip generation (videos.script_source, mig 075). `[todo]`
 - F4 house script template: analyze an example, apply to every generated script (mig 076). `[todo]`
@@ -196,6 +196,12 @@ any clip spend.
 - Multi-language until the Slow Spanish channel is the active model.
 
 ## Log
+- 2026-07-02: Phase F started (chat asset intake, plan approved). F1 SHIPPED + PROVEN on prod
+  (main @ 5f8bca95, deployed via the new scripts/vps-deploy.sh): drop a CSV/PDF into home chat,
+  chat_assets row + Drive copy + honest producer read-back all verified live. Also shipped the
+  VPS deploy coordination protocol (deploy.lock + single deploy script + CLAUDE.md rule,
+  main @ d100e51f) after sessions kept restarting over each other's builds. Next: F2 production
+  queue.
 - 2026-06-30: Re-centered GOAL on the intelligence command center. Shipped (backend, prod): chat
   models outside videos on real YouTube Data API data (fixed the generic-channel fallback); full
   profile control from chat (add/remove competitors + edit channel name/niche/audience/look);
