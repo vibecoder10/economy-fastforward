@@ -1,77 +1,113 @@
-# HANDOFF - StoryEngine v2 director pass (start here, cold)
+# HANDOFF - 2026-07-02 (chat asset intake day + the hybrid dialogue chain)
 
-(The prior chat-first-producer handoff is preserved as `HANDOFF.md.bak-20260624-222018`.)
+(The prior director-pass handoff is preserved as `HANDOFF.md.bak-20260702-153439`.)
 
-You are picking up a full correctness pass on StoryEngine. Read these three, in order, before
-touching code:
-1. `storyengine/GOAL.md` - the plan (root cause, 9-subsystem state table, grok-imagine rules,
-   Phases 0-10, the acceptance gate).
-2. `storyengine/AUDIT-2026-06-24.md` - the receipts (every gap with file:line evidence).
-3. Memory: `storyengine-goal-v2-director-pass` (the one-paragraph version).
+Written at the end of a very large session. Read this + GOAL.md Phase F, then go.
+Prod is main @ 2b5b8ea2, everything below deployed and live.
 
-## The prime directive
-There is ONE root cause: two parallel pipelines drifted apart, and the live "coverage" path is
-missing the old "grid" path's director machinery. **Do not patch symptoms on whichever file you
-land on.** Unify on the coverage path first (Phase 0), then port machinery INTO it. Every claim of
-"done" must be backed by a REAL run (a screenshot or a DB query), never a self-test - a broken
-self-test asserting a stale string is exactly how this codebase accumulated fake "fixed."
+## THE NEXT TASK: the performance-track assembler (Ryan said build it)
 
-## Guardrails (do not cross without Ryan)
-- **Work on the branch `feat/director-pass`** (created off `feat/chat-first-producer`/`main`). Do
-  NOT push risky pipeline changes to `origin/main` or deploy them to the live VPS while Ryan is
-  away. Plan-doc commits to main are fine; code that changes what users see is not.
-- **No spending.** Every paid step (image gen, clip gen, render) is Ryan's call. The only
-  authorized spend is the Phase 10 Scene-1 proof, and only after Ryan eyeballs the storyboard.
-- **The acceptance gate is Ryan's eyes.** Phase 10 does not "pass" on code logic; it passes when
-  Ryan sees a Scene-1 storyboard that shows the angles, progresses the story, and defines
-  characters + scene well.
+The hybrid bilingual format (characters speak Spanish, narrator teaches in English)
+works end to end EXCEPT the final render. Three correct pieces exist with nothing
+assembling them:
 
-## Environment cheatsheet
-- Local repo: `~/economy-fastforward`. StoryEngine in `storyengine/backend`, `storyengine/frontend`,
-  and `skills/video-pipeline`.
-- Prod: `ssh storyengine-vps`. Deploy repo there: `~/projects/economy-fastforward` (branch `main`).
-- DB URL on the VPS (read-only checks): `export DATABASE_URL=$(tr "\0" "\n" <
-  /proc/$(pgrep -f uvicorn | head -1)/environ | grep ^DATABASE_URL= | cut -d= -f2-)`; run queries
-  with `./venv/bin/python` from `storyengine/backend`. No `psql` on the box.
-- Owner tenant: `ee93e6d1-a9cc-44c3-81e9-84adee8329aa` (ryan.ayler@gmail.com, plan `unlimited`).
-- Deploy flow (only when Ryan approves): push `origin/main` from local -> on VPS `git fetch` +
-  `git merge --ff-only origin/main` -> `npm run build` (frontend only) -> `kill -9` the uvicorn
-  MainPID (SIGTERM hangs) and let systemd revive it -> confirm `/api/health` 200.
-- Verification reality: local preview CANNOT reach authed pages. For frontend changes verify with
-  `tsc` + `next build`; for backend with `py_compile` + the unit tests under
-  `skills/video-pipeline/tests` and `storyengine/backend`. True behavior proof needs a (gated) prod
-  run.
+1. Narrator scene MP3 - teaching/narration ONLY (voice/run.py `narration_text` strips
+   speaker lines + markdown for dialogue-mode videos).
+2. Per-line character audio - `scripts.dialogue_segments` jsonb: ordered
+   [{type: narration|dialogue, speaker?, text, audio_url?, duration?}] per scene,
+   synthesized by backend/dialogue_voice.py (durations measured via mutagen).
+3. Lip-synced speaking shots - clip gen muxes each line's audio onto its clip
+   (pipeline_executor.py ~:2080, `mux_voice`; coverage assigns one master frame
+   per dialogue turn via assets.assigned_dialogue).
 
-## Execution order
-1. **Phase 0 - unify on coverage** (keystone). Until this is done the other phases have nowhere
-   solid to land. Includes the false-proof cleanup (broken self-test, stale comments, lying
-   docstrings).
-2. **Phase 1 - data foundation** (route onboarding + model-a-video through the YouTube Data API;
-   fail loud on missing key; stop writing views=0 rows; purge zero rows). Well-scoped, low-risk.
-   Can run alongside 2/3/4.
-3. **Phases 2, 3, 4** - director chat intelligence / style detect->apply / length from the
-   specific modeled video.
-4. **Phases 5-9** - port the director machinery into coverage: story progression, per-shot
-   timing, grok-imagine motion + @image, character lock + 1-per-scene, environment lock.
-5. **Phase 10** - the Scene-1 proof (Ryan's eyes + the only authorized spend).
+THE GAP: the voice_over render path (Remotion, `run_render` -> `run_render_bot`)
+times the whole scene off the narrator MP3 alone (render/run_audio_sync.py:
+Whisper word timestamps -> per-shot windows from each shot's sentence_text).
+Character lines have NO reserved time on that clock - and grep confirms NOTHING
+under skills/video-pipeline/render/ reads dialogue_segments. The stitch path
+(render_stitch.py, grok_native only) never lays narration at all.
 
-Each phase in GOAL.md has its own root fix, file:line targets, and a proof step. Follow them.
+DESIGN (agreed with Ryan): per scene, concatenate segment audio in timeline order
+(narrator seg -> Marco line -> narrator seg -> Sofia line...) into ONE scene track;
+time each shot's window to its segment's span (speaking shots show exactly while
+their line plays - mouths match because the talking clips were generated FROM that
+same audio; narration shots subdivide narrator segments sentence-wise like today).
+All clips play MUTED; the assembled track carries every voice. Build it so all
+render paths can use it; prove with a one-scene real render on the test video below.
+Estimated ~half a day incl. proof. Watch out: the old Remotion Scene.tsx
+"muted-clip + narrator" bug is why grok_native bypasses Remotion - decide whether to
+extend Remotion's config (narration_start/end fields already exist in
+render/audio_sync/render_config_writer.py) or assemble audio+windows and reuse the
+FFmpeg stitcher with an overlay track (likely simpler: stitch clips by window, then
+mux the assembled scene track over the video).
 
-## Definition of done (per phase)
-- Code changed at the ROOT (not a new band-aid layer), builds/tests green.
-- A real proof captured (screenshot or DB query), recorded in the morning report.
-- The change committed to `feat/director-pass` with a clear message.
-- GOAL.md phase tag flipped from `[todo]` to `[done <date>]` (or `[blocked: ...]`).
+## The live test video (Ryan's new channel)
 
-## Morning report (leave this for Ryan)
-At the end of the session, write a short report at `storyengine/HANDOFF-REPORT.md`:
-- What got done (per phase), with the proof for each.
-- What's staged on `feat/director-pass` and ready for his review + deploy.
-- What's blocked and why (be honest - "coded but unverified against prod" is a valid status).
-- The exact next action for him (e.g. "review the branch, deploy Phase 0, then run the Scene-1
-  proof for the spend").
+- Tenant: PocoAPoco's Workspace `44ecc95a-80f3-4261-8294-f963c03af2bd` (operate via
+  the command-center switcher; note X-Active-Tenant with a hand-minted token gets
+  "Not a member" - run engine fns in-process on the VPS instead).
+- Video: `9abb9d51-d9fd-41e3-9ad2-27a282fd9e7f` "El Niño Que Siempre Llegaba Tarde"
+  - Script: hybrid dialogue format (rewritten BY the copilot as a product test - it
+    nailed the format but changed the twist from abuela to broken-clock; Ryan hasn't
+    objected yet). 1 scene, 353 words.
+  - dialogue_mode=character_dialogue, 21 segments (Marco 4 lines, Sofia 2, narrator 15).
+    Voices auto-cast: Marco=Finn, Sofia=Emma - Ryan should LISTEN for Spanish accent
+    quality and maybe pin native voices before producing at volume.
+  - Scene-1 voice flag RESET (the first take read the raw text incl. labels - fixed);
+    "Create the voiceover" regenerates cleanly (~$0.30) and now reads teaching-only.
+  - Still owed on this video: approve Marco (Characters tab - Ryan may want him
+    redesigned as a man; the old kid-flag refusal is FIXED by the scrub, see below),
+    environments (or skip), then storyboard -> animate (this doubles as the D2 clip
+    proof Ryan wants to drive through the UI).
 
-## Do NOT
-- Mark anything "done" off a code smoke test.
-- Delete the old grid-path code before its replacement is proven; redirect first, delete last.
-- Deploy to live prod or spend money while Ryan is asleep.
+## Shipped + proven on prod today (details in GOAL.md Phase F log)
+
+1. Chat asset intake F1-F6 COMPLETE (drop CSV/PDF/character sheets into chat ->
+   production queue + autopilot drain / verbatim scripts / house script template /
+   locked cast / channel format lock). See memory `storyengine-chat-asset-intake`.
+2. Semantic scene split - unmarked scripts split one-beat-per-scene (verbatim-guarded).
+3. D1 per-scene shot budget - `_coverage_shape` + `enforce_shot_budget` trims the LLM
+   planner IN CODE before image spend (the planner provably ignores prompt caps).
+4. Kid-safe image prompts - `scrub_minor_terms` in shared/clients/image_client.py
+   rewrites minor words at the send boundary (Ryan's call: never say them, no
+   rerouting); planners also told appearance-only. GPT Image 2 stays the engine.
+5. Dialogue chain fixes: brief-path scripts now get dialogue-tagged (was: never ->
+   hybrid silently off); bold `**Marco:**` speaker labels parse as dialogue turns;
+   narrator VO reads narration only; Performance Track card on Script & Voice tab
+   shows the split before any spend.
+6. UI fixes: dock chat pins to newest content (confirm-card buttons rendered below
+   the fold - the "no button UI" bug, reproduced + fixed + verified); cast-gate
+   banner on the Scenes tab (designed-but-unapproved cast looked like a skipped step).
+7. VPS deploy coordination: deploys ONLY via storyengine/scripts/vps-deploy.sh
+   <session-name> [--with-frontend]; ~/deploy.lock guards prod work; rule lives in
+   the repo CLAUDE.md. Used for ~15 deploys today, zero collisions.
+
+## Working setup (do it this way)
+
+- Build in the git worktree `~/economy-fastforward-intake`, branch
+  `feat/chat-asset-intake`; fold to main only deploy-ready; other agents share the
+  main tree. Worktree frontend needs .env.local copied from the main checkout and an
+  APFS-cloned node_modules (cp -Rc; symlinks break Turbopack).
+- Verify frontend with tsc + next build (local preview can't reach authed pages);
+  real proofs on prod via scp'd python scripts run with
+  `cd backend && PYTHONPATH=. venv/bin/python ...` (import pipeline_executor first
+  when you need skills/ modules like voice.run or shared.clients).
+- Mint tokens: memberships JOIN ON user_id (not account_id); 2h expiry; `$$` in
+  ssh-heredoc SQL gets eaten by bash - scp script files instead.
+- New producer chat ops MUST go into producer_prompt.py's OUTPUT FORMAT schema (not
+  just prose) or the model invents sibling keys; the app appends truthful result
+  lines - the producer must never claim success itself.
+
+## Open follow-ups (after the assembler)
+
+- Pin Spanish-native voices for PocoAPoco's cast; then save-to-project + LOCK the
+  cast (Profile -> Channel cast) so the channel runs hands-free.
+- Same-speaker turns separated by narration currently MERGE into one speaking shot
+  (coverage `_dialogue_turns`) - may want them separate for the echo format.
+- House script template should DOMINATE the writer stage (F4 caveat - it rides the
+  system prompt and competes with brief_translator's act machinery).
+- Copilot verb gap: "change the character's design prompt" fumbles (it only knows
+  image-prompt edits on existing assets).
+- Dock attachments (chat file-drop is home-only); shorts repurposing (G4 leftover).
+- Ryan-owed: publish the Google OAuth consent screen (BLOCKS new-user onboarding);
+  reconnect the real YouTube channel before real uploads.
