@@ -3719,9 +3719,7 @@ separate scenes."""
         Returns the completed result dict, or None to fall through to the
         legacy from-scratch designer (no own thumbnails / no Claude creds)."""
         import json as _json_cf
-        from routes.model_video import (
-            _resolve_claude_creds, _describe_thumbnail_style,
-            _model_thumbnail_prompt, _fetch_channel_brand)
+        from routes.model_video import _resolve_claude_creds, _describe_thumbnail_style
 
         bot_name = "Thumbnail Bot"
         top = await fetch_one(
@@ -3757,10 +3755,12 @@ separate scenes."""
             except Exception:  # noqa: BLE001 — cache is a bonus
                 pass
 
-        # The blueprint reads ONE thumbnail — a single sample can mis-read a
-        # detail (DVU's gray-vs-white background, seen live). The identity's
-        # thumbnail_style is the 3-thumbnail consensus: append it as the
-        # tie-breaker so channel-wide constants (background, palette) win.
+        # Channel constants the model must not reinterpret:
+        # 1) consensus formula (3-thumbnail extraction) as the style tie-breaker;
+        # 2) the REAL background color, MEASURED as the median of a border ring
+        #    on the maxres thumbnail (corner-averaging a letterboxed hqdefault
+        #    sampled salmon-pink, live on DVU — median ring on maxres is robust).
+        consensus = ""
         try:
             row = await fetch_one(
                 "SELECT channel_identity->'thumbnail_style' AS ts "
@@ -3769,52 +3769,66 @@ separate scenes."""
             if isinstance(ts, str):
                 ts = _json_cf.loads(ts)
             if isinstance(ts, dict) and ts:
-                blueprint = (
-                    blueprint
-                    + "\n\nCHANNEL CONSENSUS FORMULA (extracted from the "
-                    "channel's top 3 thumbnails — on ANY conflict with the "
-                    "blueprint above, especially background and colors, THIS "
-                    "wins):\n" + _json_cf.dumps(ts, indent=1)
-                )
-        except Exception:  # noqa: BLE001 — consensus is a bonus
+                consensus = _json_cf.dumps(ts, indent=1)
+        except Exception:  # noqa: BLE001
+            pass
+        hexbg = await self._measure_channel_thumb_bg()
+
+        # This video's REAL subject(s): the machines from the static segments.
+        subjects = ""
+        seed = None
+        try:
+            rows = await fetch_all(
+                "SELECT image_url, caption FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+                "AND image_url IS NOT NULL AND generation_method='static_docu' "
+                "ORDER BY scene", video_id, self.tenant_id)
+            names = []
+            for r in rows:
+                cap = r.get("caption")
+                if isinstance(cap, str):
+                    cap = _json_cf.loads(cap)
+                if isinstance(cap, dict) and cap.get("title"):
+                    names.append(cap["title"])
+            subjects = ", ".join(names[:5])
+            if rows:
+                seed = rows[0].get("image_url")
+        except Exception:  # noqa: BLE001
             pass
 
         await self._log_activity(
             bot_name, video_id, "started",
             "Modeling the channel's own thumbnail formula onto this video")
-        # A creator-edited prompt always wins (Regenerate refines it).
-        prompt = (video.get("thumbnail_prompt") or "").strip()
-        if not prompt:
-            brand = await _fetch_channel_brand(self.tenant_id)
-            prompt = await _model_thumbnail_prompt(
-                creds, blueprint, video.get("video_title") or "", brand, "", False)
-        if not prompt:
-            return None
 
-        # Color words drift ("white" renders gray; a hedged formula gives the
-        # model license) — so MEASURE the real background from the channel's
-        # own thumbnail pixels and pin it as an exact hex. Deterministic.
-        try:
-            import io as _io_cf
-            import httpx as _httpx_cf
-            from PIL import Image as _Image_cf
-            async with _httpx_cf.AsyncClient(timeout=30.0, follow_redirects=True) as c:
-                rr = await c.get(top["thumbnail_url"])
-                rr.raise_for_status()
-            im = _Image_cf.open(_io_cf.BytesIO(rr.content)).convert("RGB")
-            w, h = im.size
-            pts = [(8, 8), (w - 9, 8), (8, h - 9), (w - 9, h - 9), (w // 2, 8)]
-            rgb = [im.getpixel(p) for p in pts]
-            avg = tuple(sum(ch[i] for ch in rgb) // len(rgb) for i in range(3))
-            hexbg = "#%02X%02X%02X" % avg
-            prompt = (
-                prompt
-                + f"\n\nBACKGROUND (exact, non-negotiable): a clean uniform "
-                f"studio backdrop of exactly {hexbg} — this hex was sampled "
-                "from the channel's real thumbnails. Do not darken it."
-            )
-        except Exception:  # noqa: BLE001 — sampling is a bonus
-            pass
+        # A creator-edited prompt always wins (Regenerate refines it). It can be
+        # the full structured JSON spec (preferred, editable field-by-field) or
+        # plain text — both work.
+        saved = (video.get("thumbnail_prompt") or "").strip()
+        spec = None
+        gen_prompt = None
+        if saved:
+            if saved.startswith("{"):
+                try:
+                    spec = _json_cf.loads(saved)
+                except ValueError:
+                    gen_prompt = saved
+            else:
+                gen_prompt = saved
+        if spec is None and gen_prompt is None:
+            spec = await self._transform_channel_thumbnail_spec(
+                creds, blueprint, consensus, hexbg,
+                video.get("video_title") or "", subjects)
+        if spec is not None:
+            gen_prompt = (spec.get("prompt") or "").strip()
+            neg = (spec.get("negative_prompt") or "").strip()
+            if neg:
+                gen_prompt += f"\n\nAvoid (negative prompt): {neg}"
+            bg = ((spec.get("color_palette") or {}).get("background") or "").strip()
+            if bg:
+                gen_prompt += f"\n\nBACKGROUND (exact, non-negotiable): {bg}."
+        if not gen_prompt:
+            return None
+        # What the creator sees/edits in the UI prompt box: the full spec.
+        stored_prompt = (_json_cf.dumps(spec, indent=2) if spec is not None else gen_prompt)
 
         client = self._pipeline.image_client
         thumb_ar = video.get("aspect_ratio") or "16:9"
@@ -3823,18 +3837,15 @@ separate scenes."""
         # one exists (static docs: the real featured machine in the channel's
         # studio look) so the thumbnail shows our actual subject, not an
         # invented one. Text-to-image is the fallback.
-        seed = await fetch_one(
-            "SELECT image_url FROM assets WHERE video_id=$1 AND tenant_id=$2 "
-            "AND image_url IS NOT NULL AND generation_method='static_docu' "
-            "ORDER BY scene LIMIT 1", video_id, self.tenant_id)
         res = None
-        if seed and seed.get("image_url"):
+        if seed:
             res = await client.generate_thumbnail_gpt2(
-                prompt + "\nUse the machine in the reference image as the "
-                "thumbnail's subject — same vehicle, same configuration.",
-                [seed["image_url"]], aspect_ratio=thumb_ar)
+                gen_prompt + "\nUse the machine in the reference image as the "
+                "thumbnail's subject — same vehicle, same configuration, no "
+                "invented markings.",
+                [seed], aspect_ratio=thumb_ar)
         if not (res or {}).get("url"):
-            res = await client.generate_scene_image_gpt(prompt, None, aspect_ratio=thumb_ar)
+            res = await client.generate_scene_image_gpt(gen_prompt, None, aspect_ratio=thumb_ar)
         url = (res or {}).get("url")
         if not url:
             await self._log_activity(
@@ -3846,12 +3857,123 @@ separate scenes."""
         await execute(
             "UPDATE videos SET thumbnail_url = $1, thumbnail_prompt = $2, "
             "updated_at = now() WHERE id = $3 AND tenant_id = $4",
-            durable, prompt, video_id, self.tenant_id)
+            durable, stored_prompt, video_id, self.tenant_id)
         await self._log_activity(
             bot_name, video_id, "completed",
             "Thumbnail modeled from the channel's own formula")
         return {"status": "completed", "video_id": video_id,
                 "thumbnail_url": durable}
+
+    async def _measure_channel_thumb_bg(self) -> Optional[str]:
+        """The channel's real thumbnail background color as an exact hex.
+
+        Median of a border ring sampled on the MAXRES thumbnail of the top
+        video (median beats averaging: compression noise and letterbox bars
+        can't drag it; near-black letterbox pixels are dropped explicitly).
+        Returns None when unmeasurable — callers must treat it as optional."""
+        try:
+            import io as _io_bg
+            import httpx as _httpx_bg
+            from PIL import Image as _Image_bg
+
+            top = await fetch_one(
+                "SELECT video_id, thumbnail_url FROM channel_videos "
+                "WHERE tenant_id = $1 AND thumbnail_url IS NOT NULL "
+                "ORDER BY view_count DESC NULLS LAST LIMIT 1", self.tenant_id)
+            if not top:
+                return None
+            urls = []
+            if top.get("video_id"):
+                urls.append(f"https://i.ytimg.com/vi/{top['video_id']}/maxresdefault.jpg")
+            urls.append(top.get("thumbnail_url"))
+            data = None
+            async with _httpx_bg.AsyncClient(timeout=30.0, follow_redirects=True) as c:
+                for u in urls:
+                    if not u:
+                        continue
+                    rr = await c.get(u)
+                    if rr.status_code == 200 and len(rr.content) > 5000:
+                        data = rr.content
+                        break
+            if not data:
+                return None
+            im = _Image_bg.open(_io_bg.BytesIO(data)).convert("RGB")
+            w, h = im.size
+            inset = max(6, w // 100)
+            pts = []
+            for i in range(12):
+                x = inset + (w - 2 * inset) * i // 11
+                pts += [(x, inset), (x, h - 1 - inset)]
+            for i in range(6):
+                y = inset + (h - 2 * inset) * i // 5
+                pts += [(inset, y), (w - 1 - inset, y)]
+            cols = [im.getpixel(p) for p in pts]
+            lit = [c for c in cols if sum(c) > 60]  # drop letterbox bars
+            cols = lit or cols
+            med = tuple(sorted(c[i] for c in cols)[len(cols) // 2] for i in range(3))
+            return "#%02X%02X%02X" % med
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def _transform_channel_thumbnail_spec(
+        self, creds: dict, blueprint: str, consensus: str,
+        hexbg: Optional[str], title: str, subjects: str,
+    ) -> Optional[dict]:
+        """Blueprint + consensus + measured constants + OUR topic -> the FULL
+        structured thumbnail spec (format/style/scene/objects/composition/
+        text/color_palette/prompt/negative_prompt). The spec is the editable
+        source of truth; the flat generation prompt is derived from it."""
+        import json as _json_ts
+        from routes.model_video import _call_claude, _strip_code_fences
+
+        brand = ""
+        try:
+            from routes.model_video import _fetch_channel_brand
+            brand = await _fetch_channel_brand(self.tenant_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+        ask = (
+            "You design YouTube thumbnails by MODELING a channel's proven formula "
+            "onto a new video — never copying the reference image, always rebuilding "
+            "its winning structure with our subject.\n\n"
+            f"CHANNEL BLUEPRINT (vision-extracted from its top thumbnail):\n{blueprint}\n\n"
+            + (f"CHANNEL CONSENSUS (across its top 3 thumbnails — wins any conflict "
+               f"with the blueprint):\n{consensus}\n\n" if consensus else "")
+            + (f"MEASURED CONSTANTS (authoritative, pixel-sampled from the channel's "
+               f"real thumbnails — override any color words above): background = a "
+               f"clean uniform studio backdrop of exactly {hexbg}.\n\n" if hexbg else "")
+            + f"OUR VIDEO TITLE: {title}\n"
+            + (f"OUR REAL SUBJECT(S): {subjects} — a reference image of the featured "
+               "machine is supplied at generation time; the spec must describe THAT "
+               "real machine, never an invented design.\n" if subjects else "")
+            + (f"CHANNEL BRAND: {brand}\n" if brand else "")
+            + "\nReply with ONE JSON object only, with EXACTLY these keys:\n"
+            '{"format": "youtube_thumbnail", "aspect_ratio": "16:9",\n'
+            ' "style": {"medium","look","lighting","mood"},\n'
+            ' "scene": {"setting","main_action","click_moment","focal_point","secondary_focal_point"},\n'
+            ' "objects": [{"object","description","position"}],\n'
+            ' "composition": {"camera","layout","depth_of_field","thumbnail_rules"},\n'
+            ' "text": {"primary_text": {"content","placement","style"},'
+            ' "secondary_text": {...}, "small_text": {...}},\n'
+            ' "color_palette": {"background","main_object","text_primary","text_secondary","badge","accent"},\n'
+            ' "prompt": "<one rich self-contained generation prompt consistent with every field above>",\n'
+            ' "negative_prompt": "<thorough>"}\n\n'
+            "Rules:\n"
+            "- Every field detailed and concrete (positions, sizes as % of frame, exact hexes).\n"
+            "- The subject is the REAL machine named above — accurate configuration, and "
+            "ABSOLUTELY NO invented text/stencils/markings on the vehicle.\n"
+            "- color_palette.background must be the measured hex verbatim when given.\n"
+            "- Text uses the channel's split-color treatment from the formula.\n"
+            "- The 'prompt' field must restate the background hex and the no-invented-text rule."
+        )
+        try:
+            raw = await _call_claude(ask, creds, tier="smart", max_tokens=4000)
+            spec = _json_ts.loads(_strip_code_fences(raw))
+            return spec if isinstance(spec, dict) and spec.get("prompt") else None
+        except Exception as e:  # noqa: BLE001
+            _logger.warning("channel thumbnail spec transform failed: %s", str(e)[:200])
+            return None
 
     async def _build_modeled_thumbnail_prompt(
         self, video_id: str, video: dict, ref_yt: str, has_cast: bool
