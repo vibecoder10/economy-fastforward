@@ -54,6 +54,13 @@ SELECT 1 WHERE EXISTS (
        OR final_video_url LIKE $1
 ) OR EXISTS (
     SELECT 1 FROM video_environments WHERE reference_url LIKE $1
+) OR EXISTS (
+    -- files dropped into the chat (character sheets need vision + cast-sheet
+    -- fetches BEFORE any video_characters row exists)
+    SELECT 1 FROM chat_assets WHERE storage_url LIKE $1
+) OR EXISTS (
+    -- the locked channel cast on the project (referenced by every new video)
+    SELECT 1 FROM projects WHERE character_references::text LIKE $1
 )
 """
 
