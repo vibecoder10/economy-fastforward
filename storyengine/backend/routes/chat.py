@@ -236,6 +236,24 @@ async def _attach_assets(tenant_id, conversation_id, asset_ids, state, user_part
         logger.warning("chat: attach assets failed: %s", e)
 
 
+async def _format_brief(tenant_id) -> str:
+    """The channel's kind of video (visual_format), locked or detected.
+    Fail-soft: empty when unknown."""
+    try:
+        from channel_format import get_channel_format
+        fmt, locked = await get_channel_format(tenant_id)
+        if not fmt:
+            return ""
+        bits = "; ".join(f"{k}: {v}" for k, v in fmt.items() if v)
+        if locked:
+            return (f"\n\nCHANNEL FORMAT (locked by the creator): {bits}. Every video is made "
+                    "in this format — don't propose formats that contradict it.")
+        return (f"\n\nCHANNEL FORMAT (detected, not locked): {bits}. If the creator confirms "
+                "this is how their channel works, emit set_channel_format to lock it.")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 async def _script_template_brief(tenant_id) -> str:
     """One line telling the producer the channel's saved house script format.
     Fail-soft: empty string when none."""
@@ -1824,6 +1842,19 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     "character sheets and skips character generation — they're brand assets now. "
                     "Manage them under Profile → Channel cast."
                 )
+            elif kind == "set_channel_format":
+                # value: {"style": ..., "motion": ..., "segmentation": ..., "on_camera": ...}
+                raw = op.get("value") if isinstance(op.get("value"), dict) else {}
+                from channel_format import FORMAT_FIELDS, set_channel_format, style_preset_for_format
+                fields = {k: raw.get(k) for k in FORMAT_FIELDS if raw.get(k)}
+                if not fields:
+                    results.append("Tell me the format in a sentence and I'll lock it in — e.g. \"animated 2D dialogue scenes, no one on camera\".")
+                    continue
+                fmt = await set_channel_format(tenant_id, fields)
+                preset = style_preset_for_format(fmt)
+                bits = "; ".join(f"{k}: {v}" for k, v in fmt.items() if v)
+                extra = f" New videos default to the {preset} look." if preset else ""
+                results.append(f"Locked your channel format ({bits}).{extra} Every build shapes itself to it.")
             elif kind in _PROFILE_FIELD_COLS:
                 if not val:
                     continue
@@ -3166,6 +3197,7 @@ async def chat_turn(
         + await _reference_brief(state, state.get("pending_reference_url"))
         + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
+        + await _format_brief(tenant_id)
         + await _script_template_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
     )

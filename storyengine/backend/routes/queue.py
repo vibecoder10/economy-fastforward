@@ -202,9 +202,12 @@ async def launch_queue_item(tenant_id, item: dict, background_tasks=None) -> dic
             "WHERE id = $2 AND tenant_id = $3",
             video_id, item_id, tenant_id,
         )
-        # House script format rides every queued launch (fail-soft inside).
+        # House script format + locked channel format ride every queued launch
+        # (both fail-soft inside).
         from routes.script_templates import apply_default_template
         await apply_default_template(tenant_id, video_id)
+        from channel_format import apply_format_defaults
+        await apply_format_defaults(tenant_id, video_id)
         # A queue item can carry the creator's own script — install it verbatim
         # now so run_script skips generation (script_source='user_supplied').
         if (item.get("user_script") or "").strip():

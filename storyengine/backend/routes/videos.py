@@ -286,6 +286,13 @@ async def create_video(
     except Exception as e:
         logging.getLogger(__name__).warning("apply script template failed: %s", e)
 
+    # Locked channel format: default the look when the creator didn't pick one.
+    try:
+        from channel_format import apply_format_defaults
+        await apply_format_defaults(tenant_id, str(row["id"]))
+    except Exception as e:
+        logging.getLogger(__name__).warning("apply format defaults failed: %s", e)
+
     # Lock the chosen look in as the channel identity (preset/custom path; the
     # clone path locks in later, when modeling writes the DNA — see model_video).
     if body.lock_in_identity and style_override and not is_modeled:
