@@ -138,9 +138,9 @@ def _parse_json_array(text: str) -> Optional[list]:
         return None
 
 
-async def find_commons_photo(query: str) -> Optional[str]:
-    """A real photograph of the machine from Wikimedia Commons (keyless API).
-    Returns a ~1600px-wide image URL, or None. Skips non-photo formats."""
+async def find_commons_photos(query: str, limit: int = 3) -> list[str]:
+    """Real photographs of the machine from Wikimedia Commons (keyless API).
+    Returns up to `limit` candidate image URLs (~1600px), best first."""
     try:
         async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA) as c:
             r = await c.get(_COMMONS_API, params={
@@ -151,25 +151,81 @@ async def find_commons_photo(query: str) -> Optional[str]:
             titles = [h["title"] for h in hits
                       if h.get("title", "").lower().endswith((".jpg", ".jpeg", ".png"))]
             if not titles:
-                return None
+                return []
             r2 = await c.get(_COMMONS_API, params={
-                "action": "query", "titles": "|".join(titles[:4]),
+                "action": "query", "titles": "|".join(titles[:6]),
                 "prop": "imageinfo", "iiprop": "url|size",
                 "iiurlwidth": 1600, "format": "json"})
             r2.raise_for_status()
             pages = ((r2.json().get("query") or {}).get("pages") or {}).values()
-            best = None
+            out: list[str] = []
             for p in pages:
                 for ii in p.get("imageinfo") or []:
                     w, h = ii.get("width") or 0, ii.get("height") or 0
                     if w < 500 or h < 300:
                         continue  # thumbnails/icons — too small to reference
                     url = ii.get("thumburl") or ii.get("url")
-                    if url and best is None:
-                        best = url
-            return best
+                    if url:
+                        out.append(url)
+            return out[:limit]
     except Exception:  # noqa: BLE001 — reference lookup is best-effort
+        return []
+
+
+async def _host_reference(url: str, video_id: str, tenant_id: str,
+                          scene: int, idx: int) -> Optional[str]:
+    """Fetch the Commons photo OURSELVES (proper User-Agent — Wikimedia 403s
+    Kie's fetcher on raw file URLs) and re-host it on our storage. The image
+    client rewrites the stored Drive URL to the media proxy, so Kie always
+    fetches references from US, never from Wikimedia."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0, headers=_COMMONS_UA,
+                                     follow_redirects=True) as c:
+            r = await c.get(url)
+            r.raise_for_status()
+            data = r.content
+        if len(data) < 10_000:
+            return None
+        ext = "png" if url.lower().endswith(".png") else "jpg"
+        return await upload_bytes(
+            data, f"{video_id}/static/ref_S{scene:02d}_{idx}.{ext}",
+            "image/png" if ext == "png" else "image/jpeg", tenant_id)
+    except Exception:  # noqa: BLE001
         return None
+
+
+async def _vision_confirms(tenant_id: str, image_url: str, machine: str) -> bool:
+    """Cheap vision sanity check: does this photo actually show the machine?
+    Catches designation collisions (e.g. the RUSSIAN T-95 vs the US T95).
+    Fail-open — a broken checker must not block image generation."""
+    from vault import get_secret
+    from identity_builder import _KIE_CLAUDE_URL
+
+    try:
+        key = await get_secret("kie_ai_api_key", tenant_id)
+        if not key:
+            return True
+        from shared.clients.image_client import _kie_fetchable_url
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            r = await c.post(
+                _KIE_CLAUDE_URL,
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"},
+                json={"model": "claude-haiku-4-5", "max_tokens": 10,
+                      "messages": [{"role": "user", "content": [
+                          {"type": "text", "text":
+                           f"Does this photograph show the {machine} "
+                           "(or a prototype/mock-up of it)? Answer YES or NO only."},
+                          {"type": "image", "source": {"type": "url",
+                           "url": _kie_fetchable_url(image_url)}},
+                      ]}]},
+            )
+        body = r.json()
+        txt = " ".join(b.get("text", "") for b in body.get("content", [])
+                       if b.get("type") == "text").strip().upper()
+        return not txt.startswith("NO")
+    except Exception:  # noqa: BLE001
+        return True
 
 
 async def _scene_subjects(tenant_id: str, scenes: list[dict],
@@ -263,20 +319,52 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         caption_title = sub.get("caption_title") or machine
         caption_sub = sub.get("caption_sub") or "Prototype • US Army • canceled"
 
-        # 1) Find a REAL photo of the machine so the render is accurate.
+        # Placeholder row FIRST: the media proxy only serves file ids present
+        # in allowlisted DB columns, and the self-hosted reference must be
+        # proxy-fetchable during generation. image_url stays NULL until the
+        # real image exists, so a concurrent render can't pick up the raw ref.
+        row_id = str(uuid.uuid4())
+        await execute(
+            "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+            "AND generation_method=$4", video_id, tenant_id, sc, STATIC_RENDER_MODE)
+        await execute(
+            "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, "
+            "sentence_index, sentence_text, shot_type, video_title, aspect_ratio, "
+            "status, hero_shot, generation_method, caption) "
+            "VALUES ($1,$2,$3,$4,1,1,$5,'wide',$6,$7,'generating',true,$8,$9)",
+            row_id, tenant_id, video_id, sc, (s["scene_text"] or "")[:500],
+            v["video_title"], v["aspect"], STATIC_RENDER_MODE,
+            json.dumps({"title": caption_title, "sub": caption_sub}),
+        )
+
+        # 1) Find a REAL photo, SELF-HOST it (Wikimedia 403s Kie's fetcher),
+        #    and vision-check it actually shows this machine (designation
+        #    collisions like the Russian T-95 vs the US T95).
         ref_url = None
+        ref_src = None
+        candidates = []
         if sub.get("search_query"):
             _p(f"Segment {sc}: finding a real photo of the {machine}…")
-            ref_url = await find_commons_photo(sub["search_query"])
-            if not ref_url and machine:
-                ref_url = await find_commons_photo(machine)
+            candidates = await find_commons_photos(sub["search_query"])
+        if not candidates and machine:
+            candidates = await find_commons_photos(machine)
+        for idx, cand in enumerate(candidates):
+            hosted = await _host_reference(cand, video_id, tenant_id, sc, idx)
+            if not hosted:
+                continue
+            await execute(
+                "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, hosted)
+            if await _vision_confirms(tenant_id, hosted, machine):
+                ref_url, ref_src = hosted, cand
+                break
+            _p(f"Segment {sc}: candidate photo rejected (not the {machine})")
 
         # 2) Clean crisp studio render — image-to-image from the real photo
         #    when we have one, text-to-image only as the fallback.
         template = _STUDIO_PROMPT if ref_url else _STUDIO_PROMPT_NOREF
         prompt = template.format(machine=machine)
         _p(f"Segment {sc}/{len(scenes)}: rendering the studio image"
-           + (" (from real reference)" if ref_url else " (no reference found)") + "…")
+           + (" (from real reference)" if ref_url else " (no verified reference)") + "…")
         res = await ic.generate_scene_image_gpt(
             prompt, ref_url, aspect_ratio=v["aspect"])
         url = (res or {}).get("url")
@@ -287,6 +375,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 None, aspect_ratio=v["aspect"])
             url = (res or {}).get("url")
         if not url:
+            await execute("DELETE FROM assets WHERE id=$1", row_id)
             failed.append(str(sc))
             continue
         async with httpx.AsyncClient(timeout=120.0) as c:
@@ -296,19 +385,10 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         durable = await upload_bytes(
             data, f"{video_id}/static/S{sc:02d}.png", "image/png", tenant_id)
         await execute(
-            "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
-            "AND generation_method=$4", video_id, tenant_id, sc, STATIC_RENDER_MODE)
-        await execute(
-            "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, "
-            "sentence_index, sentence_text, image_prompt, shot_type, video_title, "
-            "aspect_ratio, status, image_url, drive_image_url, hero_shot, "
-            "generation_method, caption) "
-            "VALUES ($1,$2,$3,$4,1,1,$5,$6,'wide',$7,$8,'done',$9,$9,true,$10,$11)",
-            str(uuid.uuid4()), tenant_id, video_id, sc,
-            (s["scene_text"] or "")[:500],
-            (f"[ref: {ref_url}] " if ref_url else "") + prompt[:900],
-            v["video_title"], v["aspect"], durable, STATIC_RENDER_MODE,
-            json.dumps({"title": caption_title, "sub": caption_sub}),
+            "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
+            "image_prompt=$3 WHERE id=$1",
+            row_id, durable,
+            (f"[ref: {ref_src}] " if ref_src else "") + prompt[:900],
         )
         done += 1
     if not done:

@@ -3757,6 +3757,28 @@ separate scenes."""
             except Exception:  # noqa: BLE001 — cache is a bonus
                 pass
 
+        # The blueprint reads ONE thumbnail — a single sample can mis-read a
+        # detail (DVU's gray-vs-white background, seen live). The identity's
+        # thumbnail_style is the 3-thumbnail consensus: append it as the
+        # tie-breaker so channel-wide constants (background, palette) win.
+        try:
+            row = await fetch_one(
+                "SELECT channel_identity->'thumbnail_style' AS ts "
+                "FROM channel_profiles WHERE tenant_id = $1", self.tenant_id)
+            ts = (row or {}).get("ts")
+            if isinstance(ts, str):
+                ts = _json_cf.loads(ts)
+            if isinstance(ts, dict) and ts:
+                blueprint = (
+                    blueprint
+                    + "\n\nCHANNEL CONSENSUS FORMULA (extracted from the "
+                    "channel's top 3 thumbnails — on ANY conflict with the "
+                    "blueprint above, especially background and colors, THIS "
+                    "wins):\n" + _json_cf.dumps(ts, indent=1)
+                )
+        except Exception:  # noqa: BLE001 — consensus is a bonus
+            pass
+
         await self._log_activity(
             bot_name, video_id, "started",
             "Modeling the channel's own thumbnail formula onto this video")
