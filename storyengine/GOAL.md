@@ -115,8 +115,13 @@ moat for "10 customers actually using it."
 
 **Phase D - Depth (G3 + G4).** Explicit hook engineering; strategic calendar + shorts repurposing.
 
-**Phase E - Director remnants (parallel, cheap-first).** D1 shot budget (no spend, the real win),
-then the gated D2 Scene-1 clip proof (~$1-2).
+**Phase E - Director remnants (parallel, cheap-first).** D1 shot budget `[DONE 2026-07-02,
+main @ 5e415b56]`: _coverage_shape is the per-scene budget (dialogue = one master-only frame
+per turn + wide/cutaway, hard cap SCENE_FRAME_BUDGET=12; visual = 3 moments x 2-3 angles) AND
+enforce_shot_budget trims the planner's output in CODE before image spend - proven live: the
+planner ignored the prompt (16 moments/33 frames vs a 12/0 budget) and got trimmed to 12/12
+with zero dialogue lines lost. Worst-case image spend per chatty 8-scene video drops from
+~$14-20 to ~$5. REMAINING: the gated D2 Scene-1 clip proof (~$1-2) - Ryan drives via UI.
 
 **Phase F - Chat asset intake ("drop it in the chat"). [ALL 6 SHIPPED + PROVEN 2026-07-02, main @ d52606fa]** Creators drop
 files into the home chat and the chat files them into the engine (full plan approved 2026-07-02,
