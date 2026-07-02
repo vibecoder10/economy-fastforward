@@ -1025,12 +1025,15 @@ class PipelineExecutor:
             except Exception:  # noqa: BLE001 — context is a bonus, never a blocker
                 pass
 
-            # Run research
+            # Run research. record_id MUST be this video — without it the
+            # adapter creates a brand-new idea row (a stray duplicate video
+            # appeared in the workspace, seen live on DVU 2026-07-02).
             payload = await run_research(
                 anthropic_client=self._pipeline.anthropic,
                 topic=topic,
                 context=research_context,
                 airtable_client=self._pipeline.airtable,
+                record_id=video_id,
                 system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
             )
 

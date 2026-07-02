@@ -99,16 +99,18 @@ RESEARCH FACTS (source of truth):
 SEGMENTS:
 {segments}"""
 
+# Captions are NOT baked into the image — they render as a fixed Remotion
+# text overlay (assets.caption), so the Ken Burns pan can't crop them and the
+# model can't invent stencils/markings-as-text.
 _STUDIO_PROMPT = (
     "Studio product photograph of the {machine}, THE EXACT SAME machine as in "
     "the reference photo — keep its real proportions, configuration and "
     "details precisely accurate. Restored museum condition, centered full "
     "side profile on a seamless white-to-light-gray studio background, soft "
     "even lighting, ultra crisp and clean, subtle ground shadow. "
-    "In the lower right, elegant thin serif caption text: '{caption_title}' "
-    "in large light-gray letters, and below it smaller: '{caption_sub}'. "
-    "No other text, no watermark, no people. Neutral documentary presentation "
-    "of a static museum subject."
+    "ABSOLUTELY NO text, NO lettering, NO labels, NO watermark anywhere in "
+    "the image. No people. Neutral documentary presentation of a static "
+    "museum subject."
 )
 
 _STUDIO_PROMPT_NOREF = (
@@ -116,10 +118,9 @@ _STUDIO_PROMPT_NOREF = (
     "configuration. Restored museum condition, centered full side profile on "
     "a seamless white-to-light-gray studio background, soft even lighting, "
     "ultra crisp and clean, subtle ground shadow. "
-    "In the lower right, elegant thin serif caption text: '{caption_title}' "
-    "in large light-gray letters, and below it smaller: '{caption_sub}'. "
-    "No other text, no watermark, no people. Neutral documentary presentation "
-    "of a static museum subject."
+    "ABSOLUTELY NO text, NO lettering, NO labels, NO watermark anywhere in "
+    "the image. No people. Neutral documentary presentation of a static "
+    "museum subject."
 )
 
 _COMMONS_API = "https://commons.wikimedia.org/w/api.php"
@@ -273,8 +274,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # 2) Clean crisp studio render — image-to-image from the real photo
         #    when we have one, text-to-image only as the fallback.
         template = _STUDIO_PROMPT if ref_url else _STUDIO_PROMPT_NOREF
-        prompt = template.format(
-            machine=machine, caption_title=caption_title, caption_sub=caption_sub)
+        prompt = template.format(machine=machine)
         _p(f"Segment {sc}/{len(scenes)}: rendering the studio image"
            + (" (from real reference)" if ref_url else " (no reference found)") + "…")
         res = await ic.generate_scene_image_gpt(
@@ -283,9 +283,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         if not url and ref_url:
             # Reference path failed (fetch/policy) — retry without it.
             res = await ic.generate_scene_image_gpt(
-                _STUDIO_PROMPT_NOREF.format(
-                    machine=machine, caption_title=caption_title,
-                    caption_sub=caption_sub),
+                _STUDIO_PROMPT_NOREF.format(machine=machine),
                 None, aspect_ratio=v["aspect"])
             url = (res or {}).get("url")
         if not url:
@@ -304,12 +302,13 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, "
             "sentence_index, sentence_text, image_prompt, shot_type, video_title, "
             "aspect_ratio, status, image_url, drive_image_url, hero_shot, "
-            "generation_method) "
-            "VALUES ($1,$2,$3,$4,1,1,$5,$6,'wide',$7,$8,'done',$9,$9,true,$10)",
+            "generation_method, caption) "
+            "VALUES ($1,$2,$3,$4,1,1,$5,$6,'wide',$7,$8,'done',$9,$9,true,$10,$11)",
             str(uuid.uuid4()), tenant_id, video_id, sc,
             (s["scene_text"] or "")[:500],
             (f"[ref: {ref_url}] " if ref_url else "") + prompt[:900],
             v["video_title"], v["aspect"], durable, STATIC_RENDER_MODE,
+            json.dumps({"title": caption_title, "sub": caption_sub}),
         )
         done += 1
     if not done:

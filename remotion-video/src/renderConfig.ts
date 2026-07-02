@@ -64,6 +64,10 @@ export interface RenderScene {
     type?: "image" | "video";
     video_clip_path?: string;
     words?: WordTimestamp[];
+    // Static-documentary caption, rendered as a FIXED overlay (does not move
+    // with the Ken Burns pan): big serif name + smaller "type • operator • years".
+    caption_title?: string;
+    caption_sub?: string;
 }
 
 export interface MusicBed {

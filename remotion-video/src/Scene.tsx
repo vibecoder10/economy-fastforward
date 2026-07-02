@@ -169,6 +169,8 @@ export const Scene: React.FC<SceneProps> = ({
                             kenBurns={rs?.ken_burns}
                             transitionIn={rs?.transition_in}
                             transitionOut={rs?.transition_out}
+                            captionTitle={rs?.caption_title}
+                            captionSub={rs?.caption_sub}
                         />
                         {/* Per-image sound effect — plays for exactly the image duration */}
                         {img?.sfx && (
@@ -277,7 +279,9 @@ const DynamicImage: React.FC<{
     kenBurns?: Record<string, unknown>;
     transitionIn?: Record<string, unknown>;
     transitionOut?: Record<string, unknown>;
-}> = ({ imageFile, motionIndex, segmentDurationFrames, kenBurns, transitionIn, transitionOut }) => {
+    captionTitle?: string;
+    captionSub?: string;
+}> = ({ imageFile, motionIndex, segmentDurationFrames, kenBurns, transitionIn, transitionOut, captionTitle, captionSub }) => {
     // Inside Sequence: frame is already relative to segment start
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
@@ -398,6 +402,32 @@ const DynamicImage: React.FC<{
                     transform: `scale(${scale}) translate(${translateX}px, ${translateY}px)`,
                 }}
             />
+            {/* Static-documentary caption — FIXED position (sibling of the
+                transformed image, so it never moves with the Ken Burns pan),
+                inherits this segment's fade transitions via the parent. */}
+            {captionTitle && (
+                <div
+                    style={{
+                        position: "absolute",
+                        right: 90,
+                        bottom: 70,
+                        textAlign: "right",
+                        fontFamily: "Georgia, 'Times New Roman', serif",
+                        color: "#6e6e6e",
+                        textShadow: "0 0 14px rgba(255,255,255,0.85)",
+                        lineHeight: 1.25,
+                    }}
+                >
+                    <div style={{ fontSize: 74, fontWeight: 400, letterSpacing: 1 }}>
+                        {captionTitle}
+                    </div>
+                    {captionSub && (
+                        <div style={{ fontSize: 30, fontWeight: 400, opacity: 0.9, marginTop: 6 }}>
+                            {captionSub}
+                        </div>
+                    )}
+                </div>
+            )}
         </AbsoluteFill>
     );
 };

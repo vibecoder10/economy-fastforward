@@ -222,8 +222,18 @@ async def create_video(
     else:
         skip_research = body.skip_research
         skip_voice = body.skip_voice
+    writer_guidance = body.writer_guidance
     if render_mode == STATIC_RENDER_MODE:
         skip_voice = False
+        # Exact-figures documentary voice: facts come from the research payload
+        # (the factual gate enforces it), but the NARRATION must not read its
+        # citations aloud — "according to Wikipedia" is not this format's voice.
+        writer_guidance = ((writer_guidance or "") + (
+            "\n\nATTRIBUTION STYLE: State facts directly with authority. Never "
+            "say 'according to Wikipedia' or cite websites/blogs aloud. If a "
+            "claim needs an on-air source, attribute it to the institution "
+            "(the Army, Congress, GAO, the program office) — otherwise let the "
+            "research-verified figure stand on its own.")).strip()
 
     # Optional "copy this video's style" reference (Create-form modeling path).
     # When a valid YouTube link is given, the video is created in "modeled" mode:
@@ -261,7 +271,7 @@ async def create_video(
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, source_val, body.framework_angle,
-        body.video_length_minutes, body.writer_guidance, body.visual_style, style_override, body.accent_color,
+        body.video_length_minutes, writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
         render_mode,
     )

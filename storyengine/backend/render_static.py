@@ -81,7 +81,7 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
     master/hero frame -> any image for the scene (lowest index).
     """
     scenes = await fetch_all(
-        "SELECT scene, voice_over_url, voice_duration_seconds FROM scripts "
+        "SELECT scene, scene_text, voice_over_url, voice_duration_seconds FROM scripts "
         "WHERE video_id=$1 AND tenant_id=$2 AND scene IS NOT NULL "
         "AND voice_over_url IS NOT NULL ORDER BY scene",
         video_id, tenant_id,
@@ -92,7 +92,7 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
             "put the voiceover under the images)."
         )
     images = await fetch_all(
-        "SELECT scene, image_index, image_url, generation_method, hero_shot "
+        "SELECT scene, image_index, image_url, generation_method, hero_shot, caption "
         "FROM assets WHERE video_id=$1 AND tenant_id=$2 AND image_url IS NOT NULL "
         "ORDER BY scene, image_index",
         video_id, tenant_id,
@@ -118,11 +118,19 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
         if not img:
             missing.append(str(s["scene"]))
             continue
+        caption = img.get("caption")
+        if isinstance(caption, str):
+            try:
+                caption = json.loads(caption)
+            except (ValueError, TypeError):
+                caption = None
         segments.append({
             "scene": s["scene"],
+            "scene_text": s.get("scene_text") or "",
             "voice_url": s["voice_over_url"],
             "voice_duration": float(s["voice_duration_seconds"] or 0),
             "image_url": img["image_url"],
+            "caption": caption if isinstance(caption, dict) else None,
         })
     if missing:
         raise RuntimeError(
@@ -147,6 +155,7 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
     cursor = 0.0
     for i, seg in enumerate(segments):
         dur = round(seg["duration"], 4)
+        cap = seg.get("caption") or {}
         scenes.append({
             "scene_number": seg["scene"],
             "image_path": f"Scene_{seg['scene']:02d}_01.png",
@@ -162,6 +171,9 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
             # (the format's "music swell" beats) via the transition engine.
             "act": min(6, (i * 6) // max(n, 1) + 1),
             "type": "image",
+            # Fixed text overlay (Scene.tsx) — never moves with the pan.
+            "caption_title": cap.get("title") or "",
+            "caption_sub": cap.get("sub") or "",
         })
         cursor += dur
     assign_ken_burns(scenes)
@@ -190,6 +202,63 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
     }
 
 
+_MUSIC_LIB_DIR = _REMOTION_DIR / "public" / "music"
+
+
+async def _select_music_beds(tenant_id: str, segments: list[dict],
+                             rc: dict, public_dir: Path) -> list[dict]:
+    """Per-act background music from the local library (mood-tagged files like
+    'tension_dark_horizon_1.mp3'). One Claude call classifies each act's mood;
+    a deterministic fallback alternates moods if that fails. Chosen tracks are
+    copied into this render's isolated public dir. Never raises — a render
+    without music beats no render."""
+    try:
+        tracks = [p.name for p in _MUSIC_LIB_DIR.glob("*.mp3")]
+        moods_available = sorted({t.split("_")[0] for t in tracks})
+        if not tracks:
+            return []
+
+        # Act -> combined narration text (for mood classification).
+        act_text: dict[int, str] = {}
+        act_of_scene = {s["scene_number"]: s["act"] for s in rc["scenes"]}
+        for seg in segments:
+            act = act_of_scene.get(seg["scene"], 1)
+            act_text[act] = (act_text.get(act, "") + "\n" + (seg.get("scene_text") or ""))[:2500]
+
+        moods: dict[int, str] = {}
+        try:
+            from kie_unified import get_text_client_for_tenant
+            client = await get_text_client_for_tenant(tenant_id)
+            listing = "\n\n".join(f"[act {a}] {t[:900]}" for a, t in sorted(act_text.items()))
+            kwargs = {"prompt": (
+                "Classify the MOOD of each act of this documentary narration. "
+                f"Choose one of {moods_available} per act. Reply with a JSON "
+                'object only, e.g. {"1": "tension", "2": "strategic"}.\n\n' + listing),
+                "max_tokens": 300}
+            if type(client).__name__ == "AnthropicDirectClient":
+                kwargs["model"] = "claude-haiku-4-5"
+            raw = await client.generate(**kwargs)
+            m = re.search(r"\{.*\}", raw or "", re.DOTALL)
+            if m:
+                moods = {int(k): str(v).lower() for k, v in json.loads(m.group(0)).items()}
+        except Exception:  # noqa: BLE001 — deterministic fallback below
+            pass
+
+        music_dir = public_dir / "music"
+        music_dir.mkdir(exist_ok=True)
+        beds = []
+        for i, act in enumerate(sorted(act_text.keys())):
+            mood = moods.get(act) or moods_available[i % len(moods_available)]
+            candidates = [t for t in tracks if t.startswith(mood)] or tracks
+            track = candidates[act % len(candidates)]  # deterministic variety
+            if not (music_dir / track).exists():
+                shutil.copy2(_MUSIC_LIB_DIR / track, music_dir / track)
+            beds.append({"act": act, "file": track, "mood": mood, "volume": 0.03})
+        return beds
+    except Exception:  # noqa: BLE001
+        return []
+
+
 async def _run_remotion(public_dir: Path, props_file: Path, out_file: Path,
                         on_progress: ProgressCb) -> None:
     cmd = [
@@ -199,6 +268,9 @@ async def _run_remotion(public_dir: Path, props_file: Path, out_file: Path,
         "--concurrency=3",
         "--gl=swangle",
         "--timeout=180000",
+        # Default encode gave ~1GB per 9 min; crf 23 is visually equivalent
+        # for held images + slow pans at a fraction of the size.
+        "--crf=23",
     ]
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(_REMOTION_DIR),
@@ -267,6 +339,10 @@ async def render_static_video(
                 raise RuntimeError(f"Scene {seg['scene']}: narration has no readable duration")
 
         rc = _build_render_config(video_id, segments)
+        beds = await _select_music_beds(tenant_id, segments, rc, public_dir)
+        if beds:
+            rc["music_beds"] = beds
+            await _emit(on_progress, f"Music: {len(beds)} act beds selected")
         props_file = workdir / "props.json"
         props_file.write_text(json.dumps({"renderConfig": rc}))
 
