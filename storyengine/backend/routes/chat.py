@@ -1686,6 +1686,7 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     "order, first slots. Autopilot will build them one by one when it's on, or "
                     "hit Build on any of them from the Calendar page."
                 )
+            elif kind in _PROFILE_FIELD_COLS:
                 if not val:
                     continue
                 col = _PROFILE_FIELD_COLS[kind]
