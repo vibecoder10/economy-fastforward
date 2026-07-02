@@ -1581,6 +1581,21 @@ separate scenes."""
             if (video.get("render_mode") or "") == "static_docu":
                 await self._factual_gate_static(video_id)
 
+            # Dialogue intelligence runs unattended after EVERY script path —
+            # the modeled and user-supplied paths already had this hook, but
+            # the brief-translator path (the most common one) was missing it,
+            # so dialogue scripts stayed untagged and voice/clips fell back to
+            # narrator-only. Best-effort: a tagging hiccup must not fail the
+            # stage (manual retro trigger: POST .../script/tag-dialogue).
+            try:
+                from dialogue_intelligence import tag_video_dialogue, cast_character_voices
+                tag_result = await tag_video_dialogue(video_id, self.tenant_id)
+                if tag_result.get("dialogue_mode") == "character_dialogue":
+                    await cast_character_voices(video_id, self.tenant_id)
+                _logger.info("[dialogue] %s: %s", video_id, tag_result)
+            except Exception as e:
+                _logger.warning("[dialogue] tagging failed for %s: %s", video_id, str(e)[:200])
+
             new_status = result.get("new_status", "ready_for_voice")
             eff_status = self._skip_disabled_next(video, to_supabase(new_status))
 
