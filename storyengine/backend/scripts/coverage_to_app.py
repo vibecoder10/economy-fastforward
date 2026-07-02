@@ -58,6 +58,8 @@ from orchestrator.pipeline_constants import Models            # noqa: E402
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
+# D1 shot budget: the hard per-scene moment/frame ceiling (see _coverage_shape).
+SCENE_FRAME_BUDGET = int(os.getenv("SCENE_FRAME_BUDGET", "12"))
 
 
 async def resolve_video(ident: str):
@@ -791,16 +793,27 @@ def _reconcile_moment_dialogue(moments, scene_text):
 
 
 def _coverage_shape(scene_text: str):
-    """(max_moments, angles_min, angles_max) sized to the scene's dialogue.
+    """(max_moments, angles_min, angles_max) sized to the scene's dialogue —
+    THE per-scene shot budget (D1). Every image pathway funnels through here,
+    so this one function is the cost ceiling.
 
-    Dialogue scene → one moment per turn (+2 for an establishing wide and a
-    cutaway), mostly master-only shots so frame count stays ~one per line.
-    A non-dialogue scene keeps the richer 3-moment / 2–4-angle cinematic
-    coverage. Capped so a very chatty scene can't explode the frame count."""
+    Dialogue scene → one MASTER-ONLY moment per speaker turn (+2 for an
+    establishing wide and a cutaway), hard-capped at SCENE_FRAME_BUDGET
+    moments. Lines beyond the cap are never lost — _reconcile_moment_dialogue
+    folds overflow turns onto the last speaking shot. Master-only (0 angles)
+    because a talking head's cutaway angle doubled the frame bill for shots
+    the edit rarely used.
+
+    Non-dialogue scene → the cinematic 3-moment coverage, 2–3 matched angles
+    per moment (was 2–4; the 4th angle was the least-used frame in every cut).
+
+    Worst case per scene is now ~SCENE_FRAME_BUDGET frames (~$0.60-0.96 at
+    $0.05-0.08/frame) — previously a chatty scene could hit 32 frames and an
+    8-scene video ~$14+ in images."""
     turns = _dialogue_turn_count(scene_text)
     if turns < 2:
-        return 3, 2, 4  # visual/narration scene — cinematic multi-angle coverage
-    return min(turns + 2, 16), 0, 1  # one shot per turn (+ a couple of cutaways)
+        return 3, 2, 3  # visual/narration scene — ≤12 frames (3 × master+3)
+    return min(turns + 2, SCENE_FRAME_BUDGET), 0, 0  # one frame per line, ≤ budget
 
 
 async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
