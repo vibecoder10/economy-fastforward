@@ -169,8 +169,40 @@ already exist and fix the known gap:
       gates; chat "lock the story" surfaced the route's own refusal (no grids);
       "unlock the story" succeeded; home-path "redo the thumbnail" produced a
       ~$0.10 confirm card instead of running, and cancel cleared it.
-- [ ] Phase 3 - UI build button + shared costs + improve-prompt
-- [ ] Phase 4 - retire legacy orchestrator routes
-- [ ] Phase 5 - three-door proof on prod
-- [ ] Phase 6 - agent brain (copilot / automater / commander)
-- [ ] Phase 7 - analyze any video + recreate it
+- [x] Phase 3 - UI parity (LIVE + SCREENSHOT-VERIFIED 2026-07-01, main @ ce1c0820):
+      gold Build-to-pictures / Finish button on the pipeline header runs the same
+      chainer as chat's "build it" with the server's cost in the confirm popover
+      (~$1.44 shown, identical to /actions); Est. Cost prefers the server spend
+      figure and the local clip price table syncs from the response; "✨ Improve"
+      buttons on image + motion prompt boxes call POST /api/pipeline/improve-prompt
+      (proven live: rewrote a motion prompt cinematically). BONUS FIX found during
+      browser verification: ScriptVoiceTab had hooks below its early returns
+      (React #310) which crashed the ENTIRE pipeline page once a script loaded -
+      fixed and deployed (@ the follow-up commit).
+- [x] Phase 4 - legacy doors retired (LIVE 2026-07-01): /api/pipeline/orchestrate,
+      /orchestrate/decide, /api/agents/videos/{id}/run all return 410 (proven by
+      curl); no frontend callers existed.
+- [x] Phase 5 - three-door proof (RUN ON PROD 2026-07-01, ~$0.05): one throwaway
+      script-only video driven by (1) POST /api/pipeline/script (UI door),
+      (2) dock chat "rewrite the script" -> $0.02 confirm card -> same executor,
+      script visibly rewritten, (3) POST /api/pipeline/build -> the chainer
+      recognized the done state with chat's own completion message. Same engine,
+      three doors. Test video deleted after.
+- [x] Phase 6 - agent brain (LIVE + PROVEN 2026-07-01, main @ bb42eeea):
+      backend/agent_brain.py gives the copilot a tool loop (actions w/ costs,
+      script, shots, a prompt, stage history; max 5 steps) and returns the
+      legacy classifier shape, so the confirm-card money gate is untouched;
+      any failure falls back to the one-shot classifier. PROVEN: asked "which
+      scenes have no pictures + quote scene 2's first line" - it called the
+      shots + script tools and quoted "Emma thinks for a moment." verbatim
+      (matched the DB exactly). FOLLOW-UP (P6b): commander write-verbs for the
+      HOME chat (launch autopilot candidate, refresh discovery, run scrape).
+- [x] Phase 7 - analyze any video (LIVE 2026-07-01, main @ bb42eeea): "analyze
+      <url>" in home chat -> two-layer breakdown (real YouTube Data API metadata
+      + full transcript DNA via the intelligence distiller), report in chat,
+      DNA held in state + injected into the producer brief, "make it" recreates
+      with reference_url set. PROVEN on the Church Manners video: real metadata
+      (604,957 views, 8m11s) + graceful fallback note when yt-dlp was
+      bot-blocked. CAVEAT: the deep transcript layer needs the known VPS
+      YouTube-IP fix (cookies or proxy - infra, not code) before it fires for
+      fresh videos; the code path is complete and fail-soft.
