@@ -31,7 +31,7 @@ import {
   clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
-  deleteClip, recropAsset, getEnvironments, updateVideoPrompt, updateImagePrompt,
+  deleteClip, recropAsset, getEnvironments, updateVideoPrompt, updateImagePrompt, improvePrompt,
 } from "@/lib/api";
 import { clipCost } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
@@ -1466,6 +1466,18 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
   const [promptState, setPromptState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [imgPrompt, setImgPrompt] = useState(asset.image_prompt || "");
   const [imgState, setImgState] = useState<"idle" | "saving" | "error">("idle");
+  // "✨ Improve": the prompt studio's model-aware rewrite fills the box — the
+  // creator reviews and saves; nothing is applied automatically.
+  const [improving, setImproving] = useState<"" | "image" | "motion">("");
+  const improve = async (surface: "image" | "motion") => {
+    setImproving(surface);
+    try {
+      const res = await improvePrompt(asset.video_id, surface, surface === "image" ? imgPrompt : prompt);
+      if (surface === "image") { setImgPrompt(res.prompt); setImgState("idle"); }
+      else { setPrompt(res.prompt); setPromptState("idle"); }
+    } catch { /* leave the box as-is */ }
+    setImproving("");
+  };
 
   // useState only seeds on mount, so when the server value changes under an open
   // page (e.g. coverage just rewrote the motion prompt) the box kept showing its
@@ -1650,18 +1662,28 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
             className="w-full mt-1.5 text-[11px] rounded-lg p-2 outline-none resize-y"
             style={{ background: "var(--bg-void)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,0.12)" }}
           />
-          <button
-            onClick={async (e) => {
-              e.stopPropagation();
-              setImgState("saving");
-              try { await updateImagePrompt(asset.id, imgPrompt); onRedraw(); setImgState("idle"); }
-              catch { setImgState("error"); }
-            }}
-            disabled={imgState === "saving"}
-            className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
-            style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
-            <RotateCcw size={11} /> {imgState === "saving" ? "Starting…" : imgState === "error" ? "Failed — retry" : "Redraw picture · ~$0.08"}
-          </button>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                setImgState("saving");
+                try { await updateImagePrompt(asset.id, imgPrompt); onRedraw(); setImgState("idle"); }
+                catch { setImgState("error"); }
+              }}
+              disabled={imgState === "saving"}
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
+              style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
+              <RotateCcw size={11} /> {imgState === "saving" ? "Starting…" : imgState === "error" ? "Failed — retry" : "Redraw picture · ~$0.08"}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); improve("image"); }}
+              disabled={improving !== ""}
+              title="AI rewrites this prompt to be stronger — review it, then redraw."
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
+              style={{ background: "var(--bg-elevated)", color: "var(--turquoise)", border: "1px solid var(--border-subtle)" }}>
+              {improving === "image" ? "Improving…" : "✨ Improve"}
+            </button>
+          </div>
         </details>
         {/* Motion prompt — click to fine-tune how this shot moves before animating.
             stopPropagation so editing never triggers the card's tap-to-animate. */}
@@ -1678,18 +1700,28 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
             className="w-full mt-1.5 text-[11px] rounded-lg p-2 outline-none resize-y"
             style={{ background: "var(--bg-void)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,0.12)" }}
           />
-          <button
-            onClick={async (e) => {
-              e.stopPropagation();
-              setPromptState("saving");
-              try { await updateVideoPrompt(asset.id, prompt); setPromptState("saved"); }
-              catch { setPromptState("error"); }
-            }}
-            disabled={promptState === "saving"}
-            className="mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
-            style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
-            {promptState === "saving" ? "Saving…" : promptState === "saved" ? "Saved ✓" : promptState === "error" ? "Failed — retry" : "Save prompt"}
-          </button>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                setPromptState("saving");
+                try { await updateVideoPrompt(asset.id, prompt); setPromptState("saved"); }
+                catch { setPromptState("error"); }
+              }}
+              disabled={promptState === "saving"}
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
+              style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
+              {promptState === "saving" ? "Saving…" : promptState === "saved" ? "Saved ✓" : promptState === "error" ? "Failed — retry" : "Save prompt"}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); improve("motion"); }}
+              disabled={improving !== ""}
+              title="AI rewrites this motion prompt to be stronger — review it, then save."
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
+              style={{ background: "var(--bg-elevated)", color: "var(--turquoise)", border: "1px solid var(--border-subtle)" }}>
+              {improving === "motion" ? "Improving…" : "✨ Improve"}
+            </button>
+          </div>
         </details>
       </div>
     </GlassCard>

@@ -659,6 +659,53 @@ export const runPipelineStage = (videoId: string, stage: string, params?: Record
 export const runNextStep = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });
 
+// The shared action layer (PARITY-PLAN): one source of truth for what can run,
+// what it costs, and why something is blocked. Chat's confirm cards and the
+// page's buttons/costs both read THIS.
+export interface VideoActionInfo {
+  verb: string;
+  label: string;
+  paid: boolean;
+  needs: string | null;
+  accepts_edit: boolean;
+  /** Plain-English reason it can't run yet; null = runnable now */
+  blocked: string | null;
+  cost: number;
+  cost_text: string;
+}
+
+export interface VideoActions {
+  video_id: string;
+  summary: {
+    title: string; status: string; length_min: number | null; model: string;
+    scenes: number; boards: number; voiced: number; max_scene: number;
+    pics: number; clips: number; cast: number; spent: number; validation: string;
+  };
+  build_target: "pictures" | "finish";
+  actions: VideoActionInfo[];
+  prices: { clip: Record<string, number>; picture: number };
+}
+
+export const getVideoActions = (videoId: string) =>
+  fetchApi<VideoActions>(`/api/pipeline/actions/${videoId}`);
+
+export const runBuild = (videoId: string, target: "pictures" | "finish") =>
+  fetchApi<PipelineResponse>(`/api/pipeline/build/${videoId}`, {
+    method: "POST",
+    body: JSON.stringify({ target }),
+  });
+
+export const improvePrompt = (
+  videoId: string,
+  surface: "image" | "motion" | "thumbnail" | "script",
+  current: string,
+  direction?: string
+) =>
+  fetchApi<{ prompt: string }>(`/api/pipeline/improve-prompt/${videoId}`, {
+    method: "POST",
+    body: JSON.stringify({ surface, current, direction: direction || null }),
+  });
+
 export const getPipelineStatus = (videoId: string) =>
   fetchApi<PipelineStatus>(`/api/pipeline/status/${videoId}`);
 

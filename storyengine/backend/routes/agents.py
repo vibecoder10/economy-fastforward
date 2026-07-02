@@ -79,6 +79,13 @@ async def run_agent_pipeline(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Trigger the agent quality pipeline for a video."""
+    # DEPRECATED (PARITY-PLAN Phase 4, 2026-07-01): a legacy door around the
+    # confirm-card cost gating; no frontend caller. The copilot chat + the
+    # shared action layer replaced it. Delete this raise to restore.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Use the co-pilot chat (POST /api/chat) or POST /api/pipeline/build.",
+    )
     # Check video exists
     video = await fetch_one(
         "SELECT * FROM videos WHERE id = $1 AND tenant_id = $2",

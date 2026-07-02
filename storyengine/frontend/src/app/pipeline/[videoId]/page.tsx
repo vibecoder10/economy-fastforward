@@ -6,13 +6,13 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
   BarChart3, Search, Video, Upload, Loader2, Brain, Volume2, Download, ExternalLink, X,
-  Users, MoreHorizontal, MapPin, MessageCircle, Palette,
+  Users, MoreHorizontal, MapPin, MessageCircle, Palette, Zap,
 } from "lucide-react";
 import { ChatCore } from "@/components/chat/ChatCore";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideo, getVideoAssets, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
-import { clipCost } from "@/lib/next-action";
+import { getVideo, getVideoAssets, getVideoActions, runBuild, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
+import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -177,12 +177,27 @@ export default function VideoDetailPage() {
     queryFn: () => getVideoAssets(videoId),
     refetchInterval: () => (status && !TERMINAL_STATUSES.has(status) ? 5000 : false),
   });
+  // Shared action layer: server-computed verbs, costs, and the build target.
+  // This is the same registry chat's confirm cards read — one price list.
+  const { data: videoActions } = useQuery({
+    queryKey: ["video-actions", videoId],
+    queryFn: () => getVideoActions(videoId),
+    refetchInterval: () => (status && !TERMINAL_STATUSES.has(status) ? 10000 : false),
+  });
+  // Keep the local price table in lockstep with the server's (it's only the
+  // offline fallback — the server is the source of truth).
+  useEffect(() => {
+    if (videoActions?.prices?.clip) Object.assign(CLIP_COST_PER_MODEL, videoActions.prices.clip);
+  }, [videoActions?.prices?.clip]);
   const estimatedCost = useMemo(() => {
+    // Prefer the server's spend figure (same formula chat quotes); fall back to
+    // the local artifact count while the actions query is in flight.
+    if (videoActions?.summary?.spent != null) return videoActions.summary.spent;
     const a = costAssets ?? [];
     const pictures = a.filter((x) => x.image_url).length;
     const clips = a.filter((x) => x.video_clip_url).length;
     return pictures * 0.08 + clipCost(video?.video_model, clips);
-  }, [costAssets, video?.video_model]);
+  }, [videoActions?.summary?.spent, costAssets, video?.video_model]);
 
   // Per-video plan: hide the tabs for steps the creator switched off. No plan
   // (full pipeline / every existing video) → all tabs show, unchanged.
@@ -215,6 +230,8 @@ export default function VideoDetailPage() {
   });
   const [resetting, setResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showBuildConfirm, setShowBuildConfirm] = useState(false);
+  const [buildStarting, setBuildStarting] = useState(false);
   const [runningNext, setRunningNext] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
@@ -460,6 +477,66 @@ export default function VideoDetailPage() {
               ${Math.max(video.total_cost || 0, estimatedCost).toFixed(2)}
             </p>
           </div>
+
+          {/* Build button — the autobuild chainer chat's "build it" uses,
+              now one tap from the page (PARITY-PLAN Phase 3). Cost + target
+              come from the shared action layer, same numbers chat quotes. */}
+          {videoActions && !TERMINAL_STATUSES.has(status) && (() => {
+            const buildInfo = videoActions.actions.find((a) => a.verb === "build");
+            const toPictures = videoActions.build_target === "pictures";
+            const label = toPictures ? "Build to pictures" : "Finish the video";
+            const detail = toPictures
+              ? "Runs research, script, and the pictures, then stops for your review."
+              : "Runs voice, clips, thumbnail, and the final render.";
+            return (
+              <div className="relative">
+                <button
+                  onClick={() => setShowBuildConfirm((o) => !o)}
+                  disabled={taskRunning || buildStarting}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40"
+                  style={{ background: "var(--gold)", color: "var(--bg-void)" }}
+                  title={detail}
+                >
+                  <Zap size={16} /> {label}
+                </button>
+                {showBuildConfirm && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowBuildConfirm(false)} />
+                    <div
+                      className="absolute right-0 top-full mt-2 z-50 w-72 rounded-xl p-4 space-y-3"
+                      style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+                    >
+                      <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{label}</p>
+                      <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{detail}</p>
+                      <p className="text-xs font-mono" style={{ color: "var(--gold)" }}>
+                        {buildInfo?.cost_text ? `Estimated: ${buildInfo.cost_text}` : ""}
+                      </p>
+                      <button
+                        onClick={async () => {
+                          setBuildStarting(true);
+                          setShowBuildConfirm(false);
+                          try {
+                            await runBuild(videoId, videoActions.build_target);
+                            setTaskRunning(true);
+                            toast.info(`${label} started — follow along in the tracker.`);
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Couldn't start the build.");
+                          } finally {
+                            setBuildStarting(false);
+                          }
+                        }}
+                        disabled={buildStarting}
+                        className="w-full py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-40"
+                        style={{ background: "var(--gold)", color: "var(--bg-void)" }}
+                      >
+                        {buildStarting ? "Starting…" : `Run it${buildInfo?.cost_text && buildInfo.cost !== 0 ? ` · ${buildInfo.cost_text}` : ""}`}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Co-pilot chat toggle (desktop). Slides the dock in/out. */}
           <button

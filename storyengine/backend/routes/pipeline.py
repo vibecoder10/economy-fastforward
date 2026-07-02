@@ -1791,7 +1791,53 @@ async def list_video_actions(
         })
     # The build meta-verb's next checkpoint, so a UI button can label itself.
     build_target = "pictures" if summary["status"] in actions.BUILD_TO_PICTURES else "finish"
-    return {"video_id": video_id, "summary": summary, "build_target": build_target, "actions": out}
+    return {
+        "video_id": video_id, "summary": summary, "build_target": build_target, "actions": out,
+        # The raw price table so the frontend never keeps its own copy.
+        "prices": {"clip": actions.CLIP_COST, "picture": actions.PICTURE_COST},
+    }
+
+
+class ImprovePromptRequest(BaseModel):
+    """Ask the prompt studio for a stronger prompt. Nothing is applied — the
+    UI puts the result in the edit box for the creator to review and save."""
+    surface: str  # image | motion | thumbnail | script
+    current: Optional[str] = None
+    direction: Optional[str] = None
+
+
+@router.post("/improve-prompt/{video_id}")
+async def improve_prompt(
+    video_id: str,
+    body: ImprovePromptRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """The prompt studio's rewrite, callable from a button (PARITY-PLAN Phase 3).
+    Same model-aware rewriter chat uses; returns the proposed prompt text only."""
+    if body.surface not in ("image", "motion", "thumbnail", "script"):
+        raise HTTPException(status_code=400, detail="surface must be image, motion, thumbnail, or script")
+    video = await fetch_one(
+        "SELECT id, video_model FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    try:
+        from kie_unified import get_text_client_for_tenant
+        client = await get_text_client_for_tenant(tenant_id)
+    except Exception:  # noqa: BLE001
+        client = None
+    if client is None:
+        raise HTTPException(status_code=400, detail="Add a Kie.ai or Anthropic key in Settings first.")
+    model = "claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None
+    from routes.chat import _rewrite_prompt
+    text = await _rewrite_prompt(
+        client, model, body.surface, (body.current or "").strip(),
+        (body.direction or "").strip(), video.get("video_model") or "grok-imagine",
+    )
+    if not text:
+        raise HTTPException(status_code=502, detail="Couldn't write a stronger prompt — try again.")
+    return {"prompt": text}
 
 
 @router.get("/status/{video_id}", response_model=PipelineStatus)
@@ -1989,6 +2035,14 @@ async def orchestrate(
     status-based routing. If confidence is low, returns alternatives
     for user approval instead of auto-executing.
     """
+    # DEPRECATED (PARITY-PLAN Phase 4, 2026-07-01): the legacy orchestrator is a
+    # fourth door that bypasses the confirm-card cost gating. The copilot chat
+    # (POST /api/chat) + the shared action layer (actions.py) replaced it.
+    # Delete this raise to restore the old path.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Use the co-pilot chat (POST /api/chat) or POST /api/pipeline/build.",
+    )
     executor = PipelineExecutor(tenant_id)
 
     async def _run():
@@ -2017,6 +2071,13 @@ async def orchestrate_decide_only(
     Returns the decision with reasoning, alternatives, and cost estimate.
     Useful for the chat UI to show Claude's thinking before user confirms.
     """
+    # DEPRECATED (PARITY-PLAN Phase 4, 2026-07-01): superseded by the copilot
+    # chat + GET /api/pipeline/actions (what can run, costs, blocked reasons).
+    # Delete this raise to restore the old path.
+    raise HTTPException(
+        status_code=410,
+        detail="Retired endpoint. Use GET /api/pipeline/actions/{video_id} or the co-pilot chat.",
+    )
     try:
         from claude_orchestrator import ClaudeOrchestrator
 
