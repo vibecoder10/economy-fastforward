@@ -15,7 +15,7 @@ import {
   runVoiceForScene, runSplit, getSceneSegments, updateSceneSegments,
   getDefaultScriptPrompt,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
-  setApiKey, getApiKeyStatus,
+  setApiKey, getApiKeyStatus, getDialogueMap,
 } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
@@ -606,6 +606,32 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     queryFn: () => getDriveScriptStatus(video.id),
     enabled: !!video.id,
   });
+
+  // Performance track: the dialogue-intelligence timeline (who speaks vs the
+  // narrator). Before this card it existed only as 💬 badges on scene picture
+  // cards — invisible until images existed, so creators couldn't tell the
+  // hybrid voice was even wired (Ryan hit exactly that).
+  const { data: dialogueMap } = useQuery({
+    queryKey: ["dialogue-map", video.id],
+    queryFn: () => getDialogueMap(video.id),
+    enabled: !!video.id,
+    staleTime: 30_000,
+  });
+  const performanceTrack = useMemo(() => {
+    if (!dialogueMap) return null;
+    const bySpeaker = new Map<string, number>();
+    let narration = 0;
+    for (const sc of dialogueMap.scenes ?? []) {
+      for (const seg of sc.segments ?? []) {
+        if (seg.type === "dialogue" && seg.speaker) {
+          bySpeaker.set(seg.speaker, (bySpeaker.get(seg.speaker) ?? 0) + 1);
+        } else if (seg.type === "narration") {
+          narration += 1;
+        }
+      }
+    }
+    return { mode: dialogueMap.dialogue_mode, bySpeaker: [...bySpeaker.entries()], narration };
+  }, [dialogueMap]);
   const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const [driveConflict, setDriveConflict] = useState(false);
 
@@ -1759,6 +1785,41 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               ))}
             </div>
           </GlassCard>
+
+          {/* Performance track: narrator vs character lines (dialogue intelligence) */}
+          {performanceTrack?.mode && (
+            <GlassCard className="p-5">
+              <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>
+                Performance Track
+              </h3>
+              {performanceTrack.mode === "character_dialogue" ? (
+                <div className="space-y-2">
+                  <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                    Character dialogue detected. Each character speaks their lines in their own
+                    voice (lip-synced); the narrator carries everything else.
+                  </p>
+                  {performanceTrack.bySpeaker.map(([speaker, n]) => (
+                    <div key={speaker} className="flex items-center justify-between">
+                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>💬 {speaker}</span>
+                      <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
+                        {n} line{n === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>🎙 Narrator</span>
+                    <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
+                      {performanceTrack.narration} segment{performanceTrack.narration === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                  Narration only — one narrator voice reads the whole script.
+                </p>
+              )}
+            </GlassCard>
+          )}
 
           {/* Google Drive script sync */}
           <GlassCard className="p-5">
