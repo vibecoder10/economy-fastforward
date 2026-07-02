@@ -31,6 +31,7 @@ from vault import get_secret
 
 from actions import (
     ACTIONS as COPILOT_ACTIONS,
+    RUNNERS as _ACTION_RUNNERS,
     BUILD_TO_PICTURES as _BUILD_TO_PICTURES,
     CLIP_COST as _CLIP_COST,
     PICTURE_COST as _PICTURE_COST,
@@ -372,8 +373,8 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
 # in the conversation state); reads run immediately. Reuses PipelineExecutor + the
 # task-status channel so the pipeline page's existing live trackers reflect work.
 # Supersedes _handle_followup (it folds in FOLLOWUP_STAGES via _apply_followup_edit
-# for the edit-style verbs). The confirm gate only applies to the DOCK (a request
-# that carries video_id); the home CreatedCard follow-up keeps its immediate runs.
+# for the edit-style verbs). Paid actions ALWAYS confirm first — dock and home
+# alike (Phase 2 closed the CreatedCard immediate-run hole).
 
 # The verb registry, prices, prerequisite gates, and cost estimator live in
 # actions.py — one source of truth for every door (chat, buttons, agent).
@@ -457,6 +458,10 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
                else "On it — finishing your video (animating the clips and rendering). I'll update you here.")
         background_tasks.add_task(_make_autobuild_step(tenant_id, video_id, target=target, start_msg=msg))
         return msg
+    # Runner verbs (approvals, lock, Drive sync, SEO…) reuse the same route
+    # handlers the UI buttons call and speak the result back directly.
+    if cfg.get("runner"):
+        return await _ACTION_RUNNERS[cfg["runner"]](tenant_id, video_id, background_tasks, pending)
     background_tasks.add_task(
         _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…")
     )
@@ -464,10 +469,9 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
 
 
 async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, video_id, background_tasks):
-    """The video-scoped co-pilot turn. Classify -> read (answer) or action (run, with
-    a confirm gate in the dock). `docked` (request carries video_id) decides whether
-    paid actions confirm first; the home CreatedCard follow-up keeps immediate runs."""
-    docked = bool(getattr(body, "video_id", None))
+    """The video-scoped co-pilot turn. Classify -> read (answer) or action (run).
+    Paid actions ALWAYS confirm first — dock and home alike (Phase 2 closed the
+    home CreatedCard hole where money moved without a tap)."""
     msg = (body.message or "").strip()
     sel = body.selections or {}
     ui_context = getattr(body, "ui_context", None) or {}
@@ -553,10 +557,20 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
            + ".\n" if ui_context.get("scene") else "")
         + f'\nThe creator said: "{msg}"\n\n'
         "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, sound, "
-        "thumbnail, render — for RUNNING/redoing a SINGLE step. 'characters' = design or REDESIGN the CAST "
+        "thumbnail, render, research, seo, upload, approve_cast, approve_environments, skip_environments, "
+        "lock, unlock, drive_push, drive_sync — for RUNNING/redoing a SINGLE step. "
+        "'characters' = design or REDESIGN the CAST "
         "(the character reference sheets): 'redesign the cast', 'redo the characters', 'regenerate the cast', "
         "'design the characters', 'change how Tom looks'. NEVER map a cast/character request to 'script'. "
         "'animate' is ONE scene (give the scene). "
+        "'research' = fact-find the topic (web research) before scripting. "
+        "'seo' = write the YouTube title/description/tags. 'upload' = publish the RENDERED video to YouTube. "
+        "'approve_cast' = approve/lock the characters ('approve the cast', 'the characters look good, lock them in'). "
+        "'approve_environments' = approve/lock the locations; 'skip_environments' = this video needs no "
+        "distinct locations ('skip the locations', 'no locations needed'). "
+        "'lock' / 'unlock' = freeze or unfreeze the story(boards) before image spend. "
+        "'drive_push' = send the script to Google Drive as an editable Doc; 'drive_sync' = pull the creator's "
+        "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
         "Use 'build' when they want the whole video built or moved forward — 'build it', 'make the video', "
         "'do it', 'run it all', 'keep going', 'generate it', 'finish it', 'animate everything'. build runs "
         "the pipeline automatically to the next checkpoint, NOT one step.\n"
@@ -569,7 +583,8 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
         "Return ONE JSON object and nothing else:\n"
         '{"kind":"read|action|prompt",'
-        '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|build|none",'
+        '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
+        'upload|approve_cast|approve_environments|skip_environments|lock|unlock|drive_push|drive_sync|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'
@@ -633,16 +648,14 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         )
         return await _reply(line)
 
-    # Paid. The home follow-up runs immediately (preserves Phase 5 behavior); the
-    # dock holds it behind a one-tap confirm card.
+    # Paid: ALWAYS held behind a one-tap confirm card — dock and home alike.
+    # (Phase 2 closed the hole where the home CreatedCard follow-up spent money
+    # with no tap; the home chat renders the same confirm card.)
     pending = {"verb": verb, "scene": scene, "change": (data.get("change") or "").strip(),
                "length_min": data.get("length_min")}
     if verb == "build":
         # To pictures if we're before them, else finish the rest.
         pending["target"] = "pictures" if summary["status"] in _BUILD_TO_PICTURES else "finish"
-    if not docked:
-        line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
-        return await _reply(line)
 
     _cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
     state["pending_action"] = pending
@@ -2593,7 +2606,7 @@ async def chat_turn(
 
     # 2. Video already exists -> co-pilot turn (read or run a pipeline action).
     #    Supersedes _handle_followup; the dock (request carries video_id) gates paid
-    #    actions behind a confirm card, the home CreatedCard keeps immediate runs.
+    #    actions behind a confirm card everywhere (home included, Phase 2).
     if video_id:
         return await _handle_copilot(
             body, conversation_id, tenant_id, transcript, state, video_id, background_tasks

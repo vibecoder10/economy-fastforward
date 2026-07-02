@@ -19,7 +19,10 @@ import asyncio
 import logging
 from typing import Any, Optional
 
+from fastapi import HTTPException
+
 from database import execute, fetch_one
+from status_map import is_at_or_past_stage
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,28 @@ ACTIONS: dict[str, dict[str, Any]] = {
                     "doing": "redoing the thumbnail", "label": "Redo the thumbnail"},
     "render":      {"calls": [("run_render", False)], "paid": True, "needs": "clips",
                     "doing": "rendering the final video", "label": "Render the final video"},
+    # --- Phase 2 parity verbs: everything a UI button can do, chat can do -----
+    "research":    {"calls": [("run_research", False)], "paid": True, "needs": None,
+                    "doing": "researching the topic", "label": "Run research"},
+    "seo":         {"runner": "seo", "paid": True, "needs": "scenes",
+                    "doing": "writing the YouTube SEO", "label": "Write the YouTube SEO"},
+    # Free in dollars but it PUBLISHES (unlisted) — paid=True so it always confirms.
+    "upload":      {"calls": [("run_upload", False)], "paid": True, "needs": "rendered",
+                    "doing": "uploading to YouTube", "label": "Upload to YouTube (unlisted)"},
+    "approve_cast": {"runner": "approve_cast", "paid": False, "needs": "cast",
+                    "doing": "locking in the cast", "label": "Approve the cast"},
+    "approve_environments": {"runner": "approve_environments", "paid": False, "needs": None,
+                    "doing": "locking in the locations", "label": "Approve the locations"},
+    "skip_environments": {"runner": "skip_environments", "paid": False, "needs": None,
+                    "doing": "skipping locations", "label": "Skip locations"},
+    "lock":        {"runner": "lock", "paid": False, "needs": None,
+                    "doing": "locking the story", "label": "Lock the story"},
+    "unlock":      {"runner": "unlock", "paid": False, "needs": None,
+                    "doing": "unlocking the story", "label": "Unlock the story"},
+    "drive_push":  {"runner": "drive_push", "paid": False, "needs": "scenes",
+                    "doing": "sending the script to Google Drive", "label": "Send script to Drive"},
+    "drive_sync":  {"runner": "drive_sync", "paid": False, "needs": None,
+                    "doing": "pulling the script from Google Drive", "label": "Pull script from Drive"},
     # meta verb: build auto-runs the pipeline to the next checkpoint — to the pictures
     # if we're before them, else all the way to a finished video. NOT one step.
     "build":       {"calls": None, "paid": True, "needs": None,
@@ -65,6 +90,8 @@ NEEDS_REASON = {
     "scenes":   "the script hasn't been broken into scenes yet — I'd write the script first",
     "pictures": "there are no pictures to work from yet — I'd make the pictures first",
     "clips":    "nothing's been animated yet — I'd animate the scenes first",
+    "cast":     "no characters have been designed yet — I'd design the cast first",
+    "rendered": "the video hasn't been rendered yet — I'd render it first",
 }
 
 # Statuses BEFORE the pictures-review checkpoint — the auto-build keeps advancing
@@ -139,6 +166,10 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         "FROM assets WHERE video_id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
+    c = await fetch_one(
+        "SELECT count(*) AS n FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
     model = v.get("video_model") or "grok-imagine"
     pics, clips = int(a["pics"] or 0), int(a["clips"] or 0)
     cost = round(pics * PICTURE_COST + clips * CLIP_COST.get(model, 0.10), 2)
@@ -153,6 +184,7 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         "max_scene": int(sc["max_scene"] or 0),
         "pics": pics,
         "clips": clips,
+        "cast": int(c["n"] or 0),
         "spent": cost,
         "validation": str(v.get("script_validation") or "").strip()[:600],
     }
@@ -167,6 +199,10 @@ def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
         return NEEDS_REASON["pictures"]
     if needs == "clips" and summary["clips"] == 0:
         return NEEDS_REASON["clips"]
+    if needs == "cast" and summary.get("cast", 0) == 0:
+        return NEEDS_REASON["cast"]
+    if needs == "rendered" and not is_at_or_past_stage(summary["status"], "rendered"):
+        return NEEDS_REASON["rendered"]
     return None
 
 
@@ -198,6 +234,10 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     elif verb == "thumbnail":
         cost = 0.10
     elif verb == "script":
+        cost = 0.02
+    elif verb == "research":
+        cost = 0.05
+    elif verb == "seo":
         cost = 0.02
     elif verb == "characters":
         # ~$0.03 per 4-view character sheet; use the current cast count or a small default.
@@ -451,3 +491,120 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
             _clear_task_status(video_id, tenant_id)
 
     return _run
+
+
+# --- Phase 2 runners ----------------------------------------------------------
+#
+# Verbs that aren't PipelineExecutor methods run through these instead: each
+# reuses the SAME route handler (or helper) the UI button calls, catches its
+# HTTPException, and returns the chat-facing line. Signature is uniform:
+# (tenant_id, video_id, background_tasks, pending) -> str.
+
+async def _runner_seo(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.pipeline import _clear_task_status, _set_task_status
+
+    async def _run():
+        _set_task_status(video_id, "running", "Writing the YouTube SEO…", tenant_id=tenant_id)
+        try:
+            from youtube_publish import generate_and_store_seo
+            result = await generate_and_store_seo(video_id, tenant_id) or {}
+            if result.get("error"):
+                _set_task_status(video_id, "failed", result["error"], tenant_id=tenant_id)
+            else:
+                _set_task_status(video_id, "completed", "SEO written — it's on the Upload tab.", tenant_id=tenant_id)
+        except Exception as e:  # noqa: BLE001
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(20)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return ("On it — writing the YouTube title, description, and tags from the video's own "
+            "content. They'll be on the Upload tab in a minute.")
+
+
+async def _runner_approve_cast(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.characters import approve_cast
+    try:
+        await approve_cast(video_id, background_tasks, tenant_id=tenant_id)
+    except HTTPException as e:
+        return f"I can't approve the cast yet — {e.detail}"
+    return ("On it — locking in the cast. I'm rewriting each character's description from "
+            "their approved portrait so the pictures stay on-model; storyboards unlock when it's done.")
+
+
+async def _runner_approve_environments(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.environments import approve_environments
+    try:
+        await approve_environments(video_id, background_tasks, tenant_id=tenant_id)
+    except HTTPException as e:
+        return f"I can't approve the locations yet — {e.detail}"
+    return "On it — locking in the locations. Storyboards unlock when it's done."
+
+
+async def _runner_skip_environments(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.environments import skip_environments
+    try:
+        await skip_environments(video_id, tenant_id=tenant_id)
+    except HTTPException as e:
+        return f"Couldn't skip the locations — {e.detail}"
+    return ("Done — marked this video as having no distinct locations, so storyboards are "
+            "unlocked. Designing environments later re-opens the approval.")
+
+
+async def _runner_lock(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.videos import lock_story
+    try:
+        await lock_story(video_id, tenant_id=tenant_id)
+    except HTTPException as e:
+        return f"I can't lock the story yet — {e.detail}"
+    return "Story locked — the boards are frozen before image spend. Say “unlock the story” to keep iterating."
+
+
+async def _runner_unlock(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.videos import unlock_story
+    try:
+        await unlock_story(video_id, tenant_id=tenant_id)
+    except HTTPException as e:
+        return f"Couldn't unlock the story — {e.detail}"
+    return "Story unlocked — edit away. Lock it again before generating pictures."
+
+
+async def _runner_drive_push(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.videos import push_script_to_drive
+    try:
+        res = await push_script_to_drive(video_id, tenant_id=tenant_id) or {}
+    except HTTPException as e:
+        return f"Couldn't send the script to Drive — {e.detail}"
+    url = (res.get("doc_url") or "").strip()
+    tail = f" It's here: {url}" if url else ""
+    return ("Done — the script is a Google Doc in your Drive now." + tail +
+            " Edit it there, then say “pull the script from Drive” and I'll bring the changes back.")
+
+
+async def _runner_drive_sync(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.videos import sync_script_from_drive
+    try:
+        res = await sync_script_from_drive(video_id, force=False, tenant_id=tenant_id) or {}
+    except HTTPException as e:
+        return f"Couldn't pull from Drive — {e.detail}"
+    if res.get("conflict"):
+        return ("Careful — the script changed BOTH here and in the Doc since the last sync. "
+                "Pull from the Script tab (it asks before overwriting) or tell me which side should win.")
+    if res.get("changed"):
+        n = len(res.get("scenes_changed") or [])
+        return (f"Pulled your Drive edits — {n} scene{'s' if n != 1 else ''} updated. "
+                "Those scenes' voice and pictures were reset so they regenerate to match.")
+    return res.get("message") or "Your script already matches the Drive Doc — nothing to pull."
+
+
+RUNNERS = {
+    "seo": _runner_seo,
+    "approve_cast": _runner_approve_cast,
+    "approve_environments": _runner_approve_environments,
+    "skip_environments": _runner_skip_environments,
+    "lock": _runner_lock,
+    "unlock": _runner_unlock,
+    "drive_push": _runner_drive_push,
+    "drive_sync": _runner_drive_sync,
+}

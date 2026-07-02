@@ -189,7 +189,10 @@ export function ChatCore({
   const activeCards = showActive ? last.cards : null;
   const activePlan = showActive ? last.plan : null;
   // One-tap action cards: the spend confirm and the editable proposed-prompt card.
-  const actionCard = activeCards?.find((c) => c.id === "confirm_action" || c.id === "prompt_apply" || c.id === "secure_key") ?? null;
+  // These render even in the home "created" view — paid follow-ups always confirm
+  // (the backend gates them everywhere now), so the card must never be hidden.
+  const lastCards = last?.role === "assistant" ? last.cards : null;
+  const actionCard = lastCards?.find((c) => c.id === "confirm_action" || c.id === "prompt_apply" || c.id === "secure_key") ?? null;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
