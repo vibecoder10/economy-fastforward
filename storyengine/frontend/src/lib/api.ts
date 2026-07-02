@@ -290,12 +290,17 @@ export const getCalendarVideos = (start: string, end: string) =>
 
 export interface CalendarPlanSlot {
   date: string;
-  candidate_id: string;
+  // "queued" = the creator's own production queue (first slots, in their order);
+  // "candidate" = a scored competitor winner. Older responses omit kind.
+  kind?: "queued" | "candidate";
+  candidate_id?: string;
+  queue_id?: string;
+  position?: number;
   source_title: string;
   source_channel: string;
   source_url?: string | null;
-  views: number;
-  score: number;
+  views?: number;
+  score?: number;
   why: string;
 }
 export interface CalendarPlan {
@@ -305,6 +310,36 @@ export interface CalendarPlan {
 }
 export const getCalendarPlan = (days?: number) =>
   fetchApi<CalendarPlan>(`/api/dashboard/calendar/plan?days=${days || 30}`);
+
+// --- Production queue (the creator's own ordered "build these" list) ---
+export interface QueueItem {
+  id: string;
+  position: number;
+  title: string;
+  framework_angle?: string | null;
+  status: "queued" | "launched" | "skipped";
+  video_id?: string | null;
+  launched_at?: string | null;
+  created_at: string;
+}
+export const getQueue = () => fetchApi<{ items: QueueItem[] }>("/api/queue");
+export const addToQueue = (items: { title: string }[]) =>
+  fetchApi<{ status: string; count: number }>("/api/queue", {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+export const patchQueueItem = (id: string, data: { title?: string; position?: number; status?: string }) =>
+  fetchApi<{ status: string }>(`/api/queue/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+export const deleteQueueItem = (id: string) =>
+  fetchApi<{ status: string }>(`/api/queue/${id}`, { method: "DELETE" });
+export const launchQueueItem = (id: string) =>
+  fetchApi<{ status: string; queue_id: string; video_id: string; video_title: string }>(
+    `/api/queue/${id}/launch`,
+    { method: "POST" }
+  );
 
 // Videos
 export const getVideos = (status?: string) =>

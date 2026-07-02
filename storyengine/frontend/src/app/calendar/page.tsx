@@ -3,13 +3,22 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { getCalendarVideos, CalendarVideo, getCalendarPlan, CalendarPlanSlot, launchCandidate } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  getCalendarVideos,
+  CalendarVideo,
+  getCalendarPlan,
+  CalendarPlanSlot,
+  launchCandidate,
+  launchQueueItem,
+  patchQueueItem,
+  deleteQueueItem,
+} from "@/lib/api";
 import { getStageLabel, getStageColor } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
-import { ChevronLeft, ChevronRight, CalendarDays, Rocket, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, Rocket, Loader2, ListOrdered, X } from "lucide-react";
 import { motion } from "framer-motion";
 
 function formatMonth(date: Date): string {
@@ -82,6 +91,7 @@ export default function CalendarPage() {
   });
 
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: plan } = useQuery({
     queryKey: ["calendar-plan"],
     queryFn: () => getCalendarPlan(30),
@@ -92,6 +102,33 @@ export default function CalendarPage() {
     onSuccess: (res) => router.push(`/pipeline/${res.video_id}`),
     onError: () => setBuildingId(null),
   });
+  const buildQueueMutation = useMutation({
+    mutationFn: launchQueueItem,
+    onSuccess: (res) => router.push(`/pipeline/${res.video_id}`),
+    onError: () => setBuildingId(null),
+  });
+  const refreshPlan = () => queryClient.invalidateQueries({ queryKey: ["calendar-plan"] });
+  const reorderMutation = useMutation({
+    mutationFn: ({ id, position }: { id: string; position: number }) =>
+      patchQueueItem(id, { position }),
+    onSuccess: refreshPlan,
+  });
+  const removeMutation = useMutation({
+    mutationFn: deleteQueueItem,
+    onSuccess: refreshPlan,
+  });
+  // Move a queued slot one place up/down: land between its neighbors using the
+  // position gaps (queue positions move in steps of 10).
+  const queuedSlots = useMemo(
+    () => (plan?.slots ?? []).filter((s) => s.kind === "queued"),
+    [plan]
+  );
+  function moveQueued(slot: CalendarPlanSlot, dir: -1 | 1) {
+    const idx = queuedSlots.findIndex((q) => q.queue_id === slot.queue_id);
+    const target = queuedSlots[idx + dir];
+    if (!slot.queue_id || !target?.position) return;
+    reorderMutation.mutate({ id: slot.queue_id, position: target.position + (dir === -1 ? -5 : 5) });
+  }
 
   const days = useMemo(() => getCalendarDays(year, month), [year, month]);
   const todayStr = toDateStr(today);
@@ -164,50 +201,101 @@ export default function CalendarPage() {
             Ranked from what is winning in your niche, spaced to avoid format fatigue. Build any one with a click.
           </p>
           <div className="space-y-2">
-            {plan.slots.map((s: CalendarPlanSlot) => (
-              <div
-                key={s.candidate_id}
-                className="flex items-center gap-3 rounded-lg p-2.5"
-                style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
-              >
-                <div className="text-center flex-shrink-0 w-12">
-                  <p className="text-[9px] uppercase" style={{ color: "var(--text-tertiary)" }}>
-                    {new Date(s.date + "T00:00:00").toLocaleDateString(undefined, { month: "short" })}
-                  </p>
-                  <p className="text-base font-bold leading-none" style={{ color: "var(--text-primary)" }}>
-                    {new Date(s.date + "T00:00:00").getDate()}
-                  </p>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
-                    {s.source_title}
-                  </p>
-                  <p className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }}>
-                    {s.source_channel} · {s.why}
-                  </p>
-                </div>
-                <div className="flex-shrink-0 text-center w-10">
-                  <p className="text-sm font-bold" style={{ color: "var(--turquoise)" }}>{s.score}</p>
-                  <p className="text-[8px]" style={{ color: "var(--text-tertiary)" }}>score</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setBuildingId(s.candidate_id);
-                    buildMutation.mutate(s.candidate_id);
+            {plan.slots.map((s: CalendarPlanSlot) => {
+              const isQueued = s.kind === "queued";
+              const slotId = (isQueued ? s.queue_id : s.candidate_id) ?? "";
+              const qIdx = isQueued ? queuedSlots.findIndex((q) => q.queue_id === s.queue_id) : -1;
+              return (
+                <div
+                  key={slotId}
+                  className="flex items-center gap-3 rounded-lg p-2.5"
+                  style={{
+                    background: isQueued ? "rgba(64,224,208,0.04)" : "rgba(255,255,255,0.02)",
+                    border: isQueued ? "1px solid rgba(64,224,208,0.18)" : "1px solid rgba(255,255,255,0.05)",
                   }}
-                  disabled={buildingId === s.candidate_id}
-                  className="flex-shrink-0 flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                  style={{ background: "var(--turquoise)", color: "#0a0a0a" }}
                 >
-                  {buildingId === s.candidate_id ? (
-                    <Loader2 size={12} className="animate-spin" />
+                  <div className="text-center flex-shrink-0 w-12">
+                    <p className="text-[9px] uppercase" style={{ color: "var(--text-tertiary)" }}>
+                      {new Date(s.date + "T00:00:00").toLocaleDateString(undefined, { month: "short" })}
+                    </p>
+                    <p className="text-base font-bold leading-none" style={{ color: "var(--text-primary)" }}>
+                      {new Date(s.date + "T00:00:00").getDate()}
+                    </p>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {isQueued && (
+                        <span
+                          className="flex-shrink-0 inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                          style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+                        >
+                          <ListOrdered size={9} /> Queued by you
+                        </span>
+                      )}
+                      <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                        {s.source_title}
+                      </p>
+                    </div>
+                    <p className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }}>
+                      {s.source_channel} · {s.why}
+                    </p>
+                  </div>
+                  {isQueued ? (
+                    <div className="flex-shrink-0 flex items-center gap-0.5">
+                      <button
+                        onClick={() => moveQueued(s, -1)}
+                        disabled={qIdx <= 0 || reorderMutation.isPending}
+                        aria-label="Move up"
+                        className="p-1 rounded transition-colors hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-25"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        <ChevronUp size={14} />
+                      </button>
+                      <button
+                        onClick={() => moveQueued(s, 1)}
+                        disabled={qIdx === queuedSlots.length - 1 || reorderMutation.isPending}
+                        aria-label="Move down"
+                        className="p-1 rounded transition-colors hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-25"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        <ChevronDown size={14} />
+                      </button>
+                      <button
+                        onClick={() => s.queue_id && removeMutation.mutate(s.queue_id)}
+                        disabled={removeMutation.isPending}
+                        aria-label="Remove from queue"
+                        className="p-1 rounded transition-colors hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-25"
+                        style={{ color: "var(--text-tertiary)" }}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
                   ) : (
-                    <Rocket size={12} />
+                    <div className="flex-shrink-0 text-center w-10">
+                      <p className="text-sm font-bold" style={{ color: "var(--turquoise)" }}>{s.score}</p>
+                      <p className="text-[8px]" style={{ color: "var(--text-tertiary)" }}>score</p>
+                    </div>
                   )}
-                  Build
-                </button>
-              </div>
-            ))}
+                  <button
+                    onClick={() => {
+                      setBuildingId(slotId);
+                      if (isQueued && s.queue_id) buildQueueMutation.mutate(s.queue_id);
+                      else if (s.candidate_id) buildMutation.mutate(s.candidate_id);
+                    }}
+                    disabled={buildingId === slotId}
+                    className="flex-shrink-0 flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                    style={{ background: "var(--turquoise)", color: "#0a0a0a" }}
+                  >
+                    {buildingId === slotId ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Rocket size={12} />
+                    )}
+                    Build
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

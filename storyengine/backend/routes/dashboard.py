@@ -331,6 +331,16 @@ async def get_calendar_plan(days: int = Query(30, ge=7, le=60), tenant_id: str =
     interval = max(1, int((cfg or {}).get("production_interval_days") or 0) or 2)
     n_slots = max(1, days // interval)
 
+    # The creator's OWN queue comes first (chat "queue these titles" / CSV drop):
+    # queued items take the earliest slots in their given order; scored
+    # competitor winners fill whatever slots remain after them.
+    queued = await fetch_all(
+        """SELECT id, title, position FROM production_queue
+           WHERE tenant_id = $1 AND status = 'queued'
+           ORDER BY position, created_at LIMIT $2""",
+        tenant_id, n_slots,
+    )
+
     rows = await fetch_all(
         """SELECT cv.id, cv.title, cv.url, cv.channel, cv.views, cv.vph, cv.hours_old,
                   cv.like_ratio, cv.views_per_sub_ratio, cv.distilled_at
@@ -341,7 +351,7 @@ async def get_calendar_plan(days: int = Query(30, ge=7, le=60), tenant_id: str =
            LIMIT 40""",
         tenant_id,
     )
-    if not rows:
+    if not rows and not queued:
         return {"interval_days": interval, "slots": [],
                 "note": "Add competitor channels and run a scrape to plan from real winners."}
 
@@ -378,10 +388,22 @@ async def get_calendar_plan(days: int = Query(30, ge=7, le=60), tenant_id: str =
 
     today = date_type.today()
     slots = []
-    for i, (score, bd, r) in enumerate(ordered):
+    for i, q in enumerate(queued):
         d = today + timedelta(days=i * interval)
         slots.append({
             "date": d.isoformat(),
+            "kind": "queued",
+            "queue_id": str(q["id"]),
+            "position": int(q["position"]),
+            "source_title": q.get("title") or "Untitled",
+            "source_channel": "Your queue",
+            "why": "Queued by you — builds in this order",
+        })
+    for i, (score, bd, r) in enumerate(ordered[: max(0, n_slots - len(queued))]):
+        d = today + timedelta(days=(len(queued) + i) * interval)
+        slots.append({
+            "date": d.isoformat(),
+            "kind": "candidate",
             "candidate_id": str(r["id"]),
             "source_title": r.get("title") or "Untitled",
             "source_channel": r.get("channel") or "",

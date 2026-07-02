@@ -250,10 +250,10 @@ async def _assets_brief(tenant_id, state) -> str:
         )
         if not rows:
             return ""
-        lines = ["\n\nFILES THE CREATOR DROPPED INTO THIS CONVERSATION:"]
+        lines = ["\n\nFILES THE CREATOR DROPPED INTO THIS CONVERSATION (use the id in filing ops like queue_titles):"]
         for r in rows:
             where = f" (already filed: {r['filed_as']})" if r.get("filed_as") else " (not filed anywhere yet)"
-            lines.append(f"- [{r['kind']}] {r['summary']}{where}")
+            lines.append(f"- [{r['kind']}] id={r['id']} {r['summary']}{where}")
         return "\n".join(lines)
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: assets brief failed: %s", e)
@@ -1664,7 +1664,28 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     continue
                 await _delete_competitor(tenant_id, row["id"])
                 results.append(f"Removed {row.get('channel_name') or val} from your competitors.")
-            elif kind in _PROFILE_FIELD_COLS:
+            elif kind == "queue_titles":
+                # value: {"asset_id": "<chat_assets id>", "column": "<optional>"}
+                # or {"titles": ["...", ...]} for titles given in conversation.
+                raw = op.get("value") if isinstance(op.get("value"), dict) else {}
+                from routes.queue import add_queue_items, queue_titles_from_asset
+                titles = [str(t).strip() for t in (raw.get("titles") or []) if str(t).strip()]
+                asset_id = str(raw.get("asset_id") or "").strip()
+                if asset_id and not titles:
+                    n, err = await queue_titles_from_asset(tenant_id, asset_id, raw.get("column"))
+                    if err:
+                        results.append(err)
+                        continue
+                elif titles:
+                    n = await add_queue_items(tenant_id, [{"title": t} for t in titles])
+                else:
+                    results.append("I need the uploaded file (or the titles themselves) to queue anything.")
+                    continue
+                results.append(
+                    f"Queued {n} video{'s' if n != 1 else ''} — they're on your calendar in that "
+                    "order, first slots. Autopilot will build them one by one when it's on, or "
+                    "hit Build on any of them from the Calendar page."
+                )
                 if not val:
                     continue
                 col = _PROFILE_FIELD_COLS[kind]

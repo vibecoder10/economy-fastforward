@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
 from logging_config import logger, RequestLoggingMiddleware
 from rate_limit import RateLimitMiddleware
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media, chat, onboarding, workspaces
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media, chat, onboarding, workspaces, queue
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks, reap_stale_running_tasks
 from job_queue import enqueue_stage
@@ -373,6 +373,38 @@ async def _auto_distill_intelligence():
         await asyncio.sleep(43200)  # Every 12 hours
 
 
+async def _auto_produce_queue():
+    """Background task: drain the creator's own production queue, every 30 min.
+
+    Only runs for tenants with autopilot ENABLED. The queue (CSV titles dropped
+    into chat, "queue these") wins over scored competitor candidates: when a
+    video is due (production_interval_days cadence, shared with autopilot
+    launches) and nothing is in flight, the front of the queue is claimed and
+    launched (routes/queue.py:auto_produce_next — FOR UPDATE SKIP LOCKED, so a
+    manual Build can't race this loop)."""
+    await asyncio.sleep(240)  # Offset from other startup tasks
+    while True:
+        try:
+            tenant_ids = await _get_all_tenant_ids()
+            for tenant_id in tenant_ids:
+                try:
+                    if not await _is_autopilot_enabled(tenant_id):
+                        continue
+                    from routes.queue import auto_produce_next
+                    result = await auto_produce_next(tenant_id)
+                    if result:
+                        logger.info(
+                            "[AutoQueue] Tenant %s launched queued video %s (%s)",
+                            tenant_id[:8], result.get("video_id"), result.get("video_title"),
+                        )
+                except Exception as e:
+                    logger.error("[AutoQueue] Tenant %s error: %s", tenant_id[:8], e)
+        except Exception as e:
+            logger.error("[AutoQueue] Error: %s", e)
+
+        await asyncio.sleep(1800)  # Every 30 minutes
+
+
 async def _auto_generate_meta_insights():
     """Background task: generate niche meta-insights every 24h.
 
@@ -471,6 +503,7 @@ async def lifespan(app: FastAPI):
     distillation_task = asyncio.create_task(_auto_distill_intelligence())
     meta_insights_task = asyncio.create_task(_auto_generate_meta_insights())
     reaper_task = asyncio.create_task(_auto_reap_stale_tasks())
+    produce_queue_task = asyncio.create_task(_auto_produce_queue())
 
     yield
 
@@ -486,6 +519,7 @@ async def lifespan(app: FastAPI):
     distillation_task.cancel()
     meta_insights_task.cancel()
     reaper_task.cancel()
+    produce_queue_task.cancel()
     await close_pool()
 
 
@@ -572,6 +606,7 @@ app.include_router(media.router)
 app.include_router(chat.router)
 app.include_router(onboarding.router)
 app.include_router(workspaces.router)
+app.include_router(queue.router)
 
 
 @app.get("/api/health")
