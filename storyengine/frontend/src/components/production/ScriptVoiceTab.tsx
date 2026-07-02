@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
-  Library, Wand2, Play, Layers, Mic, Pencil, Loader2,
+  Library, Wand2, Play, Square, Layers, Mic, Pencil, Loader2,
   CheckCircle, Clock, AlertCircle, Save, ShieldCheck,
   Cloud, CloudUpload, RefreshCw, ExternalLink,
 } from "lucide-react";
@@ -15,8 +15,9 @@ import {
   runVoiceForScene, runSplit, getSceneSegments, updateSceneSegments,
   getDefaultScriptPrompt,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
-  setApiKey, getApiKeyStatus, getDialogueMap,
+  setApiKey, getApiKeyStatus, getDialogueMap, getAudioToken,
 } from "@/lib/api";
+import { API_URL } from "@/lib/env";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
@@ -619,12 +620,18 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   });
   const performanceTrack = useMemo(() => {
     if (!dialogueMap) return null;
-    const bySpeaker = new Map<string, number>();
+    const bySpeaker = new Map<
+      string,
+      { count: number; lines: Array<{ scene: number; index: number; text: string; voiced: boolean }> }
+    >();
     let narration = 0;
     for (const sc of dialogueMap.scenes ?? []) {
       for (const seg of sc.segments ?? []) {
         if (seg.type === "dialogue" && seg.speaker) {
-          bySpeaker.set(seg.speaker, (bySpeaker.get(seg.speaker) ?? 0) + 1);
+          const entry = bySpeaker.get(seg.speaker) ?? { count: 0, lines: [] };
+          entry.count += 1;
+          entry.lines.push({ scene: sc.scene, index: seg.index, text: seg.text || "", voiced: seg.voiced });
+          bySpeaker.set(seg.speaker, entry);
         } else if (seg.type === "narration") {
           narration += 1;
         }
@@ -632,6 +639,32 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     }
     return { mode: dialogueMap.dialogue_mode, bySpeaker: [...bySpeaker.entries()], narration };
   }, [dialogueMap]);
+
+  // Per-line audition: tap a line on the Performance Track card to hear that
+  // character's cast voice (the scene player only carries the narrator). The
+  // segment MP3 streams via GET dialogue-audio/{scene}/{index} with the same
+  // short-lived browser token the animatic uses.
+  const lineAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingLine, setPlayingLine] = useState<string | null>(null);
+  const playLine = useCallback(async (scene: number, index: number) => {
+    const key = `${scene}:${index}`;
+    const a = lineAudioRef.current;
+    if (!a) return;
+    if (playingLine === key) {
+      a.pause();
+      setPlayingLine(null);
+      return;
+    }
+    try {
+      const { token } = await getAudioToken(video.id);
+      a.src = `${API_URL}/api/videos/${video.id}/dialogue-audio/${scene}/${index}?token=${token}`;
+      await a.play();
+      setPlayingLine(key);
+    } catch {
+      setPlayingLine(null);
+      toast.error("Couldn't play that line — generate the voiceover first.");
+    }
+  }, [playingLine, video.id, toast]);
   const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const [driveConflict, setDriveConflict] = useState(false);
 
@@ -1795,15 +1828,47 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               {performanceTrack.mode === "character_dialogue" ? (
                 <div className="space-y-2">
                   <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                    Character dialogue detected. Each character speaks their lines in their own
-                    voice (lip-synced); the narrator carries everything else.
+                    Character dialogue detected. Each character performs their lines in their
+                    own cast voice; the narrator carries everything else. Tap a line to hear it.
                   </p>
-                  {performanceTrack.bySpeaker.map(([speaker, n]) => (
-                    <div key={speaker} className="flex items-center justify-between">
-                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>💬 {speaker}</span>
-                      <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
-                        {n} line{n === 1 ? "" : "s"}
-                      </span>
+                  {performanceTrack.bySpeaker.map(([speaker, info]) => (
+                    <div key={speaker}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs" style={{ color: "var(--text-secondary)" }}>💬 {speaker}</span>
+                        <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
+                          {info.count} line{info.count === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div className="mt-1 space-y-1">
+                        {info.lines.map((l) => {
+                          const key = `${l.scene}:${l.index}`;
+                          return (
+                            <div key={key} className="flex items-center gap-2">
+                              <button
+                                onClick={() => playLine(l.scene, l.index)}
+                                disabled={!l.voiced}
+                                title={l.voiced ? "Play this line" : "Not voiced yet — create the voiceover first"}
+                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                                style={{
+                                  background: l.voiced ? "var(--turquoise)" : "rgba(255,255,255,0.08)",
+                                  color: "var(--bg-void)",
+                                  opacity: l.voiced ? 1 : 0.4,
+                                  cursor: l.voiced ? "pointer" : "not-allowed",
+                                }}
+                              >
+                                {playingLine === key ? <Square size={8} /> : <Play size={8} className="ml-px" />}
+                              </button>
+                              <span
+                                className="text-[11px] truncate"
+                                title={l.text}
+                                style={{ color: l.voiced ? "var(--text-secondary)" : "var(--text-tertiary)" }}
+                              >
+                                S{l.scene} · {l.text}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
                   <div className="flex items-center justify-between">
@@ -1812,6 +1877,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       {performanceTrack.narration} segment{performanceTrack.narration === 1 ? "" : "s"}
                     </span>
                   </div>
+                  <audio ref={lineAudioRef} onEnded={() => setPlayingLine(null)} className="hidden" />
                 </div>
               ) : (
                 <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>

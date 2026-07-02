@@ -693,14 +693,11 @@ async def create_audio_token(video_id: str, tenant_id=Depends(get_tenant_id)):
     return {"token": audio_token}
 
 
-@router.get("/{video_id}/audio/{scene}")
-async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None):
-    """Proxy audio from Google Drive for browser playback.
-
-    Google Drive download URLs use 303 redirects that some browsers
-    block in Audio elements. This endpoint streams the audio directly.
-    Accepts a short-lived audio token (from POST /audio-token) in ?token= param.
-    """
+def _audio_token_tenant(token: Optional[str], video_id: str) -> str:
+    """Resolve the tenant behind a browser audio token (?token= on <audio>
+    URLs — players can't send headers). Accepts the short-lived audio token
+    from POST /audio-token (scope-checked to the video) or a session JWT.
+    Dev token only when DEV_MODE=true. Raises 401/403 like a dependency."""
     import os
     import jwt as pyjwt
 
@@ -711,27 +708,36 @@ async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None
     # Dev token: only when DEV_MODE=true and DEV_TOKEN env var is set
     dev_token = os.getenv("DEV_TOKEN")
     if dev_token and token == dev_token and os.getenv("DEV_MODE") == "true":
-        tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
-    else:
-        # Validate JWT (short-lived audio token or session JWT)
-        session_secret = os.getenv("SESSION_SECRET")
-        if not session_secret:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        try:
-            payload = pyjwt.decode(token, session_secret, algorithms=["HS256"])
-            # Short-lived audio token: verify purpose and video_id scope
-            if payload.get("purpose") == "audio":
-                if payload.get("video_id") != video_id:
-                    raise HTTPException(status_code=403, detail="Token not valid for this video")
-                tenant_id = payload.get("tenant_id")
-            else:
-                tenant_id = payload.get("tenant_id")
-            if not tenant_id:
-                raise HTTPException(status_code=401, detail="Invalid token: no tenant")
-        except pyjwt.ExpiredSignatureError:
-            raise HTTPException(status_code=401, detail="Token expired")
-        except pyjwt.InvalidTokenError:
-            raise HTTPException(status_code=401, detail="Invalid token")
+        return os.getenv("DEV_TENANT_ID", "test-tenant")
+
+    # Validate JWT (short-lived audio token or session JWT)
+    session_secret = os.getenv("SESSION_SECRET")
+    if not session_secret:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        payload = pyjwt.decode(token, session_secret, algorithms=["HS256"])
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    # Short-lived audio token: verify purpose and video_id scope
+    if payload.get("purpose") == "audio" and payload.get("video_id") != video_id:
+        raise HTTPException(status_code=403, detail="Token not valid for this video")
+    tenant_id = payload.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Invalid token: no tenant")
+    return tenant_id
+
+
+@router.get("/{video_id}/audio/{scene}")
+async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None):
+    """Proxy audio from Google Drive for browser playback.
+
+    Google Drive download URLs use 303 redirects that some browsers
+    block in Audio elements. This endpoint streams the audio directly.
+    Accepts a short-lived audio token (from POST /audio-token) in ?token= param.
+    """
+    tenant_id = _audio_token_tenant(token, video_id)
 
     row = await fetch_one(
         "SELECT voice_over_url FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 LIMIT 1",
@@ -768,6 +774,62 @@ async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None
     return StreamingResponse(stream(), media_type="audio/mpeg", headers={
         "Accept-Ranges": "bytes",
         "Cache-Control": "public, max-age=86400",
+    })
+
+
+@router.get("/{video_id}/dialogue-audio/{scene}/{index}")
+async def get_dialogue_segment_audio(
+    video_id: str, scene: int, index: int, token: Optional[str] = None,
+):
+    """Stream ONE dialogue segment's MP3 — the Performance Track card's
+    per-line audition, so a creator can hear each character's cast voice
+    before spending on clips. `index` is the segment's position in the
+    scene's dialogue_segments. Same browser-token auth as get_scene_audio."""
+    import json as _json
+
+    tenant_id = _audio_token_tenant(token, video_id)
+
+    row = await fetch_one(
+        "SELECT dialogue_segments FROM scripts "
+        "WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 LIMIT 1",
+        video_id, tenant_id, scene,
+    )
+    raw = (row or {}).get("dialogue_segments")
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except ValueError:
+            raw = None
+    if not isinstance(raw, list) or not (0 <= index < len(raw)):
+        raise HTTPException(status_code=404, detail="No such dialogue segment")
+    url = (raw[index] or {}).get("audio_url")
+    if not url:
+        raise HTTPException(status_code=404, detail="This line isn't voiced yet")
+
+    file_id = _drive_file_id(url)
+    if file_id:
+        from routes.media import _download_via_drive_api
+        try:
+            data = await asyncio.to_thread(_download_via_drive_api, file_id)
+        except Exception as e:
+            logger.warning("[dialogue-audio] drive fetch failed for %s: %s",
+                           file_id, str(e)[:200])
+            raise HTTPException(status_code=502, detail="Couldn't fetch the audio right now.")
+        return Response(content=data, media_type="audio/mpeg", headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+        })
+
+    async def stream():
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with client.stream("GET", url, timeout=60.0) as resp:
+                resp.raise_for_status()
+                async for chunk in resp.aiter_bytes(8192):
+                    yield chunk
+
+    return StreamingResponse(stream(), media_type="audio/mpeg", headers={
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=3600",
     })
 
 
@@ -1368,10 +1430,12 @@ async def get_dialogue_map(video_id: str, tenant_id=Depends(get_tenant_id)):
         scenes.append({
             "scene": r["scene"],
             "segments": [
-                {"type": s.get("type"), "speaker": s.get("speaker"),
+                # index = position in dialogue_segments — the per-line audio
+                # route (GET dialogue-audio/{scene}/{index}) is keyed on it.
+                {"index": i, "type": s.get("type"), "speaker": s.get("speaker"),
                  "text": s.get("text"), "duration": s.get("duration"),
                  "voiced": bool(s.get("audio_url"))}
-                for s in raw
+                for i, s in enumerate(raw)
             ],
         })
     return {"dialogue_mode": "character_dialogue", "scenes": scenes}

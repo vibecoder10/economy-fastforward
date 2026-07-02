@@ -1605,6 +1605,8 @@ export interface Asset {
 }
 
 export interface DialogueMapSegment {
+  /** Position in the scene's dialogue_segments — keys the per-line audio route. */
+  index: number;
   type: "narration" | "dialogue";
   speaker?: string | null;
   text: string;

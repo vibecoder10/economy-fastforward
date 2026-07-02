@@ -815,12 +815,10 @@ async def run_storyboard_images(
     Args:
         scene: If set, only generate images for this scene (per-scene mode).
     """
-    # DEPRECATED (Phase 0 unify, 2026-06-29): retired in favor of the unified
-    # coverage pipeline. Delete this raise to restore the old grid path.
-    raise HTTPException(
-        status_code=410,
-        detail="Retired endpoint. Storyboard images now run through the unified coverage pipeline (Scenes tab).",
-    )
+    # NOTE: this route was retired in the Phase-0 unify (2026-06-29), then
+    # REWIRED to the one-sheet storyboard preview below — but the deprecation
+    # raise was left in, making the new body unreachable ("Retired endpoint"
+    # toast on the Scenes tab, found live 2026-07-02). Removed.
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
