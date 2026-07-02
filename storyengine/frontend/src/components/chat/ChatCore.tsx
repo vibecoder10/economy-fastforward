@@ -181,6 +181,7 @@ export function ChatCore({
   const [attachments, setAttachments] = useState<{ id: string; filename: string; kind: string }[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
+  const dockScrollRef = useRef<HTMLDivElement>(null);
   const autoTriedRef = useRef(false);
 
   const cidKey = docked && videoId ? dockCidKey(videoId) : CHAT_CID_KEY;
@@ -199,7 +200,20 @@ export function ChatCore({
   const actionCard = lastCards?.find((c) => c.id === "confirm_action" || c.id === "prompt_apply" || c.id === "secure_key") ?? null;
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Pin the thread to its newest content. In the DOCK, scroll the panel's own
+    // container imperatively — smooth scrollIntoView loses the race when a
+    // reply arrives WITH an action card (the panel resizes mid-scroll), which
+    // left confirm cards rendered below the fold: creators saw no Do-it button
+    // at all and thought the action had no UI. Run twice (now + after layout
+    // settles) so late-painting cards are still brought into view.
+    const toBottom = () => {
+      const el = dockScrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+      else endRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+    toBottom();
+    const t = setTimeout(toBottom, 180);
+    return () => clearTimeout(t);
   }, [messages, sending, createdVideoId]);
 
   // Home only: load "worth modeling" suggestions from the creator's modeled channel.
@@ -489,7 +503,7 @@ export function ChatCore({
         {/* pb-44: the confirm/prompt action cards render at the thread's end —
             with pb-28 their buttons could sit under the pinned composer overlay
             (creators saw the card label but no Do it button). */}
-        <div className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
+        <div ref={dockScrollRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
           {!started && (
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
           )}
