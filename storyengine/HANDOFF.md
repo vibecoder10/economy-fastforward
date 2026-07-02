@@ -7,7 +7,7 @@ Prod is main @ 2b5b8ea2, everything below deployed and live.
 
 ## UPDATE 2026-07-02 (later session): the assembler is BUILT + DEPLOYED
 
-The task below is DONE  -  prod @ f964a9c6. backend/render_perform.py implements
+The task below is DONE - prod @ f964a9c6. backend/render_perform.py implements
 the agreed design: per scene, every dialogue_segments voice laid end to end
 into ONE track (dialogue lines get a 0.5s head-pad mirroring the clip mux
 lead + 0.25s tail beat), speaking shots windowed to exactly their line span
@@ -19,17 +19,17 @@ scene preview uses it too (plain stitch fallback). 10 unit tests
 
 PROVEN on prod data: bird video f32ed182 scene 2 (9 voiced segments incl. 5
 character lines, 5 clips) assembled in-process on the VPS into a 32.51s video
-against a 32.50s track  -  voices continuous, merged-turn masters (Mom+Dad in
+against a 32.50s track - voices continuous, merged-turn masters (Mom+Dad in
 one window) handled, one intentional inter-line beat. No prod rows touched.
 
 STILL OWED for the full product proof: the Marco video (9abb9d51) has all 21
-segments voiced but ZERO clips  -  when Ryan drives approve-Marco → environments
+segments voiced but ZERO clips - when Ryan drives approve-Marco → environments
 → storyboard → animate (his D2 proof), the scene preview and final render will
 come out of the assembler automatically. Listen for mouth/track alignment on
 the speaking shots there; the head-pad constant is PERFORM-env-tunable
 (PERFORM_DIALOGUE_TAIL, PERFORM_MIN_SHOT) if pacing needs a nudge.
 
-## THE ORIGINAL TASK (done — kept for design context): the performance-track assembler (Ryan said build it)
+## THE ORIGINAL TASK (done - kept for design context): the performance-track assembler (Ryan said build it)
 
 The hybrid bilingual format (characters speak Spanish, narrator teaches in English)
 works end to end EXCEPT the final render. Three correct pieces exist with nothing
