@@ -376,13 +376,46 @@ class ThumbnailTitleEngine:
         all_thumbnail_urls = []
         total_attempts = 0
 
+        # Content-policy ladder: military/history channels legitimately use
+        # charged words (KILLED, tanks, weapons) that can trip the image
+        # model's filter, and one block used to abort ALL variants. First
+        # block: reframe as neutral archival subject matter. Second block:
+        # additionally soften the violent words in the prompt. Third: give up.
+        _SAFETY_NOTE = (
+            "\n\nCONTENT SAFETY: Depict any military hardware as a static "
+            "museum/archival subject only — no combat, no violence, no "
+            "destruction, no people in distress. Neutral, sober documentary "
+            "presentation."
+        )
+        _SOFTEN = {
+            "KILLED": "CANCELED", "KILL": "CANCEL", "DEATH": "END",
+            "DEAD": "DEFUNCT", "DYING": "FADING", "CRUSHED": "REJECTED",
+            "DESTROYED": "SCRAPPED", "PURGE": "CUT", "WEAPONIZED": "MILITARIZED",
+        }
+        policy_blocks = 0
+
         for variant in range(1, NUM_THUMBNAIL_VARIANTS + 1):
             print(f"  Generating thumbnail variant {variant}/{NUM_THUMBNAIL_VARIANTS}...")
             variant_url = None
 
             for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
                 total_attempts += 1
-                urls = await self.image_client.generate_thumbnail(thumbnail_prompt)
+                try:
+                    urls = await self.image_client.generate_thumbnail(thumbnail_prompt)
+                except Exception as e:
+                    if "CONTENT_POLICY" not in str(e):
+                        raise
+                    policy_blocks += 1
+                    if policy_blocks == 1:
+                        thumbnail_prompt = thumbnail_prompt + _SAFETY_NOTE
+                        print("    Content-policy block — added safety reframe, retrying")
+                        continue
+                    if policy_blocks == 2:
+                        for bad, safe in _SOFTEN.items():
+                            thumbnail_prompt = thumbnail_prompt.replace(bad, safe)
+                        print("    Blocked again — softened charged words, retrying")
+                        continue
+                    raise
 
                 if urls:
                     variant_url = urls[0]
