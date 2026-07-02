@@ -121,11 +121,18 @@ mention minors. Write "short character with curly brown hair in a red hoodie", n
 </output_format>"""
 
 
+# Writers emit markdown-bold speaker labels (`**Marco:** ¡Espera!`) — normalize
+# to plain `Marco:` before parsing or the turn checklist comes back empty and a
+# dialogue scene plans as narration. Covers **Name:** / **Name**: / *Name:*.
+_BOLD_SPEAKER_RE = re.compile(
+    r"(?m)^(\s*)\*{1,3}\s*([A-Z][A-Za-z .'-]{0,24})\s*(?::\s*\*{1,3}|\*{1,3}\s*:)\s*")
+
+
 def _scene_turns(beat_text: str):
     """Ordered [(speaker, text)] dialogue turns from a scene's narration; runs of
     the same speaker merge. Used to hand the planner an exact turn checklist."""
     out = []
-    for line in (beat_text or "").splitlines():
+    for line in _BOLD_SPEAKER_RE.sub(r"\1\2: ", beat_text or "").splitlines():
         m = re.match(r"^\s*([A-Z][A-Za-z .'-]{0,24}):\s+(\S.*)$", line)
         if not m:
             continue

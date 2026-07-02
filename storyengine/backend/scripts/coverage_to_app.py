@@ -744,11 +744,23 @@ def _split_assigned(assigned: str):
     return (m.group(1).strip(), m.group(2).strip()) if m else (None, None)
 
 
+# Script writers emit markdown-bold speaker labels (`**Marco:** ¡Espera!`) —
+# normalize to plain `Marco:` before parsing, or a dialogue scene reads as
+# ZERO turns and storyboards as narration (no lip-synced shot per line).
+# Covers **Name:** / **Name**: / *Name:* variants.
+_BOLD_SPEAKER_RE = re.compile(
+    r"(?m)^(\s*)\*{1,3}\s*([A-Z][A-Za-z .'-]{0,24})\s*(?::\s*\*{1,3}|\*{1,3}\s*:)\s*")
+
+
+def _normalize_speaker_lines(text: str) -> str:
+    return _BOLD_SPEAKER_RE.sub(r"\1\2: ", text or "")
+
+
 def _dialogue_turns(scene_text: str):
     """Ordered [(speaker, text), ...] dialogue turns; consecutive same-speaker
     lines merge into one turn. Empty for a scene with no tagged dialogue."""
     out = []
-    for line in (scene_text or "").splitlines():
+    for line in _normalize_speaker_lines(scene_text).splitlines():
         m = re.match(r"^\s*([A-Z][A-Za-z .'-]{0,24}):\s+(\S.*)$", line)
         if not m:
             continue
