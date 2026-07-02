@@ -171,21 +171,26 @@ async def find_commons_photos(query: str, limit: int = 3) -> list[str]:
                         continue  # thumbnails/icons — too small to reference
                     url = ii.get("url") or ""
                     thumb = ii.get("thumburl") or ""
-                    # ALWAYS serve from the /thumb/ cache layer — Wikimedia's
-                    # raw-file layer 403s cloud IPs (seen live for both Kie's
-                    # fetcher AND our own). When the API returned the raw URL
-                    # (original smaller than the requested width), build the
-                    # thumb form manually at width-1.
-                    if not thumb or thumb == url:
-                        if "/wikipedia/commons/" in url and w > 500:
-                            fname = url.rsplit("/", 1)[1]
-                            tw = min(1280, w - 1)
-                            thumb = (url.replace("/wikipedia/commons/",
-                                                 "/wikipedia/commons/thumb/")
-                                     + f"/{tw}px-{fname}")
-                        else:
-                            thumb = url
-                    if thumb:
+                    # ONLY API-issued /thumb/ URLs are servable: the raw-file
+                    # layer 403s cloud IPs, and hand-built thumb URLs for
+                    # never-rendered sizes 403 too (the API request is what
+                    # warms the CDN — proven live). For originals smaller than
+                    # the requested width, ask the API for a width-1 thumb.
+                    if (not thumb or thumb == url) and p.get("title"):
+                        try:
+                            r3 = await c.get(_COMMONS_API, params={
+                                "action": "query", "titles": p["title"],
+                                "prop": "imageinfo", "iiprop": "url",
+                                "iiurlwidth": max(500, w - 1), "format": "json"})
+                            pp = ((r3.json().get("query") or {}).get("pages") or {}).values()
+                            for p3 in pp:
+                                for ii3 in p3.get("imageinfo") or []:
+                                    t3 = ii3.get("thumburl") or ""
+                                    if t3 and t3 != url:
+                                        thumb = t3
+                        except Exception:  # noqa: BLE001
+                            pass
+                    if thumb and thumb != url and "/thumb/" in thumb:
                         out.append(thumb)
             return out[:limit]
     except Exception:  # noqa: BLE001 — reference lookup is best-effort
@@ -214,10 +219,24 @@ async def _host_reference(url: str, video_id: str, tenant_id: str,
         return None
 
 
+def _designation_token(machine: str) -> str:
+    """The machine's designation as a matchable token: the first word with a
+    digit, alphanumerics only, lowercased (e.g. 'MBT-70' -> 'mbt70',
+    'XM2001 Crusader' -> 'xm2001', 'T95 medium tank' -> 't95')."""
+    for word in (machine or "").split():
+        if any(ch.isdigit() for ch in word):
+            return re.sub(r"[^a-z0-9]", "", word.lower())
+    return re.sub(r"[^a-z0-9]", "", (machine or "").lower())[:12]
+
+
 async def _vision_confirms(tenant_id: str, image_url: str, machine: str) -> bool:
-    """Cheap vision sanity check: does this photo actually show the machine?
-    Catches designation collisions (e.g. the RUSSIAN T-95 vs the US T95).
-    Fail-open — a broken checker must not block image generation."""
+    """Vision sanity check: does this image actually show the machine, as a
+    photograph/full rendering (not a sketch or scale model)?
+
+    Framed as neutral IDENTIFICATION — a yes/no 'verify this military
+    hardware' framing made the model refuse outright (seen live), and a
+    refusal is neither yes nor no. We ask what the image shows and match the
+    designation in the answer. Fail-open on transport errors only."""
     from vault import get_secret
     from identity_builder import _KIE_CLAUDE_URL
 
@@ -231,21 +250,28 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str) -> bool
                 _KIE_CLAUDE_URL,
                 headers={"Authorization": f"Bearer {key}",
                          "Content-Type": "application/json"},
-                json={"model": "claude-haiku-4-5", "max_tokens": 10,
+                json={"model": "claude-haiku-4-5", "max_tokens": 80,
                       "messages": [{"role": "user", "content": [
                           {"type": "text", "text":
-                           f"Is this a real photograph or detailed full rendering "
-                           f"(NOT a line drawing, sketch, diagram, or scale model) "
-                           f"that clearly shows the {machine} or a prototype of it? "
-                           "Answer YES or NO only."},
+                           "One line: what vehicle/machine does this image "
+                           "primarily show (designation if identifiable), and "
+                           "is the image a photograph, a drawing/sketch/diagram, "
+                           "or a scale model?"},
                           {"type": "image", "source": {"type": "url",
                            "url": _kie_fetchable_url(image_url)}},
                       ]}]},
             )
         body = r.json()
         txt = " ".join(b.get("text", "") for b in body.get("content", [])
-                       if b.get("type") == "text").strip().upper()
-        return not txt.startswith("NO")
+                       if b.get("type") == "text").strip().lower()
+        if not txt:
+            return True
+        norm = re.sub(r"[^a-z0-9 ]", "", txt)
+        token = _designation_token(machine)
+        named = bool(token) and token in norm.replace(" ", "")
+        is_flat = any(k in txt for k in ("drawing", "sketch", "diagram",
+                                         "blueprint", "scale model", "schematic"))
+        return named and not is_flat
     except Exception:  # noqa: BLE001
         return True
 
