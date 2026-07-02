@@ -278,6 +278,14 @@ async def create_video(
 
     await increment_usage(tenant_id, "videos_created")
 
+    # House script format: prepend the saved template (if any) so every script
+    # pathway writes in the channel's format. Fail-soft, never blocks creation.
+    try:
+        from routes.script_templates import apply_default_template
+        await apply_default_template(tenant_id, str(row["id"]))
+    except Exception as e:
+        logging.getLogger(__name__).warning("apply script template failed: %s", e)
+
     # Lock the chosen look in as the channel identity (preset/custom path; the
     # clone path locks in later, when modeling writes the DNA — see model_video).
     if body.lock_in_identity and style_override and not is_modeled:

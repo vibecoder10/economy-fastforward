@@ -925,6 +925,10 @@ async def launch_candidate(
     )
     video_id = str(result["id"])
 
+    # House script format rides autopilot launches too (fail-soft inside).
+    from routes.script_templates import apply_default_template
+    await apply_default_template(tenant_id, video_id)
+
     # 4. Mark candidate as modeled
     await execute(
         """UPDATE competitor_videos

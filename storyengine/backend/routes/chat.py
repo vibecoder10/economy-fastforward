@@ -236,6 +236,26 @@ async def _attach_assets(tenant_id, conversation_id, asset_ids, state, user_part
         logger.warning("chat: attach assets failed: %s", e)
 
 
+async def _script_template_brief(tenant_id) -> str:
+    """One line telling the producer the channel's saved house script format.
+    Fail-soft: empty string when none."""
+    try:
+        row = await fetch_one(
+            "SELECT name, created_at FROM script_templates WHERE tenant_id = $1 "
+            "ORDER BY created_at DESC LIMIT 1",
+            tenant_id,
+        )
+        if not row:
+            return ""
+        return (
+            f"\n\nHOUSE SCRIPT FORMAT: the creator saved a script format template "
+            f"(\"{row['name']}\") — every generated script automatically follows it. "
+            "If they upload a new example and ask you to remember it, save_script_template replaces the old one."
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 async def _assets_brief(tenant_id, state) -> str:
     """What the creator has dropped into this conversation, for the producer.
     Fail-soft: no assets (or any error) -> empty string."""
@@ -1734,6 +1754,40 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     "scenes, ready for voice. Say the word when you want production to start "
                     "(that part costs money)."
                 )
+            elif kind == "save_script_template":
+                # value: {"asset_id": "<chat_assets id>" | "text": "...", "name": "<or empty>"}
+                raw = op.get("value") if isinstance(op.get("value"), dict) else {}
+                text_body = str(raw.get("text") or "").strip()
+                asset_id = str(raw.get("asset_id") or "").strip() or None
+                if not text_body and asset_id:
+                    arow = await fetch_one(
+                        "SELECT parsed_text FROM chat_assets WHERE id = $1 AND tenant_id = $2",
+                        asset_id, tenant_id,
+                    )
+                    text_body = ((arow or {}).get("parsed_text") or "").strip()
+                if not text_body:
+                    results.append(
+                        "I couldn't read the example script to learn its format — paste it here instead?"
+                    )
+                    continue
+                from routes.script_templates import analyze_and_save_template
+                try:
+                    tpl = await analyze_and_save_template(
+                        tenant_id, text_body, str(raw.get("name") or ""), asset_id
+                    )
+                except ValueError as e:
+                    results.append(str(e))
+                    continue
+                if asset_id:
+                    await execute(
+                        "UPDATE chat_assets SET status = 'filed', filed_as = 'template' "
+                        "WHERE id = $1 AND tenant_id = $2",
+                        asset_id, tenant_id,
+                    )
+                results.append(
+                    f"Learned your script format (\"{tpl['name']}\") — every script I write "
+                    "from now on follows it. Drop in a new example any time to replace it."
+                )
             elif kind in _PROFILE_FIELD_COLS:
                 if not val:
                     continue
@@ -3075,6 +3129,7 @@ async def chat_turn(
         + await _reference_brief(state, state.get("pending_reference_url"))
         + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
+        + await _script_template_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
     )
     data = call_producer(transcript, system_prompt, api_key=api_key)

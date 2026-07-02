@@ -335,6 +335,20 @@ export const patchQueueItem = (id: string, data: { title?: string; position?: nu
   });
 export const deleteQueueItem = (id: string) =>
   fetchApi<{ status: string }>(`/api/queue/${id}`, { method: "DELETE" });
+// --- House script format (one template per channel) ---
+export interface ScriptTemplate {
+  id: string;
+  name: string;
+  structure: string;
+  example_excerpt?: string | null;
+  is_default: boolean;
+  created_at: string;
+}
+export const getScriptTemplates = () =>
+  fetchApi<{ templates: ScriptTemplate[] }>("/api/script-templates");
+export const deleteScriptTemplate = (id: string) =>
+  fetchApi<{ status: string }>(`/api/script-templates/${id}`, { method: "DELETE" });
+
 export const launchQueueItem = (id: string) =>
   fetchApi<{ status: string; queue_id: string; video_id: string; video_title: string }>(
     `/api/queue/${id}/launch`,

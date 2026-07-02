@@ -125,7 +125,7 @@ own scored picks; locked cast on Profile/Visual Styles with a Lock toggle; ONE h
 template per channel.
 - F1 intake layer: upload + parse (csv/pdf/text/image, chat_assets, mig 073) + producer awareness. `[done]` Proven on prod 2026-07-02: CSV + PDF uploaded via /api/chat/upload, rows stored+bound+Drive-backed, producer described both correctly and honestly said filing isn't wired yet.
 - F2 production queue: CSV -> ordered calendar queue -> autopilot consumes queue-first (mig 074). `[done]` Proven on prod 2026-07-02: "queue these" chat op queued 3 CSV titles in order; calendar served them as the first slots; Build launched the front item; auto_produce_next held while in-flight/not-due and claimed the correct next item once due. Live proof caught + fixed: op belonged in the profile_ops schema, a swallowed elif, and soft-deleted videos blocking the lane.
-- F3 verbatim user script: use a supplied script, skip generation (videos.script_source, mig 075). `[todo]`
+- F3 verbatim user script: use a supplied script, skip generation (videos.script_source, mig 075). `[done]` Proven on prod 2026-07-02: PDF script -> chat op created the video with both scenes VERBATIM (ready_for_voice, user_supplied); run_script passed through without rewriting a word.
 - F4 house script template: analyze an example, apply to every generated script (mig 076). `[todo]`
 - F5 locked channel cast: uploaded sheets = brand assets, characters stage auto-skips (mig 077). `[todo]`
 - F6 channel format lock: visual_format locked + fed into creation defaults. `[todo]`

@@ -36,6 +36,8 @@ import {
   analyzeStyleImage,
   getProfile,
   updateProfile,
+  getScriptTemplates,
+  deleteScriptTemplate,
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
@@ -359,6 +361,11 @@ export default function ProfilePage() {
         <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
           Your account and visual style settings.
         </p>
+      </motion.div>
+
+      {/* House script format (saved from chat: "remember this format") */}
+      <motion.div variants={item}>
+        <ScriptFormatCard />
       </motion.div>
 
       {/* Account Section */}
@@ -963,5 +970,78 @@ export default function ProfilePage() {
         </motion.div>
       )}
     </motion.div>
+  );
+}
+
+// --- House script format card ------------------------------------------------
+// Shows the format template saved from chat ("remember how this script is
+// built"). One per channel; a new example replaces it. Creation lives in chat.
+function ScriptFormatCard() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["script-templates"],
+    queryFn: getScriptTemplates,
+  });
+  const removeMutation = useMutation({
+    mutationFn: deleteScriptTemplate,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["script-templates"] }),
+  });
+  const [expanded, setExpanded] = useState(false);
+  const tpl = data?.templates?.[0];
+
+  return (
+    <>
+      <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
+        <Pencil size={18} style={{ color: "var(--turquoise)" }} />
+        <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+          Script format
+        </h2>
+      </div>
+      <GlassCard className="p-6">
+        {tpl ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{tpl.name}</p>
+                <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                  Saved {new Date(tpl.created_at).toLocaleDateString()} · every generated script follows this format
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setExpanded((e) => !e)}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                  style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+                >
+                  {expanded ? "Hide" : "View"}
+                </button>
+                <button
+                  onClick={() => removeMutation.mutate(tpl.id)}
+                  disabled={removeMutation.isPending}
+                  aria-label="Delete script format"
+                  className="p-1.5 rounded-lg transition-colors hover:bg-[rgba(255,255,255,0.06)]"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+            {expanded && (
+              <pre
+                className="text-xs whitespace-pre-wrap rounded-lg p-3 max-h-72 overflow-y-auto"
+                style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+              >
+                {tpl.structure}
+              </pre>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            No format saved yet. Drop an example script into the chat and say
+            {" "}&ldquo;remember how this script is built&rdquo; — every script after that follows it.
+          </p>
+        )}
+      </GlassCard>
+    </>
   );
 }
