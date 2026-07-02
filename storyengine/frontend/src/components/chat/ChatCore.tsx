@@ -212,8 +212,11 @@ export function ChatCore({
       else endRef.current?.scrollIntoView({ behavior: "smooth" });
     };
     toBottom();
-    const t = setTimeout(toBottom, 180);
-    return () => clearTimeout(t);
+    // Staggered retries: on hydration/reload the surrounding page keeps
+    // reflowing for a second or two AFTER the first scroll, which used to
+    // leave the newest card ~a row below the fold again.
+    const ts = [180, 600, 1500].map((ms) => setTimeout(toBottom, ms));
+    return () => ts.forEach(clearTimeout);
   }, [messages, sending, createdVideoId]);
 
   // Home only: load "worth modeling" suggestions from the creator's modeled channel.
