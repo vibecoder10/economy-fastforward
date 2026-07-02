@@ -1645,6 +1645,11 @@ separate scenes."""
             # Load idea into pipeline state from Supabase
             self._load_idea_from_video(video_id)
 
+            # The voice bot must know whether this is a dialogue video — the
+            # narrator's text drops character lines there (the cast performs
+            # them; they must never be read twice).
+            self._pipeline.dialogue_mode = video.get("dialogue_mode") or ""
+
             # Override status to "Ready For Voice" so the bot's internal check passes.
             if self._pipeline.current_idea:
                 self._pipeline.current_idea["Status"] = "Ready For Voice"

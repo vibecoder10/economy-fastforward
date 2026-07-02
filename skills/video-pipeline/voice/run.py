@@ -6,7 +6,29 @@ Advances: Ready For Voice → Ready For Image Prompts
 Clients: elevenlabs, google, airtable, slack
 """
 
+import re
+
 from orchestrator.pipeline_constants import Statuses, IdeaFields, ScriptFields
+
+# The narrator must never read what isn't narration. Heard live: the scene VO
+# spoke the ENTIRE raw scene text — "**Marco:** ¡Espera!" labels, the
+# characters' lines (which the cast voices separately and lip-syncs), and the
+# markdown asterisks. For character-dialogue videos the speaker lines are
+# dropped from the narrator's text; markdown emphasis is stripped for everyone.
+_BOLD_SPEAKER_RE = re.compile(
+    r"(?m)^(\s*)\*{1,3}\s*([A-Z][A-Za-z .'-]{0,24})\s*(?::\s*\*{1,3}|\*{1,3}\s*:)\s*")
+_SPEAKER_LINE_RE = re.compile(r"(?m)^\s*[A-Z][A-Za-z .'-]{0,24}:\s+\S.*$")
+_MD_MARKS_RE = re.compile(r"\*{1,3}|^#+\s*|^-{3,}\s*$", re.M)
+
+
+def narration_text(scene_text: str, dialogue_mode: str = "") -> str:
+    """What the NARRATOR actually reads: markdown-free, and (for dialogue
+    videos) without the character lines — those are performed by the cast."""
+    text = _BOLD_SPEAKER_RE.sub(r"\1\2: ", scene_text or "")
+    if (dialogue_mode or "") == "character_dialogue":
+        text = _SPEAKER_LINE_RE.sub("", text)
+    text = _MD_MARKS_RE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 async def run(pipeline) -> dict:
@@ -61,7 +83,13 @@ async def run(pipeline) -> dict:
             print(f"  Check: Scene {scene_number} voice already done, skipping.")
             continue
 
-        scene_text = script.get(ScriptFields.SCENE_TEXT, "")
+        scene_text = narration_text(
+            script.get(ScriptFields.SCENE_TEXT, ""),
+            getattr(pipeline, "dialogue_mode", "") or "",
+        )
+        if not scene_text:
+            print(f"  Scene {scene_number}: nothing for the narrator (all dialogue) — skipping.")
+            continue
 
         print(f"  Generating voice for scene {scene_number}...")
 
