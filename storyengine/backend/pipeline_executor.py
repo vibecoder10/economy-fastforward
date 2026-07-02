@@ -3811,6 +3811,11 @@ separate scenes."""
 
             self._load_idea_from_video(video_id)
 
+            # The legacy bot expects the pipeline-format status; override like
+            # run_voice does so a regenerate works from any current status.
+            if self._pipeline.current_idea:
+                self._pipeline.current_idea["Status"] = "Ready For Thumbnail"
+
             result = await self._pipeline.run_thumbnail_bot()
 
             if result.get("error"):
