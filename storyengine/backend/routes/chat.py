@@ -595,17 +595,29 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         '"reply":"<for action: one friendly sentence; for none: a clarifying question>",'
         '"confidence":<0.0-1.0>}'
     )
+    # THE AGENT BRAIN (Phase 6): a tool-using loop that READS the video (state,
+    # script, shots, prompts, history) before deciding, then returns the same
+    # decision shape as the one-shot classifier. Any failure -> None -> the
+    # legacy classifier below runs instead, so the brain can only add smarts.
+    data = None
     try:
-        from producer_prompt import _extract_json
-        gen_kwargs: dict[str, Any] = {"prompt": prompt, "max_tokens": 700, "temperature": 0.2}
-        if copilot_model:
-            gen_kwargs["model"] = copilot_model
-        raw = await client.generate(**gen_kwargs)
-        data = json.loads(_extract_json(raw))
+        from agent_brain import run_copilot_brain
+        data = await run_copilot_brain(client, copilot_model, tenant_id, video_id,
+                                       summary, msg, ui_context, _summary_line(summary))
     except Exception as e:  # noqa: BLE001
-        logger.warning("copilot: classify failed: %s", e)
-        return await _reply("I didn't quite catch that — want me to change the script, the pictures, the "
-                            "thumbnail, animate a scene, or render it?")
+        logger.warning("copilot: agent brain failed, falling back: %s", e)
+    if data is None:
+        try:
+            from producer_prompt import _extract_json
+            gen_kwargs: dict[str, Any] = {"prompt": prompt, "max_tokens": 700, "temperature": 0.2}
+            if copilot_model:
+                gen_kwargs["model"] = copilot_model
+            raw = await client.generate(**gen_kwargs)
+            data = json.loads(_extract_json(raw))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("copilot: classify failed: %s", e)
+            return await _reply("I didn't quite catch that — want me to change the script, the pictures, the "
+                                "thumbnail, animate a scene, or render it?")
 
     kind = (data.get("kind") or "").strip()
     verb = (data.get("verb") or "none").strip()
@@ -1240,6 +1252,120 @@ async def _reference_brief(state: dict, reference_url: str | None) -> str:
     state["_ref_brief_for"] = reference_url
     state["_ref_brief"] = brief
     return brief
+
+
+# --- analyze any video (PARITY-PLAN Phase 7) ---------------------------------
+
+_ANALYZE_RE = re.compile(
+    r"\b(analyz|analys|break\s?down|deconstruct|study this|"
+    r"why (does|do) (this|it|that) work|what makes (this|it|that) work)", re.I)
+
+
+def _analyze_intent(text: str | None) -> bool:
+    return bool(text and _ANALYZE_RE.search(text))
+
+
+def _dna_brief(state: dict) -> str:
+    """The distilled DNA of the video being modeled, for the producer. Set by
+    _handle_analyze; cleared naturally when a new conversation starts."""
+    dna = state.get("video_dna")
+    if not dna:
+        return ""
+    return ("\n--- FULL DNA OF THE REFERENCE VIDEO (distilled from its ACTUAL content — ground "
+            "any recreation in THIS: same hook shape, same structure, same pacing, our subject "
+            "and identity) ---\n" + json.dumps(dna)[:2400] + "\n")
+
+
+async def _handle_analyze(conversation_id, tenant_id, transcript, state, url: str):
+    """'Analyze this video' — the commander move: read ANY YouTube video and
+    report why it works, then hold its DNA so 'make it' recreates it as ours.
+
+    Two layers, fail-soft: (1) real public metadata via the YouTube Data API
+    (never bot-blocked); (2) full DNA via the intelligence distiller (yt-dlp
+    transcript -> Claude -> hook/structure/topics). YouTube sometimes bot-blocks
+    yt-dlp from the server IP, so layer 2 failing still yields a useful
+    metadata-grounded report instead of an error."""
+    info = None
+    try:
+        api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+        from routes.model_video import _parse_youtube_id
+        yid = _parse_youtube_id(url)
+        if api_key and yid:
+            from youtube_data_api import fetch_single_video
+            info = await fetch_single_video(yid, api_key)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: analyze metadata fetch failed: %s", e)
+
+    meta_lines: list[str] = []
+    if info and info.get("title"):
+        dur = int(info.get("duration_seconds") or 0)
+        views = int(info.get("views") or 0)
+        meta_lines = [
+            f"“{info['title']}” — {info.get('channel') or 'unknown channel'}",
+            f"{views:,} views · ~{_format_runtime(dur) if dur else '?'} · published {str(info.get('published_at') or 'unknown')[:10]}",
+        ]
+
+    dna_summary, dna_meta, dna_err = None, None, None
+    try:
+        from routes.intelligence import DistillURLRequest, distill_from_url
+        res = await asyncio.wait_for(
+            distill_from_url(DistillURLRequest(url=url), tenant_id=tenant_id), timeout=90)
+        res = res or {}
+        dna_summary = res.get("summary")
+        dna_meta = res.get("dna") if isinstance(res.get("dna"), dict) else None
+        if not (dna_summary or dna_meta) and res.get("status") != "distilled":
+            dna_err = "the deep pass couldn't read its content"
+    except HTTPException as e:
+        dna_err = e.detail if isinstance(e.detail, str) else "couldn't pull the video content"
+    except asyncio.TimeoutError:
+        dna_err = "the deep analysis timed out"
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: analyze distill failed: %s", e)
+        dna_err = "couldn't pull the video content"
+
+    if not meta_lines and not dna_summary and not dna_meta:
+        text = ("I couldn't read that video at all — it may be private, removed, or the link is off. "
+                "Try another link?")
+        transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "asking")
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+
+    parts: list[str] = ["Here's the breakdown:"]
+    if meta_lines:
+        parts += [""] + meta_lines
+    if dna_summary:
+        parts += ["", str(dna_summary).strip()[:900]]
+    if dna_meta:
+        shown = 0
+        for k, v in dna_meta.items():
+            if v in (None, "", [], {}):
+                continue
+            val = ", ".join(str(x) for x in v) if isinstance(v, list) else str(v)
+            parts.append(f"- {str(k).replace('_', ' ').title()}: {val[:280]}")
+            shown += 1
+            if shown >= 8:
+                break
+    if (dna_summary or dna_meta):
+        # Trim before persisting: conversation state rides along on every turn.
+        slim = {}
+        for k, v in (dna_meta or {}).items():
+            if v in (None, "", [], {}):
+                continue
+            slim[str(k)[:60]] = (", ".join(str(x) for x in v) if isinstance(v, list) else str(v))[:400]
+            if len(slim) >= 12:
+                break
+        state["video_dna"] = {"summary": str(dna_summary or "")[:1200], "dna": slim}
+    elif dna_err:
+        parts += ["", f"(I could only read the public data — {dna_err}. The read above is from "
+                      "metadata; I can still model the format.)"]
+
+    state["pending_reference_url"] = url
+    parts += ["", "Want it as YOURS? Say “make it” and I'll recreate this structure on your "
+                  "channel — or tell me what to change first."]
+    text = "\n".join(parts)
+    transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
+    await _persist(conversation_id, tenant_id, transcript, state, "asking")
+    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
 
 
 _URL_RE = re.compile(r"https?://[^\s)]+", re.I)
@@ -2070,6 +2196,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         + await _competitor_winners_brief(tenant_id)
         + await _loop_brief(tenant_id)
         + await _reference_brief(state, state.get("pending_reference_url"))
+        + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
     )
     data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
@@ -2637,6 +2764,11 @@ async def chat_turn(
         ref = _extract_youtube_url(msg_text)
         if ref:
             state["pending_reference_url"] = ref
+            # "Analyze this" + a link = the commander move (Phase 7): full
+            # breakdown now, DNA held for a one-tap recreate.
+            if _analyze_intent(msg_text):
+                transcript.append({"role": "user", "content": msg_text})
+                return await _handle_analyze(conversation_id, tenant_id, transcript, state, ref)
     if body.selections:
         user_parts.append(_selections_to_text(body.selections))
         state.setdefault("selections", {}).update(body.selections)
@@ -2695,6 +2827,7 @@ async def chat_turn(
         + await _competitor_winners_brief(tenant_id)
         + await _loop_brief(tenant_id)
         + await _reference_brief(state, state.get("pending_reference_url"))
+        + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
     )
     data = call_producer(transcript, system_prompt, api_key=api_key)
