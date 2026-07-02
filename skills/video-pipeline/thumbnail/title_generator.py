@@ -124,6 +124,30 @@ CRITICAL:
 """
 
 
+# The machine-readable half of the title contract. A tenant override REPLACES
+# the system prompt above (that's intentional — it carries the channel voice),
+# but the JSON schema must ALWAYS reach the model or parsing fails with
+# "missing required field" — so this block is appended to every override.
+TITLE_OUTPUT_CONTRACT = """\
+OUTPUT FORMAT (JSON only, no markdown):
+{
+  "title": "The full title with ONE word in ALL CAPS",
+  "caps_word": "THE_CAPS_WORD",
+  "formula_used": "freeform",
+  "line_1": "3-4 WORD THUMBNAIL TEXT",
+  "line_2": "2-3 WORD SUBTITLE"
+}
+
+CRITICAL:
+- The title MUST contain exactly ONE word in ALL CAPS (the emotional trigger).
+- line_1 and line_2 are for the THUMBNAIL, not the YouTube title
+- line_1 should be max 4 words, ALL CAPS, derived from the title's core hook
+- line_2 should be max 3 words, ALL CAPS, a question or kicker
+- The caps_word MUST appear in line_1
+- Together line_1 + line_2 must not exceed 5 words total
+"""
+
+
 class TitleGenerator:
     """Generates matched titles for Economy FastForward videos.
 
@@ -195,9 +219,14 @@ class TitleGenerator:
 
         user_prompt = '\n'.join(prompt_parts)
 
+        system_prompt = (
+            self.system_prompt_override + "\n\n" + TITLE_OUTPUT_CONTRACT
+            if self.system_prompt_override
+            else TITLE_GENERATION_SYSTEM_PROMPT
+        )
         response = await self.anthropic.generate(
             prompt=user_prompt,
-            system_prompt=self.system_prompt_override or TITLE_GENERATION_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             model=Models.CLAUDE_SONNET,
             max_tokens=500,
         )
