@@ -3791,9 +3791,50 @@ separate scenes."""
         if not prompt:
             return None
 
+        # Color words drift ("white" renders gray; a hedged formula gives the
+        # model license) — so MEASURE the real background from the channel's
+        # own thumbnail pixels and pin it as an exact hex. Deterministic.
+        try:
+            import io as _io_cf
+            import httpx as _httpx_cf
+            from PIL import Image as _Image_cf
+            async with _httpx_cf.AsyncClient(timeout=30.0, follow_redirects=True) as c:
+                rr = await c.get(top["thumbnail_url"])
+                rr.raise_for_status()
+            im = _Image_cf.open(_io_cf.BytesIO(rr.content)).convert("RGB")
+            w, h = im.size
+            pts = [(8, 8), (w - 9, 8), (8, h - 9), (w - 9, h - 9), (w // 2, 8)]
+            rgb = [im.getpixel(p) for p in pts]
+            avg = tuple(sum(ch[i] for ch in rgb) // len(rgb) for i in range(3))
+            hexbg = "#%02X%02X%02X" % avg
+            prompt = (
+                prompt
+                + f"\n\nBACKGROUND (exact, non-negotiable): a clean uniform "
+                f"studio backdrop of exactly {hexbg} — this hex was sampled "
+                "from the channel's real thumbnails. Do not darken it."
+            )
+        except Exception:  # noqa: BLE001 — sampling is a bonus
+            pass
+
         client = self._pipeline.image_client
         thumb_ar = video.get("aspect_ratio") or "16:9"
-        res = await client.generate_scene_image_gpt(prompt, None, aspect_ratio=thumb_ar)
+
+        # Subject fidelity: seed with THIS video's own hero segment image when
+        # one exists (static docs: the real featured machine in the channel's
+        # studio look) so the thumbnail shows our actual subject, not an
+        # invented one. Text-to-image is the fallback.
+        seed = await fetch_one(
+            "SELECT image_url FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+            "AND image_url IS NOT NULL AND generation_method='static_docu' "
+            "ORDER BY scene LIMIT 1", video_id, self.tenant_id)
+        res = None
+        if seed and seed.get("image_url"):
+            res = await client.generate_thumbnail_gpt2(
+                prompt + "\nUse the machine in the reference image as the "
+                "thumbnail's subject — same vehicle, same configuration.",
+                [seed["image_url"]], aspect_ratio=thumb_ar)
+        if not (res or {}).get("url"):
+            res = await client.generate_scene_image_gpt(prompt, None, aspect_ratio=thumb_ar)
         url = (res or {}).get("url")
         if not url:
             await self._log_activity(
