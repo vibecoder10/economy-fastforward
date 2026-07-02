@@ -1000,10 +1000,36 @@ class PipelineExecutor:
             # Import research agent
             from research.agent import run_research
 
+            # Feed the channel's OWN research approach (extracted from its top
+            # videos by the identity builder) into the research context, so the
+            # agent looks for what this channel's format actually needs (e.g.
+            # DVU: program designations, unit costs, cancellation dates).
+            research_context = None
+            try:
+                row = await fetch_one(
+                    "SELECT channel_identity->'research_approach' AS ra "
+                    "FROM channel_profiles WHERE tenant_id = $1", self.tenant_id)
+                ra = (row or {}).get("ra")
+                if isinstance(ra, str) and ra.strip().startswith(("{", "[", '"')):
+                    import json as _json_ra
+                    try:
+                        ra = _json_ra.loads(ra)
+                    except ValueError:
+                        pass
+                if ra:
+                    research_context = (
+                        "THIS CHANNEL'S RESEARCH APPROACH (match it — these are "
+                        "the facts its videos are built from):\n"
+                        + (ra if isinstance(ra, str) else str(ra))
+                    )
+            except Exception:  # noqa: BLE001 — context is a bonus, never a blocker
+                pass
+
             # Run research
             payload = await run_research(
                 anthropic_client=self._pipeline.anthropic,
                 topic=topic,
+                context=research_context,
                 airtable_client=self._pipeline.airtable,
                 system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
             )
@@ -1124,6 +1150,70 @@ class PipelineExecutor:
 
         except Exception as e:
             print(f"[Script] Error injecting learnings: {e}")
+
+    async def _factual_gate_static(self, video_id: str) -> None:
+        """Factual gate for static documentaries: verify every claim in the
+        script against the research payload; on flagged claims, regenerate
+        ONCE with an explicit only-use-researched-facts directive, then
+        re-verify. The final verdict lands in the activity feed either way so
+        the operator can see exactly what was flagged. Fail-open on errors —
+        a broken checker must not block a build — but a *flagged* script gets
+        its one correction pass."""
+        try:
+            import json as _json_fg
+            from script.brief_translator.script_generator import verify_script_claims
+
+            video = await self._get_video(video_id)
+            script = (video or {}).get("script") or ""
+            rp_raw = (video or {}).get("research_payload")
+            if not script.strip() or not rp_raw:
+                return
+            brief = _json_fg.loads(rp_raw) if isinstance(rp_raw, str) else rp_raw
+            client = getattr(self._pipeline, "anthropic", None)
+            if client is None or not isinstance(brief, dict):
+                return
+
+            flagged = await verify_script_claims(client, script, brief)
+            if not (flagged or "").strip():
+                await self._log_activity(
+                    "Script Bot", video_id, "running",
+                    "Fact check passed: every claim traces to the research")
+                return
+
+            await self._log_activity(
+                "Script Bot", video_id, "running",
+                "Fact check flagged claims — rewriting from the research only:\n"
+                + flagged[:600])
+            existing = (video.get("writer_guidance") or "")
+            block = (
+                "\n\n--- FACTUAL CORRECTION (auto, internal) ---\n"
+                "This channel publishes exact figures; its audience checks them. "
+                "Rewrite using ONLY facts present in the research payload. Remove "
+                "or replace every flagged claim below — if the research doesn't "
+                "state it, the script may not either. Flagged:\n"
+                + flagged.strip()
+                + "\n--- END FACTUAL CORRECTION ---"
+            )
+            await execute(
+                "UPDATE videos SET writer_guidance = $1 WHERE id = $2",
+                existing + block, video_id)
+            self._load_idea_from_video(video_id)
+            await self._pipeline.run_brief_translator()
+
+            video = await self._get_video(video_id)
+            flagged2 = await verify_script_claims(
+                client, (video or {}).get("script") or "", brief)
+            if (flagged2 or "").strip():
+                await self._log_activity(
+                    "Script Bot", video_id, "running",
+                    "Fact check STILL flags claims after one rewrite — review "
+                    "before publishing:\n" + flagged2[:600])
+            else:
+                await self._log_activity(
+                    "Script Bot", video_id, "completed",
+                    "Fact check passed after rewrite: claims trace to the research")
+        except Exception as e:  # noqa: BLE001
+            print(f"[Script] factual gate skipped for {video_id[:8]}: {str(e)[:200]}", flush=True)
 
     async def _grade_and_maybe_revise_script(self, video_id: str, regenerate=None) -> None:
         """Phase 2 retention gate: grade the freshly generated script against the
@@ -1468,6 +1558,12 @@ separate scenes."""
             # Phase 2: silent retention grade + at most one auto-revise.
             # Best-effort; never blocks the stage.
             await self._grade_and_maybe_revise_script(video_id)
+
+            # Static documentaries are exact-figures formats: fact-check the
+            # script against the research payload and re-roll once if claims
+            # can't be traced. (Advisory-only elsewhere; a GATE here.)
+            if (video.get("render_mode") or "") == "static_docu":
+                await self._factual_gate_static(video_id)
 
             new_status = result.get("new_status", "ready_for_voice")
             eff_status = self._skip_disabled_next(video, to_supabase(new_status))
@@ -3608,6 +3704,89 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def _run_channel_formula_thumbnail(
+        self, video_id: str, video: dict
+    ) -> Optional[dict]:
+        """Own-brand thumbnail modeling: take the channel's OWN top-performing
+        thumbnail, extract its structured JSON blueprint (vision pass, cached on
+        channel_identity.thumbnail_blueprint), transform it onto THIS video's
+        title, and generate. The same proven blueprint machinery as competitor
+        modeling — the reference is simply the channel itself.
+
+        Returns the completed result dict, or None to fall through to the
+        legacy from-scratch designer (no own thumbnails / no Claude creds)."""
+        import json as _json_cf
+        from routes.model_video import (
+            _resolve_claude_creds, _describe_thumbnail_style,
+            _model_thumbnail_prompt, _fetch_channel_brand)
+
+        bot_name = "Thumbnail Bot"
+        top = await fetch_one(
+            "SELECT thumbnail_url FROM channel_videos "
+            "WHERE tenant_id = $1 AND thumbnail_url IS NOT NULL "
+            "ORDER BY view_count DESC NULLS LAST LIMIT 1", self.tenant_id)
+        if not (top and top.get("thumbnail_url")):
+            return None
+        creds = await _resolve_claude_creds(self.tenant_id)
+        if not creds:
+            return None
+
+        # Blueprint: cached on the identity, or extracted now from the top thumb.
+        blueprint = None
+        row = await fetch_one(
+            "SELECT channel_identity->>'thumbnail_blueprint' AS bp "
+            "FROM channel_profiles WHERE tenant_id = $1", self.tenant_id)
+        if row and (row.get("bp") or "").strip().startswith("{"):
+            blueprint = row["bp"]
+        if not blueprint:
+            await self._log_activity(
+                bot_name, video_id, "started",
+                "Reading the channel's own top thumbnail formula (vision)")
+            blueprint = await _describe_thumbnail_style(creds, top["thumbnail_url"])
+            if not (blueprint or "").strip():
+                return None
+            try:
+                await execute(
+                    "UPDATE channel_profiles SET channel_identity = "
+                    "COALESCE(channel_identity, '{}'::jsonb) || "
+                    "jsonb_build_object('thumbnail_blueprint', $2::text) "
+                    "WHERE tenant_id = $1", self.tenant_id, blueprint)
+            except Exception:  # noqa: BLE001 — cache is a bonus
+                pass
+
+        await self._log_activity(
+            bot_name, video_id, "started",
+            "Modeling the channel's own thumbnail formula onto this video")
+        # A creator-edited prompt always wins (Regenerate refines it).
+        prompt = (video.get("thumbnail_prompt") or "").strip()
+        if not prompt:
+            brand = await _fetch_channel_brand(self.tenant_id)
+            prompt = await _model_thumbnail_prompt(
+                creds, blueprint, video.get("video_title") or "", brand, "", False)
+        if not prompt:
+            return None
+
+        client = self._pipeline.image_client
+        thumb_ar = video.get("aspect_ratio") or "16:9"
+        res = await client.generate_scene_image_gpt(prompt, None, aspect_ratio=thumb_ar)
+        url = (res or {}).get("url")
+        if not url:
+            await self._log_activity(
+                bot_name, video_id, "failed",
+                "Channel-formula thumbnail returned no image")
+            return {"status": "failed", "error": user_facing(
+                "The thumbnail didn't generate this time — tap Regenerate to try again.")}
+        durable = await self._persist_url(url, f"{video_id}/thumbnails/thumb.png")
+        await execute(
+            "UPDATE videos SET thumbnail_url = $1, thumbnail_prompt = $2, "
+            "updated_at = now() WHERE id = $3 AND tenant_id = $4",
+            durable, prompt, video_id, self.tenant_id)
+        await self._log_activity(
+            bot_name, video_id, "completed",
+            "Thumbnail modeled from the channel's own formula")
+        return {"status": "completed", "video_id": video_id,
+                "thumbnail_url": durable}
+
     async def _build_modeled_thumbnail_prompt(
         self, video_id: str, video: dict, ref_yt: str, has_cast: bool
     ) -> str:
@@ -3802,6 +3981,22 @@ separate scenes."""
                                          "Thumbnail modeled from reference")
                 return {"status": "completed", "video_id": video_id,
                         "thumbnail_url": durable}
+
+            # ── Channel-formula mode (own-brand modeling) ─────────────
+            # No reference video, but the channel HAS its own proven
+            # thumbnails (an onboarded existing channel like Designed vs
+            # Used): model the channel's own top thumbnail — vision pass →
+            # JSON blueprint → transformed onto OUR title — the exact same
+            # proven machinery as competitor modeling, pointed at the brand
+            # itself. Falls through to the legacy bot on any failure.
+            try:
+                own = await self._run_channel_formula_thumbnail(video_id, video)
+                if own is not None:
+                    return own
+            except Exception as e:  # noqa: BLE001
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    f"Channel-formula thumbnail unavailable ({str(e)[:100]}) — using the standard designer")
 
             # ── From-scratch mode (existing bot) ──────────────────────
             await self._log_activity(bot_name, video_id, "started", "Generating thumbnail")

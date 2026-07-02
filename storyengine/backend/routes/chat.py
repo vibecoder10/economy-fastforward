@@ -314,7 +314,23 @@ def _make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # Skip the optional research step — it's slow/flaky (web/YouTube blocks)
                 # and the script writes fine from the topic. Go straight to the script;
                 # the creator can run research on demand. This was the actual stall.
+                # EXCEPTION: static documentaries (client channels built on exact
+                # figures) MUST research first — their scripts are written from the
+                # verified research payload, and the factual gate depends on it.
                 if status in ("idea_logged", "approved"):
+                    if (video.get("render_mode") or "") == "static_docu":
+                        _set_task_status(video_id, "running",
+                                         "Researching the topic (real web search)…",
+                                         tenant_id=tenant_id)
+                        r = await ex.run_research(video_id) or {}
+                        if r.get("status") == "ready_for_scripting":
+                            continue
+                        # Research failed — a static doc without facts is worse
+                        # than no doc; stop instead of writing from thin air.
+                        _set_task_status(video_id, "failed",
+                                         r.get("error") or "Research failed — can't verify facts for this format.",
+                                         tenant_id=tenant_id)
+                        return
                     await _advance("ready_for_scripting")
                     continue
                 # IMAGE PHASE: draw the pictures via the COVERAGE flow — the same path the
