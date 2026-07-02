@@ -129,6 +129,34 @@ _STUDIO_PROMPT_NOREF = (
 _COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 _COMMONS_UA = {"User-Agent": "StoryEngine/1.0 (nativestates.ai; media research)"}
 
+# Wikimedia politeness: ONE throttled gateway for every wikimedia.org request
+# (API + file fetches). Bursts of anonymous requests got both the VPS and the
+# dev machine 429/403-limited mid-run — pace them and honor Retry-After.
+_WM_MIN_INTERVAL = 1.5
+_wm_lock: Optional["asyncio.Lock"] = None
+_wm_last = 0.0
+
+
+async def _wm_get(c: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    import asyncio
+    import time
+
+    global _wm_lock, _wm_last
+    if _wm_lock is None:
+        _wm_lock = asyncio.Lock()
+    for attempt in range(3):
+        async with _wm_lock:
+            wait = _WM_MIN_INTERVAL - (time.monotonic() - _wm_last)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            _wm_last = time.monotonic()
+        r = await c.get(url, **kwargs)
+        if r.status_code not in (429, 403):
+            return r
+        retry_after = min(float(r.headers.get("retry-after") or 5 * (attempt + 1)), 30.0)
+        await asyncio.sleep(retry_after)
+    return r
+
 
 def _parse_json_array(text: str) -> Optional[list]:
     m = re.search(r"\[.*\]", text or "", re.DOTALL)
@@ -141,12 +169,90 @@ def _parse_json_array(text: str) -> Optional[list]:
         return None
 
 
+_WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
+
+
+async def _api_issued_thumb(c: httpx.AsyncClient, raw_url: str) -> Optional[str]:
+    """Turn a RAW upload.wikimedia URL into an API-ISSUED /thumb/ URL.
+
+    The raw-file layer 403s cloud IPs; only thumb URLs the API itself has
+    issued are reliably served (the request warms the CDN). For originals
+    smaller than the requested width the API echoes the raw URL back, so
+    re-ask at width-1."""
+    try:
+        from urllib.parse import unquote
+        fname = unquote(raw_url.rsplit("/", 1)[1])
+        for width in (1600, None):
+            if width is None:
+                r0 = await _wm_get(c, _COMMONS_API, params={
+                    "action": "query", "titles": f"File:{fname}",
+                    "prop": "imageinfo", "iiprop": "size", "format": "json"})
+                pages0 = ((r0.json().get("query") or {}).get("pages") or {}).values()
+                w0 = 0
+                for p0 in pages0:
+                    for ii0 in p0.get("imageinfo") or []:
+                        w0 = ii0.get("width") or 0
+                if w0 <= 501:
+                    return None
+                width = w0 - 1
+            r = await _wm_get(c, _COMMONS_API, params={
+                "action": "query", "titles": f"File:{fname}",
+                "prop": "imageinfo", "iiprop": "url",
+                "iiurlwidth": width, "format": "json"})
+            pages = ((r.json().get("query") or {}).get("pages") or {}).values()
+            for p in pages:
+                for ii in p.get("imageinfo") or []:
+                    t = ii.get("thumburl") or ""
+                    if t and "/thumb/" in t:
+                        return t
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def find_wikipedia_lead_images(names: list, limit: int = 3) -> list[str]:
+    """LAYER 1 reference source: the lead image of the machine's Wikipedia
+    article(s). Highest precision available — the article's page image is the
+    community-curated canonical photo of exactly that subject, so there is no
+    search ambiguity. pithumbsize makes the API ISSUE the thumb URL (the only
+    kind Wikimedia's CDN reliably serves to cloud IPs). Tries the designation
+    and each alias; best-first, de-duplicated."""
+    out: list[str] = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA) as c:
+            for name in [n for n in names if n][:4]:
+                try:
+                    r = await _wm_get(c, _WIKIPEDIA_API, params={
+                        "action": "query", "generator": "search",
+                        "gsrsearch": name, "gsrlimit": 2,
+                        "prop": "pageimages", "piprop": "thumbnail",
+                        "pithumbsize": 1600, "format": "json"})
+                    r.raise_for_status()
+                    pages = ((r.json().get("query") or {}).get("pages") or {}).values()
+                    for p in sorted(pages, key=lambda x: x.get("index") or 9):
+                        src = ((p.get("thumbnail") or {}).get("source") or "")
+                        if src and "/thumb/" not in src:
+                            # Original smaller than pithumbsize → API echoed
+                            # the RAW url, which 403s cloud IPs. Get a real
+                            # API-issued thumb instead.
+                            src = await _api_issued_thumb(c, src) or ""
+                        if src and src not in out:
+                            out.append(src)
+                except Exception:  # noqa: BLE001 — try the next name
+                    continue
+                if len(out) >= limit:
+                    break
+    except Exception:  # noqa: BLE001
+        pass
+    return out[:limit]
+
+
 async def find_commons_photos(query: str, limit: int = 3) -> list[str]:
     """Real photographs of the machine from Wikimedia Commons (keyless API).
     Returns up to `limit` candidate image URLs (~1600px), best first."""
     try:
         async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA) as c:
-            r = await c.get(_COMMONS_API, params={
+            r = await _wm_get(c, _COMMONS_API, params={
                 "action": "query", "list": "search", "srsearch": query,
                 "srnamespace": 6, "srlimit": 8, "format": "json"})
             r.raise_for_status()
@@ -160,7 +266,7 @@ async def find_commons_photos(query: str, limit: int = 3) -> list[str]:
                       and not any(b in h.get("title", "").lower() for b in _bad)]
             if not titles:
                 return []
-            r2 = await c.get(_COMMONS_API, params={
+            r2 = await _wm_get(c, _COMMONS_API, params={
                 "action": "query", "titles": "|".join(titles[:6]),
                 "prop": "imageinfo", "iiprop": "url|size",
                 "iiurlwidth": 1600, "format": "json"})
@@ -181,7 +287,7 @@ async def find_commons_photos(query: str, limit: int = 3) -> list[str]:
                     # the requested width, ask the API for a width-1 thumb.
                     if (not thumb or thumb == url) and p.get("title"):
                         try:
-                            r3 = await c.get(_COMMONS_API, params={
+                            r3 = await _wm_get(c, _COMMONS_API, params={
                                 "action": "query", "titles": p["title"],
                                 "prop": "imageinfo", "iiprop": "url",
                                 "iiurlwidth": max(500, w - 1), "format": "json"})
@@ -209,7 +315,7 @@ async def _host_reference(url: str, video_id: str, tenant_id: str,
     try:
         async with httpx.AsyncClient(timeout=60.0, headers=_COMMONS_UA,
                                      follow_redirects=True) as c:
-            r = await c.get(url)
+            r = await (_wm_get(c, url) if "wikimedia.org" in url else c.get(url))
             r.raise_for_status()
             data = r.content
         if len(data) < 10_000:
@@ -397,12 +503,17 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # 1) Find a REAL photo, SELF-HOST it (Wikimedia 403s Kie's fetcher),
         #    and vision-check it actually shows this machine (designation
         #    collisions like the Russian T-95 vs the US T95).
+        #    LAYER 1: the machine's Wikipedia article lead image — curated,
+        #    unambiguous, and API-issued. LAYER 2: Commons search for extra
+        #    candidates/angles.
         ref_url = None
         ref_src = None
-        candidates = []
+        _p(f"Segment {sc}: finding a real photo of the {machine}…")
+        candidates = await find_wikipedia_lead_images(
+            [machine] + list(sub.get("aliases") or []))
         if sub.get("search_query"):
-            _p(f"Segment {sc}: finding a real photo of the {machine}…")
-            candidates = await find_commons_photos(sub["search_query"])
+            candidates += [c for c in await find_commons_photos(sub["search_query"])
+                           if c not in candidates]
         if not candidates and machine:
             candidates = await find_commons_photos(machine)
         for idx, cand in enumerate(candidates):
