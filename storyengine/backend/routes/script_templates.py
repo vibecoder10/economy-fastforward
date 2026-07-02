@@ -54,10 +54,14 @@ async def analyze_and_save_template(
 
     from kie_unified import get_text_client_for_tenant
     client = await get_text_client_for_tenant(tenant_id)
+    # Direct-API tenants need a real model id — the KIE default env value can
+    # be stale for the direct endpoint (same guard as youtube_publish.py).
+    kwargs = {"model": "claude-sonnet-4-6"} if type(client).__name__ == "AnthropicDirectClient" else {}
     structure = (await client.generate(
         prompt=ANALYZER_PROMPT + text[:24000],
         max_tokens=1200,
         temperature=0.3,
+        **kwargs,
     ) or "").strip()
     if len(structure.split()) < 20:
         raise ValueError("I couldn't distill a usable format from that example.")

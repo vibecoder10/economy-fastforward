@@ -1814,12 +1814,13 @@ async def _derive_script_title(tenant_id, text: str) -> str:
     try:
         from kie_unified import get_text_client_for_tenant
         client = await get_text_client_for_tenant(tenant_id)
+        kwargs = {"model": "claude-sonnet-4-6"} if type(client).__name__ == "AnthropicDirectClient" else {}
         raw = await client.generate(
             prompt=(
                 "Here is the opening of a video script:\n\n" + text[:2000] +
                 "\n\nWrite ONE YouTube-ready title for this video. Reply with the title only, no quotes."
             ),
-            max_tokens=60, temperature=0.7,
+            max_tokens=60, temperature=0.7, **kwargs,
         )
         return (raw or "").strip().strip('"').splitlines()[0].strip()[:200]
     except Exception as e:  # noqa: BLE001
