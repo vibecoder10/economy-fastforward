@@ -26,11 +26,10 @@ TARGET_WORDS_PER_SCENE = 120
 DEFAULT_VOICE_ID = "1SM7GgM6IMuvQlz2BwM3"
 
 
-def split_scenes(text: str) -> list[dict]:
-    """[{"scene", "text"}] from raw script text. Honors explicit @@@SCENE n@@@
-    markers (same sentinel contract as generated scripts); otherwise groups
-    paragraphs into scenes of ~TARGET_WORDS_PER_SCENE words. Also treats
-    'SCENE 1' / 'Scene 2:' heading lines as scene breaks."""
+def split_scenes_explicit(text: str) -> list[dict]:
+    """Scenes the CREATOR marked: @@@SCENE n@@@ sentinels or 'SCENE 1' / 'ACT 2'
+    heading lines. Empty list when the script carries no explicit breaks —
+    explicit marks always win over any automatic splitting."""
     from pipeline_executor import PipelineExecutor
 
     text = (text or "").strip()
@@ -38,17 +37,20 @@ def split_scenes(text: str) -> list[dict]:
         return []
     if re.search(r"@@@\s*SCENE\s*\d+\s*@@@", text, re.IGNORECASE):
         return PipelineExecutor._parse_modeled_scenes(text)
-
-    # 'SCENE n' heading lines -> convert to sentinel markers and reuse the parser.
     headed = re.sub(
         r"(?mi)^\s*(?:SCENE|ACT)\s+(\d+)\s*[:.\-]?\s*$", r"@@@SCENE \1@@@", text
     )
     if "@@@SCENE" in headed:
-        scenes = PipelineExecutor._parse_modeled_scenes(headed)
-        if scenes:
-            return scenes
+        return PipelineExecutor._parse_modeled_scenes(headed)
+    return []
 
-    # Paragraph grouping fallback.
+
+def split_scenes_paragraphs(text: str) -> list[dict]:
+    """The dumb-but-safe fallback: group paragraphs into scenes of
+    ~TARGET_WORDS_PER_SCENE words."""
+    text = (text or "").strip()
+    if not text:
+        return []
     paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     scenes, cur, cur_words = [], [], 0
     for p in paras:
@@ -62,6 +64,80 @@ def split_scenes(text: str) -> list[dict]:
     return scenes
 
 
+def split_scenes(text: str) -> list[dict]:
+    """Synchronous split: explicit creator marks, else paragraph grouping.
+    (set_user_script additionally tries the semantic model split in between.)"""
+    return split_scenes_explicit(text) or split_scenes_paragraphs(text)
+
+
+# Semantic split only echoes the script back with markers, so cap the size it
+# attempts (longer scripts fall back to paragraph grouping).
+SEMANTIC_MAX_CHARS = 24_000
+
+
+async def semantic_split(tenant_id, text: str) -> Optional[list[dict]]:
+    """One model call inserts @@@SCENE n@@@ markers at natural beat boundaries
+    (one machine / one story beat / one location per scene), guided by the
+    channel's locked segmentation when there is one.
+
+    VERBATIM-GUARDED: the script text after splitting must equal the original
+    word for word (markers aside). If the model changed, dropped, or added
+    ANYTHING, return None and let the caller fall back — an automatic split is
+    never allowed to rewrite the creator's script."""
+    text = (text or "").strip()
+    if not text or len(text) > SEMANTIC_MAX_CHARS:
+        return None
+    try:
+        from kie_unified import get_text_client_for_tenant
+        client = await get_text_client_for_tenant(tenant_id)
+    except Exception as e:  # noqa: BLE001 — no key/client -> fallback splitter
+        logger.warning("[user_script] semantic split unavailable: %s", str(e)[:150])
+        return None
+
+    hint = ""
+    try:
+        from channel_format import get_channel_format
+        fmt, _locked = await get_channel_format(tenant_id)
+        seg = (fmt or {}).get("segmentation")
+        if seg:
+            hint = f"\n- This channel's episodes are structured as: {seg}. Break scenes to match."
+    except Exception:  # noqa: BLE001
+        pass
+
+    prompt = (
+        "Insert scene markers into this video script for production. Rules:\n"
+        "- Reproduce the script EXACTLY as given — do not add, remove, or change a single word.\n"
+        "- Put a line containing only @@@SCENE 1@@@ at the VERY START, then a @@@SCENE n@@@ "
+        "line before each new scene (n = 2, 3, ...).\n"
+        "- A scene is ONE coherent beat: one subject, machine, product, location, or story "
+        "moment. When the script moves to a new subject (the next machine in a review, a new "
+        "story beat), start a new scene.\n"
+        "- Aim for scenes a narrator reads in 30–90 seconds (~75–220 words); split an "
+        "over-long beat at its most natural pause."
+        + hint +
+        "\n- Output ONLY the marked-up script, nothing else.\n\nSCRIPT:\n" + text
+    )
+    kwargs = {"model": "claude-sonnet-4-6"} if type(client).__name__ == "AnthropicDirectClient" else {}
+    try:
+        raw = await client.generate(prompt=prompt, max_tokens=16000, temperature=0.2, **kwargs)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[user_script] semantic split call failed: %s", str(e)[:200])
+        return None
+
+    from pipeline_executor import PipelineExecutor
+    scenes = PipelineExecutor._parse_modeled_scenes(raw or "")
+    if not scenes:
+        return None
+
+    def _norm(s: str) -> str:
+        return re.sub(r"\W+", "", s).lower()
+
+    if _norm("".join(s["text"] for s in scenes)) != _norm(text):
+        logger.warning("[user_script] semantic split altered the words — using fallback splitter")
+        return None
+    return scenes
+
+
 async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
     """Install the creator's script on a video verbatim. Returns
     {"scenes": n, "status": <new video status>}. Raises ValueError on
@@ -72,7 +148,14 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
     )
     if not video:
         raise ValueError("Video not found")
-    scenes = split_scenes(text)
+    # Split priority: the creator's own marks always win; unmarked scripts get
+    # the semantic model split (one beat per scene, verbatim-guarded); the
+    # word-count paragraph splitter is the fail-soft floor.
+    scenes = split_scenes_explicit(text)
+    if not scenes:
+        scenes = await semantic_split(tenant_id, text)
+    if not scenes:
+        scenes = split_scenes_paragraphs(text)
     if not scenes:
         raise ValueError("No usable script text")
 
