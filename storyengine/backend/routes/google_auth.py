@@ -306,7 +306,8 @@ async def login(body: LoginRequest, request: Request):
         except Exception:
             pass
     membership = await fetch_one(
-        "SELECT tenant_id FROM memberships WHERE user_id = $1 LIMIT 1",
+        "SELECT tenant_id FROM memberships WHERE user_id = $1 "
+        "ORDER BY (role = 'owner') DESC, created_at ASC LIMIT 1",
         account_id,
     )
     tenant_id = str(membership["tenant_id"]) if membership else None
@@ -356,7 +357,8 @@ async def google_login(body: GoogleAuthRequest):
 
         account_id = str(account["id"])
         membership = await fetch_one(
-            "SELECT tenant_id FROM memberships WHERE user_id = $1 LIMIT 1",
+            "SELECT tenant_id FROM memberships WHERE user_id = $1 "
+        "ORDER BY (role = 'owner') DESC, created_at ASC LIMIT 1",
             account_id,
         )
         tenant_id = str(membership["tenant_id"]) if membership else None
@@ -390,7 +392,8 @@ async def google_login(body: GoogleAuthRequest):
         )
         account_id = str(account["id"])
         membership = await fetch_one(
-            "SELECT tenant_id FROM memberships WHERE user_id = $1 LIMIT 1",
+            "SELECT tenant_id FROM memberships WHERE user_id = $1 "
+        "ORDER BY (role = 'owner') DESC, created_at ASC LIMIT 1",
             account_id,
         )
         tenant_id = str(membership["tenant_id"]) if membership else None
@@ -449,7 +452,8 @@ async def get_me(user: AuthUser = Depends(verify_token)):
         raise HTTPException(status_code=404, detail="Account not found")
 
     membership = await fetch_one(
-        "SELECT tenant_id FROM memberships WHERE user_id = $1 LIMIT 1",
+        "SELECT tenant_id FROM memberships WHERE user_id = $1 "
+        "ORDER BY (role = 'owner') DESC, created_at ASC LIMIT 1",
         str(account["id"]),
     )
 

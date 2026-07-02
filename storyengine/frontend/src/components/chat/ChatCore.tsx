@@ -450,7 +450,10 @@ export function ChatCore({
   if (docked) {
     return (
       <div className="relative h-full flex flex-col">
-        <div className="flex-1 overflow-y-auto px-4 pt-4 pb-28 flex flex-col gap-4">
+        {/* pb-44: the confirm/prompt action cards render at the thread's end —
+            with pb-28 their buttons could sit under the pinned composer overlay
+            (creators saw the card label but no Do it button). */}
+        <div className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
           {!started && (
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
           )}

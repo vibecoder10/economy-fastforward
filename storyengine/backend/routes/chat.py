@@ -380,6 +380,16 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
 # actions.py — one source of truth for every door (chat, buttons, agent).
 COPILOT_CONFIDENCE = 0.55
 
+# Typed consent for a waiting confirm card: the card is a convenience, not a
+# hostage. "yes" / "run it" / "do it" / "write" runs the pending action;
+# "no" / "cancel" clears it. (Bug: creators typed 'write' and just got the
+# same proposal again.)
+_AFFIRM_RE = re.compile(
+    r"^\s*(y+e+s+|yep|yeah|ya|ok(ay)?|sure|do it|run( it)?|go( ahead)?|start|"
+    r"confirm|proceed|make it|write( it)?|yes please|please do|let'?s (do it|go)|send it)[.!\s]*$", re.I)
+_DENY_RE = re.compile(
+    r"^\s*(n+o+|nope|cancel|stop|never ?mind|nevermind|don'?t|leave it|not now|hold off)[.!\s]*$", re.I)
+
 
 async def _conversation_for_video(tenant_id, video_id: str) -> Optional[dict]:
     """Find-or-create ONE conversation bound to this video so the dock resumes the
@@ -510,6 +520,16 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         return await _reply("Ask me anything about this video, or tell me what to do next — e.g. "
                             "“animate scene 2”, “redo the thumbnail”, or “how much has this cost?”")
 
+    # --- typed consent: a pending confirm answered in words runs (or clears) it ---
+    pending = state.get("pending_action")
+    if pending and _AFFIRM_RE.match(msg):
+        state["pending_action"] = None
+        line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
+        return await _reply(line)
+    if pending and _DENY_RE.match(msg):
+        state["pending_action"] = None
+        return await _reply("No problem — left it as it is. Tell me what you'd like instead.")
+
     summary = await _copilot_summary(tenant_id, video_id)
     if not summary:
         return await _reply("I can't find that video anymore — it may have been deleted.")
@@ -558,7 +578,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         + f'\nThe creator said: "{msg}"\n\n'
         "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, sound, "
         "thumbnail, render, research, seo, upload, approve_cast, approve_environments, skip_environments, "
-        "lock, unlock, drive_push, drive_sync — for RUNNING/redoing a SINGLE step. "
+        "lock, unlock, drive_push, drive_sync, advance — for RUNNING/redoing a SINGLE step. "
+        "'advance' = skip the CURRENT stage/gate and move on ('skip this step', 'move on', 'skip research', "
+        "'I don't need this'). Note: asking for the script while research hasn't run maps to 'script' — it "
+        "skips research automatically. "
         "'characters' = design or REDESIGN the CAST "
         "(the character reference sheets): 'redesign the cast', 'redo the characters', 'regenerate the cast', "
         "'design the characters', 'change how Tom looks'. NEVER map a cast/character request to 'script'. "
@@ -584,7 +607,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "Return ONE JSON object and nothing else:\n"
         '{"kind":"read|action|prompt",'
         '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
-        'upload|approve_cast|approve_environments|skip_environments|lock|unlock|drive_push|drive_sync|build|none",'
+        'upload|approve_cast|approve_environments|skip_environments|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'

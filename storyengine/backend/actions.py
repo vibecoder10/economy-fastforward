@@ -79,6 +79,8 @@ ACTIONS: dict[str, dict[str, Any]] = {
                     "doing": "sending the script to Google Drive", "label": "Send script to Drive"},
     "drive_sync":  {"runner": "drive_sync", "paid": False, "needs": None,
                     "doing": "pulling the script from Google Drive", "label": "Pull script from Drive"},
+    "advance":     {"runner": "advance", "paid": False, "needs": None,
+                    "doing": "moving to the next stage", "label": "Skip to the next stage"},
     # meta verb: build auto-runs the pipeline to the next checkpoint — to the pictures
     # if we're before them, else all the way to a finished video. NOT one step.
     "build":       {"calls": None, "paid": True, "needs": None,
@@ -261,6 +263,30 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     return round(cost, 2), text
 
 
+async def ensure_scriptable(tenant_id, video_id) -> None:
+    """'Write the script' straight from an idea: skip past research the same
+    plan-aware way autobuild does, so the script verb never trips the
+    ready_for_scripting status gate on an idea_logged/approved/researching
+    video (the creator saying 'no research, just write it' must simply work)."""
+    from status_map import parse_stage_plan, resolve_planned_status
+    row = await fetch_one(
+        "SELECT status, pipeline_stages FROM videos WHERE id=$1 AND tenant_id=$2",
+        video_id, tenant_id)
+    prev = (row or {}).get("status") or ""
+    if prev not in ("idea_logged", "approved", "researching"):
+        return
+    to_status = resolve_planned_status("ready_for_scripting", parse_stage_plan(row.get("pipeline_stages")))
+    await execute("UPDATE videos SET status=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                  to_status, video_id, tenant_id)
+    try:
+        await execute(
+            "INSERT INTO stage_transitions (video_id, tenant_id, from_status, to_status, triggered_by) "
+            "VALUES ($1, $2, $3, $4, 'auto')",
+            video_id, tenant_id, prev, to_status)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[int] = None,
                      start_msg: str = "On it…"):
     """Run an action's executor methods in order, passing scene= to the ones that
@@ -272,6 +298,11 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
     async def _run():
         _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
         try:
+            if any(name == "run_script" for name, _ in calls):
+                try:
+                    await ensure_scriptable(tenant_id, video_id)
+                except Exception:  # noqa: BLE001
+                    pass
             executor = PipelineExecutor(tenant_id)
             result: dict = {}
             for name, takes_scene in calls:
@@ -598,7 +629,19 @@ async def _runner_drive_sync(tenant_id, video_id, background_tasks, pending) -> 
     return res.get("message") or "Your script already matches the Drive Doc — nothing to pull."
 
 
+async def _runner_advance(tenant_id, video_id, background_tasks, pending) -> str:
+    from routes.videos import advance_video
+    try:
+        res = await advance_video(video_id, tenant_id=tenant_id) or {}
+    except HTTPException as e:
+        return f"Couldn't skip ahead — {e.detail}"
+    ns = str(res.get("status") or "").replace("_", " ")
+    return (f"Done — skipped ahead{f' to {ns}' if ns else ''}. "
+            "Say “build it” anytime and I'll take it from here.")
+
+
 RUNNERS = {
+    "advance": _runner_advance,
     "seo": _runner_seo,
     "approve_cast": _runner_approve_cast,
     "approve_environments": _runner_approve_environments,

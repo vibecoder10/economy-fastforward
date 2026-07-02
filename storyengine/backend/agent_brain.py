@@ -142,7 +142,7 @@ def _decision_schema() -> str:
     return (
         '{"kind":"read|action|prompt",'
         '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
-        'upload|approve_cast|approve_environments|skip_environments|lock|unlock|drive_push|drive_sync|build|none",'
+        'upload|approve_cast|approve_environments|skip_environments|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
@@ -179,7 +179,9 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "pictures; animate=ONE scene's clips (give the scene); research=fact-find the topic; seo=YouTube "
         "title/description/tags; upload=publish the RENDERED video; approve_cast / approve_environments / "
         "skip_environments=approvals; lock/unlock=freeze the story; drive_push / drive_sync=script to/from Google "
-        "Drive; build=run the whole pipeline to the next checkpoint ('build it', 'finish it', 'keep going', "
+        "Drive; advance=skip the CURRENT stage/gate and move on ('skip this step', 'skip research', 'move on') — "
+        "and the script verb skips research automatically when they ask for the script early; "
+        "build=run the whole pipeline to the next checkpoint ('build it', 'finish it', 'keep going', "
         "'do it all'). PROMPT work (kind=prompt) when they discuss a prompt itself: set surface, op "
         "(view|suggest|rewrite), scene/index (use the currently-viewing shot for 'this'), and direction.\n\n"
         "Each turn, return ONE JSON object and NOTHING else. Either call a tool:\n"
