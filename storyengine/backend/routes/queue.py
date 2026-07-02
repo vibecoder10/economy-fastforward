@@ -253,11 +253,14 @@ async def auto_produce_next(tenant_id) -> Optional[dict]:
     interval = max(1, int((cfg or {}).get("production_interval_days") or 0) or 2)
 
     # One shared cadence across queue launches AND autopilot candidate launches.
+    # Deleted videos don't count — deleting a launch means "that was wrong,
+    # move on", not "wait out its slot".
     last = await fetch_one(
         """SELECT GREATEST(
                (SELECT MAX(launched_at) FROM production_queue WHERE tenant_id = $1),
                (SELECT MAX(created_at) FROM videos
-                WHERE tenant_id = $1 AND (source = 'queue' OR source LIKE 'autopilot%'))
+                WHERE tenant_id = $1 AND (source = 'queue' OR source LIKE 'autopilot%')
+                  AND deleted_at IS NULL)
            ) AS t""",
         tenant_id,
     )
@@ -274,7 +277,8 @@ async def auto_produce_next(tenant_id) -> Optional[dict]:
     inflight = await fetch_one(
         """SELECT 1 AS x FROM videos
            WHERE tenant_id = $1 AND (source = 'queue' OR source LIKE 'autopilot%')
-             AND status NOT IN ({}) AND created_at > now() - interval '7 days'
+             AND status NOT IN ({}) AND deleted_at IS NULL
+             AND created_at > now() - interval '7 days'
            LIMIT 1""".format(", ".join(f"'{s}'" for s in TERMINAL_STATUSES)),
         tenant_id,
     )
