@@ -25,6 +25,7 @@ from pipeline_executor import PipelineExecutor
 from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage, stage_enabled_in_plan, friendly_state
 from job_queue import enqueue_stage
 from task_store import db_persist_task
+import actions
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
@@ -1722,6 +1723,75 @@ async def run_next_step(
     background_tasks.add_task(_run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Next step started")
+
+
+class BuildRequest(BaseModel):
+    """Auto-build target: 'pictures' stops at the pictures-review checkpoint,
+    'finish' runs the rest (voice, clips, thumbnail, render)."""
+    target: str = "pictures"
+
+
+@router.post("/build/{video_id}", response_model=PipelineResponse)
+async def run_build(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    body: Optional[BuildRequest] = None,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Auto-build the pipeline to a checkpoint — the exact chainer chat's
+    "build it" / "finish it" uses (actions.make_autobuild_step), now callable
+    from a button. PARITY-PLAN Phase 1."""
+    target = (body.target if body else "pictures") or "pictures"
+    if target not in ("pictures", "finish"):
+        raise HTTPException(status_code=400, detail="target must be 'pictures' or 'finish'")
+
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if _get_task_status(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    msg = ("Building to the pictures checkpoint (research, script, pictures)"
+           if target == "pictures" else "Finishing the video (voice, clips, thumbnail, render)")
+    background_tasks.add_task(actions.make_autobuild_step(
+        tenant_id, video_id, target=target, start_msg=f"{msg}…"))
+    return PipelineResponse(video_id=video_id, status="running", message=msg)
+
+
+@router.get("/actions/{video_id}")
+async def list_video_actions(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """What can run on this video right now — every verb with its label, real
+    server-computed cost, and the plain-English reason it's blocked (or null).
+    One source of truth: chat's confirm cards and the page's buttons/Est. Cost
+    should both read THIS instead of keeping their own price tables."""
+    summary = await actions.video_summary(tenant_id, video_id)
+    if not summary:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    out = []
+    for verb, cfg in actions.ACTIONS.items():
+        blocked = actions.blocked_reason(verb, summary)
+        cost, cost_text = await actions.estimate_cost(tenant_id, video_id, verb, None, summary)
+        out.append({
+            "verb": verb,
+            "label": cfg["label"],
+            "paid": bool(cfg.get("paid")),
+            "needs": cfg.get("needs"),
+            "accepts_edit": bool(cfg.get("edit")),
+            "blocked": blocked,          # null = runnable now
+            "cost": cost,
+            "cost_text": cost_text,
+        })
+    # The build meta-verb's next checkpoint, so a UI button can label itself.
+    build_target = "pictures" if summary["status"] in actions.BUILD_TO_PICTURES else "finish"
+    return {"video_id": video_id, "summary": summary, "build_target": build_target, "actions": out}
 
 
 @router.get("/status/{video_id}", response_model=PipelineStatus)
