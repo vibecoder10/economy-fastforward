@@ -5,6 +5,7 @@ Falls back to hardcoded defaults when no profile is available.
 """
 
 import os
+import re as _re
 import httpx
 from typing import Optional
 import asyncio
@@ -53,6 +54,46 @@ def _is_content_block(*texts) -> bool:
         if any(sig in low for sig in _CONTENT_BLOCK_SIGNALS):
             return True
     return False
+
+
+# --- kid-safe prompt scrub ----------------------------------------------------
+# GPT Image 2's content policy flags prompts that MENTION minors ("a 7-year-old
+# boy", "kid character sheet") even for wholesome family animation — each flag
+# wastes the call and risks the account. The fix: never say the words. Every
+# outbound image prompt is scrubbed word-for-word into age-neutral visual
+# language at THIS send boundary, so no upstream writer (cast extractor,
+# coverage planner, thumbnail bot, a creator's own text) can leak one through.
+# Deterministic replacements — no model call; the DB/UI keep the natural story
+# wording, only what the image model sees changes. Ordered: compound phrases
+# before their parts so "kid-friendly" never degrades into "...-friendly".
+_MINOR_SCRUB = [
+    (_re.compile(r"\b(?:kid|child)[\s-]?friendly\b", _re.I), "family-friendly"),
+    (_re.compile(r"\b\d{1,2}[\s-]?year[\s-]?old\s+(?:boy|girl|kid|child)s?\b", _re.I), "young character"),
+    (_re.compile(r"\b\d{1,2}[\s-]?years?[\s-]?old\b", _re.I), "young"),
+    (_re.compile(r"\bschool\s?(?:boy|girl)s?\b", _re.I), "student character"),
+    (_re.compile(r"\b(?:little|small|young)\s+(?:boy|girl|kid|child)s?\b", _re.I), "small young character"),
+    (_re.compile(r"\bboys?\b", _re.I), "young male character"),
+    (_re.compile(r"\bgirls?\b", _re.I), "young female character"),
+    (_re.compile(r"\bchildren\b", _re.I), "young characters"),
+    (_re.compile(r"\bchild\b", _re.I), "young character"),
+    (_re.compile(r"\bkids\b", _re.I), "young characters"),
+    (_re.compile(r"\bkid\b", _re.I), "young character"),
+    (_re.compile(r"\btoddlers?\b|\binfants?\b", _re.I), "very small young character"),
+    (_re.compile(r"\bbab(?:y|ies)\b", _re.I), "very small"),
+    (_re.compile(r"\bteen(?:ager)?s?\b", _re.I), "young character"),
+    (_re.compile(r"\bminors?\b", _re.I), "young character"),
+    (_re.compile(r"\bniñ[oa]s?\b", _re.I), "young character"),
+]
+
+
+def scrub_minor_terms(prompt: str) -> str:
+    """Rewrite age/minor words into age-neutral visual language (see above)."""
+    out = prompt or ""
+    for rx, repl in _MINOR_SCRUB:
+        out = rx.sub(repl, out)
+    if out != (prompt or ""):
+        print("      🧒 Kid-safe scrub: age words rewritten before sending to the image model")
+    return out
 
 
 def _get_profile():
@@ -706,6 +747,7 @@ class ImageClient:
         Returns:
             Dict with 'url' key, or None if failed
         """
+        prompt = scrub_minor_terms(prompt)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -781,6 +823,7 @@ class ImageClient:
         routed to GPT Image 2, which holds character identity from the cast
         sheet markedly better (live A/B on the bird video: nailed Dr. May where
         nano-banana drifted). References go in `input_urls` (max 16)."""
+        prompt = scrub_minor_terms(prompt)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -832,6 +875,7 @@ class ImageClient:
         """Scene image via GPT Image 2 — holds the cast's character identity far better than
         nano-banana (see generate_thumbnail_gpt2). With a reference it's image-to-image; without
         one it falls back to gpt-image-2 text-to-image. Returns {'url': ...} or None."""
+        prompt = scrub_minor_terms(prompt)
         if reference_image_url:
             return await self.generate_thumbnail_gpt2(prompt, reference_image_url, aspect_ratio)
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}

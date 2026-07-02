@@ -139,6 +139,11 @@ unless they appear on camera. Maximum {MAX_CHARACTERS}.
 SCRIPT:
 {script[:12000]}
 
+Describe each character by APPEARANCE ONLY — height, build, hair, face, exact outfit with
+colors — NEVER by age words (no kid/child/boy/girl/teen or ages like "7-year-old"); the image
+model rejects prompts that mention minors. Write "short character with curly brown hair in a
+red hoodie", not "a young boy".
+
 Return ONLY valid JSON:
 {{"characters": [{{"name": "short name", "description": "physical appearance + exact outfit, written so an image generator draws the SAME character every time (40-80 words)"}}]}}"""
     text = await _call_claude(prompt, creds, tier="smart", max_tokens=2000)

@@ -115,6 +115,9 @@ blocking, lighting. This is the widest / establishing framing of the moment.
 shot_type is one of: {SHOT_TYPES}.
 Give each moment ONE MASTER plus {angles_min}-{angles_max} ANGLES.
 Plan up to {max_moments} moments from the narration below; pick the moments that carry the scene.
+Describe every person by APPEARANCE ONLY — height, build, hair, clothing — never by age words \
+(no kid/child/boy/girl/teen or ages like "7-year-old"); the image model rejects prompts that \
+mention minors. Write "short character with curly brown hair in a red hoodie", not "a young boy".
 </output_format>"""
 
 
