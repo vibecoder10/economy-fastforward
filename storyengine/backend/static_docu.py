@@ -217,7 +217,8 @@ async def find_wikipedia_lead_images(names: list, limit: int = 3) -> list[str]:
     search ambiguity. pithumbsize makes the API ISSUE the thumb URL (the only
     kind Wikimedia's CDN reliably serves to cloud IPs). Tries the designation
     and each alias; best-first, de-duplicated."""
-    out: list[str] = []
+    out: list[dict] = []
+    seen: set = set()
     try:
         async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA) as c:
             for name in [n for n in names if n][:4]:
@@ -236,8 +237,18 @@ async def find_wikipedia_lead_images(names: list, limit: int = 3) -> list[str]:
                             # the RAW url, which 403s cloud IPs. Get a real
                             # API-issued thumb instead.
                             src = await _api_issued_thumb(c, src) or ""
-                        if src and src not in out:
-                            out.append(src)
+                        if src and src not in seen:
+                            seen.add(src)
+                            # PROVENANCE: an image from the article whose title
+                            # matches the designation is near-certainly the
+                            # right machine — by-sight naming is not required.
+                            page_tok = re.sub(r"[^a-z0-9]", "",
+                                              (p.get("title") or "").lower())
+                            trusted = any(
+                                t and t in page_tok
+                                for t in (_designation_token(n) for n in names if n))
+                            out.append({"url": src, "page": p.get("title") or "",
+                                        "trusted": trusted})
                 except Exception:  # noqa: BLE001 — try the next name
                     continue
                 if len(out) >= limit:
@@ -339,7 +350,8 @@ def _designation_token(machine: str) -> str:
 
 
 async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
-                           aliases: Optional[list] = None) -> bool:
+                           aliases: Optional[list] = None,
+                           trusted_source: bool = False) -> bool:
     """Vision sanity check: does this image actually show the machine, as a
     photograph/full rendering (not a sketch or scale model)?
 
@@ -381,6 +393,15 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         named = any(t and t in norm for t in tokens)
         is_flat = any(k in txt for k in ("drawing", "sketch", "diagram",
                                          "blueprint", "scale model", "schematic"))
+        if trusted_source:
+            # Provenance already ties this image to the machine (it is the
+            # lead image of the machine's own article) — nobody can "name" an
+            # obscure prototype by sight, so only reject flat media and
+            # obviously-wrong content (interiors, people, maps).
+            wrong = any(k in txt for k in ("interior", "cockpit", "person",
+                                           "portrait", "map", "insignia",
+                                           "document", "text page"))
+            return not is_flat and not wrong
         return named and not is_flat
     except Exception:  # noqa: BLE001
         return True
@@ -509,20 +530,23 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         ref_url = None
         ref_src = None
         _p(f"Segment {sc}: finding a real photo of the {machine}…")
-        candidates = await find_wikipedia_lead_images(
+        wiki = await find_wikipedia_lead_images(
             [machine] + list(sub.get("aliases") or []))
+        candidates = [(w["url"], w["trusted"]) for w in wiki]
+        have = {u for u, _ in candidates}
         if sub.get("search_query"):
-            candidates += [c for c in await find_commons_photos(sub["search_query"])
-                           if c not in candidates]
+            candidates += [(c, False) for c in await find_commons_photos(sub["search_query"])
+                           if c not in have]
         if not candidates and machine:
-            candidates = await find_commons_photos(machine)
-        for idx, cand in enumerate(candidates):
+            candidates = [(c, False) for c in await find_commons_photos(machine)]
+        for idx, (cand, trusted) in enumerate(candidates):
             hosted = await _host_reference(cand, video_id, tenant_id, sc, idx)
             if not hosted:
                 continue
             await execute(
                 "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, hosted)
-            if await _vision_confirms(tenant_id, hosted, machine, sub.get("aliases")):
+            if await _vision_confirms(tenant_id, hosted, machine,
+                                      sub.get("aliases"), trusted_source=trusted):
                 ref_url, ref_src = hosted, cand
                 break
             _p(f"Segment {sc}: candidate photo rejected (not the {machine})")
