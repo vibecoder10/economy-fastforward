@@ -1029,6 +1029,25 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     });
   };
 
+  // ---- Advance stage ----
+  // HOOKS MUST STAY ABOVE THE EARLY RETURNS: these lived after the loading /
+  // empty-state returns, so the hook count changed once the script loaded and
+  // React threw #310 ("rendered more hooks than during the previous render"),
+  // crashing the whole pipeline page to the error boundary.
+  const [advancing, setAdvancing] = useState(false);
+  const handleAdvanceStage = useCallback(async () => {
+    setAdvancing(true);
+    try {
+      await advanceVideo(video.id);
+      invalidateAll();
+      onAdvanced?.();
+    } catch (err) {
+      toast.error(`Advance failed: ${(err as Error).message}`);
+    } finally {
+      setAdvancing(false);
+    }
+  }, [video.id, invalidateAll, onAdvanced]);
+
   // ---------------------------------------------------------------------------
   // Loading state
   // ---------------------------------------------------------------------------
@@ -1085,21 +1104,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   // ---------------------------------------------------------------------------
 
   const isVoiceBusy = generatingVoiceAll || generatingVoiceScene !== null || voiceTaskRunning;
-
-  // ---- Advance stage ----
-  const [advancing, setAdvancing] = useState(false);
-  const handleAdvanceStage = useCallback(async () => {
-    setAdvancing(true);
-    try {
-      await advanceVideo(video.id);
-      invalidateAll();
-      onAdvanced?.();
-    } catch (err) {
-      toast.error(`Advance failed: ${(err as Error).message}`);
-    } finally {
-      setAdvancing(false);
-    }
-  }, [video.id, invalidateAll, onAdvanced]);
 
   // ---- Script pipeline stepper ----
   const scriptDone = scenesWithScript === totalScenes && totalScenes > 0;
