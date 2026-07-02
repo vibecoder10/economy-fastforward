@@ -1282,6 +1282,28 @@ async def upload_storyboard_grid(
     return {"status": "uploaded", "url": perm_url, "scene": scene, "beat": beat, "all_grids_complete": all_present}
 
 
+@router.post("/{video_id}/script/set")
+async def set_video_script(
+    video_id: str,
+    body: dict,
+    tenant_id=Depends(get_tenant_id),
+):
+    """Install the creator's OWN script on this video verbatim ("use this
+    script"): scenes split + persisted like a generated script, but
+    script_source='user_supplied' so run_script skips generation and no
+    grading/gates rewrite their words. Body: {"script_text": "..."}."""
+    text = str((body or {}).get("script_text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="script_text is required.")
+    from user_script import set_user_script
+    try:
+        result = await set_user_script(tenant_id, video_id, text)
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 400,
+                            detail=str(e))
+    return {"status": "ok", **result}
+
+
 @router.post("/{video_id}/script/tag-dialogue")
 async def tag_dialogue(video_id: str, tenant_id=Depends(get_tenant_id)):
     """Run the dialogue intelligence pass: detect whether this script performs

@@ -1526,6 +1526,19 @@ separate scenes."""
             if not is_at_or_past_stage(current_status, "ready_for_scripting"):
                 return {"status": "failed", "error": f"Video not ready for scripting (status: {current_status})"}
 
+            # Creator-supplied scripts are used VERBATIM: no generation, no
+            # grading, no gates (user_script.set_user_script already persisted
+            # the scenes). This guard also makes re-runs and the queue/autopilot
+            # step loop pass straight through the script stage.
+            if (video.get("script_source") or "generated") == "user_supplied" and (video.get("script") or "").strip():
+                eff_status = self._skip_disabled_next(video, "ready_for_voice")
+                if not is_at_or_past_stage(current_status, eff_status):
+                    await self._update_video_status(video_id, eff_status)
+                    await self._log_transition(video_id, current_status, eff_status, "api")
+                await self._log_activity(bot_name, video_id, "completed",
+                                         "Using your supplied script verbatim")
+                return {"status": eff_status, "video_id": video_id}
+
             # Style-replicated videos get a dedicated script path — the
             # brief_translator's documentary machinery ignores their style.
             # Jarvis: modeled videos still go through the SAME hook/retention loop as

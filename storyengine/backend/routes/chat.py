@@ -1686,6 +1686,54 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     "order, first slots. Autopilot will build them one by one when it's on, or "
                     "hit Build on any of them from the Calendar page."
                 )
+            elif kind == "use_script_for_video":
+                # value: {"asset_id": "<chat_assets id>", "title": "<or null>"}
+                raw = op.get("value") if isinstance(op.get("value"), dict) else {}
+                asset_id = str(raw.get("asset_id") or "").strip()
+                title = str(raw.get("title") or "").strip()
+                if not asset_id:
+                    results.append("I need the uploaded script file to do that — drop it in again?")
+                    continue
+                arow = await fetch_one(
+                    "SELECT id, filename, parsed_text FROM chat_assets WHERE id = $1 AND tenant_id = $2",
+                    asset_id, tenant_id,
+                )
+                text_body = ((arow or {}).get("parsed_text") or "").strip()
+                if not text_body:
+                    results.append(
+                        "I couldn't read any text out of that file, so I can't use it as a "
+                        "script — paste the script here instead?"
+                    )
+                    continue
+                if not title:
+                    title = await _derive_script_title(tenant_id, text_body) or (
+                        (arow.get("filename") or "Untitled script").rsplit(".", 1)[0]
+                    )
+                from models import CreateVideoRequest as _CVR
+                from routes.videos import create_video as _create_video
+                words = len(text_body.split())
+                req = _CVR(title=title[:200], video_length_minutes=max(1, round(words / 150)))
+                try:
+                    summary = await _create_video(body=req, background_tasks=background_tasks, tenant_id=tenant_id)
+                except HTTPException as e:
+                    results.append(
+                        "Looks like you're out of video credits on your plan — upgrade and I'll get right on it."
+                        if e.status_code == 402
+                        else "I couldn't create that video — mind trying again?"
+                    )
+                    continue
+                from user_script import set_user_script
+                sres = await set_user_script(tenant_id, summary.id, text_body)
+                await execute(
+                    "UPDATE chat_assets SET status = 'filed', filed_as = 'video_script' "
+                    "WHERE id = $1 AND tenant_id = $2",
+                    asset_id, tenant_id,
+                )
+                results.append(
+                    f"Created \"{title}\" using your script word for word — {sres['scenes']} "
+                    "scenes, ready for voice. Say the word when you want production to start "
+                    "(that part costs money)."
+                )
             elif kind in _PROFILE_FIELD_COLS:
                 if not val:
                     continue
@@ -1704,6 +1752,25 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
             logger.warning("chat: profile op %s failed: %s", kind, e)
             results.append("I hit a snag saving one of those changes, mind trying again?")
     return results
+
+
+async def _derive_script_title(tenant_id, text: str) -> str:
+    """One cheap model call: name the video from the creator's script opening.
+    Empty string on any failure (caller falls back to the filename)."""
+    try:
+        from kie_unified import get_text_client_for_tenant
+        client = await get_text_client_for_tenant(tenant_id)
+        raw = await client.generate(
+            prompt=(
+                "Here is the opening of a video script:\n\n" + text[:2000] +
+                "\n\nWrite ONE YouTube-ready title for this video. Reply with the title only, no quotes."
+            ),
+            max_tokens=60, temperature=0.7,
+        )
+        return (raw or "").strip().strip('"').splitlines()[0].strip()[:200]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: script title derivation failed: %s", e)
+        return ""
 
 
 async def _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks) -> str:

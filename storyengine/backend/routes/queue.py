@@ -202,6 +202,11 @@ async def launch_queue_item(tenant_id, item: dict, background_tasks=None) -> dic
             "WHERE id = $2 AND tenant_id = $3",
             video_id, item_id, tenant_id,
         )
+        # A queue item can carry the creator's own script — install it verbatim
+        # now so run_script skips generation (script_source='user_supplied').
+        if (item.get("user_script") or "").strip():
+            from user_script import set_user_script
+            await set_user_script(tenant_id, video_id, item["user_script"])
     except Exception:
         await _unclaim(tenant_id, item_id)
         raise
