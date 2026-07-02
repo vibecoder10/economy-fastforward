@@ -223,13 +223,26 @@ async def find_wikipedia_lead_images(names: list, limit: int = 3) -> list[str]:
         async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA) as c:
             for name in [n for n in names if n][:4]:
                 try:
+                    # EXACT title first (redirects followed): search ranking is
+                    # unstable — the same query returned the T95 article one
+                    # hour and a list-article (Sherman lead image) the next.
+                    # An exact title hit is deterministic provenance.
                     r = await _wm_get(c, _WIKIPEDIA_API, params={
-                        "action": "query", "generator": "search",
-                        "gsrsearch": name, "gsrlimit": 2,
+                        "action": "query", "titles": name, "redirects": 1,
                         "prop": "pageimages", "piprop": "thumbnail",
                         "pithumbsize": 1600, "format": "json"})
                     r.raise_for_status()
-                    pages = ((r.json().get("query") or {}).get("pages") or {}).values()
+                    pages = [p for p in ((r.json().get("query") or {})
+                                         .get("pages") or {}).values()
+                             if p.get("thumbnail")]
+                    if not pages:
+                        r = await _wm_get(c, _WIKIPEDIA_API, params={
+                            "action": "query", "generator": "search",
+                            "gsrsearch": name, "gsrlimit": 2,
+                            "prop": "pageimages", "piprop": "thumbnail",
+                            "pithumbsize": 1600, "format": "json"})
+                        r.raise_for_status()
+                        pages = ((r.json().get("query") or {}).get("pages") or {}).values()
                     for p in sorted(pages, key=lambda x: x.get("index") or 9):
                         src = ((p.get("thumbnail") or {}).get("source") or "")
                         if src and "/thumb/" not in src:
@@ -363,26 +376,40 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     from identity_builder import _KIE_CLAUDE_URL
 
     try:
-        key = await get_secret("kie_ai_api_key", tenant_id)
-        if not key:
-            return True
         from shared.clients.image_client import _kie_fetchable_url
+        content = [
+            {"type": "text", "text":
+             "One line: what vehicle/machine does this image "
+             "primarily show (designation if identifiable), and "
+             "is the image a photograph, a drawing/sketch/diagram, "
+             "or a scale model?"},
+            {"type": "image", "source": {"type": "url",
+             "url": _kie_fetchable_url(image_url)}},
+        ]
+        # DIRECT Anthropic first — the Kie gateway injects tool configuration
+        # that derails the reply into meta-talk about tools (seen live).
+        akey = await get_secret("anthropic_api_key", tenant_id)
         async with httpx.AsyncClient(timeout=60.0) as c:
-            r = await c.post(
-                _KIE_CLAUDE_URL,
-                headers={"Authorization": f"Bearer {key}",
-                         "Content-Type": "application/json"},
-                json={"model": "claude-haiku-4-5", "max_tokens": 80,
-                      "messages": [{"role": "user", "content": [
-                          {"type": "text", "text":
-                           "One line: what vehicle/machine does this image "
-                           "primarily show (designation if identifiable), and "
-                           "is the image a photograph, a drawing/sketch/diagram, "
-                           "or a scale model?"},
-                          {"type": "image", "source": {"type": "url",
-                           "url": _kie_fetchable_url(image_url)}},
-                      ]}]},
-            )
+            if akey:
+                r = await c.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": akey,
+                             "anthropic-version": "2023-06-01",
+                             "Content-Type": "application/json"},
+                    json={"model": "claude-haiku-4-5-20251001", "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
+            else:
+                key = await get_secret("kie_ai_api_key", tenant_id)
+                if not key:
+                    return True
+                r = await c.post(
+                    _KIE_CLAUDE_URL,
+                    headers={"Authorization": f"Bearer {key}",
+                             "Content-Type": "application/json"},
+                    json={"model": "claude-haiku-4-5", "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
         body = r.json()
         txt = " ".join(b.get("text", "") for b in body.get("content", [])
                        if b.get("type") == "text").strip().lower()
