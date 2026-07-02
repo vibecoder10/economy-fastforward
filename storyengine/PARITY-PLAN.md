@@ -149,13 +149,26 @@ already exist and fix the known gap:
 
 ## Status
 
-- [x] Phase 1 - extract action layer (BUILT 2026-07-01, local, not yet deployed):
-      backend/actions.py now owns the verb registry, prices, prerequisite gates,
-      cost estimator, video summary, and both step factories; chat.py imports them
-      under the old names (zero behavior change, ~440 lines removed); new routes
-      GET /api/pipeline/actions/{video_id} + POST /api/pipeline/build/{video_id}.
-      35/35 backend tests pass; both route modules import clean. Prod proof owed.
-- [ ] Phase 2 - chat parity verbs + gating fix
+- [x] Phase 1 - extract action layer (LIVE ON PROD 2026-07-01, main @ 42d9954a):
+      backend/actions.py owns the verb registry, prices, prerequisite gates,
+      cost estimator, video summary, and both step factories; chat.py imports
+      them under the old names (zero behavior change, ~440 lines removed).
+      New routes proven live: GET /api/pipeline/actions/{video_id} returned all
+      10 verbs with real costs + correct blocked reasons on the Family Manners
+      video (animate/sound blocked without pictures, render blocked without
+      clips, build_target=pictures); POST /api/pipeline/build validates (400
+      bad target, 404 unknown video). 35/35 tests, site 200, backend healthy.
+- [x] Phase 2 - chat parity verbs + gating fix (LIVE ON PROD 2026-07-01, main @
+      1b299717): 10 new copilot verbs (research, seo, upload, approve_cast,
+      approve_environments, skip_environments, lock, unlock, drive_push,
+      drive_sync) reusing the exact route handlers the UI buttons call via a
+      RUNNERS table in actions.py; upload gated on rendered + always confirms
+      (it publishes). Paid actions now ALWAYS confirm - the home CreatedCard
+      immediate-run hole is closed, and ChatCore renders the confirm card even
+      in the home created view. PROVEN LIVE: /actions lists 20 verbs w/ honest
+      gates; chat "lock the story" surfaced the route's own refusal (no grids);
+      "unlock the story" succeeded; home-path "redo the thumbnail" produced a
+      ~$0.10 confirm card instead of running, and cancel cleared it.
 - [ ] Phase 3 - UI build button + shared costs + improve-prompt
 - [ ] Phase 4 - retire legacy orchestrator routes
 - [ ] Phase 5 - three-door proof on prod
