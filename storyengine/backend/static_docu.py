@@ -164,9 +164,24 @@ async def find_commons_photos(query: str, limit: int = 3) -> list[str]:
                     w, h = ii.get("width") or 0, ii.get("height") or 0
                     if w < 500 or h < 300:
                         continue  # thumbnails/icons — too small to reference
-                    url = ii.get("thumburl") or ii.get("url")
-                    if url:
-                        out.append(url)
+                    url = ii.get("url") or ""
+                    thumb = ii.get("thumburl") or ""
+                    # ALWAYS serve from the /thumb/ cache layer — Wikimedia's
+                    # raw-file layer 403s cloud IPs (seen live for both Kie's
+                    # fetcher AND our own). When the API returned the raw URL
+                    # (original smaller than the requested width), build the
+                    # thumb form manually at width-1.
+                    if not thumb or thumb == url:
+                        if "/wikipedia/commons/" in url and w > 500:
+                            fname = url.rsplit("/", 1)[1]
+                            tw = min(1280, w - 1)
+                            thumb = (url.replace("/wikipedia/commons/",
+                                                 "/wikipedia/commons/thumb/")
+                                     + f"/{tw}px-{fname}")
+                        else:
+                            thumb = url
+                    if thumb:
+                        out.append(thumb)
             return out[:limit]
     except Exception:  # noqa: BLE001 — reference lookup is best-effort
         return []
@@ -265,7 +280,8 @@ async def _scene_subjects(tenant_id: str, scenes: list[dict],
 
 
 async def generate_static_images_for_video(video_id: str, tenant_id: str,
-                                           progress=None) -> dict:
+                                           progress=None,
+                                           only_scenes: Optional[set] = None) -> dict:
     """One realistic archival image per scene, stored as the scene's asset.
 
     The static analogue of generate_coverage_for_video: reads scripts, writes
@@ -293,6 +309,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene",
         video_id, tenant_id)
+    if only_scenes:
+        scenes = [s for s in scenes if s["scene"] in only_scenes]
     if not scenes:
         return {"status": "failed", "error": "no scenes with text yet — write the script first"}
 
