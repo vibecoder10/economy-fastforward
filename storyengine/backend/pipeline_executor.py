@@ -2169,6 +2169,13 @@ separate scenes."""
                     consider = [r["scene"] for r in srows]
                 if consider:
                     from render_stitch import stitch_video
+                    # Dialogue voice_over scenes preview via the performance-
+                    # track assembler (segment audio + timed muted shots) so
+                    # the preview sounds like the final render; plain stitch
+                    # stays the fallback so a preview never dead-ends.
+                    use_perform = (
+                        (video.get("dialogue_mode") or "") == "character_dialogue"
+                        and (video.get("dialogue_audio") or "voice_over") != "grok_native")
                     for sc in consider:
                         comp = await fetch_one(
                             "SELECT COUNT(*) AS pics, COUNT(video_clip_url) AS clips FROM assets "
@@ -2177,12 +2184,25 @@ separate scenes."""
                             video_id, self.tenant_id, sc)
                         if comp and comp["pics"] > 0 and comp["clips"] == comp["pics"]:
                             try:
-                                res = await stitch_video(video_id, self.tenant_id, scene=sc)
+                                scene_url = None
+                                if use_perform:
+                                    try:
+                                        from render_perform import assemble_scene
+                                        pres = await assemble_scene(video_id, self.tenant_id, sc)
+                                        scene_url = pres["scene_video_url"]
+                                        print(f"[stitch] scene {sc} performance-assembled "
+                                              f"({pres['shots']} shots, {pres['duration_seconds']}s)", flush=True)
+                                    except Exception as pe:
+                                        print(f"[stitch] scene {sc} performance assembly failed "
+                                              f"({str(pe)[:150]}) — falling back to plain stitch", flush=True)
+                                if not scene_url:
+                                    res = await stitch_video(video_id, self.tenant_id, scene=sc)
+                                    scene_url = res["final_video_url"]
+                                    print(f"[stitch] scene {sc} auto-stitched ({res['clip_count']} clips)", flush=True)
                                 await execute(
                                     "UPDATE scripts SET scene_video_url = $1, updated_at = now() "
                                     "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
-                                    res["final_video_url"], video_id, sc, self.tenant_id)
-                                print(f"[stitch] scene {sc} auto-stitched ({res['clip_count']} clips)", flush=True)
+                                    scene_url, video_id, sc, self.tenant_id)
                             except Exception as se:
                                 print(f"[stitch] scene {sc} auto-stitch skipped: {str(se)[:150]}", flush=True)
             except Exception as e:
@@ -4379,6 +4399,64 @@ separate scenes."""
             "method": result["method"],
         }
 
+    async def _run_perform_render(
+        self, video_id: str, video: dict, current_status: str,
+        orientation: str = "auto",
+    ) -> dict:
+        """Final render for character-dialogue voice_over videos — the
+        performance-track assembler (render_perform.py): one audio track per
+        scene built from the dialogue segments, every shot timed to its
+        segment's span, all clips muted."""
+        bot_name = "Render Bot"
+        await self._log_activity(
+            bot_name, video_id, "started",
+            "Assembling the performance track and final video"
+        )
+
+        async def _progress(msg: str) -> None:
+            await self._log_activity(bot_name, video_id, "running", msg)
+
+        from render_perform import render_performance_video
+
+        result = await render_performance_video(
+            video_id,
+            self.tenant_id,
+            title=video.get("video_title") or "",
+            orientation=orientation,
+            on_progress=_progress,
+        )
+
+        final_url = result["final_video_url"]
+        await execute(
+            "UPDATE videos SET final_video_url = $1 WHERE id = $2",
+            final_url, video_id,
+        )
+        await self._update_video_status(video_id, to_supabase("rendered"))
+        await self._log_transition(video_id, current_status, to_supabase("rendered"), "api")
+
+        duration_min = max(1, round(result.get("duration_seconds", 0) / 60))
+        await self._charge_render_minutes(video_id, duration_min)
+
+        await self._log_activity(
+            bot_name, video_id, "completed",
+            f"Assembled {result['clip_count']} timed shots across "
+            f"{result['scene_count']} scene(s) "
+            f"({result['duration_seconds']:.0f}s, {result.get('resolution', '?')} "
+            f"{result.get('orientation', '')}) into the final video",
+        )
+        return {
+            "status": to_supabase("rendered"),
+            "video_id": video_id,
+            "final_video_url": final_url,
+            "clip_count": result["clip_count"],
+            "scene_count": result["scene_count"],
+            "duration_seconds": result["duration_seconds"],
+            "resolution": result.get("resolution"),
+            "orientation": result.get("orientation"),
+            "method": result["method"],
+            "warnings": result.get("warnings") or [],
+        }
+
     async def _run_static_render(
         self, video_id: str, video: dict, current_status: str,
     ) -> dict:
@@ -4478,6 +4556,13 @@ separate scenes."""
                 return await self._run_static_render(video_id, video, current_status)
             if (video.get("dialogue_audio") or "voice_over") == "grok_native":
                 return await self._run_stitch_render(
+                    video_id, video, current_status, orientation)
+            # character_dialogue + voice_over: the performance-track assembler
+            # lays every segment voice (narrator + character lines) on one
+            # per-scene track, times each shot to its segment, and plays the
+            # clips muted — see render_perform.py.
+            if (video.get("dialogue_mode") or "") == "character_dialogue":
+                return await self._run_perform_render(
                     video_id, video, current_status, orientation)
 
             await self._log_activity(bot_name, video_id, "started", "Rendering video")
