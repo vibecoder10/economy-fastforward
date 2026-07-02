@@ -148,8 +148,13 @@ async def find_commons_photos(query: str, limit: int = 3) -> list[str]:
                 "srnamespace": 6, "srlimit": 8, "format": "json"})
             r.raise_for_status()
             hits = (r.json().get("query") or {}).get("search") or []
+            # Photographs / full renderings only — a line sketch as an img2img
+            # reference makes the model invent the body (bit us on MBT-70).
+            _bad = ("sketch", "drawing", "diagram", "blueprint", "map",
+                    "insignia", "logo", "emblem", "patch", "lego", "toy")
             titles = [h["title"] for h in hits
-                      if h.get("title", "").lower().endswith((".jpg", ".jpeg", ".png"))]
+                      if h.get("title", "").lower().endswith((".jpg", ".jpeg", ".png"))
+                      and not any(b in h.get("title", "").lower() for b in _bad)]
             if not titles:
                 return []
             r2 = await c.get(_COMMONS_API, params={
@@ -229,8 +234,10 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str) -> bool
                 json={"model": "claude-haiku-4-5", "max_tokens": 10,
                       "messages": [{"role": "user", "content": [
                           {"type": "text", "text":
-                           f"Does this photograph show the {machine} "
-                           "(or a prototype/mock-up of it)? Answer YES or NO only."},
+                           f"Is this a real photograph or detailed full rendering "
+                           f"(NOT a line drawing, sketch, diagram, or scale model) "
+                           f"that clearly shows the {machine} or a prototype of it? "
+                           "Answer YES or NO only."},
                           {"type": "image", "source": {"type": "url",
                            "url": _kie_fetchable_url(image_url)}},
                       ]}]},
@@ -396,6 +403,28 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             await execute("DELETE FROM assets WHERE id=$1", row_id)
             failed.append(str(sc))
             continue
+
+        # Post-generation accuracy check: does the OUTPUT actually look like
+        # the machine? One bounded retry with a match-the-reference
+        # reinforcement; a still-failing image ships with a warning (the
+        # operator sees it in the progress feed) rather than blocking.
+        if not await _vision_confirms(tenant_id, url, machine):
+            if ref_url:
+                _p(f"Segment {sc}: render doesn't match the {machine} — retrying against the reference…")
+                res = await ic.generate_scene_image_gpt(
+                    prompt + " Reproduce the machine in the reference image "
+                    "EXACTLY — same hull, turret, wheels and proportions.",
+                    ref_url, aspect_ratio=v["aspect"])
+                url2 = (res or {}).get("url")
+                if url2 and await _vision_confirms(tenant_id, url2, machine):
+                    url = url2
+                else:
+                    url = url2 or url
+                    _p(f"Segment {sc}: WARNING — image may not match the real {machine}; review it")
+            else:
+                _p(f"Segment {sc}: WARNING — no reference photo found and the "
+                   f"render may not match the real {machine}; review it")
+
         async with httpx.AsyncClient(timeout=120.0) as c:
             r = await c.get(url, follow_redirects=True)
             r.raise_for_status()
