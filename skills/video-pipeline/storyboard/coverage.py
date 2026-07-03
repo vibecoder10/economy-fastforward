@@ -274,7 +274,12 @@ _STYLE_LOCK = (
     " STYLE LOCK: render in the EXACT same art style and rendering quality as the attached "
     "reference image(s). If the reference is a photoreal / live-action / 3D-CG render, this frame "
     "MUST be equally photoreal and realistic — never switch to 2D illustration, painting, cartoon "
-    "or anime, and never change the art style or rendering between frames.")
+    "or anime, and never change the art style or rendering between frames. "
+    # A speaking moment's description mentions the spoken words — GPT Image 2
+    # drew them as an English speech bubble on live frames (2026-07-03). A
+    # character can be MOUTHING words; the words themselves never appear.
+    "NEVER draw speech bubbles, dialogue balloons, captions or subtitles; on-screen text or "
+    "lettering only if this shot's description explicitly asks for it.")
 
 
 async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
