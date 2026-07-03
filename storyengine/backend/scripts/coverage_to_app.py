@@ -561,7 +561,6 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
-    dialogue_audio = v["dialogue_audio"]
     _, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
@@ -996,6 +995,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
+    dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
 
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
