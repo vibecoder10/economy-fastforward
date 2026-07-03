@@ -38,6 +38,19 @@ export const setActiveTenant = (tenantId: string | null) => {
   window.location.assign("/");
 };
 
+/** Auth + workspace headers for RAW fetch calls (file uploads that can't use
+ * fetchApi's JSON Content-Type). Every request must carry X-Active-Tenant or
+ * the backend scopes to the login workspace — uploads made while operating a
+ * client channel 404'd on lookup (found live: character sheet upload). */
+export function uploadHeaders(): Record<string, string> {
+  const token = (typeof window !== "undefined" ? localStorage.getItem("token") : null) || "dev-token";
+  const activeTenant = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_TENANT_KEY) : null;
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(activeTenant ? { "X-Active-Tenant": activeTenant } : {}),
+  };
+}
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   // Get token from localStorage, fallback to "dev-token" for development
   const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -1367,12 +1380,11 @@ export const uploadCharacterImage = async (
   charId: string,
   file: File,
 ): Promise<{ status: string; reference_url: string }> => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(`${API_URL}/api/videos/${videoId}/characters/${charId}/upload`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    headers: uploadHeaders(),
     body: formData,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -1438,7 +1450,7 @@ export const uploadEnvironmentImage = async (
   formData.append("file", file);
   const res = await fetch(`${API_URL}/api/videos/${videoId}/environments/${envId}/upload`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    headers: uploadHeaders(),
     body: formData,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -1458,7 +1470,7 @@ export const uploadStoryboardGrid = async (
   formData.append("file", file);
   const res = await fetch(`${API_URL}/api/videos/${videoId}/storyboard-grid-upload`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    headers: uploadHeaders(),
     body: formData,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -2528,7 +2540,7 @@ export const uploadChatAsset = async (
   if (conversationId) formData.append("conversation_id", conversationId);
   const res = await fetch(`${API_URL}/api/chat/upload`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    headers: uploadHeaders(),
     body: formData,
   });
   if (!res.ok) throw new Error(await res.text());

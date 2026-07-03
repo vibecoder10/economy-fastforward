@@ -429,6 +429,12 @@ async def upload_character_image(
         content, f"{video_id}/characters/{char_id}.{ext}",
         file.content_type or "image/png", str(tenant_id),
     )
+    # Same storage path on re-upload = same file id = every cache (browser,
+    # media proxy, Drive CDN) keeps serving the OLD image — the upload looked
+    # like it "didn't overwrite" (found live). A version param changes the
+    # URL without breaking the Drive-id parsing anywhere downstream.
+    import time as _time
+    url = f"{url}{'&' if '?' in url else '?'}v={int(_time.time())}"
 
     await execute(
         "UPDATE video_characters SET reference_url = $1, source = 'uploaded', "

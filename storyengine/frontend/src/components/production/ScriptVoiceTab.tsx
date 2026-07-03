@@ -740,7 +740,22 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     (sum, s) => sum + s.narrationText.split(/\s+/).filter(Boolean).length,
     0,
   );
-  const scenesWithVoice = scenes.filter((s) => !!s.voiceOverUrl).length;
+  // A character-dialogue scene's voice lives in its per-segment performance
+  // track, not a narrator MP3 — voice_over_url never exists for the pure
+  // couple format, which left "Voice 0/1" stuck after every line was voiced.
+  const dialogueVoicedScenes = useMemo(() => {
+    const done = new Set<number>();
+    if (dialogueMap?.dialogue_mode === "character_dialogue") {
+      for (const sc of dialogueMap.scenes ?? []) {
+        const segs = sc.segments ?? [];
+        if (segs.length > 0 && segs.every((g) => g.voiced)) done.add(sc.scene);
+      }
+    }
+    return done;
+  }, [dialogueMap]);
+  const sceneHasVoice = (s: { voiceOverUrl: string | null; sceneNumber: number }) =>
+    !!s.voiceOverUrl || dialogueVoicedScenes.has(s.sceneNumber);
+  const scenesWithVoice = scenes.filter(sceneHasVoice).length;
   const scenesWithScript = scenes.filter(
     (s) => !!s.narrationText.trim(),
   ).length;
@@ -1347,7 +1362,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                   <div className="space-y-3">
                     {actScenes.map((scene) => {
                       const isExpanded = expandedScenes.has(scene.sceneNumber);
-                      const hasVoice = !!scene.voiceOverUrl;
+                      const hasVoice = sceneHasVoice(scene);
                       const isPlayingThis = false;
                       const isGeneratingThisVoice = generatingVoiceScene === scene.sceneNumber;
 
