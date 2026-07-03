@@ -757,19 +757,15 @@ def _normalize_speaker_lines(text: str) -> str:
 
 
 def _dialogue_turns(scene_text: str):
-    """Ordered [(speaker, text), ...] dialogue turns; consecutive same-speaker
-    lines merge into one turn. Empty for a scene with no tagged dialogue."""
-    out = []
-    for line in _normalize_speaker_lines(scene_text).splitlines():
-        m = re.match(r"^\s*([A-Z][A-Za-z .'-]{0,24}):\s+(\S.*)$", line)
-        if not m:
-            continue
-        spk, txt = m.group(1).strip(), m.group(2).strip()
-        if out and out[-1][0].lower() == spk.lower():
-            out[-1] = (out[-1][0], f"{out[-1][1]} {txt}")
-        else:
-            out.append((spk, txt))
-    return out
+    """Ordered [(speaker, text), ...] dialogue turns. Empty for a scene with no
+    tagged dialogue. DELEGATES to the planner-checklist splitter
+    (storyboard.coverage._scene_turns) so the checklist the planner receives,
+    the shot budget, and the line reconcile all count the SAME turns — two
+    diverging copies of this logic is exactly how lines ended up on the wrong
+    shots (2026-07-02). Same-speaker lines separated by narration are separate
+    turns; only adjacent lines merge."""
+    from storyboard.coverage import _scene_turns
+    return _scene_turns(scene_text or "")
 
 
 def _dialogue_turn_count(scene_text: str) -> int:
@@ -778,29 +774,120 @@ def _dialogue_turn_count(scene_text: str) -> int:
 
 
 def _reconcile_moment_dialogue(moments, scene_text):
-    """Guarantee every script turn is voiced exactly once, in order. The planner
-    is told to make one speaking moment per turn (and usually does), but it's an
-    LLM — this stamps the turns onto the speaking-eligible moments (non-INSERT
-    master) in sequence so nothing drops, duplicates, or reorders. INSERT moments
-    stay silent. Trusts the planner to frame moments in turn order (it's told to)."""
+    """Guarantee every script turn is voiced exactly once, in order, VERBATIM —
+    while RESPECTING which moments the planner built to speak.
+
+    The planner marks each speaking moment with a `LINE:` row (parse_coverage
+    puts it on moment.speaker/.line) and frames that moment's master on the
+    speaker. The old backstop ignored those markers and stamped turns onto the
+    first N non-INSERT masters BY POSITION — a scene opening with two silent
+    moments pushed every line ~2 shots early (found live 2026-07-02: Sofia's
+    line on a Marco gate shot, lines on "Silent" moments, the shots built to
+    speak left empty).
+
+    Now: walk the script turns in order; each goes to the planner-marked
+    speaking moment with the SAME speaker whose PLANNED LINE TEXT covers the
+    turn's words (the planner declared which words that shot performs — trust
+    the text, not just the order, so a checklist/turn-count mismatch can't
+    drift lines onto later moments). Order is the fallback when text doesn't
+    settle it, monotonic so audio and visual order can't cross. The moment's
+    line text is replaced with the turn's verbatim script words (the planner
+    may paraphrase). Two turns whose planned text points at the same master
+    share it (the planner planned that master to speak both). A turn with no
+    home folds onto the previous placement for its speaker (or the last
+    placement overall) so no line is ever lost; planner-marked moments that
+    get no turn go SILENT (a hallucinated LINE never survives); moments the
+    planner left silent STAY silent. If the planner marked nothing at all,
+    fall back to the old positional stamp — minus moments whose summary says
+    they're silent."""
     turns = _dialogue_turns(scene_text)
-    if not turns:
-        return moments
-    eligible = [m for m in moments
-                if (m.get("master", {}).get("shot_type") or "").upper() != "INSERT"]
-    for i, m in enumerate(eligible):
-        if i < len(turns):
-            m["speaker"], m["line"] = turns[i]
-        else:
-            m["speaker"], m["line"] = None, None
-    # More turns than face shots (rare, capped scene) → fold the overflow onto the
-    # last eligible moment so no line is lost.
-    if len(turns) > len(eligible) and eligible:
-        extra = " ".join(t[1] for t in turns[len(eligible):])
-        eligible[-1]["line"] = f'{eligible[-1]["line"]} {extra}'.strip()
     for m in moments:
-        if (m.get("master", {}).get("shot_type") or "").upper() == "INSERT":
-            m["speaker"], m["line"] = None, None
+        m["_planned_speaker"] = (m.get("speaker") or "").strip()
+        m["_planned_line"] = (m.get("line") or "").strip()
+        m["speaker"], m["line"] = None, None
+    if not turns:
+        for m in moments:
+            m.pop("_planned_speaker", None), m.pop("_planned_line", None)
+        return moments
+
+    def _is_insert(m):
+        return (m.get("master", {}).get("shot_type") or "").upper() == "INSERT"
+
+    marked = [i for i, m in enumerate(moments)
+              if m["_planned_speaker"] and m["_planned_line"] and not _is_insert(m)]
+
+    placements: dict[int, tuple[str, list]] = {}  # moment idx -> (speaker, [texts])
+
+    def _place(idx, spk, txt):
+        cur = placements.get(idx)
+        placements[idx] = (cur[0] if cur else spk, (cur[1] if cur else []) + [txt])
+
+    if marked:
+        from clip_dialogue import norm as _tnorm
+
+        def _planned_covers(i, txt):
+            """Does moment i's planner-declared line contain this turn's words?
+            Same containment semantics as the clip/render matchers."""
+            planned = _tnorm(moments[i]["_planned_line"])
+            t = _tnorm(txt)
+            if not planned or not t:
+                return False
+            if t in planned or planned in t:
+                return True
+            for sent in re.split(r"[.!?…]+", txt):
+                ns = _tnorm(sent)
+                if ns and len(ns.split()) >= 3 and ns in planned:
+                    return True
+            return False
+
+        last_idx = -1
+        last_for_speaker: dict = {}
+        for spk, txt in turns:
+            same = [i for i in marked
+                    if moments[i]["_planned_speaker"].lower() == spk.lower()]
+            # Free for this turn = unplaced, or already placed with the SAME
+            # speaker (a master the planner gave two adjacent turns).
+            def _free(i):
+                return i not in placements or placements[i][0].lower() == spk.lower()
+            # 1) The planner's own text says which shot performs these words.
+            cand = next((i for i in same if i >= last_idx
+                         and _planned_covers(i, txt) and _free(i)), None)
+            if cand is None:
+                cand = next((i for i in same
+                             if _planned_covers(i, txt) and _free(i)), None)
+            # 2) Text didn't settle it — next unplaced same-speaker moment, in order.
+            if cand is None:
+                cand = next((i for i in same if i not in placements and i > last_idx), None)
+            if cand is None:
+                cand = next((i for i in same if i not in placements), None)
+            if cand is not None:
+                last_idx = max(last_idx, cand)
+                last_for_speaker[spk.lower()] = cand
+                _place(cand, spk, txt)
+            else:
+                # No planner moment for this turn — fold, never lose a line:
+                # onto this speaker's previous shot, else the last placed shot,
+                # else the first marked moment.
+                fold = last_for_speaker.get(spk.lower())
+                if fold is None:
+                    fold = max(placements) if placements else marked[0]
+                _place(fold, spk, txt)
+    else:
+        # Legacy plans with no LINE rows: positional stamp over masters that
+        # are not INSERTs and whose summary doesn't declare itself silent.
+        eligible = [i for i, m in enumerate(moments) if not _is_insert(m)
+                    and not (m.get("summary") or "").lower().lstrip(" -—*").startswith("silent")]
+        for k, (spk, txt) in enumerate(turns):
+            if k < len(eligible):
+                _place(eligible[k], spk, txt)
+            elif eligible:
+                _place(eligible[-1], spk, txt)
+
+    for idx, (spk, texts) in placements.items():
+        moments[idx]["speaker"] = spk
+        moments[idx]["line"] = " ".join(texts).strip()
+    for m in moments:
+        m.pop("_planned_speaker", None), m.pop("_planned_line", None)
     return moments
 
 
@@ -825,7 +912,18 @@ def _coverage_shape(scene_text: str):
     turns = _dialogue_turn_count(scene_text)
     if turns < 2:
         return 3, 2, 3  # visual/narration scene — ≤12 frames (3 × master+3)
-    return min(turns + 2, SCENE_FRAME_BUDGET), 0, 0  # one frame per line, ≤ budget
+    # Silent moments scale with how much the narrator talks BETWEEN the lines
+    # (the echo format teaches for ~10s stretches): one insert per ~25
+    # narration words (~10s at 2.5 w/s), floor 2 (establishing + cutaway,
+    # the old flat “+2”), cap 6. A flat +2 left a 2-minute teaching scene
+    # holding single frozen frames for 20-30s in the final render.
+    narration_words = sum(
+        len(line.split())
+        for line in _normalize_speaker_lines(scene_text or "").splitlines()
+        if line.strip() and not re.match(r"^\s*[A-Z][A-Za-z .'-]{0,24}:\s+\S", line)
+    )
+    inserts = min(6, max(2, narration_words // 25))
+    return min(turns + inserts, SCENE_FRAME_BUDGET), 0, 0  # ≤ budget
 
 
 async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:

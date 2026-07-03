@@ -143,6 +143,44 @@ def match_lines(sentence_text: Optional[str], scene_lines: Optional[list]) -> li
     return matched
 
 
+# Coverage masters carry their planner-assigned line as `Speaker: "words"`.
+_ASSIGNED_SPLIT_RE = re.compile(r'^\s*([^:"\n]{1,80})\s*:\s*"(.+)"\s*$', re.DOTALL)
+
+
+def match_assigned(assigned: Optional[str], scene_lines: Optional[list]) -> list:
+    """Dialogue lines covered by a coverage master's assigned_dialogue.
+
+    Coverage rows keep the moment SUMMARY in sentence_text — the verbatim
+    spoken words live only in assigned_dialogue, so match_lines can't see them
+    and voice_over speaking masters silently lost their mux (found 2026-07-02).
+    Matches by speaker (casefold) + text containment, sentence-level like
+    match_lines (a folded master can carry several turns in one assigned
+    string). Order preserved. Same semantics as the renderer's speaking-shot
+    matcher (render_perform.match_speaking_shots) — keep them in step."""
+    m = _ASSIGNED_SPLIT_RE.match(assigned or "")
+    if not m or not scene_lines:
+        return []
+    speaker, spoken = m.group(1).strip(), norm(m.group(2))
+    if not spoken:
+        return []
+    matched = []
+    for line in scene_lines:
+        if norm(line.get("speaker")) != norm(speaker):
+            continue
+        lt = norm(line.get("text"))
+        if not lt:
+            continue
+        if lt in spoken or spoken in lt:
+            matched.append(line)
+            continue
+        for sent in re.split(r"[.!?…]+", line.get("text") or ""):
+            ns = norm(sent)
+            if ns and len(ns.split()) >= 3 and ns in spoken:
+                matched.append(line)
+                break
+    return matched
+
+
 # A dialogue line can span cards (sentence-level match_lines), so a speaking
 # card may be a CUTAWAY where the speaker is off-screen — S1.4 is Tom's
 # "Something is wrong." over a ground-level bird close-up. Naming the speaker

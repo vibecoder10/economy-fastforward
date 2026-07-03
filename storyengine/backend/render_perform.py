@@ -64,6 +64,11 @@ DIALOGUE_TAIL_SECONDS = float(os.getenv("PERFORM_DIALOGUE_TAIL", "0.25"))
 # A narration shot shorter than this reads as a glitch — drop shots from an
 # over-crowded narration block instead of machine-gunning them.
 MIN_SHOT_SECONDS = float(os.getenv("PERFORM_MIN_SHOT", "0.8"))
+# A scene that OPENS on a line gives its planned establishing shot ZERO clock
+# (first speaking window starts at t=0). Rather than drop a paid frame and
+# open the video mid-shout, shift the whole track by a short silent lead-in
+# so the opening silent shot(s) get a visual beat first.
+SCENE_LEADIN_SECONDS = float(os.getenv("PERFORM_SCENE_LEADIN", "1.6"))
 
 # assigned_dialogue is written by coverage as: Speaker: "line"
 _ASSIGNED_RE = re.compile(r'^\s*(?P<speaker>[^:"]{1,80}):\s*"(?P<line>.+)"\s*$', re.DOTALL)
@@ -180,6 +185,20 @@ def build_timeline(segments: list, shots: list) -> dict:
                 "warnings": ["no voiced segments — run the voiceover step first"]}
 
     speaking = match_speaking_shots(shots, spans)
+
+    # Scene opens on a line AND silent shots were planned before the first
+    # speaking shot → give them a lead-in beat instead of dropping them.
+    first_speaking_pos = min(speaking) if speaking else None
+    if first_speaking_pos is not None and first_speaking_pos > 0:
+        first_window_start = spans[min(speaking[first_speaking_pos])]["start"]
+        if first_window_start < 0.05 and SCENE_LEADIN_SECONDS > 0:
+            for s in spans:
+                s["start"] = round(s["start"] + SCENE_LEADIN_SECONDS, 3)
+                s["end"] = round(s["end"] + SCENE_LEADIN_SECONDS, 3)
+                s["audio_at"] = round(s["audio_at"] + SCENE_LEADIN_SECONDS, 3)
+            total = round(total + SCENE_LEADIN_SECONDS, 3)
+            placements = [(s["audio_url"], s["audio_at"]) for s in spans if s["audio_url"]]
+
     span_by_index = {s["index"]: s for s in spans}
 
     unclaimed = [s for s in spans if s["type"] == "dialogue" and s["duration"] > 0

@@ -181,6 +181,29 @@ def test_gap_with_no_shots_stretches_neighbor():
     _covers(tl["entries"], tl["total"])
 
 
+def test_scene_opening_on_a_line_gets_a_leadin():
+    """A scene whose first voiced segment is dialogue would give a planned
+    establishing shot zero clock — the lead-in gives it a beat instead of
+    dropping a paid frame."""
+    from render_perform import SCENE_LEADIN_SECONDS
+    segs = [_dlg("Marco", "¡Espera!", 1.5), _nar("Marco runs to school.", 5.0)]
+    shots = [_shot(1, "Silent establishing — the school street"),
+             _shot(2, "Marco shouts", assigned='Marco: "¡Espera!"', hero=True),
+             _shot(3, "the street empties")]
+    tl = build_timeline(segs, shots)
+    assert not any("dropped" in w for w in tl["warnings"]), tl["warnings"]
+    entries = tl["entries"]
+    assert [e["speaking"] for e in entries] == [False, True, False]
+    assert abs(entries[0]["end"] - SCENE_LEADIN_SECONDS) < 0.01, entries[0]
+    # audio placements shifted with the spans — first line starts after the lead
+    assert tl["placements"][0][1] >= SCENE_LEADIN_SECONDS
+    _covers(entries, tl["total"])
+    # no leading silent shot → no lead-in
+    tl2 = build_timeline(segs, shots[1:])
+    assert tl2["entries"][0]["start"] == 0.0 and tl2["entries"][0]["speaking"]
+    assert tl2["placements"][0][1] < SCENE_LEADIN_SECONDS
+
+
 def test_no_voiced_segments_is_actionable():
     tl = build_timeline([{"type": "narration", "text": "x"}], [_shot(1, "s")])
     assert tl["entries"] == []

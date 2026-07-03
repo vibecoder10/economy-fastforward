@@ -129,18 +129,30 @@ _BOLD_SPEAKER_RE = re.compile(
 
 
 def _scene_turns(beat_text: str):
-    """Ordered [(speaker, text)] dialogue turns from a scene's narration; runs of
-    the same speaker merge. Used to hand the planner an exact turn checklist."""
+    """Ordered [(speaker, text)] dialogue turns from a scene's narration. Used to
+    hand the planner an exact turn checklist, and (via the backend's
+    _dialogue_turns alias) to size the shot budget and reconcile stored lines —
+    ONE splitter everywhere, or the checklist and the reconcile disagree.
+
+    Only ADJACENT same-speaker lines merge into one turn. The same speaker
+    re-entering after narration is a NEW turn: in the echo format the narrator
+    teaches between those lines, so gluing them put two story beats — sometimes
+    two locations — into one speaking shot (found live: Marco's cafeteria answer
+    and his street-chaos line stamped onto a single classroom clip)."""
     out = []
+    separated = True  # narration (or scene start) breaks a same-speaker run
     for line in _BOLD_SPEAKER_RE.sub(r"\1\2: ", beat_text or "").splitlines():
         m = re.match(r"^\s*([A-Z][A-Za-z .'-]{0,24}):\s+(\S.*)$", line)
         if not m:
+            if line.strip():
+                separated = True
             continue
         spk, txt = m.group(1).strip(), m.group(2).strip()
-        if out and out[-1][0].lower() == spk.lower():
+        if out and not separated and out[-1][0].lower() == spk.lower():
             out[-1] = (out[-1][0], f"{out[-1][1]} {txt}")
         else:
             out.append((spk, txt))
+        separated = False
     return out
 
 

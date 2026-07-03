@@ -1818,7 +1818,7 @@ separate scenes."""
                 params.append(scene)
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
-                f"video_clip_url, duration_seconds, sentence_text, image_prompt "
+                f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue "
                 f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
@@ -1846,11 +1846,11 @@ separate scenes."""
                 return f"{base}/api/media/drive/{m.group(1)}" if m else url
 
             from storage import upload_bytes
-            from clip_dialogue import (load_dialogue_lines, match_lines, speaking_prompt,
-                                       native_speaking_prompt, motion_guard, duck_audio,
-                                       download_voice, mux_voice, DIALOGUE_VOICE_LEAD_SECONDS,
-                                       speech_seconds, spoken_word_count, pick_clip_duration,
-                                       clip_cost_for)
+            from clip_dialogue import (load_dialogue_lines, match_lines, match_assigned,
+                                       speaking_prompt, native_speaking_prompt, motion_guard,
+                                       duck_audio, download_voice, mux_voice,
+                                       DIALOGUE_VOICE_LEAD_SECONDS, speech_seconds,
+                                       spoken_word_count, pick_clip_duration, clip_cost_for)
             from shared.clients.image_client import CONTENT_POLICY_MARKER
             client = self._pipeline.image_client
             # Grok-imagine takes any duration 6–30s (Kie). Use every tier the
@@ -1922,11 +1922,18 @@ separate scenes."""
                 dialogue_by_scene = await load_dialogue_lines(video_id, self.tenant_id)
                 # voice_over mode needs the segment voices to exist (auto-
                 # chain); grok_native voices the lines itself — no synthesis.
+                # Coverage cards keep the moment SUMMARY in sentence_text and
+                # the verbatim line in assigned_dialogue, so check both — the
+                # summary-only check silently skipped the chain for coverage
+                # rows (and the final render needs EVERY segment voiced, so an
+                # unvoiced line on any card in the scene triggers it).
                 if (video.get("dialogue_audio") or "voice_over") != "grok_native":
+                    def _card_lines(r):
+                        return (match_lines(r.get("sentence_text"), dialogue_by_scene.get(r["scene"]))
+                                or match_assigned(r.get("assigned_dialogue"), dialogue_by_scene.get(r["scene"])))
                     unvoiced_scenes = sorted({
                         r["scene"] for r in todo
-                        if any(not l.get("audio_url")
-                               for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(r["scene"])))
+                        if any(not l.get("audio_url") for l in _card_lines(r))
                     })
                     for sc in unvoiced_scenes:
                         await _report(f"Creating the voices for scene {sc} first…")
@@ -2004,10 +2011,17 @@ separate scenes."""
                     # needs match_lines to find the line to lay over the clip.
                     vp = (r.get("video_prompt") or "").strip()
                     embedded_words = spoken_word_count(vp)
+                    # voice_over line lookup: legacy cards carry the words in
+                    # sentence_text (match_lines); coverage masters keep only
+                    # the moment SUMMARY there — their verbatim line lives in
+                    # assigned_dialogue (match_assigned). Without the second
+                    # check, coverage speaking masters shipped with NO voice
+                    # muxed and were sized/ducked as silent B-roll.
                     lines = ([] if (native_voices and vp) else
-                             [l for l in match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
+                             [l for l in (match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
+                                          or match_assigned(r.get("assigned_dialogue"), dialogue_by_scene.get(sc)))
                               if native_voices or l.get("audio_url")])
-                    # Speaking = a match_lines hit, or (native) an embedded line.
+                    # Speaking = a matched line, or (native) an embedded line.
                     is_speaking = bool(lines) or (native_voices and embedded_words > 0)
 
                     if lines:
@@ -2015,8 +2029,16 @@ separate scenes."""
                         # Loose sync by design (Ryan's call): scene
                         # continuity beats mouth precision in this format —
                         # see decisions.md 2026-06-12.
-                        core = (native_speaking_prompt(lines, r.get("sentence_text"))
-                                if native_voices else speaking_prompt(lines))
+                        # A coverage master already has a WRITTEN motion prompt
+                        # with its line embedded (motion-writer + assigned
+                        # line) — keep that direction; the generic
+                        # speaking_prompt is the fallback for legacy cards.
+                        if native_voices:
+                            core = native_speaking_prompt(lines, r.get("sentence_text"))
+                        elif vp and embedded_words > 0:
+                            core = vp
+                        else:
+                            core = speaking_prompt(lines)
                         prompt = _decorate(core)
                         # The whole spoken line has to fit inside the clip, or
                         # Grok cuts it off. native = Grok times its own speech
