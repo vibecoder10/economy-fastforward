@@ -179,10 +179,17 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     return false;
   }, [castReady, environmentsReady, toast]);
 
-  const hasVoice = useMemo(
-    () => (scriptScenes ?? []).some((s) => !!s.voice_over_url),
-    [scriptScenes],
-  );
+  // Voice exists when a narrator MP3 does OR when a character-dialogue
+  // scene's per-segment performance track is fully voiced (the pure couple
+  // format never writes voice_over_url — the gate locked a fully-voiced
+  // video out of its own Scenes tab, found live).
+  const hasVoice = useMemo(() => {
+    if ((scriptScenes ?? []).some((s) => !!s.voice_over_url)) return true;
+    if (dialogueMap?.dialogue_mode !== "character_dialogue") return false;
+    const dscenes = dialogueMap.scenes ?? [];
+    return dscenes.length > 0 && dscenes.some(
+      (sc) => (sc.segments ?? []).length > 0 && sc.segments.every((g) => g.voiced));
+  }, [scriptScenes, dialogueMap]);
 
   // Voice is optional. When AI voice-over is off (skip_voice / no "voice" stage),
   // image segmentation is timed from word count instead (the backend's
