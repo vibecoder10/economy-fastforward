@@ -175,10 +175,18 @@ def test_reconcile_replays_the_real_marco_plan():
 
 
 def test_shape_scales_inserts_with_narration():
+    import re as _re
     mm, amin, amax = _coverage_shape(MARCO_SCENE)
     # Guardrails off (Ryan 2026-07-02): dialogue moments get 1-2 angles again
     assert (amin, amax) == (1, 2)
-    assert mm == 13, mm  # 6 turns + 7 inserts (this fixture's ~140 narration words)
+    # 6 turns + one insert per ~20 narration words (count them the same way
+    # the shape does — a hand-counted constant broke on the first fixture edit)
+    narration_words = sum(
+        len(l.split()) for l in MARCO_SCENE.splitlines()
+        if l.strip() and not _re.match(r"^\s*\*{0,3}[A-Z][A-Za-z .'-]{0,24}\*{0,3}:", l.strip()))
+    expected = min(6 + max(2, narration_words // 20), 18)
+    assert mm == expected, (mm, expected, narration_words)
+    assert mm >= 10, mm  # sanity: this scene must plan far more than the old 8
     # Heavy narration caps at the moment budget (the runaway-planner brake)
     heavy = MARCO_SCENE + ("\nThe narrator keeps teaching lots of extra words. " * 40)
     assert _coverage_shape(heavy)[0] == 18
