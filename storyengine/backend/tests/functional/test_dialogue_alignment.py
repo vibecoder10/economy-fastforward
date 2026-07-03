@@ -186,8 +186,16 @@ def test_shape_echo_paces_to_runtime():
     # A long scene rides the 40-frame ceiling, never beyond
     heavy = MARCO_SCENE + ("\nThe narrator keeps teaching lots of extra words. " * 60)
     assert _coverage_shape(heavy, "voice_over")[3] == 40
-    # Tiny dialogue scene keeps the turn+2 floor
-    assert _coverage_shape("Tom: Hi.\nLisa: Hey.", "voice_over")[0] == 4
+    # Tiny pure-dialogue scene → masters-only branch (turns + establishing)
+    assert _coverage_shape("Tom: Hi.\nLisa: Hey.", "voice_over")[0] == 3
+
+
+def test_shape_pure_dialogue_plans_masters_only():
+    """Couple format: no narrator → no clock for silent angles. One
+    establishing + one master per line, nothing the renderer must drop."""
+    text = "\n".join(f"{'Ryan' if i % 2 else 'Vanessa'}: line {i} palabra." for i in range(24))
+    mm, amin, amax, mf = _coverage_shape(text, "voice_over")
+    assert (mm, amin, amax, mf) == (25, 0, 0, 25), (mm, amin, amax, mf)
 
 
 def test_shape_grok_native_keeps_cinematic_coverage():

@@ -580,7 +580,9 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
             "number, shot type and one short action line. Render EVERY panel in this EXACT art "
             f"style, held identically across all panels: {style_line}. Consistent lighting and "
             "grade. Use the EXACT characters from the cast reference wherever they appear — never "
-            "invent people or change their look. Draw these panels IN ORDER:\n" + listed)
+            "invent people or change their look. INSIDE the panels draw NO text of any kind — no "
+            "speech bubbles, no dialogue balloons, no captions; spoken lines live only in the "
+            "caption strip BELOW each panel. Draw these panels IN ORDER:\n" + listed)
     return prompts
 
 
@@ -983,6 +985,14 @@ def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
     if (dialogue_audio or "voice_over") == "grok_native":
         inserts = max(2, narration_words // 20)
         return min(turns + inserts, SCENE_FRAME_BUDGET), 1, 2, None
+    # PURE-DIALOGUE scene (the couple format: every line a turn, no narrator):
+    # the timeline is wall-to-wall speaking windows, so silent angles/inserts
+    # have literally zero clock to live in — the renderer drops them AFTER
+    # they were drawn and animated (caught at the Short #1 gate: 12 of 35
+    # planned frames were unplaceable). One establishing shot (the scene
+    # lead-in gives it its beat) + one master per line, nothing else.
+    if narration_words < 15:
+        return turns + 1, 0, 0, turns + 1
     # voice_over echo format: pace to runtime. The frame ceiling never cuts
     # below one shot per TURN — a line is the lip-sync unit, and folding two
     # lines onto one shot puts a mouth on the wrong voice (the couple-dialogue
