@@ -51,7 +51,10 @@ from database import fetch_one, fetch_all, execute            # noqa: E402  (asy
 from storage import upload_bytes                              # noqa: E402
 from vault import get_secret                                  # noqa: E402
 from kie_unified import get_text_client_for_tenant            # noqa: E402
-from storyboard.coverage import run_coverage, resolve_cast_url  # noqa: E402
+from storyboard.coverage import (  # noqa: E402
+    run_coverage, resolve_cast_url, generate_coverage_directive,
+    parse_coverage, enforce_shot_budget,
+)
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.channel_profile import load_profile               # noqa: E402
 from orchestrator.pipeline_constants import Models            # noqa: E402
@@ -542,11 +545,53 @@ def _storyboard_sheet_system(style: str | None = None) -> str:
         "numbered frames, small timecodes. Output ONLY the image prompt, no preamble.")
 
 
+def _scene_text_hash(text: str) -> str:
+    """Pins a saved coverage plan to the scene text it was planned from."""
+    import hashlib
+    return hashlib.sha1(" ".join((text or "").split()).encode()).hexdigest()
+
+
+def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 12) -> list[str]:
+    """Deterministic storyboard-sheet image prompts FROM the coverage plan —
+    one numbered panel per planned SHOT (masters and angles alike), chunked
+    ≤panels_per_sheet per sheet so panels stay readable. The preview shows
+    exactly what the pictures step will draw: same shots, same order, same
+    spoken lines. No LLM in between to drift."""
+    panels: list[str] = []
+    for m in moments:
+        n = m.get("moment_number")
+        speak = (f' SPEAKING {m["speaker"]}: "{(m["line"] or "")[:70]}"'
+                 if m.get("speaker") and m.get("line") else "")
+        master = m.get("master") or {}
+        panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
+                      f"{(master.get('description') or '')[:130]}{speak}")
+        for a in (m.get("angles") or []):
+            panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
+                          f"{(a.get('description') or '')[:130]}")
+    style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
+    prompts = []
+    chunks = [panels[i:i + panels_per_sheet] for i in range(0, len(panels), panels_per_sheet)]
+    for ci, chunk in enumerate(chunks, start=1):
+        listed = "\n".join(chunk)
+        prompts.append(
+            f"A professional storyboard SHEET (sheet {ci} of {len(chunks)}): a clean grid of "
+            f"{len(chunk)} numbered panels, 3 columns, each panel a WIDE 16:9 widescreen cinematic "
+            "frame (never square or tall), with a small caption strip under each panel showing its "
+            "number, shot type and one short action line. Render EVERY panel in this EXACT art "
+            f"style, held identically across all panels: {style_line}. Consistent lighting and "
+            "grade. Use the EXACT characters from the cast reference wherever they appear — never "
+            "invent people or change their look. Draw these panels IN ORDER:\n" + listed)
+    return prompts
+
+
 async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, progress=None):
-    """CHEAP/FAST storyboard step: Claude writes ONE storyboard-sheet prompt for the scene, then GPT
-    Image 2 draws the WHOLE sheet as a SINGLE image (all panels in one), anchored on the locked cast.
-    This is the quick 'do we like the story direction?' preview — the real per-shot images come later
-    (generate_coverage_for_video). Stores the sheet as the scene's storyboard board."""
+    """The STORYBOARD GATE (Ryan's design): run the REAL coverage planner for
+    the scene — channel-paced shot count, earned angles, verbatim line
+    placement — persist that plan, and draw cheap sheet image(s) previewing
+    EVERY planned shot as a numbered panel. The creator reviews the whole
+    shot list for pennies; 'Generate pictures' then executes THIS EXACT saved
+    plan (generate_coverage_for_video reuses it via coverage_directive), so
+    what you approved is what you pay to draw."""
     def _p(msg):
         if progress:
             try:
@@ -556,12 +601,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style "
+        "image_style_override, visual_style, "
+        "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
-    _, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
+    dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
+    profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
@@ -582,46 +629,54 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
     cast_refs = [r["reference_url"] for r in crows]
 
     done = 0
+    total_shots = 0
     for s in targets:
         sc = s["scene"]
-        _p(f"Scene {sc}: writing the storyboard…")
-        # Only THIS scene's characters (per-scene lock), plus the locked environments.
-        scene_chars = [c for c in (bible or {}).get("characters", [])
-                       if not c.get("scenes_present") or sc in c["scenes_present"]]
-        cast_block = "\n".join(f"{c['id']}: {c['costume']}" for c in scene_chars) or "(none)"
-        locs = (bible or {}).get("locations", [])
-        loc_block = (
-            "\n\nLOCKED ENVIRONMENTS (the ONLY locations allowed) — render each panel in whichever "
-            "of these fits that moment; a scene CAN move between them (e.g. kitchen then garage); "
-            "reuse each one's exact look wherever it recurs; NEVER show a location not in this list:\n"
-            + "\n".join(f"{l['id']}: {l['description']}" for l in locs)) if locs else ""
-        user = (f"Scene story:\n{s['scene_text']}\n\n"
-                f"Cast (use these EXACT looks in every panel):\n{cast_block}{loc_block}")
-        kw = dict(prompt=user, system_prompt=_storyboard_sheet_system(style_dir),
-                  max_tokens=2000, temperature=0.6)
-        if claude_model:
-            kw["model"] = claude_model
-        sb_prompt = ((await claude.generate(**kw)) or "").strip()
-        if not sb_prompt:
-            _p(f"Scene {sc}: storyboard prompt failed"); continue
-        # Hard-guarantee the chosen style reaches the image model even if the writer underplays it.
-        if style_dir and style_dir.strip() and style_dir.strip().lower() not in sb_prompt.lower():
-            sb_prompt = f"Art style for EVERY panel: {style_dir.strip()}\n\n{sb_prompt}"
-        _p(f"Scene {sc}: drawing the storyboard (GPT Image 2)…")
-        res = (await ic.generate_thumbnail_gpt2(sb_prompt, cast_refs, aspect) if cast_refs
-               else await ic.generate_scene_image_gpt(sb_prompt, None, aspect))
-        url = res.get("url") if isinstance(res, dict) else res
-        if not url:
+        _p(f"Scene {sc}: planning the shots…")
+        _mm, _amin, _amax, _mframes = _coverage_shape(s["scene_text"] or "", dialogue_audio)
+        directive = await generate_coverage_directive(
+            s["scene_text"] or "", title, profile, bible, [sc], [],
+            max_moments=_mm, angles_min=_amin, angles_max=_amax,
+            anthropic_client=claude, model=claude_model)
+        moments = parse_coverage(directive or "")
+        if not moments:
+            _p(f"Scene {sc}: the planner returned no shots"); continue
+        moments = enforce_shot_budget(moments, _mm, _amax, max_frames=_mframes)
+        # Verbatim line placement NOW, so the preview shows exactly which shot
+        # speaks which line — the same reconcile runs again at draw time and,
+        # being deterministic, lands identically.
+        _reconcile_moment_dialogue(moments, s["scene_text"] or "")
+        shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
+
+        prompts = _plan_sheet_prompts(moments, style_dir)
+        urls: list = []
+        for bi, sp in enumerate(prompts[:5], start=1):
+            _p(f"Scene {sc}: drawing storyboard sheet {bi}/{min(len(prompts), 5)} "
+               f"({shot_count} shots)…")
+            res = (await ic.generate_thumbnail_gpt2(sp, cast_refs, aspect) if cast_refs
+                   else await ic.generate_scene_image_gpt(sp, None, aspect))
+            url = res.get("url") if isinstance(res, dict) else res
+            if url:
+                urls.append(await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant))
+        if not urls:
             _p(f"Scene {sc}: storyboard image failed"); continue
-        stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B1.png", tenant)
+
         srow = await fetch_one("SELECT id FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
                                vid, tenant, sc)
         if srow:
-            await execute("UPDATE scripts SET storyboard_1_url=$1, updated_at=now() WHERE id=$2",
-                          stable, srow["id"])
+            slots = (urls + [None] * 5)[:5]
+            await execute(
+                "UPDATE scripts SET storyboard_1_url=$1, storyboard_2_url=$2, "
+                "storyboard_3_url=$3, storyboard_4_url=$4, storyboard_5_url=$5, "
+                "coverage_directive=$6, coverage_directive_hash=$7, updated_at=now() "
+                "WHERE id=$8",
+                *slots, directive, _scene_text_hash(s["scene_text"] or ""), srow["id"])
         done += 1
-        _p(f"Scene {sc}: storyboard ready")
-    return {"status": "completed", "message": f"Storyboard ready for {done} scene(s) — review, then generate images"}
+        total_shots += shot_count
+        _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {len(urls)} sheet(s)")
+    return {"status": "completed",
+            "message": (f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
+                        "Review the sheets; 'Generate pictures' draws exactly this plan.")}
 
 
 # When grok's content filter flags a frame (usually a tight over-the-shoulder or
@@ -1050,11 +1105,25 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         # _coverage_shape): echo/voice_over paces to runtime with earned
         # angles; grok_native keeps the rich cinematic multi-angle coverage.
         _mm, _amin, _amax, _mframes = _coverage_shape(s["scene_text"] or "", dialogue_audio)
-        _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
+        # THE GATE: if the storyboard step planned this scene and the script
+        # hasn't changed since, draw THAT exact plan — the sheets the creator
+        # reviewed are binding. An edited script invalidates the preview.
+        directive = None
+        saved = await fetch_one(
+            "SELECT coverage_directive, coverage_directive_hash FROM scripts "
+            "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
+        if saved and (saved.get("coverage_directive") or "").strip():
+            if saved.get("coverage_directive_hash") == _scene_text_hash(s["scene_text"] or ""):
+                directive = saved["coverage_directive"]
+                _p(f"Scene {sc}: drawing the storyboarded plan (GPT Image 2)…")
+            else:
+                _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
+        if directive is None:
+            _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
         out = await run_coverage(
             beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
             video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
-            anthropic_client=claude, directive_model=claude_model,
+            anthropic_client=claude, directive_model=claude_model, directive_text=directive,
             max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
             aspect=aspect)
         if out.get("error"):

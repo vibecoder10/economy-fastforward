@@ -237,6 +237,30 @@ def test_match_assigned():
     assert match_assigned("not a line", lines) == []
 
 
+def test_sheet_prompts_preview_the_whole_plan():
+    from scripts.coverage_to_app import _plan_sheet_prompts, _scene_text_hash
+    moments = []
+    for i in range(9):  # 9 moments, every 3rd speaks, every 2nd has an angle
+        m = _moment(f"moment {i+1} action", speaker="Marco" if i % 3 == 0 else None,
+                    line=f"linea {i+1}" if i % 3 == 0 else None)
+        m["moment_number"] = i + 1
+        if i % 2 == 0:
+            m["angles"] = [{"shot_type": "CU", "description": f"angle of {i+1}"}]
+        moments.append(m)
+    prompts = _plan_sheet_prompts(moments, "Pixar 3D", panels_per_sheet=12)
+    total_panels = 9 + 5  # masters + angles
+    assert len(prompts) == 2, len(prompts)  # 12 + 2
+    joined = "\n".join(prompts)
+    for k in range(1, total_panels + 1):
+        assert f"[{k}]" in joined, f"panel {k} missing"
+    assert 'SPEAKING Marco: "linea 1"' in prompts[0]
+    assert "Pixar 3D" in prompts[0] and "Pixar 3D" in prompts[1]
+    assert "sheet 1 of 2" in prompts[0] and "sheet 2 of 2" in prompts[1]
+    # hash pins the plan to the text, whitespace-insensitively
+    assert _scene_text_hash("a  b\nc") == _scene_text_hash("a b c")
+    assert _scene_text_hash("a b c") != _scene_text_hash("a b d")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
