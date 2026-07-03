@@ -1247,12 +1247,15 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                             <Film size={15} /> {scene.sceneVideoUrl ? "Re-stitch scene" : "Stitch scene"}
                           </button>
                         )}
+                        {/* Named by what it redraws — a bare "Redo" was ambiguous
+                            next to the per-clip redo and per-picture redraw
+                            (Ryan, 2026-07-02). */}
                         <button onClick={() => handleRedoSceneFromScratch(scene.sceneNumber)}
                           disabled={running || storyLocked || clearingScene === scene.sceneNumber}
-                          title={storyLocked ? "Unlock the story first (top right)" : "Draw fresh pictures, replacing the current ones"}
+                          title={storyLocked ? "Unlock the story first (top right)" : "Re-plan this scene's shots and draw fresh pictures, replacing the current ones (storyboard refreshes too)"}
                           className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-all hover:bg-white/5 disabled:opacity-40"
                           style={{ color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.15)" }}>
-                          {clearingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={13} />} Redo
+                          {clearingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={13} />} Redraw pictures
                         </button>
                       </>
                     )}
