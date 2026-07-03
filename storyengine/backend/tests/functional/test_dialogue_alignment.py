@@ -176,11 +176,12 @@ def test_reconcile_replays_the_real_marco_plan():
 
 def test_shape_scales_inserts_with_narration():
     mm, amin, amax = _coverage_shape(MARCO_SCENE)
-    assert (amin, amax) == (0, 0)
-    assert mm == 11, mm  # 6 turns + 5 inserts (this fixture's ~140 narration words)
-    # Heavy narration caps at the scene budget, never beyond
+    # Guardrails off (Ryan 2026-07-02): dialogue moments get 1-2 angles again
+    assert (amin, amax) == (1, 2)
+    assert mm == 13, mm  # 6 turns + 7 inserts (this fixture's ~140 narration words)
+    # Heavy narration caps at the moment budget (the runaway-planner brake)
     heavy = MARCO_SCENE + ("\nThe narrator keeps teaching lots of extra words. " * 40)
-    assert _coverage_shape(heavy)[0] == 12
+    assert _coverage_shape(heavy)[0] == 18
     # Tiny dialogue scene keeps the establishing+cutaway floor
     mm2, _, _ = _coverage_shape("Tom: Hi.\nLisa: Hey.")
     assert mm2 == 4, mm2  # 2 turns + floor 2

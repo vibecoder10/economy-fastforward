@@ -58,8 +58,11 @@ from orchestrator.pipeline_constants import Models            # noqa: E402
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
-# D1 shot budget: the hard per-scene moment/frame ceiling (see _coverage_shape).
-SCENE_FRAME_BUDGET = int(os.getenv("SCENE_FRAME_BUDGET", "12"))
+# D1 shot budget: the per-scene MOMENT ceiling for dialogue scenes (see
+# _coverage_shape). Raised 12 → 18 with angles back on (Ryan 2026-07-02:
+# quantity guardrails off — 9 shots on a 2:19 scene was a slideshow); this is
+# the runaway-planner brake, not a pacing dial.
+SCENE_FRAME_BUDGET = int(os.getenv("SCENE_FRAME_BUDGET", "18"))
 
 
 async def resolve_video(ident: str):
@@ -896,34 +899,35 @@ def _coverage_shape(scene_text: str):
     THE per-scene shot budget (D1). Every image pathway funnels through here,
     so this one function is the cost ceiling.
 
-    Dialogue scene → one MASTER-ONLY moment per speaker turn (+2 for an
-    establishing wide and a cutaway), hard-capped at SCENE_FRAME_BUDGET
-    moments. Lines beyond the cap are never lost — _reconcile_moment_dialogue
-    folds overflow turns onto the last speaking shot. Master-only (0 angles)
-    because a talking head's cutaway angle doubled the frame bill for shots
-    the edit rarely used.
+    Dialogue scene → one MASTER moment per speaker turn (the lip-sync unit —
+    never fewer), plus silent inserts scaled to the narration between the
+    lines, plus 1–2 matched ANGLES per moment for real cinematic cutting.
+    Ryan's call 2026-07-02: the earlier master-only/+2-inserts clamp made a
+    2:19 teaching scene render as 9 shots (~15s per frame — a slideshow);
+    quantity guardrails come OFF, enforce_shot_budget stays as the safety
+    against a runaway planner. Lines beyond the cap are never lost —
+    _reconcile_moment_dialogue folds overflow turns onto that speaker's shot.
 
     Non-dialogue scene → the cinematic 3-moment coverage, 2–3 matched angles
     per moment (was 2–4; the 4th angle was the least-used frame in every cut).
 
-    Worst case per scene is now ~SCENE_FRAME_BUDGET frames (~$0.60-0.96 at
-    $0.05-0.08/frame) — previously a chatty scene could hit 32 frames and an
-    8-scene video ~$14+ in images."""
+    SCENE_FRAME_BUDGET (env) caps dialogue MOMENTS; with angles a chatty
+    scene can now reach ~40+ frames (~$3 images / ~$4 clips) — the pacing is
+    the product, the env knob is the brake."""
     turns = _dialogue_turn_count(scene_text)
     if turns < 2:
         return 3, 2, 3  # visual/narration scene — ≤12 frames (3 × master+3)
-    # Silent moments scale with how much the narrator talks BETWEEN the lines
-    # (the echo format teaches for ~10s stretches): one insert per ~25
-    # narration words (~10s at 2.5 w/s), floor 2 (establishing + cutaway,
-    # the old flat “+2”), cap 6. A flat +2 left a 2-minute teaching scene
-    # holding single frozen frames for 20-30s in the final render.
+    # Silent moments scale with how much the narrator talks BETWEEN the lines:
+    # one insert per ~20 narration words (~8s of teaching at 2.5 w/s), floor 2
+    # (establishing + cutaway). The final render times every shot to the
+    # track, so more moments = shorter, livelier windows.
     narration_words = sum(
         len(line.split())
         for line in _normalize_speaker_lines(scene_text or "").splitlines()
         if line.strip() and not re.match(r"^\s*[A-Z][A-Za-z .'-]{0,24}:\s+\S", line)
     )
-    inserts = min(6, max(2, narration_words // 25))
-    return min(turns + inserts, SCENE_FRAME_BUDGET), 0, 0  # ≤ budget
+    inserts = max(2, narration_words // 20)
+    return min(turns + inserts, SCENE_FRAME_BUDGET), 1, 2
 
 
 async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
