@@ -117,6 +117,11 @@ def _download_range(file_id: str, start: int, end: int) -> bytes:
 
 @router.get("/drive/{file_id}")
 async def serve_drive_file(file_id: str, request: Request):
+    # Optional extension suffix (…/drive/<id>.png): some Kie model validators
+    # (InfiniteTalk) reject URLs without a recognizable file type — the suffix
+    # is cosmetic, the id alone addresses the file.
+    import re as _re
+    file_id = _re.sub(r"\.(png|jpe?g|webp|gif|mp3|mp4|wav|m4a)$", "", file_id, flags=_re.I)
     if not _FILE_ID_RE.match(file_id):
         raise HTTPException(status_code=400, detail="Invalid file id")
     if not await _is_allowed(file_id):
