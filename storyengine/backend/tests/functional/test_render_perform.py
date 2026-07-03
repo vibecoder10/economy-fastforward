@@ -204,6 +204,29 @@ def test_scene_opening_on_a_line_gets_a_leadin():
     assert tl2["placements"][0][1] < SCENE_LEADIN_SECONDS
 
 
+def test_narration_cuts_align_to_content():
+    """Shots in a narration block snap to the segments they were planned for
+    (order-preserving content match), not word-count drift — the live failure
+    was the clock close-up playing under the vocab recap."""
+    segs = [_dlg("Marco", "¡Hola!", 2.0),
+            _nar("Marco looks at the clock on the wall. It has been fixed.", 8.0),
+            _nar("He laughs for the first time in weeks, laughing freely.", 3.0),
+            _nar("Five words you learned: tarde, correr, amigos, reloj, roto.", 18.0)]
+    shots = [_shot(1, "Marco speaks", assigned='Marco: "¡Hola!"', hero=True),
+             _shot(2, "INSERT — the fixed clock reveals the real time"),
+             _shot(3, "Marco laughs freely; he was never late at all"),
+             _shot(4, "Floating word cards: tarde correr amigos reloj roto")]
+    tl = build_timeline(segs, shots)
+    ent = {e["shot"]["image_index"]: e for e in tl["entries"]}
+    spans = build_segment_spans(segs)
+    # clock shot covers the clock segment, laugh shot the laugh segment,
+    # cards shot the vocab segment — cuts on the segment boundaries.
+    assert abs(ent[2]["end"] - spans[1]["end"]) < 0.01, (ent[2], spans[1])
+    assert abs(ent[3]["end"] - spans[2]["end"]) < 0.01, (ent[3], spans[2])
+    assert abs(ent[4]["end"] - tl["total"]) < 0.01
+    _covers(tl["entries"], tl["total"])
+
+
 def test_no_voiced_segments_is_actionable():
     tl = build_timeline([{"type": "narration", "text": "x"}], [_shot(1, "s")])
     assert tl["entries"] == []

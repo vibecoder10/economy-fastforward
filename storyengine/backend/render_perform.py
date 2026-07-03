@@ -164,6 +164,61 @@ def match_speaking_shots(shots: list, spans: list) -> dict:
     return {pos: sorted(idxs) for pos, idxs in result.items()}
 
 
+_STOPWORDS = {"the", "and", "his", "her", "with", "into", "then", "that", "this",
+              "them", "they", "from", "back", "over", "each", "very"}
+
+
+def _overlap_score(shot: dict, span: dict) -> float:
+    """Word overlap between a shot's planned content and a segment's text —
+    how strongly this shot 'belongs' to that stretch of narration."""
+    def words(t):
+        return {w for w in re.findall(r"[a-záéíóúñü]{4,}", (t or "").lower())
+                if w not in _STOPWORDS}
+    sw = words(f'{shot.get("sentence_text") or ""} {shot.get("image_prompt") or ""}')
+    gw = words(span.get("text"))
+    return len(sw & gw) / (len(gw) ** 0.5) if gw else 0.0
+
+
+def _align_shots_to_spans(block_shots: list, block_spans: list):
+    """Order-preserving assignment of a narration block's shots to its audio
+    segments: each shot covers ≥1 consecutive segment, every segment covered
+    exactly once, maximizing content overlap (with a mild balance term so
+    zero-overlap cases still split evenly). Returns [ [spans...] per shot ]
+    or None when it can't apply. Cuts then land on segment boundaries — on
+    sentence changes — instead of drifting mid-thought."""
+    m, n = len(block_shots), len(block_spans)
+    if m < 2 or n < m:
+        return None
+    total = sum(s["duration"] for s in block_spans) or 1.0
+    target = total / m
+
+    def gscore(si, j0, j1):  # shot si covering spans j0..j1 inclusive
+        ov = sum(_overlap_score(block_shots[si], block_spans[j]) for j in range(j0, j1 + 1))
+        dur = sum(block_spans[j]["duration"] for j in range(j0, j1 + 1))
+        return ov - 0.2 * abs(dur - target) / target
+
+    NEG = float("-inf")
+    dp = [[NEG] * (n + 1) for _ in range(m + 1)]
+    back = [[0] * (n + 1) for _ in range(m + 1)]
+    dp[0][0] = 0.0
+    for i in range(1, m + 1):
+        for j in range(i, n - (m - i) + 1):
+            for k in range(i - 1, j):
+                if dp[i - 1][k] == NEG:
+                    continue
+                sc = dp[i - 1][k] + gscore(i - 1, k, j - 1)
+                if sc > dp[i][j]:
+                    dp[i][j], back[i][j] = sc, k
+    if dp[m][n] == NEG:
+        return None
+    groups, j = [], n
+    for i in range(m, 0, -1):
+        k = back[i][j]
+        groups.append(block_spans[k:j])
+        j = k
+    return list(reversed(groups))
+
+
 def build_timeline(segments: list, shots: list) -> dict:
     """The scene's performance timeline.
 
@@ -242,6 +297,8 @@ def build_timeline(segments: list, shots: list) -> dict:
     if run or total > prev_end + 0.01:
         blocks.append((prev_end, total, run))
 
+    claimed_idxs = {i for idxs in speaking.values() for i in idxs}
+
     for b_start, b_end, positions in blocks:
         block = b_end - b_start
         if not positions:
@@ -258,16 +315,37 @@ def build_timeline(segments: list, shots: list) -> dict:
                 f"narration block of {block:.1f}s can't fit {len(keep)} shots — "
                 f"keeping the first {max_fit}")
             keep = keep[:max_fit]
-        weights = [max(1, len((shots[p].get("sentence_text") or "").split())) for p in keep]
-        wsum = float(sum(weights))
-        t = b_start
-        acc = 0.0
-        for k, p in enumerate(keep):
-            acc += weights[k]
-            end = b_end if k == len(keep) - 1 else b_start + block * (acc / wsum)
-            entries.append({"shot": shots[p], "start": round(t, 3),
-                            "end": round(end, 3), "speaking": False})
-            t = end
+
+        # CONTENT-ALIGNED cuts: the audio segments inside this block have exact
+        # spans and texts, and the shots were planned in story order — align
+        # shots to the segments they were planned FOR (order-preserving DP on
+        # word overlap) and snap every cut to a segment boundary. The old
+        # word-count pro-rata drifted long blocks out of sync (found live: the
+        # clock close-up playing under the vocab recap). Falls back to
+        # pro-rata when there are more shots than segments in the block.
+        block_spans = [s for s in spans
+                       if s["duration"] > 0 and s["index"] not in claimed_idxs
+                       and s["start"] >= b_start - 0.05 and s["end"] <= b_end + 0.05]
+        groups = (_align_shots_to_spans([shots[p] for p in keep], block_spans)
+                  if 2 <= len(keep) <= len(block_spans) else None)
+        if groups:
+            t = b_start
+            for k, (p, gspans) in enumerate(zip(keep, groups)):
+                end = b_end if k == len(keep) - 1 else gspans[-1]["end"]
+                entries.append({"shot": shots[p], "start": round(t, 3),
+                                "end": round(end, 3), "speaking": False})
+                t = end
+        else:
+            weights = [max(1, len((shots[p].get("sentence_text") or "").split())) for p in keep]
+            wsum = float(sum(weights))
+            t = b_start
+            acc = 0.0
+            for k, p in enumerate(keep):
+                acc += weights[k]
+                end = b_end if k == len(keep) - 1 else b_start + block * (acc / wsum)
+                entries.append({"shot": shots[p], "start": round(t, 3),
+                                "end": round(end, 3), "speaking": False})
+                t = end
 
     entries.sort(key=lambda e: e["start"])
     if not entries:
@@ -359,29 +437,41 @@ FREEZE_TOLERANCE_SECONDS = float(os.getenv("PERFORM_FREEZE_TOLERANCE", "1.0"))
 async def _cut_shot(src: Path, duration: float, tw: int, th: int, out: Path) -> None:
     """Normalize a clip onto the canvas and hold it to EXACTLY `duration`:
     trimmed if long; if the window outlasts the clip beyond the tolerance the
-    clip PING-PONGS (forward, gently back, repeat — motion stays alive) and
-    only sub-tolerance overruns freeze the last frame. Audio dropped — the
-    scene track carries every voice."""
+    clip REPLAYS FORWARD with a short crossfade at each seam — a runner keeps
+    running (the earlier ping-pong visibly reversed directional motion —
+    Ryan caught his sprinter moonwalking at second nine). Sub-tolerance
+    overruns freeze the last frame. Audio dropped — the scene track carries
+    every voice."""
+    import math
+
     normalize = (f"scale={tw}:{th}:force_original_aspect_ratio=decrease,"
                  f"pad={tw}:{th}:-1:-1:color=black,setsar=1,fps={_FPS},format=yuv420p")
     clip_dur = await _probe_duration(str(src))
 
     if clip_dur > 0.5 and duration > clip_dur + FREEZE_TOLERANCE_SECONDS:
-        # Pass A: normalized palindrome (forward + reversed) — loops seamlessly.
-        pal = out.parent / f"{out.stem}_pal.mp4"
-        graph = (f"[0:v]{normalize},split[f][b];[b]reverse[r];[f][r]concat=n=2:v=1[v]")
+        fade = min(0.5, clip_dur / 4)
+        step = clip_dur - fade
+        k = min(6, max(2, math.ceil((duration - clip_dur) / step) + 1))
+        inputs: list[str] = []
+        for _ in range(k):
+            inputs += ["-i", str(src)]
+        parts = [f"[{i}:v]{normalize}[v{i}]" for i in range(k)]
+        prev = "v0"
+        for i in range(1, k):
+            offset = clip_dur + (i - 1) * step - fade
+            parts.append(f"[{prev}][v{i}]xfade=transition=fade:"
+                         f"duration={fade:.3f}:offset={offset:.3f}[x{i}]")
+            prev = f"x{i}"
+        # tpad backstops the rare window longer than the capped loop covers.
+        parts.append(f"[{prev}]tpad=stop_mode=clone:stop_duration={duration:.3f},"
+                     f"trim=duration={duration:.3f}[vout]")
+        graph = ";".join(parts)
         async with _FFMPEG_SEM:
             rc, err = await _run_subprocess(
-                ["ffmpeg", "-y", "-i", str(src), "-filter_complex", graph,
-                 "-map", "[v]", "-an", *_X264, str(pal)])
-        if rc == 0 and pal.exists() and pal.stat().st_size > 0:
-            loops = max(0, int(duration // max(0.5, 2 * clip_dur)))
-            async with _FFMPEG_SEM:
-                rc, err = await _run_subprocess(
-                    ["ffmpeg", "-y", "-stream_loop", str(loops + 1), "-i", str(pal),
-                     "-t", f"{duration:.3f}", "-an", *_X264, str(out)])
-            if rc == 0 and out.exists() and out.stat().st_size > 0:
-                return
+                ["ffmpeg", "-y", *inputs, "-filter_complex", graph,
+                 "-map", "[vout]", "-an", *_X264, str(out)])
+        if rc == 0 and out.exists() and out.stat().st_size > 0:
+            return
         # Loop failed for any reason → fall through to the freeze path (never
         # fail a render over a nicety).
 
