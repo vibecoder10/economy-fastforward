@@ -1024,7 +1024,14 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     for r, motion in zip(rows, motions):
         motion = _strip_embedded_line(motion) or "Slow push-in on the main subject, keeping it in frame."
         spk, txt = _split_assigned(r.get("assigned_dialogue"))
-        prompt = f'{motion} {spk} says: "{txt}"' if (spk and txt) else motion
+        # "once, quickly ... then silence": Grok's 6s minimum stretched a
+        # 1.5s line into slow-motion mouthing across the whole clip — the
+        # renderer shows only the line's window, cutting mid-flap (found
+        # live). Front-load the speech so mouth and track line up and the
+        # tail of the clip is safely trimmable/loopable.
+        prompt = (f'{motion}. {spk} says once, quickly and clearly: "{txt}" — then '
+                  f'closes their mouth and holds the moment in silence.'
+                  if (spk and txt) else motion)
         await execute("UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2", prompt, r["id"])
         written += 1
     return written

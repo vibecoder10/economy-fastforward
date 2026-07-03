@@ -349,12 +349,43 @@ async def _build_scene_track(placements: list, total: float, workdir: Path) -> P
     return out
 
 
+# A window may outlast its clip by this much before we loop instead of
+# freezing the last frame. Small overruns freeze briefly (reads as a held
+# beat); big ones ping-pong so the shot stays alive (found live: 7.5s average
+# windows on 6s clips left ~30% of a film frozen).
+FREEZE_TOLERANCE_SECONDS = float(os.getenv("PERFORM_FREEZE_TOLERANCE", "1.0"))
+
+
 async def _cut_shot(src: Path, duration: float, tw: int, th: int, out: Path) -> None:
     """Normalize a clip onto the canvas and hold it to EXACTLY `duration`:
-    trimmed if long, last frame frozen (tpad clone) if short. Audio dropped —
-    the scene track carries every voice."""
-    vf = (f"scale={tw}:{th}:force_original_aspect_ratio=decrease,"
-          f"pad={tw}:{th}:-1:-1:color=black,setsar=1,fps={_FPS},format=yuv420p,"
+    trimmed if long; if the window outlasts the clip beyond the tolerance the
+    clip PING-PONGS (forward, gently back, repeat — motion stays alive) and
+    only sub-tolerance overruns freeze the last frame. Audio dropped — the
+    scene track carries every voice."""
+    normalize = (f"scale={tw}:{th}:force_original_aspect_ratio=decrease,"
+                 f"pad={tw}:{th}:-1:-1:color=black,setsar=1,fps={_FPS},format=yuv420p")
+    clip_dur = await _probe_duration(str(src))
+
+    if clip_dur > 0.5 and duration > clip_dur + FREEZE_TOLERANCE_SECONDS:
+        # Pass A: normalized palindrome (forward + reversed) — loops seamlessly.
+        pal = out.parent / f"{out.stem}_pal.mp4"
+        graph = (f"[0:v]{normalize},split[f][b];[b]reverse[r];[f][r]concat=n=2:v=1[v]")
+        async with _FFMPEG_SEM:
+            rc, err = await _run_subprocess(
+                ["ffmpeg", "-y", "-i", str(src), "-filter_complex", graph,
+                 "-map", "[v]", "-an", *_X264, str(pal)])
+        if rc == 0 and pal.exists() and pal.stat().st_size > 0:
+            loops = max(0, int(duration // max(0.5, 2 * clip_dur)))
+            async with _FFMPEG_SEM:
+                rc, err = await _run_subprocess(
+                    ["ffmpeg", "-y", "-stream_loop", str(loops + 1), "-i", str(pal),
+                     "-t", f"{duration:.3f}", "-an", *_X264, str(out)])
+            if rc == 0 and out.exists() and out.stat().st_size > 0:
+                return
+        # Loop failed for any reason → fall through to the freeze path (never
+        # fail a render over a nicety).
+
+    vf = (f"{normalize},"
           f"tpad=stop_mode=clone:stop_duration={duration:.3f},"
           f"trim=duration={duration:.3f}")
     async with _FFMPEG_SEM:
