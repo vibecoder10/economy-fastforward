@@ -561,6 +561,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
+    dialogue_audio = v["dialogue_audio"]
     _, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
@@ -894,40 +895,46 @@ def _reconcile_moment_dialogue(moments, scene_text):
     return moments
 
 
-def _coverage_shape(scene_text: str):
-    """(max_moments, angles_min, angles_max) sized to the scene's dialogue —
-    THE per-scene shot budget (D1). Every image pathway funnels through here,
-    so this one function is the cost ceiling.
+def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
+    """(max_moments, angles_min, angles_max, max_frames) — THE per-scene shot
+    budget (D1). Every image pathway funnels through here, so this one
+    function is the pacing policy AND the cost ceiling. Two channel modes
+    (Ryan's rule, 2026-07-02):
 
-    Dialogue scene → one MASTER moment per speaker turn (the lip-sync unit —
-    never fewer), plus silent inserts scaled to the narration between the
-    lines, plus 1–2 matched ANGLES per moment for real cinematic cutting.
-    Ryan's call 2026-07-02: the earlier master-only/+2-inserts clamp made a
-    2:19 teaching scene render as 9 shots (~15s per frame — a slideshow);
-    quantity guardrails come OFF, enforce_shot_budget stays as the safety
-    against a runaway planner. Lines beyond the cap are never lost —
-    _reconcile_moment_dialogue folds overflow turns onto that speaker's shot.
+    ECHO / voice_over dialogue (e.g. the bilingual teaching channel, where
+    the direction is already rich and hard to steer): shot count is paced to
+    the scene's RUNTIME — one moment per ~8s of speech (COVERAGE_PACING_
+    SECONDS), never fewer than one master per speaker turn. Angles 0–2 and
+    EARNED (the planner's motivated-angle rule fires on angles_min=0):
+    reactions, reveals, location bridges — not variety padding. Total frames
+    hard-capped at 2× the paced count, ceiling COVERAGE_MAX_FRAMES (40).
+    A 2:19 scene ⇒ ~18 moments, ≤36 frames, ~4-8s per shot.
 
-    Non-dialogue scene → the cinematic 3-moment coverage, 2–3 matched angles
-    per moment (was 2–4; the 4th angle was the least-used frame in every cut).
+    GROK-NATIVE dialogue (the pure-English speaking channels): the full
+    cinematic multi-angle coverage — Pixar-grade cutting needs the extra
+    angles. One master per turn + narration-scaled inserts, 1–2 angles per
+    moment, SCENE_FRAME_BUDGET (18) as the runaway-planner brake.
 
-    SCENE_FRAME_BUDGET (env) caps dialogue MOMENTS; with angles a chatty
-    scene can now reach ~40+ frames (~$3 images / ~$4 clips) — the pacing is
-    the product, the env knob is the brake."""
+    Non-dialogue scene → the classic 3-moment coverage, 2–3 matched angles.
+    Lines are never lost regardless of caps — _reconcile_moment_dialogue
+    folds overflow turns onto that speaker's shot."""
     turns = _dialogue_turn_count(scene_text)
     if turns < 2:
-        return 3, 2, 3  # visual/narration scene — ≤12 frames (3 × master+3)
-    # Silent moments scale with how much the narrator talks BETWEEN the lines:
-    # one insert per ~20 narration words (~8s of teaching at 2.5 w/s), floor 2
-    # (establishing + cutaway). The final render times every shot to the
-    # track, so more moments = shorter, livelier windows.
+        return 3, 2, 3, None  # visual/narration scene — ≤12 frames (3 × master+3)
     narration_words = sum(
         len(line.split())
         for line in _normalize_speaker_lines(scene_text or "").splitlines()
         if line.strip() and not re.match(r"^\s*[A-Z][A-Za-z .'-]{0,24}:\s+\S", line)
     )
-    inserts = max(2, narration_words // 20)
-    return min(turns + inserts, SCENE_FRAME_BUDGET), 1, 2
+    if (dialogue_audio or "voice_over") == "grok_native":
+        inserts = max(2, narration_words // 20)
+        return min(turns + inserts, SCENE_FRAME_BUDGET), 1, 2, None
+    # voice_over echo format: pace to runtime.
+    pacing = float(os.getenv("COVERAGE_PACING_SECONDS", "8"))
+    est_seconds = len((scene_text or "").split()) / 2.5  # ~2.5 spoken words/sec
+    base = max(turns + 2, round(est_seconds / pacing))
+    max_frames = min(2 * base, int(os.getenv("COVERAGE_MAX_FRAMES", "40")))
+    return min(base, max_frames), 0, 2, max_frames
 
 
 async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
@@ -983,7 +990,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style "
+        "image_style_override, visual_style, "
+        "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
@@ -1038,16 +1046,17 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     for s in targets:
         sc = s["scene"]
         outdir = f"{base_dir}/scene{sc}"
-        # Size coverage to the dialogue: one shot per speaker turn so the writer
-        # never has to put two speakers on one shot. Visual scenes keep the
-        # richer multi-angle coverage.
-        _mm, _amin, _amax = _coverage_shape(s["scene_text"] or "")
+        # Size coverage to the dialogue + the channel's pacing policy (see
+        # _coverage_shape): echo/voice_over paces to runtime with earned
+        # angles; grok_native keeps the rich cinematic multi-angle coverage.
+        _mm, _amin, _amax, _mframes = _coverage_shape(s["scene_text"] or "", dialogue_audio)
         _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
         out = await run_coverage(
             beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
             video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
             anthropic_client=claude, directive_model=claude_model,
-            max_moments=_mm, angles_min=_amin, angles_max=_amax, aspect=aspect)
+            max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
+            aspect=aspect)
         if out.get("error"):
             _p(f"Scene {sc}: skipped ({out['error']})")
             continue

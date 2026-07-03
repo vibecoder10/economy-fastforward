@@ -62,6 +62,13 @@ _COVERAGE_CONCURRENCY = int(os.getenv("COVERAGE_CONCURRENCY", "5"))
 
 def _coverage_system_prompt(profile, max_moments: int, angles_min: int, angles_max: int) -> str:
     cg = profile.color_grade
+    # angles_min == 0 = the RESTRAINED shape (e.g. the bilingual echo format):
+    # an angle must earn its place, master-only is the default.
+    motivated_rule = "" if angles_min > 0 else """
+6) ANGLES ARE EARNED, NOT DEFAULT. Add an ANGLE only when the moment needs it: a listener's \
+REACTION to a line, a DETAIL or REVEAL the narration points at (an object, a clock, hands), an \
+emotional turn on a face, or a bridge into a new location. A plain teaching or transit moment is \
+MASTER-ONLY. Never add an angle just for variety."""
     return f"""\
 You are an award-winning cinematographer and storyboard artist planning COVERAGE for a \
 cinematic video.
@@ -99,7 +106,7 @@ covering EVERY spoken line exactly once. For a speaking moment, put the spoken l
 SCENE DIALOGUE>"` — and the MASTER must FRAME that speaker delivering it. A run of consecutive \
 sentences by the SAME speaker may share one moment's LINE. NEVER put two different speakers in one \
 moment. A speaking moment can be JUST a master (no ANGLE). Silent moments (establishing wide, \
-insert, cutaway, reaction) have NO `LINE:` row — add a few for visual variety.
+insert, cutaway, reaction) have NO `LINE:` row — add a few for visual variety.{motivated_rule}
 </rules>
 
 <output_format>
@@ -368,13 +375,19 @@ async def resolve_cast_url(cast_url, image_client, *, cast_prompt=None, story_bi
     return url
 
 
-def enforce_shot_budget(moments: list, max_moments: int, angles_max: int) -> list:
+def enforce_shot_budget(moments: list, max_moments: int, angles_max: int,
+                        max_frames: int = None) -> list:
     """HARD shot budget (D1): the directive prompt ASKS for at most max_moments
     and angles_max angles, but the planner is an LLM and overshoots (observed
     live: 17 moments / 35 frames against a 12/0 budget). Enforce in code BEFORE
     any drawing spend: trim extra angles per moment, then drop tail moments past
     the cap. Dialogue lines are never lost — the caller's reconcile folds
-    overflow turns onto the last speaking shot."""
+    overflow turns onto the last speaking shot.
+
+    max_frames (optional) is a TOTAL frame ceiling on top of the per-moment
+    caps (Ryan's channel pacing rule, e.g. ≤40 shots for a ~2-min film):
+    angles are stripped from the tail moments first — masters (the lip-sync
+    units and story beats) are never sacrificed for an angle."""
     planned = sum(1 + len(m.get("angles") or []) for m in moments)
     for m in moments:
         if isinstance(m.get("angles"), list) and len(m["angles"]) > angles_max:
@@ -383,10 +396,20 @@ def enforce_shot_budget(moments: list, max_moments: int, angles_max: int) -> lis
         moments = moments[:max_moments]
         for i, m in enumerate(moments, start=1):
             m["moment_number"] = i
+    if max_frames:
+        total = sum(1 + len(m.get("angles") or []) for m in moments)
+        for m in reversed(moments):
+            while total > max_frames and m.get("angles"):
+                m["angles"].pop()
+                total -= 1
+        while total > max_frames and len(moments) > 1:
+            moments.pop()  # masters-only still over the ceiling — drop tail moments
+            total -= 1
     budgeted = sum(1 + len(m.get("angles") or []) for m in moments)
     if budgeted < planned:
         print(f"  [budget] planner wanted {planned} frames — trimmed to {budgeted} "
-              f"(max {max_moments} moments, {angles_max} angles each)", flush=True)
+              f"(max {max_moments} moments, {angles_max} angles each"
+              + (f", {max_frames} frames total" if max_frames else "") + ")", flush=True)
     return moments
 
 
@@ -394,7 +417,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        video_title="", profile=None, story_bible=None, beat_scenes=None,
                        env_url=None, image_prompts=None, directive_text=None,
                        anthropic_client=None, directive_model=None,
-                       max_moments=3, angles_min=2, angles_max=4,
+                       max_moments=3, angles_min=2, angles_max=4, max_frames=None,
                        aspect="16:9", resolution="2K") -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
@@ -419,7 +442,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     moments = parse_coverage(directive_text)
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
-    moments = enforce_shot_budget(moments, max_moments, angles_max)
+    moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
 
     # Draw all moments CONCURRENTLY (each: master first, then its angles in parallel),
     # with one shared semaphore capping total in-flight Kie image gens. Collapses ~12

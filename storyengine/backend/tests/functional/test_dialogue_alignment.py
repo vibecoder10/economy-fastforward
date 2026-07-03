@@ -174,27 +174,48 @@ def test_reconcile_replays_the_real_marco_plan():
     assert out[1]["speaker"] == "Marco" and out[3]["speaker"] == "Sofia"
 
 
-def test_shape_scales_inserts_with_narration():
-    import re as _re
-    mm, amin, amax = _coverage_shape(MARCO_SCENE)
-    # Guardrails off (Ryan 2026-07-02): dialogue moments get 1-2 angles again
-    assert (amin, amax) == (1, 2)
-    # 6 turns + one insert per ~20 narration words (count them the same way
-    # the shape does — a hand-counted constant broke on the first fixture edit)
-    narration_words = sum(
-        len(l.split()) for l in MARCO_SCENE.splitlines()
-        if l.strip() and not _re.match(r"^\s*\*{0,3}[A-Z][A-Za-z .'-]{0,24}\*{0,3}:", l.strip()))
-    expected = min(6 + max(2, narration_words // 20), 18)
-    assert mm == expected, (mm, expected, narration_words)
-    assert mm >= 10, mm  # sanity: this scene must plan far more than the old 8
-    # Heavy narration caps at the moment budget (the runaway-planner brake)
-    heavy = MARCO_SCENE + ("\nThe narrator keeps teaching lots of extra words. " * 40)
-    assert _coverage_shape(heavy)[0] == 18
-    # Tiny dialogue scene keeps the establishing+cutaway floor
-    mm2, _, _ = _coverage_shape("Tom: Hi.\nLisa: Hey.")
-    assert mm2 == 4, mm2  # 2 turns + floor 2
-    # Pure narration keeps cinematic coverage
-    assert _coverage_shape("Just narration, no speakers at all.") == (3, 2, 3)
+def test_shape_echo_paces_to_runtime():
+    """voice_over echo channels: one moment per ~8s of speech, angles 0-2 and
+    EARNED, total frames capped at 2× the paced count (≤40). Ryan's rule."""
+    mm, amin, amax, mframes = _coverage_shape(MARCO_SCENE, "voice_over")
+    assert (amin, amax) == (0, 2)
+    est_seconds = len(MARCO_SCENE.split()) / 2.5
+    expected = max(6 + 2, round(est_seconds / 8))
+    assert mm == expected, (mm, expected)
+    assert mframes == min(2 * expected, 40), mframes
+    # A long scene rides the 40-frame ceiling, never beyond
+    heavy = MARCO_SCENE + ("\nThe narrator keeps teaching lots of extra words. " * 60)
+    assert _coverage_shape(heavy, "voice_over")[3] == 40
+    # Tiny dialogue scene keeps the turn+2 floor
+    assert _coverage_shape("Tom: Hi.\nLisa: Hey.", "voice_over")[0] == 4
+
+
+def test_shape_grok_native_keeps_cinematic_coverage():
+    mm, amin, amax, mframes = _coverage_shape(MARCO_SCENE, "grok_native")
+    assert (amin, amax) == (1, 2)  # the Pixar-grade multi-angle path
+    assert mframes is None
+    assert mm >= 10, mm
+    # Pure narration keeps classic coverage in both modes
+    assert _coverage_shape("Just narration, no speakers at all.") == (3, 2, 3, None)
+
+
+def test_enforce_budget_frame_ceiling_strips_angles_first():
+    from storyboard.coverage import enforce_shot_budget
+    moments = [{"moment_number": i + 1, "summary": f"m{i+1}",
+                "master": {"shot_type": "MS", "description": "d"},
+                "angles": [{"shot_type": "CU", "description": "a1"},
+                           {"shot_type": "OTS", "description": "a2"}]}
+               for i in range(10)]  # 30 frames planned
+    out = enforce_shot_budget(moments, 10, 2, max_frames=18)
+    frames = sum(1 + len(m["angles"]) for m in out)
+    assert frames == 18, frames
+    assert len(out) == 10  # every master survives — angles paid the bill
+    # stripping starts at the tail: the earliest moments keep their angles
+    assert all(len(m["angles"]) == 2 for m in out[:4])
+    assert all(len(m["angles"]) == 0 for m in out[5:])
+    # Masters alone above the ceiling → tail moments drop, never crash
+    out2 = enforce_shot_budget([dict(m, angles=[]) for m in moments], 10, 2, max_frames=4)
+    assert len(out2) == 4
 
 
 def test_match_assigned():
