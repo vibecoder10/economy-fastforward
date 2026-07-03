@@ -983,11 +983,15 @@ def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
     if (dialogue_audio or "voice_over") == "grok_native":
         inserts = max(2, narration_words // 20)
         return min(turns + inserts, SCENE_FRAME_BUDGET), 1, 2, None
-    # voice_over echo format: pace to runtime.
+    # voice_over echo format: pace to runtime. The frame ceiling never cuts
+    # below one shot per TURN — a line is the lip-sync unit, and folding two
+    # lines onto one shot puts a mouth on the wrong voice (the couple-dialogue
+    # format alternates ~48 short turns in 2 minutes, above the default 40).
     pacing = float(os.getenv("COVERAGE_PACING_SECONDS", "8"))
     est_seconds = len((scene_text or "").split()) / 2.5  # ~2.5 spoken words/sec
     base = max(turns + 2, round(est_seconds / pacing))
-    max_frames = min(2 * base, int(os.getenv("COVERAGE_MAX_FRAMES", "40")))
+    ceiling = max(int(os.getenv("COVERAGE_MAX_FRAMES", "40")), turns + 2)
+    max_frames = min(2 * base, ceiling)
     return min(base, max_frames), 0, 2, max_frames
 
 
