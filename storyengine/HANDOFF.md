@@ -29,6 +29,22 @@ come out of the assembler automatically. Listen for mouth/track alignment on
 the speaking shots there; the head-pad constant is PERFORM-env-tunable
 (PERFORM_DIALOGUE_TAIL, PERFORM_MIN_SHOT) if pacing needs a nudge.
 
+## UPDATE 2 (same session): dialogue-line alignment chain FIXED (prod @ 35b60d89)
+
+Ryan's shot review caught lines sitting ~2 shots early. Root causes + fixes
+(all proven by replaying the REAL cached planner output + script + segments):
+turn splitter no longer merges same-speaker lines across narration (ONE
+splitter now - coverage._scene_turns, backend delegates); reconcile respects
+the planner's LINE markers (text-first matching, verbatim stamp, silents stay
+silent, no line ever lost); shot budget scales silent inserts with narration
+(Marco scene: 12 moments = 6 speaking + 6 inserts); coverage masters get
+their mux via clip_dialogue.match_assigned (summaries never matched
+match_lines - voice_over masters had NO voice muxed); scenes opening on a
+line get a 1.6s lead-in (PERFORM_SCENE_LEADIN) so the establishing shot
+isn't dropped. 20 unit tests + full-chain replay (tests/functional/
+test_dialogue_alignment.py). Ryan re-runs pictures on the Marco video next
+(~$2 for the scene); the assembler renders it.
+
 ## THE ORIGINAL TASK (done - kept for design context): the performance-track assembler (Ryan said build it)
 
 The hybrid bilingual format (characters speak Spanish, narrator teaches in English)
