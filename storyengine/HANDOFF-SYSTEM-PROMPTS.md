@@ -271,3 +271,25 @@ Ryan: two speakers only for now, no repair-loop bandaids - right the FIRST time.
   never speaks), 0 stage directions, full rapid-fire quiz (11 ¿Qué es...?
   questions), "Muy bien" close, poco a poco. 141 dialogue lines tagged.
   Staged at the voice gate.
+
+## UPDATE (2026-07-04, same session): parallel pipeline lanes (deployed @ 1a093ff9)
+
+Ryan: run independent stages at the same time (voice via ElevenLabs while
+Environments generate). Was one-task-per-video (409).
+- New side-lane registry in routes/pipeline.py: voice / characters /
+  environments / thumbnail are independent lanes that only block themselves;
+  the main lane (script, storyboards/coverage, images, clips, render,
+  build/run-next) is exclusive BOTH ways - script can't regen under a live
+  voiceover, storyboards can't start while cast/environments generate.
+  Guards: _is_task_active(video, tenant, lane=...); _lane_begin/_lane_finish
+  bracket each side-lane task; display entries are lane-tagged so one lane's
+  deferred clear can't wipe another's pill.
+- SEC-SSE-001 guardrail tests still pass 4/4 (store keys unchanged).
+- PROVEN live on cd5d2883: voice scene-1 (200 running) + environments design
+  (200 running) concurrently; script regen 409'd while they ran; both
+  completed - 2/2 environment references generated (home kitchen + class
+  kitchen, ~$0.10). Known cosmetic quirk: the shared task pill shows the most
+  recent lane's status when two run at once.
+- Format note: pure-dialogue videos have no narrator track - the voice stage
+  is a near-no-op; lines are spoken by the clips (Option A grok + ElevenLabs
+  swap).
