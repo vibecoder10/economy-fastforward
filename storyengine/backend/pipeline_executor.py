@@ -1920,10 +1920,22 @@ separate scenes."""
             # scripted words itself; voice_over overlays ElevenLabs lines.
             native_voices = (video.get("dialogue_audio") or "voice_over") == "grok_native"
             cast_names = ""
+            cast_voice_by_name: dict = {}
             if (video.get("dialogue_mode") or "") == "character_dialogue":
                 name_rows = await fetch_all(
-                    "SELECT name FROM video_characters WHERE video_id = $1 ORDER BY sort", video_id)
+                    "SELECT name, voice_name FROM video_characters WHERE video_id = $1 ORDER BY sort",
+                    video_id)
                 cast_names = ", ".join((c["name"] or "").strip() for c in name_rows if c.get("name"))
+                cast_voice_by_name = {(c["name"] or "").strip().casefold(): c["voice_name"]
+                                      for c in name_rows if c.get("voice_name")}
+            # Option A voice lock: grok_native speaking clips get their audio
+            # re-rendered in the character's pinned ElevenLabs voice (speech-
+            # to-speech keeps timing, so the mouth stays synced). Needs the
+            # tenant's direct ElevenLabs key; off without one, or via env.
+            xi_key = None
+            if native_voices and os.getenv("VOICE_SWAP", "on") != "off":
+                from vault import get_secret
+                xi_key = await get_secret("elevenlabs_api_key", self.tenant_id)
 
             def _decorate(core_prompt: str) -> str:
                 # @image1 is the GROUND TRUTH for this shot, and the
@@ -2190,7 +2202,23 @@ separate scenes."""
                     # Narration cards keep quiet ambience either way — the
                     # renderer mixes narration and music over them.
                     try:
-                        if lines and not native_voices and talked:
+                        if native_voices and is_speaking and xi_key:
+                            # Option A voice lock: swap Grok's invented voice
+                            # for the speaker's pinned ElevenLabs voice. Same
+                            # timing, same mouth, consistent identity. A swap
+                            # failure ships Grok's original take (never lose
+                            # a paid clip over the polish pass).
+                            spk = (r.get("assigned_dialogue") or "").split(":", 1)[0].strip()
+                            voice_id = cast_voice_by_name.get(spk.casefold())
+                            if voice_id:
+                                try:
+                                    from clip_dialogue import swap_voice
+                                    clip_bytes = await swap_voice(clip_bytes, voice_id, xi_key)
+                                    await _report(f"S{sc}.{idx}: voice locked ({spk})")
+                                except Exception as se:
+                                    print(f"[clips] S{sc}.{idx} voice swap failed "
+                                          f"({str(se)[:120]}) — keeping Grok's take", flush=True)
+                        elif lines and not native_voices and talked:
                             pass  # an InfiniteTalk clip already carries its line
                         elif lines and not native_voices:
                             voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)

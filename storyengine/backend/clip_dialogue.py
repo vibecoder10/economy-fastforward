@@ -334,6 +334,58 @@ async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: fl
     return await asyncio.to_thread(_sync)
 
 
+async def swap_voice(clip_bytes: bytes, voice_id: str, xi_api_key: str) -> bytes:
+    """Option A voice lock (Ryan's call, 2026-07-04): keep Grok's spoken
+    performance — the mouth was animated to exactly this speech — and re-render
+    the AUDIO in the character's pinned ElevenLabs voice via speech-to-speech.
+    Phoneme timing is preserved, so lips stay synced; the voice becomes
+    consistent across every clip. Raises on failure (caller decides whether
+    the original take ships instead)."""
+    import httpx
+
+    def _extract() -> bytes:
+        with tempfile.TemporaryDirectory() as td:
+            clip = os.path.join(td, "clip.mp4")
+            wav = os.path.join(td, "voice.wav")
+            with open(clip, "wb") as f:
+                f.write(clip_bytes)
+            _run_ffmpeg(["-i", clip, "-vn", "-ac", "1", "-ar", "44100", wav])
+            with open(wav, "rb") as f:
+                return f.read()
+
+    wav_bytes = await asyncio.to_thread(_extract)
+
+    async with httpx.AsyncClient(timeout=180) as client:
+        resp = await client.post(
+            f"https://api.elevenlabs.io/v1/speech-to-speech/{voice_id}",
+            headers={"xi-api-key": xi_api_key},
+            data={"model_id": "eleven_multilingual_sts_v2",
+                  "remove_background_noise": "true"},
+            files={"audio": ("voice.wav", wav_bytes, "audio/wav")},
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"speech-to-speech failed: {resp.status_code} {resp.text[:150]}")
+        converted = resp.content
+
+    def _remux() -> bytes:
+        with tempfile.TemporaryDirectory() as td:
+            clip = os.path.join(td, "clip.mp4")
+            aud = os.path.join(td, "converted.mp3")
+            out = os.path.join(td, "out.mp4")
+            with open(clip, "wb") as f:
+                f.write(clip_bytes)
+            with open(aud, "wb") as f:
+                f.write(converted)
+            # 0:v:0 — Grok clips carry an mjpeg attached-pic stream that a bare
+            # 0:v grabs by mistake (found live in the STS sample).
+            _run_ffmpeg(["-i", clip, "-i", aud, "-map", "0:v:0", "-map", "1:a:0",
+                         "-c:v", "copy", "-c:a", "aac", "-shortest", out])
+            with open(out, "rb") as f:
+                return f.read()
+
+    return await asyncio.to_thread(_remux)
+
+
 async def pad_line_audio(voice_bytes_list: list, head: float = 0.5,
                          tail: float = 0.25) -> bytes:
     """One MP3 for a speaking shot's full performance: the line(s) in order
