@@ -104,6 +104,34 @@ import time as _time
 
 _running_tasks: dict[tuple[str, str], dict] = {}
 
+# --- parallel side lanes ------------------------------------------------------
+# Voice, characters, environments and thumbnail are independent of each other
+# (none reads another's output), so they may run AT THE SAME TIME on one
+# video. Everything else - script, storyboards, images, clips, render, the
+# build/run-next orchestrators - is the exclusive "main" lane: it is upstream
+# (script feeds voice) or downstream (storyboards need approved cast +
+# environments) of the side lanes, so main blocks while ANY lane is active,
+# and every side lane blocks while main is active.
+import contextvars as _contextvars
+
+_task_lane: "_contextvars.ContextVar[str]" = _contextvars.ContextVar("task_lane", default="main")
+_side_lanes: dict[tuple[str, str], dict[str, float]] = {}
+
+
+def _lane_begin(video_id: str, tenant_id: str, lane: str) -> None:
+    """Mark a side-lane task as in flight (and tag this context's status
+    writes with the lane so displays/clears don't cross wires)."""
+    _task_lane.set(lane)
+    _side_lanes.setdefault((tenant_id, video_id), {})[lane] = _time.time()
+
+
+def _lane_finish(video_id: str, tenant_id: str, lane: str) -> None:
+    lanes = _side_lanes.get((tenant_id, video_id))
+    if lanes:
+        lanes.pop(lane, None)
+        if not lanes:
+            _side_lanes.pop((tenant_id, video_id), None)
+
 # Tasks older than 10 minutes are considered stale (server restart, crash, etc.)
 _STALE_TASK_SECONDS = 600
 
@@ -254,6 +282,7 @@ def _set_task_status(
         "status": normalized,
         "message": resolved_message,
         "error": resolved_error,
+        "lane": _task_lane.get(),
         "started_at": (previous or {}).get("started_at", _time.time()),
     }
 
@@ -299,13 +328,30 @@ def _get_task_status(video_id: str, tenant_id: str) -> Optional[dict]:
     return None
 
 
-def _is_task_active(video_id: str, tenant_id: str) -> bool:
-    """True only while a task is actually in flight. Start-guards must use
-    THIS, not _get_task_status truthiness: completed/failed entries linger
-    ~30s for the UI pill, and truthiness-guards were 409-ing follow-up
-    actions ("Task already running" right after cast-approve completed)."""
+def _is_task_active(video_id: str, tenant_id: str, lane: str = "main") -> bool:
+    """True only while a task is actually in flight IN A CONFLICTING LANE.
+
+    Start-guards must use THIS, not _get_task_status truthiness:
+    completed/failed entries linger ~30s for the UI pill, and
+    truthiness-guards were 409-ing follow-up actions.
+
+    lane="main" (default, exclusive): blocked while main is running OR any
+    side lane is active. Side lanes (voice/characters/environments/thumbnail):
+    blocked only by themselves or by main - so voice can run while
+    environments generate."""
+    now = _time.time()
+    lanes = _side_lanes.get((tenant_id, video_id), {})
+    for l, t0 in list(lanes.items()):
+        if now - t0 > _STALE_TASK_SECONDS:
+            lanes.pop(l, None)  # a killed worker must never wedge the video
     task = _get_task_status(video_id, tenant_id)
-    return bool(task and task.get("status") in ("running", "pending"))
+    main_running = bool(
+        task and task.get("status") in ("running", "pending")
+        and task.get("lane", "main") == "main"
+    )
+    if lane == "main":
+        return main_running or bool(lanes)
+    return (lane in lanes) or main_running
 
 
 async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict]:
@@ -338,6 +384,9 @@ def _clear_task_status(video_id: str, tenant_id: str):
     the poller went blind mid-generation).
     """
     entry = _running_tasks.get((tenant_id, video_id))
+    if entry and entry.get("lane", "main") != _task_lane.get():
+        # Another lane's status is on display - leave it alone.
+        return
     if entry and entry.get("status") == "running":
         return
     _running_tasks.pop((tenant_id, video_id), None)
@@ -563,9 +612,10 @@ async def run_voice(
             detail=f"Video not ready for voice (status: {video['status']})",
         )
 
-    if _is_task_active(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id, lane="voice"):
         raise HTTPException(status_code=409, detail="Task already running")
 
+    _lane_begin(video_id, tenant_id, "voice")
     _set_task_status(video_id, "running", "Voice generation in progress", tenant_id=tenant_id)
 
     async def _run():
@@ -576,6 +626,7 @@ async def run_voice(
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
+            _lane_finish(video_id, tenant_id, "voice")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
@@ -1117,10 +1168,11 @@ async def run_dialogue_voice(
             detail=f"Video needs a script before voices can be made (status: {video['status']})",
         )
 
-    if _is_task_active(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id, lane="voice"):
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" (scene {scene})" if scene else ""
+    _lane_begin(video_id, tenant_id, "voice")
     _set_task_status(video_id, "running", f"Voicing dialogue segments{scene_label}...", tenant_id=tenant_id)
 
     async def _run():
@@ -1143,6 +1195,7 @@ async def run_dialogue_voice(
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
+            _lane_finish(video_id, tenant_id, "voice")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
@@ -1554,9 +1607,10 @@ async def run_thumbnail(
             detail=f"Video not ready for thumbnail — needs at least a script (status: {status})",
         )
 
-    if _is_task_active(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id, lane="thumbnail"):
         raise HTTPException(status_code=409, detail="Task already running")
 
+    _lane_begin(video_id, tenant_id, "thumbnail")
     _set_task_status(video_id, "running", "Thumbnail generation in progress", tenant_id=tenant_id)
 
     async def _run():
@@ -1567,6 +1621,7 @@ async def run_thumbnail(
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
+            _lane_finish(video_id, tenant_id, "thumbnail")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 

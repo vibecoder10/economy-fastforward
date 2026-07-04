@@ -222,10 +222,10 @@ async def design_environments(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
-    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
-    task = _get_task_status(video_id, tenant_id)
-    if task and task.get("status") == "running":
+    from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
+    if _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
+    _lane_begin(video_id, tenant_id, "environments")
 
     style_dna = video.get("image_style_override") or ""
     aspect_ratio = video.get("aspect_ratio") or "16:9"
@@ -302,6 +302,7 @@ async def design_environments(
                              error=user_facing(humanize_error(e, context="We couldn't design the environments")),
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         finally:
+            _lane_finish(video_id, tenant_id, "environments")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
@@ -329,10 +330,10 @@ async def regenerate_environment(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
-    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
-    task = _get_task_status(video_id, tenant_id)
-    if task and task.get("status") == "running":
+    from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
+    if _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
+    _lane_begin(video_id, tenant_id, "environments")
 
     style_dna = video.get("image_style_override") or ""
     aspect_ratio = video.get("aspect_ratio") or "16:9"
@@ -361,6 +362,7 @@ async def regenerate_environment(
                              error=user_facing(humanize_error(e, context=f"We couldn't redesign {env['name']}")),
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         finally:
+            _lane_finish(video_id, tenant_id, "environments")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
@@ -504,10 +506,10 @@ async def approve_environments(video_id: str, background_tasks: BackgroundTasks,
             detail=f"These environments have no image yet: {', '.join(missing[:4])}. Regenerate, upload, or delete them.",
         )
 
-    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
-    task = _get_task_status(video_id, tenant_id)
-    if task and task.get("status") == "running":
+    from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
+    if _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
+    _lane_begin(video_id, tenant_id, "environments")
 
     _set_task_status(video_id, "running", "Locking in the locations…",
                      tenant_id=tenant_id, task_type=TASK_TYPE)
@@ -583,6 +585,7 @@ async def approve_environments(video_id: str, background_tasks: BackgroundTasks,
                              error=user_facing(humanize_error(e, context="We couldn't approve the environments")),
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         finally:
+            _lane_finish(video_id, tenant_id, "environments")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 

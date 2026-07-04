@@ -239,10 +239,10 @@ async def design_characters(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
-    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
-    task = _get_task_status(video_id, tenant_id)
-    if task and task.get("status") == "running":
+    from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
+    if _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
+    _lane_begin(video_id, tenant_id, "characters")
 
     style_dna = video.get("image_style_override") or ""
 
@@ -311,6 +311,7 @@ async def design_characters(
                              error=user_facing(humanize_error(e, context="We couldn't design the characters")),
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         finally:
+            _lane_finish(video_id, tenant_id, "characters")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
@@ -338,10 +339,10 @@ async def regenerate_character(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
-    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
-    task = _get_task_status(video_id, tenant_id)
-    if task and task.get("status") == "running":
+    from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
+    if _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
+    _lane_begin(video_id, tenant_id, "characters")
 
     style_dna = video.get("image_style_override") or ""
     _set_task_status(video_id, "running", f"Redesigning {char['name']}…",
@@ -367,6 +368,7 @@ async def regenerate_character(
                              error=user_facing(humanize_error(e, context=f"We couldn't redesign {char['name']}")),
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         finally:
+            _lane_finish(video_id, tenant_id, "characters")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
@@ -583,10 +585,10 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
             detail=f"These characters have no image yet: {', '.join(missing[:4])}. Regenerate, upload, or delete them.",
         )
 
-    from routes.pipeline import _get_task_status, _set_task_status, _clear_task_status
-    task = _get_task_status(video_id, tenant_id)
-    if task and task.get("status") == "running":
+    from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
+    if _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
+    _lane_begin(video_id, tenant_id, "characters")
 
     _set_task_status(video_id, "running", "Locking in the cast…", tenant_id=tenant_id, task_type=TASK_TYPE)
 
@@ -666,6 +668,7 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
                              error=user_facing(humanize_error(e, context="We couldn't approve the cast")),
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         finally:
+            _lane_finish(video_id, tenant_id, "characters")
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
