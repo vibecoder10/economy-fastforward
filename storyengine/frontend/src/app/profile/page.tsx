@@ -41,6 +41,9 @@ import {
   getChannelCast,
   lockChannelCast,
   unlockChannelCast,
+  generateChannelCastMember,
+  updateChannelCastMember,
+  deleteChannelCastMember,
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
@@ -1069,6 +1072,28 @@ function ChannelCastCard() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["channel-cast"] });
   const lockMutation = useMutation({ mutationFn: lockChannelCast, onSuccess: refresh });
   const unlockMutation = useMutation({ mutationFn: unlockChannelCast, onSuccess: refresh });
+  const toggleMutation = useMutation({
+    mutationFn: ({ name, always }: { name: string; always: boolean }) =>
+      updateChannelCastMember(name, { always }),
+    onSuccess: refresh,
+  });
+  const removeMutation = useMutation({
+    mutationFn: (name: string) => deleteChannelCastMember(name),
+    onSuccess: refresh,
+  });
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [genName, setGenName] = useState("");
+  const [genDesc, setGenDesc] = useState("");
+  const [genAlways, setGenAlways] = useState(true);
+  const [genError, setGenError] = useState("");
+  const generateMutation = useMutation({
+    mutationFn: () => generateChannelCastMember(genName, genDesc, genAlways),
+    onSuccess: () => {
+      setGenName(""); setGenDesc(""); setGenAlways(true); setGenError(""); setShowGenerate(false);
+      refresh();
+    },
+    onError: (e: Error) => setGenError(e.message || "Generation failed — try again."),
+  });
   const cast = data?.characters ?? [];
   const locked = data?.cast_locked ?? false;
   const busy = lockMutation.isPending || unlockMutation.isPending;
@@ -1090,34 +1115,127 @@ function ChannelCastCard() {
         )}
       </div>
       <GlassCard className="p-6">
-        {cast.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            No saved cast yet. Drop your character sheets into the chat and say
-            {" "}&ldquo;lock these in as our channel&rsquo;s identity&rdquo; — or save a video&rsquo;s
-            approved cast to the project from its Characters tab.
-          </p>
-        ) : (
-          <div className="space-y-4">
+        <div className="space-y-4">
+          {cast.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              No saved cast yet. Generate a character below, drop your character sheets into the
+              chat and say &ldquo;lock these in as our channel&rsquo;s identity&rdquo; — or save a
+              video&rsquo;s approved cast to the project from its Characters tab.
+            </p>
+          ) : (
             <div className="flex flex-wrap gap-3">
-              {cast.map((c) => (
-                <div key={c.name} className="w-28 text-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={toDisplayImageUrl(c.reference_url)}
-                    alt={c.name}
-                    className="w-28 h-28 object-cover rounded-xl"
-                    style={{ border: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}
-                  />
-                  <p className="text-xs mt-1 truncate" style={{ color: "var(--text-primary)" }}>{c.name}</p>
-                </div>
-              ))}
+              {cast.map((c) => {
+                const always = c.always !== false;
+                return (
+                  <div key={c.name} className="w-32 text-center relative group">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Remove ${c.name} from the channel cast? Existing videos keep their characters.`)) {
+                          removeMutation.mutate(c.name);
+                        }
+                      }}
+                      className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full items-center justify-center hidden group-hover:flex"
+                      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-tertiary)" }}
+                      title="Remove from channel cast"
+                    >
+                      <X size={10} />
+                    </button>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={toDisplayImageUrl(c.reference_url)}
+                      alt={c.name}
+                      className="w-32 h-32 object-cover rounded-xl"
+                      style={{ border: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}
+                    />
+                    <p className="text-xs mt-1 truncate" style={{ color: "var(--text-primary)" }}>{c.name}</p>
+                    <button
+                      type="button"
+                      onClick={() => toggleMutation.mutate({ name: c.name, always: !always })}
+                      disabled={toggleMutation.isPending}
+                      className="text-[9px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5 disabled:opacity-50"
+                      style={
+                        always
+                          ? { background: "var(--turquoise-dim)", color: "var(--turquoise)" }
+                          : { background: "var(--bg-elevated)", color: "var(--text-tertiary)", border: "1px solid var(--border)" }
+                      }
+                      title={always ? "In every video — click to make optional" : "Optional — imported per video from Use Saved Cast. Click to include in every video."}
+                    >
+                      {always ? "Every video" : "Optional"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-[11px] max-w-md" style={{ color: "var(--text-tertiary)" }}>
-                {locked
-                  ? "Every new video uses these exact sheets and skips character generation."
-                  : "Not locked — videos can still design their own cast. Lock it to make these the permanent channel identity."}
-              </p>
+          )}
+
+          {/* Generate a new cast member in the channel's style */}
+          {showGenerate ? (
+            <div className="space-y-2 p-3 rounded-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+              <input
+                type="text"
+                value={genName}
+                onChange={(e) => setGenName(e.target.value)}
+                placeholder="Character name (e.g. Abuela Rosa)"
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+              />
+              <textarea
+                value={genDesc}
+                onChange={(e) => setGenDesc(e.target.value)}
+                placeholder="How they look: age, hair, face, outfit with colors… (drives the model sheet)"
+                rows={2}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+              />
+              <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+                <input
+                  type="checkbox"
+                  checked={genAlways}
+                  onChange={(e) => setGenAlways(e.target.checked)}
+                  style={{ accentColor: "var(--turquoise)" }}
+                />
+                Include in every video (uncheck = optional, pick per video)
+              </label>
+              {genError && <p className="text-[11px]" style={{ color: "var(--red)" }}>{genError}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => generateMutation.mutate()}
+                  disabled={generateMutation.isPending || !genName.trim() || !genDesc.trim()}
+                  className="text-xs font-semibold px-4 py-2 rounded-lg disabled:opacity-50"
+                  style={{ background: "var(--turquoise)", color: "#0a0a0a" }}
+                >
+                  {generateMutation.isPending ? "Generating… (~30s)" : "Generate model sheet (~$0.05)"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowGenerate(false); setGenError(""); }}
+                  className="text-xs px-3 py-2"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowGenerate(true)}
+              className="text-xs font-medium"
+              style={{ color: "var(--turquoise)" }}
+            >
+              + Generate a new character
+            </button>
+          )}
+
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-[11px] max-w-md" style={{ color: "var(--text-tertiary)" }}>
+              {locked
+                ? "Locked: every new video starts with the “Every video” cast attached and skips character generation. “Optional” members are added per video from Use Saved Cast."
+                : "Not locked — videos can still design their own cast. Lock it to make these the permanent channel identity."}
+            </p>
+            {cast.length > 0 && (
               <button
                 onClick={() => (locked ? unlockMutation.mutate() : lockMutation.mutate())}
                 disabled={busy}
@@ -1130,9 +1248,9 @@ function ChannelCastCard() {
               >
                 {busy ? "Working…" : locked ? "Unlock" : "Lock as channel identity"}
               </button>
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </GlassCard>
     </>
   );

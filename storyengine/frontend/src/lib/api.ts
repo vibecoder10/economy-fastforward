@@ -353,6 +353,7 @@ export interface ChannelCastMember {
   name: string;
   description?: string;
   reference_url: string;
+  always?: boolean;
 }
 export const getChannelCast = () =>
   fetchApi<{ characters: ChannelCastMember[]; cast_locked: boolean }>("/api/projects/current/cast");
@@ -363,6 +364,21 @@ export const lockChannelCast = () =>
   });
 export const unlockChannelCast = () =>
   fetchApi<{ status: string }>("/api/projects/current/cast/lock", { method: "DELETE" });
+export const generateChannelCastMember = (name: string, description: string, always = true) =>
+  fetchApi<{ status: string; characters: ChannelCastMember[] }>(
+    "/api/projects/current/cast/generate",
+    { method: "POST", body: JSON.stringify({ name, description, always }) }
+  );
+export const updateChannelCastMember = (name: string, patch: { always?: boolean; new_name?: string }) =>
+  fetchApi<{ status: string; characters: ChannelCastMember[] }>(
+    `/api/projects/current/cast/${encodeURIComponent(name)}`,
+    { method: "PATCH", body: JSON.stringify(patch) }
+  );
+export const deleteChannelCastMember = (name: string) =>
+  fetchApi<{ status: string; characters: ChannelCastMember[] }>(
+    `/api/projects/current/cast/${encodeURIComponent(name)}`,
+    { method: "DELETE" }
+  );
 
 // --- House script format (one template per channel) ---
 export interface ScriptTemplate {

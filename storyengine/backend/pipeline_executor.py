@@ -2716,7 +2716,11 @@ separate scenes."""
                     refs = _cast_json.loads(refs)
                 except (ValueError, TypeError):
                     refs = []
-            refs = [c for c in (refs or []) if isinstance(c, dict) and c.get("reference_url")]
+            refs = [c for c in (refs or [])
+                    if isinstance(c, dict) and c.get("reference_url")
+                    # `always: false` members are optional extras — imported per
+                    # video via the Use Saved Cast picker, never auto-attached.
+                    and c.get("always", True)]
             if proj and proj.get("cast_locked") and refs:
                 from routes.characters import _build_cast_sheet, _sync_bible_to_cast
                 existing = await fetch_all(

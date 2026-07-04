@@ -795,6 +795,55 @@ async def import_cast_from_project(
 # pipeline_executor.run_characters. Fed from chat (dropped images, "lock these
 # in") and the profile page's Channel cast card.
 
+async def apply_locked_cast(tenant_id, video_id: str) -> bool:
+    """Attach the project's LOCKED channel cast to a fresh video, so the
+    Characters tab shows the series cast from second one instead of "No
+    Characters Designed Yet". Rows only (pre-approved, voice pins riding,
+    `always: false` members skipped) — the characters stage's fast path later
+    rebuilds the cast sheet and stamps videos.characters_approved_at.
+    Fail-soft: never blocks creation."""
+    try:
+        video = await fetch_one(
+            "SELECT project_id FROM videos WHERE id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        if not video or not video.get("project_id"):
+            return False
+        proj = await fetch_one(
+            "SELECT cast_locked, character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+            video["project_id"], tenant_id,
+        )
+        if not proj or not proj.get("cast_locked"):
+            return False
+        refs = _parse_json(proj.get("character_references")) or []
+        refs = [c for c in refs
+                if isinstance(c, dict) and c.get("reference_url") and c.get("always", True)]
+        if not refs:
+            return False
+        existing = await fetch_all(
+            "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        existing_names = {r["name"] for r in (existing or [])}
+        added = 0
+        for i, c in enumerate(refs[:MAX_CHARACTERS]):
+            name = (c.get("name") or f"Character {i + 1}")[:120]
+            if name in existing_names:
+                continue
+            await execute(
+                "INSERT INTO video_characters (tenant_id, video_id, name, description, "
+                "reference_url, source, status, sort, voice_name) "
+                "VALUES ($1,$2,$3,$4,$5,'project','approved',$6,$7)",
+                tenant_id, video_id, name, (c.get("description") or "")[:1000],
+                c["reference_url"], i, c.get("voice_name"),
+            )
+            added += 1
+        return added > 0
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[characters] apply_locked_cast failed for %s: %s", video_id, str(e)[:200])
+        return False
+
+
 async def lock_project_cast(tenant_id, images: list[dict]) -> list[dict]:
     """Add uploaded character images to the project's saved cast and lock it.
     `images`: [{"url": ..., "name": optional}]. A vision pass names/describes

@@ -351,6 +351,13 @@ async def create_video(
     except Exception as e:
         logging.getLogger(__name__).warning("apply format defaults failed: %s", e)
 
+    # Locked channel cast: attach the series characters from second one.
+    try:
+        from routes.characters import apply_locked_cast
+        await apply_locked_cast(tenant_id, str(row["id"]))
+    except Exception as e:
+        logging.getLogger(__name__).warning("apply locked cast failed: %s", e)
+
     # Lock the chosen look in as the channel identity (preset/custom path; the
     # clone path locks in later, when modeling writes the DNA — see model_video).
     if body.lock_in_identity and style_override and not is_modeled:

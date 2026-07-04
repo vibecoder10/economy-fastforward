@@ -264,3 +264,151 @@ async def unlock_channel_cast(tenant_id: str = Depends(get_tenant_id)):
         str(row["id"]), tenant_id,
     )
     return {"status": "unlocked"}
+
+
+async def _save_cast_refs(tenant_id, project_id: str, refs: list) -> None:
+    await execute(
+        "UPDATE projects SET character_references = $1, updated_at = now() "
+        "WHERE id = $2 AND tenant_id = $3",
+        json.dumps(refs), project_id, tenant_id,
+    )
+
+
+async def _channel_style_dna(tenant_id) -> str:
+    """The channel's current look sentence for new cast members: locked
+    channel format first, else the most recent video's style, mapped onto the
+    canonical preset looks. Empty string when there's no signal."""
+    preset = None
+    try:
+        from channel_format import get_channel_format, style_preset_for_format
+        fmt, locked = await get_channel_format(tenant_id)
+        if locked:
+            preset = style_preset_for_format(fmt)
+    except Exception:  # noqa: BLE001
+        preset = None
+    if not preset:
+        row = await fetch_one(
+            """SELECT visual_style FROM videos
+               WHERE tenant_id = $1 AND deleted_at IS NULL
+                 AND visual_style IS NOT NULL AND btrim(visual_style) <> ''
+               ORDER BY created_at DESC LIMIT 1""",
+            tenant_id,
+        )
+        if row and row.get("visual_style"):
+            from routes.videos import _normalize_style_preset
+            preset = _normalize_style_preset(row["visual_style"])
+    if not preset:
+        return ""
+    from producer_prompt import VISUAL_PRESETS
+    return (VISUAL_PRESETS.get(preset) or {}).get("look", "")
+
+
+class CastGenerateRequest(BaseModel):
+    name: str
+    description: str
+    always: bool = True
+
+
+@router.post("/current/cast/generate")
+async def generate_channel_cast_member(
+    body: CastGenerateRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate a character model sheet in the channel's style and add it to
+    the saved cast (~$0.05). The cast lock state is left as-is, so a locked
+    cast stays locked and the new member rides every future video (or only
+    the picker when always=false)."""
+    name = (body.name or "").strip()[:120]
+    desc = (body.description or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Give the character a name.")
+    if not desc:
+        raise HTTPException(status_code=400, detail="Describe how the character looks.")
+
+    from vault import get_secret
+    api_key = await get_secret("kie_ai_api_key", str(tenant_id))
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
+
+    project = await _get_or_create_project(tenant_id)
+    project_id = str(project["id"])
+    style_dna = await _channel_style_dna(tenant_id)
+
+    from routes.characters import _generate_portrait
+    try:
+        temp_url = await _generate_portrait(api_key, desc, style_dna, name=name)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Character generation failed: {str(e)[:200]}")
+
+    url = temp_url
+    try:
+        import uuid as _uuid
+        from storage import upload_from_url
+        url = await upload_from_url(
+            temp_url, f"{project_id}/cast/{_uuid.uuid4().hex}.png", "image/png", str(tenant_id)
+        )
+    except Exception:  # noqa: BLE001 - keep the temp URL rather than fail
+        pass
+
+    full = await fetch_one(
+        "SELECT character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+        project_id, tenant_id,
+    )
+    refs = _cast_refs(full)
+    refs = [c for c in refs if c.get("name") != name]
+    refs.append({
+        "name": name,
+        "description": desc[:1000],
+        "reference_url": url,
+        "always": bool(body.always),
+    })
+    await _save_cast_refs(tenant_id, project_id, refs)
+    return {"status": "added", "characters": refs}
+
+
+class CastMemberUpdate(BaseModel):
+    always: Optional[bool] = None
+    new_name: Optional[str] = None
+
+
+@router.patch("/current/cast/{name}")
+async def update_channel_cast_member(
+    name: str,
+    body: CastMemberUpdate,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Update a saved cast member: rename, or flip `always` (auto-attach to
+    every new video vs optional via the Use Saved Cast picker)."""
+    project = await _get_or_create_project(tenant_id)
+    project_id = str(project["id"])
+    full = await fetch_one(
+        "SELECT character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+        project_id, tenant_id,
+    )
+    refs = _cast_refs(full)
+    target = next((c for c in refs if c.get("name") == name), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"No saved character named '{name}'.")
+    if body.always is not None:
+        target["always"] = bool(body.always)
+    if body.new_name and body.new_name.strip():
+        target["name"] = body.new_name.strip()[:120]
+    await _save_cast_refs(tenant_id, project_id, refs)
+    return {"status": "updated", "characters": refs}
+
+
+@router.delete("/current/cast/{name}")
+async def delete_channel_cast_member(name: str, tenant_id: str = Depends(get_tenant_id)):
+    """Remove a character from the saved cast (existing videos keep theirs)."""
+    project = await _get_or_create_project(tenant_id)
+    project_id = str(project["id"])
+    full = await fetch_one(
+        "SELECT character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+        project_id, tenant_id,
+    )
+    refs = _cast_refs(full)
+    kept = [c for c in refs if c.get("name") != name]
+    if len(kept) == len(refs):
+        raise HTTPException(status_code=404, detail=f"No saved character named '{name}'.")
+    await _save_cast_refs(tenant_id, project_id, kept)
+    return {"status": "deleted", "characters": kept}
