@@ -982,17 +982,19 @@ def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
         for line in _normalize_speaker_lines(scene_text or "").splitlines()
         if line.strip() and not re.match(r"^\s*[A-Z][A-Za-z .'-]{0,24}:\s+\S", line)
     )
+    # PURE-DIALOGUE scene (the couple format: every line a turn, no narrator):
+    # one establishing + one master per line, nothing else — in BOTH modes.
+    # voice_over: silent angles have zero clock in the timeline (Short #1
+    # gate: 12 of 35 frames unplaceable). grok_native: the stitch plays
+    # EVERY clip, so each extra frame ADDS runtime — 35 frames turned a 55s
+    # short into 2+ minutes, and 18 moments under 24 turns folded two lines
+    # into one mouth (EP2 gate). The rich multi-angle shape below is for
+    # narration-driven scenes, not wall-to-wall dialogue.
+    if narration_words < 15:
+        return turns + 1, 0, 0, turns + 1
     if (dialogue_audio or "voice_over") == "grok_native":
         inserts = max(2, narration_words // 20)
         return min(turns + inserts, SCENE_FRAME_BUDGET), 1, 2, None
-    # PURE-DIALOGUE scene (the couple format: every line a turn, no narrator):
-    # the timeline is wall-to-wall speaking windows, so silent angles/inserts
-    # have literally zero clock to live in — the renderer drops them AFTER
-    # they were drawn and animated (caught at the Short #1 gate: 12 of 35
-    # planned frames were unplaceable). One establishing shot (the scene
-    # lead-in gives it its beat) + one master per line, nothing else.
-    if narration_words < 15:
-        return turns + 1, 0, 0, turns + 1
     # voice_over echo format: pace to runtime. The frame ceiling never cuts
     # below one shot per TURN — a line is the lip-sync unit, and folding two
     # lines onto one shot puts a mouth on the wrong voice (the couple-dialogue
