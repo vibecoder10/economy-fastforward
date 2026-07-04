@@ -299,6 +299,15 @@ def _get_task_status(video_id: str, tenant_id: str) -> Optional[dict]:
     return None
 
 
+def _is_task_active(video_id: str, tenant_id: str) -> bool:
+    """True only while a task is actually in flight. Start-guards must use
+    THIS, not _get_task_status truthiness: completed/failed entries linger
+    ~30s for the UI pill, and truthiness-guards were 409-ing follow-up
+    actions ("Task already running" right after cast-approve completed)."""
+    task = _get_task_status(video_id, tenant_id)
+    return bool(task and task.get("status") in ("running", "pending"))
+
+
 async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict]:
     """Async version: check in-memory dict first, then DB for queue jobs."""
     task = _get_task_status(video_id, tenant_id)
@@ -455,7 +464,7 @@ async def run_research(
 
     _require_stage_enabled(video, "research")
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running for this video")
 
     _set_task_status(video_id, "running", "Research in progress", tenant_id=tenant_id)
@@ -505,7 +514,7 @@ async def run_script(
             detail=f"Video not ready for scripting (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Script generation in progress", tenant_id=tenant_id)
@@ -554,7 +563,7 @@ async def run_voice(
             detail=f"Video not ready for voice (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Voice generation in progress", tenant_id=tenant_id)
@@ -658,7 +667,7 @@ async def run_prompts(
             detail=f"Video not ready for prompts (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Prompt generation in progress", tenant_id=tenant_id)
@@ -722,7 +731,7 @@ async def run_storyboards(
             detail=f"Video not ready for storyboards (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" Scene {scene}" if scene else ""
@@ -773,7 +782,7 @@ async def run_story_bible(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Story Bible generation in progress", tenant_id=tenant_id)
@@ -833,7 +842,7 @@ async def run_storyboard_images(
             detail=f"Video not ready for storyboard images — voice must be generated first (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" Scene {scene}" if scene else ""
@@ -896,7 +905,7 @@ async def run_coverage_images(
             detail=f"Video not ready for scene images — voice must be generated first (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" Scene {scene}" if scene else ""
@@ -944,7 +953,7 @@ async def run_stitch_scene(
         "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", f"Stitching Scene {scene}...", tenant_id=tenant_id)
@@ -993,7 +1002,7 @@ async def run_redraw_image(
         "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Redrawing picture...", tenant_id=tenant_id)
@@ -1046,7 +1055,7 @@ async def run_storyboard_extract(
             detail=f"Video not ready for storyboard extraction (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Storyboard extraction in progress", tenant_id=tenant_id)
@@ -1108,7 +1117,7 @@ async def run_dialogue_voice(
             detail=f"Video needs a script before voices can be made (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     scene_label = f" (scene {scene})" if scene else ""
@@ -1178,7 +1187,7 @@ async def run_clip(
             detail=f"Final pictures must exist before clips (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     label = "Animating a clip" if asset_id else f"Animating scene {scene}" if scene is not None else "Animating all clips"
@@ -1227,7 +1236,7 @@ async def run_upscale_panels(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Panel upscaling in progress", tenant_id=tenant_id)
@@ -1299,7 +1308,7 @@ async def run_images(
             detail=f"Video not ready for images (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Image generation in progress", tenant_id=tenant_id)
@@ -1359,7 +1368,7 @@ async def run_sound_prompts(
             detail=f"Video not ready for sound design (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Sound prompt generation in progress", tenant_id=tenant_id)
@@ -1403,7 +1412,7 @@ async def run_sound_effects(
             detail=f"Video not ready for sound effects (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Sound effects generation in progress", tenant_id=tenant_id)
@@ -1448,7 +1457,7 @@ async def run_video_scripts(
             detail=f"Video not ready for video scripts — needs images first (status: {status})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Video script generation in progress", tenant_id=tenant_id)
@@ -1493,7 +1502,7 @@ async def run_video_generation(
             detail=f"Video not ready for video generation (status: {status})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Video clip generation in progress", tenant_id=tenant_id)
@@ -1545,7 +1554,7 @@ async def run_thumbnail(
             detail=f"Video not ready for thumbnail — needs at least a script (status: {status})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Thumbnail generation in progress", tenant_id=tenant_id)
@@ -1620,7 +1629,7 @@ async def run_render(
                     detail=f"No clips generated yet to stitch (status: {video['status']})",
                 )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Rendering in progress", tenant_id=tenant_id)
@@ -1664,7 +1673,7 @@ async def run_upload(
             detail=f"Video not ready for upload (status: {video['status']})",
         )
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Upload in progress", tenant_id=tenant_id)
@@ -1702,7 +1711,7 @@ async def run_next_step(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Running next step", tenant_id=tenant_id)
@@ -1750,7 +1759,7 @@ async def run_build(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     msg = ("Building to the pictures checkpoint (research, script, pictures)"
@@ -1979,7 +1988,7 @@ async def generate_video_prompts(
 
     _require_stage_enabled(video, "video")
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
     _set_task_status(video_id, "running", "Video clip prompt generation in progress", tenant_id=tenant_id)

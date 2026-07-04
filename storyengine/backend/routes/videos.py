@@ -1550,10 +1550,10 @@ async def recrop_asset(
     crop never comes alone; free, replaces Drive content in place), then
     AUTO RE-ANIMATES any clips the new pictures made stale (~$0.10 each).
     Background task — the clip regens take ~40s apiece; watch the task pill."""
-    from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status
+    from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status, _is_task_active
     from pipeline_executor import PipelineExecutor
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
     _set_task_status(video_id, "running", "Re-cropping this picture's storyboard beat…",
                      tenant_id=tenant_id)
@@ -1586,10 +1586,10 @@ async def fix_text_card(
     """One-tap 'Fix text' for a garbled title/word card: redraws it via GPT Image 2
     (best for legible lettering) using the current panel as the style reference. Replaces
     the card image in place and clears any stale clip. Background task — watch the pill."""
-    from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status
+    from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status, _is_task_active
     from pipeline_executor import PipelineExecutor
 
-    if _get_task_status(video_id, tenant_id):
+    if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
     _set_task_status(video_id, "running", "Fixing the card's text with GPT Image 2…",
                      tenant_id=tenant_id)
