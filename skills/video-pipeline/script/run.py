@@ -130,6 +130,8 @@ async def run(pipeline, brief: dict = None) -> dict:
         project_folder_id=pipeline.project_folder_id,
         video_config=pipeline.video_config,
         script_system_prompt_override=getattr(pipeline, "script_system_prompt", None),
+        format_contract=getattr(pipeline, "script_format_contract", None),
+        allowed_speakers=getattr(pipeline, "script_allowed_speakers", None),
     )
 
     if result["status"] == "success":

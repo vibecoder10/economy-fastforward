@@ -72,6 +72,8 @@ class BriefTranslator:
         script_model: str = Models.CLAUDE_SONNET,
         video_config=None,
         script_system_prompt_override: Optional[str] = None,
+        format_contract: Optional[str] = None,
+        allowed_speakers: Optional[list] = None,
     ):
         self.anthropic = anthropic_client
         self.airtable = airtable_client
@@ -80,6 +82,10 @@ class BriefTranslator:
         self.script_model = script_model
         self.video_config = video_config
         self.script_system_prompt_override = script_system_prompt_override
+        # First-time-right format guard: contract text appended at the very
+        # END of the writing prompt + the only speaker names allowed.
+        self.format_contract = format_contract
+        self.allowed_speakers = allowed_speakers
 
         # Load script profile (editorial voice, validation thresholds)
         self.profile = None
@@ -207,6 +213,8 @@ class BriefTranslator:
                 config=self.video_config,
                 profile=self.profile,
                 system_prompt_override=self.script_system_prompt_override,
+                format_contract=self.format_contract,
+                allowed_speakers=self.allowed_speakers,
             )
             script = script_result["script"]
             result["script"] = script
@@ -231,6 +239,8 @@ class BriefTranslator:
                         self.anthropic, brief, model=self.script_model,
                         config=self.video_config, profile=self.profile,
                         system_prompt_override=spo,
+                        format_contract=self.format_contract,
+                        allowed_speakers=self.allowed_speakers,
                     )
 
                 script, script_result = await maybe_reroll_for_plot(
@@ -729,6 +739,8 @@ async def translate_brief(
     script_model: str = Models.CLAUDE_SONNET,
     video_config=None,
     script_system_prompt_override: Optional[str] = None,
+    format_contract: Optional[str] = None,
+    allowed_speakers: Optional[list] = None,
     # Legacy params kept for backward compat — ignored
     total_images: int = 25,
     scene_output_dir: Optional[str] = None,
@@ -745,6 +757,8 @@ async def translate_brief(
         script_model=script_model,
         video_config=video_config,
         script_system_prompt_override=script_system_prompt_override,
+        format_contract=format_contract,
+        allowed_speakers=allowed_speakers,
     )
     return await translator.translate(
         idea_record_id, brief,

@@ -870,6 +870,41 @@ def extract_acts(script: str) -> dict[int, str]:
     return acts
 
 
+def _find_foreign_speakers(script: str, allowed: list) -> list:
+    """Speaker labels in the script that aren't in the allowed cast.
+
+    Advisory only - surfaces 'the model invented a speaking character' in the
+    validation report instead of silently shipping it. A label is a short
+    capitalized name at line start followed by a colon ('**Ryan:**',
+    'SEÑORA MARTÍNEZ:'). Narration prose (no label) is never flagged."""
+    import re as _re
+    from collections import Counter
+    allowed_cf = {str(a).strip().casefold() for a in (allowed or [])}
+    counts = Counter()
+    for raw in script.splitlines():
+        line = raw.strip()
+        m = _re.match(r"^\*{0,2}([^\n:*]{1,40}?)\*{0,2}\s*:", line)
+        if not m:
+            continue
+        name = m.group(1).strip()
+        words = name.split()
+        if not words or len(words) > 3:
+            continue
+        # A speaker label is a NAME: every word capitalized (Title or ALLCAPS)
+        if not all(w[0].isupper() for w in words if w[0].isalpha()):
+            continue
+        if any(ch in name for ch in ".!?\""):
+            continue
+        if name.casefold() in allowed_cf:
+            continue
+        if name.upper() in ("ACT", "SCENE", "NOTE", "TITLE", "HOOK", "OPENING"):
+            continue
+        counts[name] += 1
+    # Real speaking characters speak repeatedly; a single capitalized
+    # sentence-opener with a colon ("Honestly: ...") is prose, not a speaker.
+    return sorted(n for n, c in counts.items() if c >= 2)
+
+
 async def generate_script(
     anthropic_client,
     brief: dict,
@@ -877,6 +912,8 @@ async def generate_script(
     config: Optional["VideoConfig"] = None,
     profile: Optional["ScriptProfile"] = None,
     system_prompt_override: Optional[str] = None,
+    format_contract: Optional[str] = None,
+    allowed_speakers: Optional[list] = None,
 ) -> dict:
     """Generate a full narration script from a validated research brief.
 
@@ -908,6 +945,13 @@ async def generate_script(
 
     prompt = build_script_prompt(brief, config=config, profile=profile)
 
+    # The format contract goes LAST - after the topic brief and every craft
+    # block - because the model weights the end of the prompt heaviest. This
+    # is what stops a topic brief ("an instructor who only speaks Spanish")
+    # from out-pulling the channel's locked cast and closing beats.
+    if format_contract:
+        prompt = prompt + "\n\n" + format_contract
+
     script = await anthropic_client.generate(
         prompt=prompt,
         model=model,
@@ -923,6 +967,19 @@ async def generate_script(
         logger.info(f"Self-validation parsed: {self_validation}")
 
     validation = validate_script(script, config=config, profile=profile)
+
+    # Locked-cast speaker check (advisory, deterministic): any speaker label
+    # outside the allowed cast is reported in the validation panel - the
+    # creator sees "invented speaker: X" at the gate instead of silence.
+    if allowed_speakers:
+        foreign = _find_foreign_speakers(script, allowed_speakers)
+        if foreign:
+            validation.setdefault("issues", []).append(
+                "Invented speaking character(s) outside the locked cast: " + ", ".join(foreign)
+            )
+            validation["foreign_speakers"] = foreign
+            validation["valid"] = False
+            logger.warning(f"Foreign speakers outside locked cast: {foreign}")
 
     # Add self-validation to the validation dict
     if self_validation:

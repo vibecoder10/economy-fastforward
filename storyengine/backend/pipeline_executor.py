@@ -1565,6 +1565,43 @@ separate scenes."""
             # Load idea into pipeline state from Supabase
             self._load_idea_from_video(video_id)
 
+            # First-time-right format contract: when this video carries an
+            # attached LOCKED cast (source='project'), those characters are
+            # the ONLY allowed speakers. The contract is appended at the very
+            # END of the writing prompt - after the topic brief - so a brief
+            # that describes an instructor/cashier can never out-pull the
+            # format (the Senora-Martinez failure), and required closing
+            # beats (quiz recap / hook) can't be buried by a long premise.
+            # Channels without a locked cast are untouched.
+            try:
+                cast_rows = await fetch_all(
+                    "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2 "
+                    "AND source = 'project' ORDER BY sort, created_at",
+                    video_id, self.tenant_id,
+                )
+                cast_names = [r["name"] for r in (cast_rows or []) if (r.get("name") or "").strip()]
+            except Exception:  # noqa: BLE001
+                cast_names = []
+            if cast_names:
+                names = ", ".join(cast_names)
+                who_narrates = cast_names[0] + (f" or {cast_names[1]}" if len(cast_names) > 1 else "")
+                self._pipeline.script_allowed_speakers = cast_names
+                self._pipeline.script_format_contract = (
+                    "=== FINAL OUTPUT CONTRACT - THIS OVERRIDES EVERYTHING ABOVE, INCLUDING THE TOPIC BRIEF ===\n"
+                    f"1. THE ONLY SPEAKERS in this script are: {names}. Write dialogue lines for NO ONE else - "
+                    "no instructors, cashiers, relatives, phone voices or crowds, even when the topic brief "
+                    "describes such a person. Other people may exist in the story but NEVER speak: "
+                    f"{who_narrates} says out loud what they do and reports their words.\n"
+                    "2. Every spoken dialogue line is exactly 'Name: spoken words' using ONLY the names above. "
+                    "No stage directions, no parentheses, no asterisks, no brackets.\n"
+                    "3. Follow the system prompt's STORY RULES and OUTPUT CONTRACT to the letter, ESPECIALLY any "
+                    "required closing beats (quiz recap, next-episode hook) - a long or exciting topic brief "
+                    "never excuses skipping them."
+                )
+            else:
+                self._pipeline.script_allowed_speakers = None
+                self._pipeline.script_format_contract = None
+
             # Run script generation
             result = await self._pipeline.run_brief_translator()
 
