@@ -235,3 +235,21 @@ Ryan flagged two modal issues; both fixed and proven live on prod:
 - Note: the male sheet's artwork says LEO but the character's NAME in the
   system is Ryan (scripts, casting, voice pin all use Ryan). Regenerating the
   sheet artwork with a RYAN header is a ~$0.05 one-off if wanted.
+
+## UPDATE (2026-07-04, same session): two real platform bugs found via Ryan's 409
+
+1. **"Task already running" 409 (fixed @ 88bc33c1):** completed/failed task
+   entries linger ~30s in _running_tasks for the UI pill, and 27 start-guards
+   in pipeline.py/videos.py treated ANY entry as running. Ryan's cast-approve
+   completed at 19:49:12 and his Generate Script clicks 409'd at :17/:31/:39.
+   New _is_task_active(status in running|pending) used by every guard.
+2. **Daily auto-scrape dead for ALL tenants (fixed @ 82f24ce6):** main.py's
+   loop calls _run_scrape without seeding _scrape_tasks[tenant_id]; the first
+   bare write raised KeyError(uuid) -> "[Scrape] Error: '<uuid>'" instantly,
+   so competitor VPH data never refreshed for anyone. Seeded defensively;
+   post-deploy log shows "daily scrape complete" for all 3 tenants.
+- Ryan's Spanish Class video (cd5d2883): script generated after the guard fix,
+  4 scenes, staged at ready_for_voice. Format caveats for his gate review: no
+  quiz recap this take, and the launched idea's brief baked in a third
+  SPEAKING character (Señora Martínez) - the discovery-launch research brief
+  can override the two-speaker rule. Regenerate works if unwanted.
