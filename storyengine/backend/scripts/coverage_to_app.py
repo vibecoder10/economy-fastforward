@@ -701,10 +701,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
                 "props IDENTICAL across all panels; never invent a different room or set."
             )
             sheet_refs.append(env["reference_url"])
+        lock_note = f", locked to {env['name']}" if env else ""
         urls: list = []
         for bi, sp in enumerate(prompts[:5], start=1):
             _p(f"Scene {sc}: drawing storyboard sheet {bi}/{min(len(prompts), 5)} "
-               f"({shot_count} shots)…")
+               f"({shot_count} shots{lock_note})…")
             res = (await ic.generate_thumbnail_gpt2(sp + env_block, sheet_refs, aspect) if sheet_refs
                    else await ic.generate_scene_image_gpt(sp + env_block, None, aspect))
             url = res.get("url") if isinstance(res, dict) else res
@@ -1197,6 +1198,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         if directive is None:
             _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
+        if env:
+            _p(f"Scene {sc}: locked to {env['name']}")
         out = await run_coverage(
             beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
             video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
