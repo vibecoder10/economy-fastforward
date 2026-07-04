@@ -1814,11 +1814,54 @@ separate scenes."""
                 cancel_check=self._pipeline.should_cancel,
             )
 
+            # Self-healing sweeps: a transient ElevenLabs/network hiccup no
+            # longer strands a half-voiced video for the creator to babysit -
+            # failed lines are retried in up to two extra passes (already-
+            # voiced lines are skipped, so sweeps are cheap and idempotent).
+            sweeps = 1
+            while (not result.get("cancelled")
+                   and result.get("segments_failed", 0) > 0
+                   and sweeps < 3):
+                sweeps += 1
+                await asyncio.sleep(5)
+                if progress_callback:
+                    try:
+                        await progress_callback(
+                            f"Retry pass {sweeps}: finishing {result['segments_failed']} missed line(s)…"
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                again = await synthesize_video_segments(
+                    video_id,
+                    self.tenant_id,
+                    tts=self._pipeline.elevenlabs,
+                    scene_filter=scene,
+                    progress_callback=progress_callback,
+                    cancel_check=self._pipeline.should_cancel,
+                )
+                made_progress = again.get("segments_voiced", 0) > 0
+                result = {
+                    **again,
+                    "segments_voiced": result["segments_voiced"] + again.get("segments_voiced", 0),
+                    "segments_skipped": result["segments_skipped"],
+                    "warnings": result["warnings"] + again.get("warnings", []),
+                }
+                if not made_progress and result.get("segments_failed", 0) > 0:
+                    break  # hard failure, stop burning retries
+
             if result.get("cancelled"):
                 msg = (f"Stopped — kept {result['segments_voiced']} voiced segment(s). "
                        "Run again to resume.")
                 await self._log_activity(bot_name, video_id, "completed", msg)
                 return {"status": "cancelled", "video_id": video_id, "error": msg, **result}
+
+            still_failed = result.get("segments_failed", 0)
+            if still_failed:
+                msg = (f"Voiced {result['segments_voiced']} segment(s), but {still_failed} "
+                       "line(s) couldn't be voiced after retries — run Generate Voice again "
+                       "to finish them (voiced lines are kept).")
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                return {"status": "failed", "video_id": video_id, "error": msg, **result}
 
             msg = (f"Voiced {result['segments_voiced']} segment(s) across "
                    f"{result['scenes']} scene(s)"

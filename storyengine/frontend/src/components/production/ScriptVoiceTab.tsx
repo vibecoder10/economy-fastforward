@@ -16,6 +16,7 @@ import {
   getDefaultScriptPrompt,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
   setApiKey, getApiKeyStatus, getDialogueMap, getAudioToken,
+  getPipelineTaskStatus,
 } from "@/lib/api";
 import { API_URL } from "@/lib/env";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
@@ -553,6 +554,29 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       toast.error(`Voice generation failed: ${error}`);
     },
   });
+
+  // Rehydrate after a page refresh: if the backend is still working on this
+  // video, put the tab back into its generating state (spinner + disabled
+  // buttons) instead of looking idle. This state used to live only in the
+  // browser session that clicked the button, so a refresh went blind and
+  // re-clicks bounced off the 409 guard with no explanation.
+  useEffect(() => {
+    let cancelled = false;
+    getPipelineTaskStatus(video.id)
+      .then((task) => {
+        if (cancelled || !task || task.status !== "running") return;
+        const msg = (task.message || "").toLowerCase();
+        if (msg.includes("voic")) {
+          setVoiceTaskRunning(true);
+          setGeneratingVoiceAll(true);
+        } else if (msg.includes("script")) {
+          setScriptTaskRunning(true);
+          setRegeneratingScript(true);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [video.id]);
 
   // Scene segment state (declared here so fetchAndExpandScene is available to the prompt poller below)
   const [loadingSegments, setLoadingSegments] = useState<Set<number>>(new Set());

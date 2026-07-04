@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -31,6 +31,7 @@ import {
   type ProjectCastMember,
   type VideoCharacter,
   type VideoDetail,
+  getPipelineTaskStatus,
 } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
 import { toDisplayImageUrl } from "@/lib/utils";
@@ -50,6 +51,21 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [taskRunning, setTaskRunning] = useState(false);
+
+  // Rehydrate after a page refresh: pick the running task back up so the tab
+  // shows live progress instead of dead buttons (state used to be
+  // session-local; a refresh went blind while the backend kept working).
+  useEffect(() => {
+    let cancelled = false;
+    getPipelineTaskStatus(video.id)
+      .then((task) => {
+        if (cancelled || !task || task.status !== "running") return;
+        const msg = (task.message || "").toLowerCase();
+        if (msg.includes("character") || msg.includes("cast")) setTaskRunning(true);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [video.id]);
   const [approving, setApproving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDesc, setEditDesc] = useState("");

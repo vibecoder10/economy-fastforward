@@ -103,7 +103,7 @@ async def synthesize_video_segments(
         video_id, tenant_id,
     )
 
-    voiced = skipped = 0
+    voiced = skipped = failed = 0
     scenes_touched = 0
     warnings: list[str] = []
     cancelled = False
@@ -169,10 +169,16 @@ async def synthesize_video_segments(
                     )
                     await asyncio.sleep(RETRY_DELAY_SECONDS)
             if not audio:
-                raise RuntimeError(
-                    f"Voice synthesis failed for scene {scene_num} segment {i} "
-                    f"after {SEGMENT_ATTEMPTS} attempts: {last_err}"
+                # A single bad line must not kill the whole run (it used to
+                # raise here, stranding a half-voiced video until a human
+                # re-clicked). Record it and keep going - the caller sweeps
+                # failed lines again and reports honestly if any remain.
+                warnings.append(
+                    f"S{scene_num} seg{i}: voice synthesis failed after "
+                    f"{SEGMENT_ATTEMPTS} attempts ({last_err})"
                 )
+                failed += 1
+                continue
 
             url = await upload_bytes(
                 audio, f"{video_id}/voice/S{scene_num}-seg{i}.mp3", "audio/mpeg"
@@ -198,6 +204,7 @@ async def synthesize_video_segments(
     return {
         "segments_voiced": voiced,
         "segments_skipped": skipped,
+        "segments_failed": failed,
         "scenes": scenes_touched,
         "warnings": warnings,
         "cancelled": cancelled,
