@@ -104,3 +104,67 @@ sound design is mostly grok-native ambience + the assembler).
 - Keep products separate; this is StoryEngine work only.
 - Ask Ryan before anything that costs money. Script text generation through
   an existing tenant key is the only spend expected (~cents).
+
+---
+
+## DONE (2026-07-04, Osiris session) - prompts locked in and proven
+
+**What shipped:**
+
+1. **Three per-tenant prompts saved** for PocoAPoco (`44ecc95a`) via the real
+   /system-prompts UI: `script`, `thumbnail`, `video_motion`. All three show
+   the green Custom badge after reload. Source text committed at
+   `storyengine/tasks/engine-identity-seeds/pocoapoco.md`. `research` and
+   `sound_*` intentionally left on defaults.
+2. **Backend fix (deployed @ 90e2bde4 via vps-deploy.sh):** the house-template
+   prepend in `routes/script_templates.py` used to write the per-video script
+   prompt ALONE, which shadowed the tenant row forever (per-video wins the
+   whole resolve_prompt chain) - the System Prompts page was a dead control
+   for every video created through create/queue/autopilot. Now, when the
+   per-video prompt is empty, the tenant `script` row is composed in UNDER the
+   house block. Verified on real video rows: house block + tenant prompt
+   both present (5960 chars on the first test video).
+3. **video_motion format-slot safety proven:** the saved prompt keeps the 5
+   runtime slots ({duration_note} {word_limit} {hero_instruction}
+   {camera_purpose} {camera_motion}) and contains no other braces; ran the
+   exact safe_fill + .format() call-site path against the DB row - no crash,
+   both 6s and 10s hero variants.
+
+**Proof (3 iterations, script text only, no paid stages):**
+
+- v1 "El Supermercado" (43b2011f): funny but FAILED - stage directions,
+  six invented Store Workers, Vanessa missing for 2 scenes, ~9 vocab words.
+- v2 "La Farmacia" (1c9f6383): two-speaker rule + quiz + hook all landed;
+  parentheticals like "(on phone)" still leaked.
+- v3 "La Limpieza" (18ee8458): **PASSES the full checklist.** Zero
+  parentheses/brackets, only Ryan & Vanessa speak, Vanessa in every scene,
+  6 words each run through echo-guess-confirm-use, planted lie (food scraps),
+  two disasters whose fixes teach phrases, props quiz with callback jokes,
+  "poco a poco" name-dropped with translation, la nevera next-episode hook
+  with button joke, ~50/50 split. Staged at the Approve gate, $0 spent past
+  script text.
+
+**Prompt lessons baked into the final script prompt (v3):**
+
+- The generator's user prompt is a heavy essay-shaped scaffold (acts,
+  micro-payoffs, framework engine) that fights the couple format - the tenant
+  system prompt must carry HARD counter-rules, not vibes.
+- The two rules models break are stage directions and inventing extras. Fixes
+  that worked: a "THE ONE UNBREAKABLE RULE" block at the TOP banning the
+  literal characters ( ) * [ ] with instead-write-this examples, and "only two
+  speakers EXIST; the couple narrates the outside world out loud".
+- Residual quirk: the model bolds speaker labels (**Ryan:**). Harmless - the
+  dialogue segmenter is an LLM pass that extracts clean speaker+text, so bold
+  never reaches TTS. Don't burn prompt budget fighting it.
+- Platform validator note: "act coherence" FAILs on couple-format scripts
+  (topic-drift detector is essay-tuned). Cosmetic; script still advances.
+
+**Open / for Ryan:**
+
+- Test videos 43b2011f (10 min) and 1c9f6383 (5 min) were proof runs - safe
+  to delete or keep; La Limpieza 18ee8458 is a genuinely on-format script
+  staged at the gate if you want to run it after EP2.
+- Page edits to the script prompt apply to videos created AFTER the edit
+  (creation snapshots house block + tenant row into the video). Thumbnail and
+  video_motion edits apply live to any video without a per-video override.
+- EP2 (05ec4952) untouched, still staged at the gate.
