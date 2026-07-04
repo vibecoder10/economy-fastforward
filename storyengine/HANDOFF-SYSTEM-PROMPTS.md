@@ -201,3 +201,16 @@ Ryan flagged two modal issues; both fixed and proven live on prod:
    that preset with a gold border + "Your style" tag while remaining
    changeable. Also fixes bare creations shipping with NULL visual_style when
    no format lock exists (La Limpieza had hit that).
+
+## UPDATE (2026-07-04, same session): New Video modal round 2 (deployed @ 5a253fde)
+
+- "What should we make?" now has Select all + a per-channel stage LOCK: the
+  current step selection persists as preference new_video_stages.<tenant_id>
+  and every modal open starts from it (gold "Locked for this channel" when
+  the selection matches). PocoAPoco's lock is SET: research OFF, sound design
+  OFF, everything else ON - verified by close/reopen on prod.
+- Video length is a 1-30 min slider on the main form (was a 5-20 dropdown in
+  Advanced options).
+- Removed Power-Doctrine-era fields: Angle/Thesis, Framework picker
+  (Machiavellian etc.), Accent Color. Advanced options = Source URL only.
+  Idea-picking still injects our_angle into writer_guidance invisibly.
