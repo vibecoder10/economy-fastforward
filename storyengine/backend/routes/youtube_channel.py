@@ -28,119 +28,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from auth import get_tenant_id
 from database import fetch_one
 from error_utils import humanize_error
+from youtube_owner_api import (
+    refresh_access_token as _refresh_access_token,
+    fetch_uploads_playlist_id as _fetch_uploads_playlist_id,
+    fetch_playlist_video_ids as _fetch_playlist_video_ids,
+    fetch_video_details as _fetch_video_details,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube-channel"])
-
-
-async def _refresh_access_token(
-    client_id: str, client_secret: str, refresh_token: str
-) -> str | None:
-    """Exchange a refresh token for a short-lived access token."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            },
-        )
-    if resp.status_code != 200:
-        return None
-    return resp.json().get("access_token")
-
-
-async def _fetch_uploads_playlist_id(
-    client: httpx.AsyncClient, access_token: str
-) -> str | None:
-    """Every YouTube channel has an 'uploads' playlist that contains every
-    video the channel has posted. We find it via the channels endpoint's
-    contentDetails.relatedPlaylists.uploads field."""
-    resp = await client.get(
-        "https://www.googleapis.com/youtube/v3/channels",
-        params={"part": "contentDetails", "mine": "true"},
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=15.0,
-    )
-    if resp.status_code != 200:
-        return None
-    items = resp.json().get("items", [])
-    if not items:
-        return None
-    return items[0].get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
-
-
-async def _fetch_playlist_video_ids(
-    client: httpx.AsyncClient, access_token: str, playlist_id: str, max_videos: int = 50
-) -> list[str]:
-    """Walk the uploads playlist (paginated, 50 per page) to collect video IDs.
-    We cap at max_videos to keep quota usage bounded."""
-    ids: list[str] = []
-    page_token: str | None = None
-    while len(ids) < max_videos:
-        params = {
-            "part": "contentDetails",
-            "playlistId": playlist_id,
-            "maxResults": min(50, max_videos - len(ids)),
-        }
-        if page_token:
-            params["pageToken"] = page_token
-        resp = await client.get(
-            "https://www.googleapis.com/youtube/v3/playlistItems",
-            params=params,
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=15.0,
-        )
-        if resp.status_code != 200:
-            break
-        body = resp.json()
-        for item in body.get("items", []):
-            vid = item.get("contentDetails", {}).get("videoId")
-            if vid:
-                ids.append(vid)
-        page_token = body.get("nextPageToken")
-        if not page_token:
-            break
-    return ids
-
-
-async def _fetch_video_details(
-    client: httpx.AsyncClient, access_token: str, video_ids: list[str]
-) -> list[dict]:
-    """Batch-fetch title + stats for up to 50 video IDs per call."""
-    if not video_ids:
-        return []
-    videos: list[dict] = []
-    for i in range(0, len(video_ids), 50):
-        batch = video_ids[i : i + 50]
-        resp = await client.get(
-            "https://www.googleapis.com/youtube/v3/videos",
-            params={"part": "snippet,statistics", "id": ",".join(batch)},
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=15.0,
-        )
-        if resp.status_code != 200:
-            continue
-        for item in resp.json().get("items", []):
-            snippet = item.get("snippet", {})
-            stats = item.get("statistics", {})
-            thumb = snippet.get("thumbnails", {}).get("medium", {}).get("url", "")
-            videos.append(
-                {
-                    "video_id": item.get("id", ""),
-                    "title": snippet.get("title", ""),
-                    "description": snippet.get("description", ""),
-                    "published_at": snippet.get("publishedAt", ""),
-                    "thumbnail": thumb,
-                    "views": int(stats.get("viewCount", 0) or 0),
-                    "likes": int(stats.get("likeCount", 0) or 0),
-                    "comments": int(stats.get("commentCount", 0) or 0),
-                }
-            )
-    return videos
 
 
 @router.get("/my-videos")

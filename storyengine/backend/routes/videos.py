@@ -20,6 +20,15 @@ from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, TH
 from typing import Optional, Any
 
 
+def _strip_md(s: Optional[str]) -> Optional[str]:
+    """Strip markdown formatting chars from a label-ish field. The AI producer
+    likes to bold framework angles ("**Comic escalation**"); stored raw, the
+    asterisks leak into analytics grouping and the UI."""
+    if not s:
+        return None
+    return re.sub(r"[*_`#]", "", s).strip() or None
+
+
 def _parse_script_validation(val: Any) -> Optional[str]:
     """Parse script_validation, converting plain-text format to JSON if needed.
 
@@ -328,7 +337,7 @@ async def create_video(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
-        tenant_id, project_id, body.title.strip(), initial_status, source_val, body.framework_angle,
+        tenant_id, project_id, body.title.strip(), initial_status, source_val, _strip_md(body.framework_angle),
         body.video_length_minutes, writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
         render_mode,

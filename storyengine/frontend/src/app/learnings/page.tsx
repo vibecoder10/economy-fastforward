@@ -12,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getLearnings, extractLearnings, analyzeCompetitorTitles,
   analyzeTranscripts, toggleLearning, getAutopilotLearnings,
-  getTopicPerformance,
+  getFrameworkPerformance,
   type LearningRecord, type ExtractionResult, type Learning,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -81,8 +81,8 @@ export default function LearningsPage() {
   });
 
   const { data: topics } = useQuery({
-    queryKey: ["analytics-topic-performance"],
-    queryFn: getTopicPerformance,
+    queryKey: ["analytics-framework-performance"],
+    queryFn: getFrameworkPerformance,
   });
 
   const anyRunning = extractMutation.isPending || titlesMutation.isPending || transcriptsMutation.isPending;
@@ -137,7 +137,7 @@ export default function LearningsPage() {
             </div>
             {topTopic ? (
               <>
-                <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{topTopic.topic}</p>
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{topTopic.framework}</p>
                 <p className="text-[10px] font-mono" style={{ color: "var(--gold)" }}>{topTopic.avg_ctr?.toFixed(1)}% CTR · {topTopic.video_count} videos</p>
               </>
             ) : (

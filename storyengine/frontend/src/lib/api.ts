@@ -1136,6 +1136,8 @@ export interface YouTubeSyncStatus {
   videos_total: number;
   videos_failed: number;
   videos_retried: number;
+  matched_internal?: number;
+  channel_synced?: boolean;
   errors: YouTubeSyncError[];
   error: string | null;
   error_type: string | null;
@@ -1195,20 +1197,58 @@ export interface UsageLimits {
 export const getUsage = () =>
   fetchApi<UsageLimits>("/api/billing/usage");
 
-// Analytics
-export interface AnalyticsOverview {
-  total_videos: number;
+// Analytics — real channel data from the YouTube sync
+export interface AnalyticsChannel {
+  channel_id: string | null;
+  name: string | null;
+  thumbnail: string | null;
+  subscribers: number;
   total_views: number;
-  avg_ctr: number | null;
-  avg_retention: number | null;
-  published_videos: number;
+  video_count: number;
+  last_synced: string | null;
 }
 
-export interface CTRTimelinePoint {
-  video_title: string;
-  ctr: number | null;
-  views: number;
+export interface AnalyticsOverview {
+  connected: boolean;
+  channel: AnalyticsChannel | null;
+  published_videos: number;
+  total_views: number;
+  avg_ctr: number | null;
+  avg_view_duration_seconds: number | null;
+  avg_retention: number | null;
+  views_28d: number;
+  watch_time_hours_28d: number | null;
+  subscribers_gained_28d: number;
+  avg_ctr_28d: number | null;
+}
+
+export interface AnalyticsTimelinePoint {
   date: string;
+  views: number;
+  impressions: number | null;
+  ctr: number | null;
+  watch_time_minutes: number | null;
+  subscribers_gained: number | null;
+}
+
+export interface ChannelVideo {
+  id: string;
+  youtube_video_id: string;
+  internal_video_id: string | null;
+  title: string | null;
+  thumbnail_url: string | null;
+  published_at: string | null;
+  duration_seconds: number | null;
+  privacy_status: string | null;
+  views: number;
+  likes: number;
+  comments: number;
+  impressions: number | null;
+  ctr: number | null;
+  avg_view_duration_seconds: number | null;
+  avg_view_percentage: number | null;
+  watch_url: string;
+  last_synced_at: string | null;
 }
 
 export interface FrameworkPerformance {
@@ -1222,23 +1262,14 @@ export interface FrameworkPerformance {
 export const getAnalyticsOverview = () =>
   fetchApi<AnalyticsOverview>("/api/analytics/overview");
 
-export const getCTRTimeline = (limit?: number) =>
-  fetchApi<CTRTimelinePoint[]>(`/api/analytics/ctr-timeline${limit ? `?limit=${limit}` : ""}`);
+export const getAnalyticsTimeline = (days: number = 28) =>
+  fetchApi<AnalyticsTimelinePoint[]>(`/api/analytics/timeline?days=${days}`);
+
+export const getAnalyticsVideos = (limit: number = 50) =>
+  fetchApi<ChannelVideo[]>(`/api/analytics/videos?limit=${limit}`);
 
 export const getFrameworkPerformance = () =>
   fetchApi<FrameworkPerformance[]>("/api/analytics/framework-performance");
-
-// Topic Performance
-export interface TopicPerformance {
-  topic: string;
-  video_count: number;
-  avg_ctr: number | null;
-  avg_retention: number | null;
-  total_views: number;
-}
-
-export const getTopicPerformance = () =>
-  fetchApi<TopicPerformance[]>("/api/analytics/topic-performance");
 
 // Competitor Benchmark
 export interface CompetitorBenchmark {

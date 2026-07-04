@@ -14,27 +14,28 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
   Cell,
 } from "recharts";
-import { ArrowUpDown, RefreshCw, Loader2, Brain, TrendingUp, TrendingDown, Zap, Eye, BarChart3, Target, Film } from "lucide-react";
+import {
+  ArrowUpDown, RefreshCw, Loader2, Brain, TrendingUp, TrendingDown, Zap,
+  Eye, BarChart3, Target, Clock, Users, ChevronDown, ChevronRight,
+  ExternalLink, Film, Info,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
 import { VerdictBadge } from "@/components/ui/VerdictBadge";
-import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import {
-  getVideos,
   getLearnings,
   syncYouTubeMetrics,
   getYouTubeSyncStatus,
   getAnalyticsOverview,
-  getCTRTimeline,
+  getAnalyticsTimeline,
+  getAnalyticsVideos,
   getFrameworkPerformance,
-  getTopicPerformance,
   getCompetitorBenchmark,
   getIntelligenceStats,
   getTopicInsights,
@@ -44,21 +45,7 @@ import {
   getIntelligenceRecommendations,
   getNicheMetaInsights,
   triggerMetaAnalysis,
-  type VideoSummary,
-  type LearningRecord,
-  type AnalyticsOverview,
-  type CTRTimelinePoint,
-  type FrameworkPerformance,
-  type TopicPerformance,
-  type CompetitorBenchmark,
-  type IntelligenceStats,
-  type TopicInsight,
-  type HookInsight,
-  type ThumbnailInsights,
-  type TimingInsights,
-  type IntelligenceRecommendations,
 } from "@/lib/api";
-import { COMPLETED_STATUSES } from "@/lib/constants";
 import { formatNumber, timeAgo } from "@/lib/utils";
 
 const container = {
@@ -70,13 +57,22 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" as const } },
 };
 
-type SortKey = "views" | "ctr" | "created_at";
+type SortKey = "views" | "ctr" | "published_at";
 type SortDir = "asc" | "desc";
+type ChartMetric = "views" | "ctr" | "watch_time";
+type ChartRange = 28 | 90;
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "--";
   const d = new Date(dateStr);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "--";
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function getVerdict(ctr: number | null | undefined): "hit" | "steady" | "underperformed" | null {
@@ -93,24 +89,11 @@ function ctrColor(ctr: number | null | undefined): string {
   return "var(--red)";
 }
 
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number; color: string; name: string }>; label?: string }) {
-  if (!active || !payload) return null;
-  return (
-    <div
-      className="glass-card px-4 py-3 text-xs"
-      style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}
-    >
-      <p className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
-        {label}
-      </p>
-      {payload.map((p) => (
-        <p key={p.dataKey} style={{ color: p.color }}>
-          {p.name}: {p.dataKey === "views" ? formatNumber(p.value) : `${p.value.toFixed(1)}%`}
-        </p>
-      ))}
-    </div>
-  );
-}
+const CHART_METRICS: Record<ChartMetric, { label: string; dataKey: string; color: string; format: (v: number) => string }> = {
+  views: { label: "Views", dataKey: "views", color: "var(--turquoise)", format: (v) => formatNumber(v) },
+  ctr: { label: "CTR", dataKey: "ctr", color: "var(--gold)", format: (v) => `${v.toFixed(1)}%` },
+  watch_time: { label: "Watch time", dataKey: "watch_time_minutes", color: "var(--purple)", format: (v) => `${Math.round(v)} min` },
+};
 
 const FRAMEWORK_COLORS = [
   "var(--turquoise)",
@@ -122,21 +105,64 @@ const FRAMEWORK_COLORS = [
   "var(--yellow)",
 ];
 
+function CollapsibleSection({
+  icon,
+  title,
+  badge,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <GlassCard className="p-0 overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-[rgba(255,255,255,0.02)] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {icon}
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+            {title}
+          </h2>
+          {badge}
+        </div>
+        {open ? (
+          <ChevronDown size={16} style={{ color: "var(--text-tertiary)" }} />
+        ) : (
+          <ChevronRight size={16} style={{ color: "var(--text-tertiary)" }} />
+        )}
+      </button>
+      {open && <div className="px-6 pb-6">{children}</div>}
+    </GlassCard>
+  );
+}
+
 export default function AnalyticsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [sortKey, setSortKey] = useState<SortKey>("created_at");
+  const [sortKey, setSortKey] = useState<SortKey>("published_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [chartMetric, setChartMetric] = useState<ChartMetric>("views");
+  const [chartRange, setChartRange] = useState<ChartRange>(28);
 
-  // Analytics endpoints
+  // Channel analytics (real YouTube data)
   const { data: overview, isLoading: overviewLoading, error: overviewError } = useQuery({
     queryKey: ["analytics-overview"],
     queryFn: getAnalyticsOverview,
   });
 
-  const { data: ctrTimeline, isLoading: timelineLoading } = useQuery({
-    queryKey: ["analytics-ctr-timeline"],
-    queryFn: () => getCTRTimeline(50),
+  const { data: timeline, isLoading: timelineLoading } = useQuery({
+    queryKey: ["analytics-timeline", chartRange],
+    queryFn: () => getAnalyticsTimeline(chartRange),
+  });
+
+  const { data: channelVideos, isLoading: videosLoading } = useQuery({
+    queryKey: ["analytics-videos"],
+    queryFn: () => getAnalyticsVideos(50),
   });
 
   const { data: frameworks } = useQuery({
@@ -144,20 +170,9 @@ export default function AnalyticsPage() {
     queryFn: getFrameworkPerformance,
   });
 
-  const { data: topics } = useQuery({
-    queryKey: ["analytics-topic-performance"],
-    queryFn: getTopicPerformance,
-  });
-
   const { data: benchmark } = useQuery({
     queryKey: ["analytics-competitor-benchmark"],
     queryFn: getCompetitorBenchmark,
-  });
-
-  // Video list for table
-  const { data: allVideos, isLoading: videosLoading } = useQuery({
-    queryKey: ["videos"],
-    queryFn: () => getVideos(),
   });
 
   // Learning system data
@@ -222,50 +237,40 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     if (prevRunning.current && !syncRunning) {
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
       queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["analytics-ctr-timeline"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-timeline"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-videos"] });
       queryClient.invalidateQueries({ queryKey: ["analytics-framework-performance"] });
-      queryClient.invalidateQueries({ queryKey: ["analytics-topic-performance"] });
       queryClient.invalidateQueries({ queryKey: ["analytics-competitor-benchmark"] });
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
     }
     prevRunning.current = syncRunning;
   }, [syncRunning, queryClient]);
 
-  // Filter to published/uploaded videos for table
-  const publishedVideos = useMemo(() => {
-    if (!allVideos) return [];
-    return allVideos.filter(
-      (v) => COMPLETED_STATUSES.has(v.status || "") || v.views > 0 || v.ctr !== null
-    );
-  }, [allVideos]);
-
-  // Chart data from CTR timeline endpoint
+  // Chart data from the daily channel timeseries
   const chartData = useMemo(() => {
-    if (!ctrTimeline) return [];
-    return ctrTimeline.map((p) => ({
+    if (!timeline) return [];
+    return timeline.map((p) => ({
       date: formatDate(p.date),
       views: p.views || 0,
-      ctr: p.ctr ?? 0,
-      title: p.video_title || "Untitled",
+      ctr: p.ctr,
+      watch_time_minutes: p.watch_time_minutes,
     }));
-  }, [ctrTimeline]);
+  }, [timeline]);
 
-  // Framework chart data
-  const frameworkChartData = useMemo(() => {
-    if (!frameworks) return [];
-    return frameworks.map((f) => ({
-      name: f.framework.length > 20 ? f.framework.slice(0, 20) + "…" : f.framework,
-      fullName: f.framework,
-      avg_ctr: f.avg_ctr ?? 0,
-      video_count: f.video_count,
-      total_views: f.total_views,
-    }));
-  }, [frameworks]);
+  // Any video too fresh for YouTube to report CTR/duration yet?
+  const hasFreshVideo = useMemo(() => {
+    if (!channelVideos) return false;
+    const cutoff = Date.now() - 48 * 3600 * 1000;
+    return channelVideos.some(
+      (v) => v.published_at && new Date(v.published_at).getTime() > cutoff && v.ctr === null
+    );
+  }, [channelVideos]);
 
   // Sorted table data
   const sortedVideos = useMemo(() => {
-    return [...publishedVideos].sort((a, b) => {
+    if (!channelVideos) return [];
+    return [...channelVideos].sort((a, b) => {
       let aVal: number;
       let bVal: number;
       switch (sortKey) {
@@ -277,15 +282,15 @@ export default function AnalyticsPage() {
           aVal = a.ctr ?? -1;
           bVal = b.ctr ?? -1;
           break;
-        case "created_at":
+        case "published_at":
         default:
-          aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
-          bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+          aVal = a.published_at ? new Date(a.published_at).getTime() : 0;
+          bVal = b.published_at ? new Date(b.published_at).getTime() : 0;
           break;
       }
       return sortDir === "desc" ? bVal - aVal : aVal - bVal;
     });
-  }, [publishedVideos, sortKey, sortDir]);
+  }, [channelVideos, sortKey, sortDir]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -316,6 +321,31 @@ export default function AnalyticsPage() {
     );
   }
 
+  // No channel connected: one clear card, nothing else.
+  if (overview && !overview.connected) {
+    return (
+      <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
+        <motion.div variants={item}>
+          <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
+            Analytics
+          </h1>
+        </motion.div>
+        <motion.div variants={item}>
+          <EmptyState
+            icon={BarChart3}
+            title="Connect your YouTube channel"
+            description="Analytics shows the real performance of your channel: views, click-through rate, and watch time for every video. Connect YouTube to get started."
+            actionLabel="Connect YouTube"
+            actionHref="/settings/keys"
+          />
+        </motion.div>
+      </motion.div>
+    );
+  }
+
+  const channel = overview?.channel;
+  const metric = CHART_METRICS[chartMetric];
+
   const sortableHeader = (label: string, key: SortKey) => (
     <button
       onClick={() => handleSort(key)}
@@ -331,11 +361,34 @@ export default function AnalyticsPage() {
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
-      {/* Header */}
+      {/* Channel header */}
       <motion.div variants={item} className="flex items-center justify-between gap-4 flex-wrap">
-        <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
-          Analytics
-        </h1>
+        <div className="flex items-center gap-4">
+          {channel?.thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={channel.thumbnail}
+              alt={channel.name || "Channel"}
+              className="w-14 h-14 rounded-full"
+              style={{ border: "2px solid var(--turquoise)" }}
+            />
+          ) : (
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center"
+              style={{ background: "var(--bg-elevated)", border: "2px solid var(--turquoise)" }}
+            >
+              <Film size={22} style={{ color: "var(--turquoise)" }} />
+            </div>
+          )}
+          <div>
+            <h1 className="text-3xl font-display leading-tight" style={{ color: "var(--text-primary)" }}>
+              {channel?.name || "Analytics"}
+            </h1>
+            <p className="text-xs font-mono mt-0.5" style={{ color: "var(--text-secondary)" }}>
+              {formatNumber(channel?.subscribers ?? 0)} subscribers · {channel?.video_count ?? 0} videos on YouTube
+            </p>
+          </div>
+        </div>
         <div className="flex items-center gap-3">
           <ActionButton
             icon={syncRunning ? undefined : RefreshCw}
@@ -355,7 +408,7 @@ export default function AnalyticsPage() {
           </ActionButton>
           {syncStatus?.last_run && !syncRunning && (
             <span className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-              Last sync: {timeAgo(syncStatus.last_run)}
+              Synced {timeAgo(syncStatus.last_run)}
             </span>
           )}
         </div>
@@ -371,7 +424,7 @@ export default function AnalyticsPage() {
             {syncStatus.error && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm" style={{ color: "#C44545" }}>
-                  Sync error{syncStatus.error_type ? ` (${syncStatus.error_type})` : ""}: {syncStatus.error}
+                  Couldn&apos;t sync: {syncStatus.error}
                 </span>
                 {syncStatus.error_type === "auth" && (
                   <a
@@ -387,7 +440,6 @@ export default function AnalyticsPage() {
             {(syncStatus.videos_failed ?? 0) > 0 && (
               <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
                 {syncStatus.videos_failed} of {syncStatus.videos_total} videos failed to sync
-                {(syncStatus.videos_retried ?? 0) > 0 && ` (${syncStatus.videos_retried} retried)`}
               </span>
             )}
             {syncStatus.errors?.slice(0, 5).map((e, i) => (
@@ -399,43 +451,110 @@ export default function AnalyticsPage() {
         </motion.div>
       )}
 
-      {/* Overview Stats */}
+      {/* Fresh-video data lag note */}
+      {hasFreshVideo && (
+        <motion.div variants={item}>
+          <div
+            className="rounded-xl px-4 py-3 flex items-center gap-2"
+            style={{ background: "rgba(0,212,170,0.06)", border: "1px solid rgba(0,212,170,0.15)" }}
+          >
+            <Info size={14} style={{ color: "var(--turquoise)" }} className="shrink-0" />
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              YouTube takes 24-48 hours to report impressions, CTR, and view duration for new videos. Views update sooner.
+            </span>
+          </div>
+        </motion.div>
+      )}
+
+      {/* KPI row */}
       {overview && (
-        <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <StatCard
-            label="Total Videos"
-            value={overview.total_videos.toString()}
-            detail={`${overview.published_videos} published`}
+            label="Views (28 days)"
+            value={formatNumber(overview.views_28d)}
+            detail={`${formatNumber(overview.total_views)} lifetime`}
             color="var(--turquoise)"
-            icon={Film}
+            icon={Eye}
           />
           <StatCard
-            label="Total Views"
-            value={formatNumber(overview.total_views)}
+            label="Watch Time (28d)"
+            value={overview.watch_time_hours_28d !== null ? `${overview.watch_time_hours_28d}h` : "--"}
+            detail="hours watched"
             color="var(--purple)"
-            icon={Eye}
+            icon={Clock}
           />
           <StatCard
             label="Avg CTR"
             value={overview.avg_ctr !== null ? `${overview.avg_ctr.toFixed(1)}%` : "--"}
+            detail={overview.avg_ctr === null ? "waiting on YouTube" : "of impressions clicked"}
             color={ctrColor(overview.avg_ctr)}
             icon={Target}
           />
           <StatCard
-            label="Avg Retention"
-            value={overview.avg_retention !== null ? `${overview.avg_retention.toFixed(1)}%` : "--"}
+            label="Avg View Duration"
+            value={formatDuration(overview.avg_view_duration_seconds)}
+            detail={
+              overview.avg_retention !== null
+                ? `${overview.avg_retention.toFixed(0)}% of video watched`
+                : "waiting on YouTube"
+            }
             color="var(--gold)"
             icon={BarChart3}
+          />
+          <StatCard
+            label="Subscribers"
+            value={formatNumber(channel?.subscribers ?? 0)}
+            detail={
+              overview.subscribers_gained_28d !== 0
+                ? `${overview.subscribers_gained_28d > 0 ? "+" : ""}${overview.subscribers_gained_28d} in 28 days`
+                : "no change in 28 days"
+            }
+            color="var(--green)"
+            icon={Users}
           />
         </motion.div>
       )}
 
-      {/* CTR Timeline Chart */}
+      {/* Daily performance chart */}
       <motion.div variants={item}>
         <GlassCard className="p-6">
-          <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-            Views &amp; CTR Over Time
-          </h2>
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Channel Performance
+            </h2>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                {(Object.keys(CHART_METRICS) as ChartMetric[]).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setChartMetric(m)}
+                    className="px-3 py-1.5 text-[11px] font-medium transition-colors"
+                    style={{
+                      background: chartMetric === m ? "rgba(0,212,170,0.12)" : "transparent",
+                      color: chartMetric === m ? "var(--turquoise)" : "var(--text-tertiary)",
+                    }}
+                  >
+                    {CHART_METRICS[m].label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                {([28, 90] as ChartRange[]).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setChartRange(r)}
+                    className="px-3 py-1.5 text-[11px] font-medium transition-colors"
+                    style={{
+                      background: chartRange === r ? "rgba(0,212,170,0.12)" : "transparent",
+                      color: chartRange === r ? "var(--turquoise)" : "var(--text-tertiary)",
+                    }}
+                  >
+                    {r}d
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           {timelineLoading ? (
             <div className="h-72 flex items-center justify-center">
               <Spinner />
@@ -443,8 +562,8 @@ export default function AnalyticsPage() {
           ) : chartData.length === 0 ? (
             <EmptyState
               icon={TrendingUp}
-              title="No performance data yet"
-              description="Publish videos to see CTR and views charts here."
+              title="No daily data yet"
+              description="Click Sync YouTube to pull your channel's daily views, CTR, and watch time."
             />
           ) : (
             <div className="h-72">
@@ -455,42 +574,43 @@ export default function AnalyticsPage() {
                     dataKey="date"
                     tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
                     axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                    minTickGap={24}
                   />
                   <YAxis
-                    yAxisId="views"
                     tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
                     axisLine={false}
-                    tickFormatter={(v: number) => formatNumber(v)}
-                  />
-                  <YAxis
-                    yAxisId="ctr"
-                    orientation="right"
-                    tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
-                    axisLine={false}
-                    tickFormatter={(v: number) => `${v}%`}
+                    tickFormatter={(v: number) => metric.format(v)}
                     domain={[0, "auto"]}
+                    width={56}
                   />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: "var(--text-secondary)" }} />
-                  <Line
-                    yAxisId="views"
-                    type="monotone"
-                    dataKey="views"
-                    name="Views"
-                    stroke="var(--turquoise)"
-                    strokeWidth={2}
-                    dot={{ r: 4, fill: "var(--turquoise)" }}
-                    activeDot={{ r: 6 }}
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.[0]) return null;
+                      const v = payload[0].value as number | null;
+                      return (
+                        <div
+                          className="glass-card px-4 py-3 text-xs"
+                          style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}
+                        >
+                          <p className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                            {label}
+                          </p>
+                          <p style={{ color: metric.color }}>
+                            {metric.label}: {v !== null && v !== undefined ? metric.format(v) : "--"}
+                          </p>
+                        </div>
+                      );
+                    }}
                   />
                   <Line
-                    yAxisId="ctr"
                     type="monotone"
-                    dataKey="ctr"
-                    name="CTR %"
-                    stroke="var(--gold)"
+                    dataKey={metric.dataKey}
+                    name={metric.label}
+                    stroke={metric.color}
                     strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={{ r: 4, fill: "var(--gold)" }}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    connectNulls
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -499,18 +619,209 @@ export default function AnalyticsPage() {
         </GlassCard>
       </motion.div>
 
-      {/* Framework Performance */}
-      {frameworks && frameworks.length > 0 && (
+      {/* Videos on the channel (YouTube Studio style) */}
+      <motion.div variants={item}>
+        <GlassCard className="p-6 overflow-x-auto">
+          <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+            Videos
+          </h2>
+          {sortedVideos.length === 0 ? (
+            <EmptyState
+              icon={BarChart3}
+              title="No videos on your channel yet"
+              description="Once you publish to YouTube and hit Sync, every video on your channel shows up here with real stats."
+            />
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  {[
+                    { label: "Video", key: null },
+                    { label: "Published", key: "published_at" as SortKey },
+                    { label: "Views", key: "views" as SortKey },
+                    { label: "CTR%", key: "ctr" as SortKey },
+                    { label: "Avg Duration", key: null },
+                    { label: "Retention", key: null },
+                    { label: "Verdict", key: null },
+                  ].map((h, i) => (
+                    <th
+                      key={i}
+                      className="pb-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap px-3"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      {h.key ? sortableHeader(h.label, h.key) : h.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedVideos.map((v) => {
+                  const verdict = getVerdict(v.ctr);
+                  return (
+                    <tr
+                      key={v.id}
+                      className="transition-colors hover:bg-[rgba(255,255,255,0.03)] cursor-pointer group"
+                      style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+                      onClick={() => window.open(v.watch_url, "_blank", "noopener")}
+                    >
+                      <td className="py-3 px-3 max-w-[360px]">
+                        <div className="flex items-center gap-3">
+                          {v.thumbnail_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={v.thumbnail_url}
+                              alt=""
+                              className="w-16 h-9 rounded object-cover shrink-0"
+                              style={{ background: "var(--bg-elevated)" }}
+                            />
+                          ) : (
+                            <div
+                              className="w-16 h-9 rounded shrink-0 flex items-center justify-center"
+                              style={{ background: "var(--bg-elevated)" }}
+                            >
+                              <Film size={14} style={{ color: "var(--text-tertiary)" }} />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <span
+                              className="text-sm font-medium truncate block group-hover:text-[var(--turquoise)] transition-colors"
+                              style={{ color: "var(--text-primary)" }}
+                            >
+                              {v.title || "Untitled"}
+                              <ExternalLink size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-60 transition-opacity" />
+                            </span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {v.privacy_status && v.privacy_status !== "public" && (
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
+                                  style={{ background: "rgba(212,168,82,0.12)", color: "var(--gold)" }}
+                                >
+                                  {v.privacy_status}
+                                </span>
+                              )}
+                              {v.internal_video_id && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/pipeline/${v.internal_video_id}`);
+                                  }}
+                                  className="text-[10px] font-mono hover:brightness-125"
+                                  style={{ color: "var(--text-tertiary)" }}
+                                >
+                                  made in StoryEngine →
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {formatDate(v.published_at)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
+                          {formatNumber(v.views || 0)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className="text-sm font-mono"
+                          style={{ color: ctrColor(v.ctr) }}
+                          title={v.ctr === null ? "YouTube hasn't reported this yet" : undefined}
+                        >
+                          {v.ctr !== null && v.ctr !== undefined ? `${v.ctr.toFixed(1)}%` : "--"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className="text-xs font-mono"
+                          style={{ color: "var(--text-secondary)" }}
+                          title={v.avg_view_duration_seconds === null ? "YouTube hasn't reported this yet" : undefined}
+                        >
+                          {formatDuration(v.avg_view_duration_seconds)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {v.avg_view_percentage !== null ? `${v.avg_view_percentage.toFixed(0)}%` : "--"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        {verdict && <VerdictBadge verdict={verdict} />}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </GlassCard>
+      </motion.div>
+
+      {/* Competitor strip */}
+      {benchmark && benchmark.competitors.length > 0 && (
+        <motion.div variants={item}>
+          <GlassCard className="p-5">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-6 flex-wrap">
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Our Avg CTR</span>
+                  <p className="text-base font-mono font-bold" style={{ color: ctrColor(benchmark.channel_avg_ctr) }}>
+                    {benchmark.channel_avg_ctr !== null ? `${benchmark.channel_avg_ctr.toFixed(1)}%` : "--"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Our Views</span>
+                  <p className="text-base font-mono font-bold" style={{ color: "var(--turquoise)" }}>
+                    {formatNumber(benchmark.channel_total_views)}
+                  </p>
+                </div>
+                <div className="h-8 w-px" style={{ background: "var(--border)" }} />
+                {benchmark.competitors.slice(0, 3).map((c) => (
+                  <div key={c.channel}>
+                    <span className="text-[10px] uppercase tracking-wider truncate block max-w-[140px]" style={{ color: "var(--text-tertiary)" }}>
+                      {c.channel}
+                    </span>
+                    <p className="text-base font-mono" style={{ color: "var(--gold)" }}>
+                      {c.avg_vph !== null ? `${formatNumber(c.avg_vph)} VPH` : "--"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => router.push("/competitors")}
+                className="text-xs font-medium hover:brightness-125 transition-all"
+                style={{ color: "var(--turquoise)" }}
+              >
+                See all competitors →
+              </button>
+            </div>
+          </GlassCard>
+        </motion.div>
+      )}
+
+      {/* Framework performance: only shows once 2+ frameworks have real views */}
+      {frameworks && frameworks.length >= 2 && (
         <motion.div variants={item}>
           <GlassCard className="p-6">
             <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-              Framework Effectiveness
+              What&apos;s Working (by framework)
             </h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Bar chart */}
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={frameworkChartData} layout="vertical">
+                  <BarChart
+                    data={frameworks.map((f) => ({
+                      name: f.framework.length > 20 ? f.framework.slice(0, 20) + "…" : f.framework,
+                      fullName: f.framework,
+                      avg_ctr: f.avg_ctr ?? 0,
+                      video_count: f.video_count,
+                      total_views: f.total_views,
+                    }))}
+                    layout="vertical"
+                  >
                     <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
                     <XAxis
                       type="number"
@@ -544,15 +855,13 @@ export default function AnalyticsPage() {
                       }}
                     />
                     <Bar dataKey="avg_ctr" radius={[0, 4, 4, 0]}>
-                      {frameworkChartData.map((_, i) => (
+                      {frameworks.map((_, i) => (
                         <Cell key={i} fill={FRAMEWORK_COLORS[i % FRAMEWORK_COLORS.length]} fillOpacity={0.8} />
                       ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-
-              {/* Framework table */}
               <div className="space-y-2">
                 {frameworks.map((f, i) => (
                   <div
@@ -588,115 +897,13 @@ export default function AnalyticsPage() {
         </motion.div>
       )}
 
-      {/* Topic Performance + Competitor Benchmark */}
-      {(topics?.length || benchmark) && (
-        <motion.div variants={item} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Topic Performance Chart */}
-          {topics && topics.length > 0 && (
-            <GlassCard className="p-6">
-              <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-                Topic Performance
-              </h2>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topics.slice(0, 8)} layout="vertical">
-                    <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
-                    <XAxis
-                      type="number"
-                      tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
-                      axisLine={false}
-                      tickFormatter={(v: number) => formatNumber(v)}
-                    />
-                    <YAxis
-                      dataKey="topic"
-                      type="category"
-                      tick={{ fill: "var(--text-secondary)", fontSize: 10 }}
-                      axisLine={false}
-                      width={100}
-                      tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + "…" : v}
-                    />
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload?.[0]) return null;
-                        const d = payload[0].payload as TopicPerformance;
-                        return (
-                          <div className="glass-card px-4 py-3 text-xs" style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}>
-                            <p className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>{d.topic}</p>
-                            <p style={{ color: "var(--turquoise)" }}>{formatNumber(d.total_views)} views</p>
-                            <p style={{ color: "var(--text-secondary)" }}>{d.video_count} videos · CTR: {d.avg_ctr !== null ? `${d.avg_ctr.toFixed(1)}%` : "--"}</p>
-                          </div>
-                        );
-                      }}
-                    />
-                    <Bar dataKey="total_views" radius={[0, 4, 4, 0]}>
-                      {topics.slice(0, 8).map((_, i) => (
-                        <Cell key={i} fill={FRAMEWORK_COLORS[i % FRAMEWORK_COLORS.length]} fillOpacity={0.8} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </GlassCard>
-          )}
-
-          {/* Competitor Benchmark Card */}
-          {benchmark && (
-            <GlassCard className="p-6">
-              <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-                Competitor Benchmark
-              </h2>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.03)" }}>
-                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Our Avg CTR</span>
-                    <p className="text-lg font-mono font-bold mt-1" style={{ color: ctrColor(benchmark.channel_avg_ctr) }}>
-                      {benchmark.channel_avg_ctr !== null ? `${benchmark.channel_avg_ctr.toFixed(1)}%` : "--"}
-                    </p>
-                  </div>
-                  <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.03)" }}>
-                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Our Total Views</span>
-                    <p className="text-lg font-mono font-bold mt-1" style={{ color: "var(--turquoise)" }}>
-                      {formatNumber(benchmark.channel_total_views)}
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                    Competitors by VPH
-                  </span>
-                  <div className="mt-2 space-y-1.5">
-                    {benchmark.competitors.slice(0, 6).map((c) => (
-                      <div key={c.channel} className="flex items-center justify-between py-1.5 px-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
-                        <span className="text-xs truncate max-w-[160px]" style={{ color: "var(--text-primary)" }}>{c.channel}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                            {c.video_count} vids
-                          </span>
-                          <span className="text-xs font-mono font-semibold" style={{ color: "var(--gold)" }}>
-                            {c.avg_vph !== null ? `${formatNumber(c.avg_vph)} VPH` : "--"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </GlassCard>
-          )}
-        </motion.div>
-      )}
-
-      {/* System Intelligence */}
+      {/* System Intelligence (learned patterns), collapsed by default */}
       {learnings && learnings.length > 0 && (
         <motion.div variants={item}>
-          <GlassCard className="p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <Brain size={18} style={{ color: "var(--turquoise)" }} />
-                <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  System Intelligence
-                </h2>
-              </div>
+          <CollapsibleSection
+            icon={<Brain size={18} style={{ color: "var(--turquoise)" }} />}
+            title="System Intelligence"
+            badge={
               <span
                 className="text-[11px] font-mono px-2 py-1 rounded-full"
                 style={{
@@ -707,15 +914,14 @@ export default function AnalyticsPage() {
               >
                 {learnings.length} patterns learned
               </span>
-            </div>
-
+            }
+          >
             {(() => {
               const proven = learnings.filter((l) => l.confidence >= 60 && l.active);
               const avoid = learnings.filter((l) => l.confidence <= 30 && l.active);
 
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Proven */}
                   <div
                     className="rounded-xl p-4"
                     style={{ background: "rgba(0, 200, 83, 0.04)", border: "1px solid rgba(0, 200, 83, 0.1)" }}
@@ -753,7 +959,6 @@ export default function AnalyticsPage() {
                     )}
                   </div>
 
-                  {/* Avoid */}
                   <div
                     className="rounded-xl p-4"
                     style={{ background: "rgba(255, 82, 82, 0.04)", border: "1px solid rgba(255, 82, 82, 0.1)" }}
@@ -793,390 +998,303 @@ export default function AnalyticsPage() {
                 </div>
               );
             })()}
-          </GlassCard>
+          </CollapsibleSection>
         </motion.div>
       )}
 
-      {/* Data table */}
-      <motion.div variants={item}>
-        <GlassCard className="p-6 overflow-x-auto">
-          <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-            Video Performance
-          </h2>
-          {sortedVideos.length === 0 ? (
-            <EmptyState
-              icon={BarChart3}
-              title="No published videos to analyze"
-              description="Performance data appears after you upload videos to YouTube."
-            />
-          ) : (
-            <table className="w-full text-left">
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  {[
-                    { label: "#", key: null },
-                    { label: "Title", key: null },
-                    { label: "Upload Date", key: "created_at" as SortKey },
-                    { label: "Views", key: "views" as SortKey },
-                    { label: "CTR%", key: "ctr" as SortKey },
-                    { label: "Verdict", key: null },
-                  ].map((h, i) => (
-                    <th
-                      key={i}
-                      className="pb-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap px-3"
-                      style={{ color: "var(--text-tertiary)" }}
-                    >
-                      {h.key ? sortableHeader(h.label, h.key) : h.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedVideos.map((v, i) => {
-                  const verdict = getVerdict(v.ctr);
-                  return (
-                    <tr
-                      key={v.id}
-                      className="transition-colors hover:bg-[rgba(255,255,255,0.03)] cursor-pointer group"
-                      style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
-                      onClick={() => router.push(`/pipeline/${v.id}`)}
-                    >
-                      <td className="py-3 px-3">
-                        <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
-                          {i + 1}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 max-w-[300px]">
-                        <span
-                          className="text-sm font-medium truncate block group-hover:text-[var(--turquoise)] transition-colors"
-                          style={{ color: "var(--text-primary)" }}
-                        >
-                          {v.video_title || "Untitled"}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-                          {formatDate(v.created_at)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
-                          {formatNumber(v.views || 0)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className="text-sm font-mono" style={{ color: ctrColor(v.ctr) }}>
-                          {v.ctr !== null && v.ctr !== undefined ? `${v.ctr.toFixed(1)}%` : "--"}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3">
-                        {verdict && <VerdictBadge verdict={verdict} />}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </GlassCard>
-      {/* ── Niche Intelligence (from distilled competitor DNA) ── */}
+      {/* Niche Intelligence (from distilled competitor DNA), collapsed by default */}
       {intelStats && intelStats.distilled > 0 && (
-        <motion.div variants={item} className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Brain size={16} style={{ color: "var(--amber)" }} />
-            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-              Niche Intelligence
-            </h2>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
-              {intelStats.distilled} videos analyzed
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Hook Patterns */}
-            {nicheHooks?.hooks && nicheHooks.hooks.length > 0 && (
-              <GlassCard>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
-                  Hook Patterns
-                </h3>
-                <div className="space-y-2">
-                  {nicheHooks.hooks.slice(0, 5).map((h) => (
-                    <div key={h.hook_type} className="flex items-center justify-between">
-                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{h.hook_type}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>{h.count}x</span>
-                        <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
-                          {formatNumber(h.avg_vph)} VPH
-                        </span>
-                      </div>
+        <motion.div variants={item}>
+          <CollapsibleSection
+            icon={<Brain size={16} style={{ color: "var(--amber)" }} />}
+            title="Niche Intelligence"
+            badge={
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.12)", color: "var(--amber)" }}>
+                {intelStats.distilled} videos analyzed
+              </span>
+            }
+          >
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Hook Patterns */}
+                {nicheHooks?.hooks && nicheHooks.hooks.length > 0 && (
+                  <GlassCard>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                      Hook Patterns
+                    </h3>
+                    <div className="space-y-2">
+                      {nicheHooks.hooks.slice(0, 5).map((h) => (
+                        <div key={h.hook_type} className="flex items-center justify-between">
+                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{h.hook_type}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>{h.count}x</span>
+                            <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
+                              {formatNumber(h.avg_vph)} VPH
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </GlassCard>
-            )}
+                  </GlassCard>
+                )}
 
-            {/* Thumbnail Styles */}
-            {nicheThumbnails?.styles && nicheThumbnails.styles.length > 0 && (
-              <GlassCard>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
-                  Thumbnail Styles
-                </h3>
-                <div className="space-y-2">
-                  {nicheThumbnails.styles.slice(0, 5).map((s) => (
-                    <div key={s.style} className="flex items-center justify-between">
-                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{s.style}</span>
-                      <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
-                        {formatNumber(s.avg_vph)} VPH
-                      </span>
-                    </div>
-                  ))}
-                  {nicheThumbnails.face_present && nicheThumbnails.face_present.length > 0 && (
-                    <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                      {nicheThumbnails.face_present.map((f) => (
-                        <div key={String(f.face_present)} className="flex items-center justify-between">
-                          <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                            {f.face_present ? "Face shown" : "No face"}
-                          </span>
-                          <span className="text-[10px] font-mono" style={{ color: "var(--turquoise)" }}>
-                            {formatNumber(f.avg_vph)} VPH ({f.count})
+                {/* Thumbnail Styles */}
+                {nicheThumbnails?.styles && nicheThumbnails.styles.length > 0 && (
+                  <GlassCard>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                      Thumbnail Styles
+                    </h3>
+                    <div className="space-y-2">
+                      {nicheThumbnails.styles.slice(0, 5).map((s) => (
+                        <div key={s.style} className="flex items-center justify-between">
+                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{s.style}</span>
+                          <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
+                            {formatNumber(s.avg_vph)} VPH
                           </span>
                         </div>
+                      ))}
+                      {nicheThumbnails.face_present && nicheThumbnails.face_present.length > 0 && (
+                        <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border)" }}>
+                          {nicheThumbnails.face_present.map((f) => (
+                            <div key={String(f.face_present)} className="flex items-center justify-between">
+                              <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                                {f.face_present ? "Face shown" : "No face"}
+                              </span>
+                              <span className="text-[10px] font-mono" style={{ color: "var(--turquoise)" }}>
+                                {formatNumber(f.avg_vph)} VPH ({f.count})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </GlassCard>
+                )}
+
+                {/* Best Publish Times */}
+                {nicheTiming?.by_day && nicheTiming.by_day.length > 0 && (
+                  <GlassCard>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                      Best Publish Days
+                    </h3>
+                    <div className="space-y-1.5">
+                      {nicheTiming.by_day
+                        .sort((a, b) => b.avg_vph - a.avg_vph)
+                        .slice(0, 7)
+                        .map((d) => (
+                          <div key={d.day_name} className="flex items-center gap-2">
+                            <span className="text-xs w-16 shrink-0" style={{ color: "var(--text-secondary)" }}>
+                              {d.day_name.slice(0, 3)}
+                            </span>
+                            <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${Math.min(100, (d.avg_vph / Math.max(...nicheTiming.by_day.map(x => x.avg_vph))) * 100)}%`,
+                                  background: "var(--turquoise)",
+                                }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-mono w-12 text-right" style={{ color: "var(--turquoise)" }}>
+                              {formatNumber(d.avg_vph)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                    {nicheTiming.by_hour && nicheTiming.by_hour.length > 0 && (() => {
+                      const bestHour = nicheTiming.by_hour.sort((a, b) => b.avg_vph - a.avg_vph)[0];
+                      return (
+                        <p className="text-[10px] mt-3 pt-2" style={{ borderTop: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                          Best hour: <span style={{ color: "var(--amber)" }}>{bestHour.hour}:00</span> ({formatNumber(bestHour.avg_vph)} avg VPH)
+                        </p>
+                      );
+                    })()}
+                  </GlassCard>
+                )}
+
+                {/* Top Topics */}
+                {nicheTopics?.topics && nicheTopics.topics.length > 0 && (
+                  <GlassCard>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
+                      Trending Topics
+                    </h3>
+                    <div className="space-y-2">
+                      {nicheTopics.topics.slice(0, 8).map((t) => (
+                        <div key={t.topic} className="flex items-center justify-between">
+                          <span className="text-xs truncate mr-2" style={{ color: "var(--text-secondary)" }}>{t.topic}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>{t.count}x</span>
+                            <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
+                              {formatNumber(t.avg_vph)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </GlassCard>
+                )}
+              </div>
+
+              {/* Compression stats */}
+              <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                <span>{intelStats.pending} pending distillation</span>
+                <span>{intelStats.compression_ratio}x compression</span>
+                <span>{intelStats.estimated_savings_mb.toFixed(1)} MB saved</span>
+              </div>
+
+              {/* Intelligence Recommendations */}
+              {nicheRecs?.status === "ok" && nicheRecs.recommendations && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Target size={14} style={{ color: "var(--emerald)" }} />
+                    <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      AI Recommendations
+                    </h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ background: "rgba(52,211,153,0.12)", color: "var(--emerald)" }}>
+                      {Math.round(nicheRecs.recommendations.confidence * 100)}% confidence
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {nicheRecs.recommendations.hook && (
+                      <GlassCard className="p-3 space-y-1">
+                        <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Hook</div>
+                        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {nicheRecs.recommendations.hook.type.replace(/_/g, " ")}
+                        </div>
+                        <div className="text-[11px]" style={{ color: "var(--amber)" }}>
+                          {nicheRecs.recommendations.hook.avg_vph.toLocaleString()} avg VPH · {nicheRecs.recommendations.hook.count} videos
+                        </div>
+                      </GlassCard>
+                    )}
+                    {nicheRecs.recommendations.title_structure && (
+                      <GlassCard className="p-3 space-y-1">
+                        <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Title Structure</div>
+                        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {nicheRecs.recommendations.title_structure.structure.replace(/_/g, " ")}
+                        </div>
+                        <div className="text-[11px]" style={{ color: "var(--amber)" }}>
+                          {nicheRecs.recommendations.title_structure.avg_vph.toLocaleString()} avg VPH
+                        </div>
+                      </GlassCard>
+                    )}
+                    {nicheRecs.recommendations.thumbnail && (
+                      <GlassCard className="p-3 space-y-1">
+                        <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Thumbnail</div>
+                        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {nicheRecs.recommendations.thumbnail.style?.replace(/_/g, " ") || "n/a"}
+                        </div>
+                        <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                          {nicheRecs.recommendations.thumbnail.layout?.replace(/_/g, " ") || "n/a"} layout
+                          {nicheRecs.recommendations.thumbnail.face_emotion && ` · ${nicheRecs.recommendations.thumbnail.face_emotion} face`}
+                        </div>
+                      </GlassCard>
+                    )}
+                    {nicheRecs.recommendations.timing && (
+                      <GlassCard className="p-3 space-y-1">
+                        <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Timing</div>
+                        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {nicheRecs.recommendations.timing.best_day_name || "n/a"}
+                        </div>
+                        <div className="text-[11px]" style={{ color: "var(--amber)" }}>
+                          {nicheRecs.recommendations.timing.best_day_avg_vph.toLocaleString()} VPH
+                          {nicheRecs.recommendations.timing.best_hour != null && ` · ${nicheRecs.recommendations.timing.best_hour}:00`}
+                        </div>
+                      </GlassCard>
+                    )}
+                  </div>
+                  {nicheRecs.recommendations.top_topics.length > 0 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>Top topics:</span>
+                      {nicheRecs.recommendations.top_topics.map((t) => (
+                        <span key={t.topic} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.10)", color: "var(--amber)" }}>
+                          {t.topic} ({t.avg_vph.toLocaleString()} VPH)
+                        </span>
                       ))}
                     </div>
                   )}
                 </div>
-              </GlassCard>
-            )}
-
-            {/* Best Publish Times */}
-            {nicheTiming?.by_day && nicheTiming.by_day.length > 0 && (
-              <GlassCard>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
-                  Best Publish Days
-                </h3>
-                <div className="space-y-1.5">
-                  {nicheTiming.by_day
-                    .sort((a, b) => b.avg_vph - a.avg_vph)
-                    .slice(0, 7)
-                    .map((d) => (
-                      <div key={d.day_name} className="flex items-center gap-2">
-                        <span className="text-xs w-16 shrink-0" style={{ color: "var(--text-secondary)" }}>
-                          {d.day_name.slice(0, 3)}
-                        </span>
-                        <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.min(100, (d.avg_vph / Math.max(...nicheTiming.by_day.map(x => x.avg_vph))) * 100)}%`,
-                              background: "var(--turquoise)",
-                            }}
-                          />
-                        </div>
-                        <span className="text-[10px] font-mono w-12 text-right" style={{ color: "var(--turquoise)" }}>
-                          {formatNumber(d.avg_vph)}
-                        </span>
-                      </div>
-                    ))}
-                </div>
-                {nicheTiming.by_hour && nicheTiming.by_hour.length > 0 && (() => {
-                  const bestHour = nicheTiming.by_hour.sort((a, b) => b.avg_vph - a.avg_vph)[0];
-                  return (
-                    <p className="text-[10px] mt-3 pt-2" style={{ borderTop: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                      Best hour: <span style={{ color: "var(--amber)" }}>{bestHour.hour}:00</span> ({formatNumber(bestHour.avg_vph)} avg VPH)
-                    </p>
-                  );
-                })()}
-              </GlassCard>
-            )}
-
-            {/* Top Topics */}
-            {nicheTopics?.topics && nicheTopics.topics.length > 0 && (
-              <GlassCard>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--amber)" }}>
-                  Trending Topics
-                </h3>
-                <div className="space-y-2">
-                  {nicheTopics.topics.slice(0, 8).map((t) => (
-                    <div key={t.topic} className="flex items-center justify-between">
-                      <span className="text-xs truncate mr-2" style={{ color: "var(--text-secondary)" }}>{t.topic}</span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>{t.count}x</span>
-                        <span className="text-[10px] font-mono font-bold" style={{ color: "var(--turquoise)" }}>
-                          {formatNumber(t.avg_vph)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </GlassCard>
-            )}
-          </div>
-
-          {/* Compression stats */}
-          <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
-            <span>{intelStats.pending} pending distillation</span>
-            <span>{intelStats.compression_ratio}x compression</span>
-            <span>{intelStats.estimated_savings_mb.toFixed(1)} MB saved</span>
-          </div>
-
-          {/* Intelligence Recommendations */}
-          {nicheRecs?.status === "ok" && nicheRecs.recommendations && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Target size={14} style={{ color: "var(--emerald)" }} />
-                <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  AI Recommendations
-                </h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ background: "rgba(52,211,153,0.12)", color: "var(--emerald)" }}>
-                  {Math.round(nicheRecs.recommendations.confidence * 100)}% confidence
-                </span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {/* Best Hook */}
-                {nicheRecs.recommendations.hook && (
-                  <GlassCard className="p-3 space-y-1">
-                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Hook</div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {nicheRecs.recommendations.hook.type.replace(/_/g, " ")}
-                    </div>
-                    <div className="text-[11px]" style={{ color: "var(--amber)" }}>
-                      {nicheRecs.recommendations.hook.avg_vph.toLocaleString()} avg VPH · {nicheRecs.recommendations.hook.count} videos
-                    </div>
-                  </GlassCard>
-                )}
-                {/* Best Title Structure */}
-                {nicheRecs.recommendations.title_structure && (
-                  <GlassCard className="p-3 space-y-1">
-                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Title Structure</div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {nicheRecs.recommendations.title_structure.structure.replace(/_/g, " ")}
-                    </div>
-                    <div className="text-[11px]" style={{ color: "var(--amber)" }}>
-                      {nicheRecs.recommendations.title_structure.avg_vph.toLocaleString()} avg VPH
-                    </div>
-                  </GlassCard>
-                )}
-                {/* Best Thumbnail */}
-                {nicheRecs.recommendations.thumbnail && (
-                  <GlassCard className="p-3 space-y-1">
-                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Thumbnail</div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {nicheRecs.recommendations.thumbnail.style?.replace(/_/g, " ") || "—"}
-                    </div>
-                    <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                      {nicheRecs.recommendations.thumbnail.layout?.replace(/_/g, " ") || "—"} layout
-                      {nicheRecs.recommendations.thumbnail.face_emotion && ` · ${nicheRecs.recommendations.thumbnail.face_emotion} face`}
-                    </div>
-                  </GlassCard>
-                )}
-                {/* Best Timing */}
-                {nicheRecs.recommendations.timing && (
-                  <GlassCard className="p-3 space-y-1">
-                    <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Best Timing</div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {nicheRecs.recommendations.timing.best_day_name || "—"}
-                    </div>
-                    <div className="text-[11px]" style={{ color: "var(--amber)" }}>
-                      {nicheRecs.recommendations.timing.best_day_avg_vph.toLocaleString()} VPH
-                      {nicheRecs.recommendations.timing.best_hour != null && ` · ${nicheRecs.recommendations.timing.best_hour}:00`}
-                    </div>
-                  </GlassCard>
-                )}
-              </div>
-              {/* Top Topics */}
-              {nicheRecs.recommendations.top_topics.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>Top topics:</span>
-                  {nicheRecs.recommendations.top_topics.map((t) => (
-                    <span key={t.topic} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.10)", color: "var(--amber)" }}>
-                      {t.topic} ({t.avg_vph.toLocaleString()} VPH)
-                    </span>
-                  ))}
-                </div>
               )}
-            </div>
-          )}
 
-          {/* Meta-Insights (Second-Order Distillation) */}
-          {metaInsights?.status === "ok" && metaInsights.insights && (
-            <GlassCard className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Zap size={14} style={{ color: "var(--violet)" }} />
-                  <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Niche Meta-Analysis</h3>
-                  <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
-                    {metaInsights.sample_size} videos · {metaInsights.generated_at ? new Date(metaInsights.generated_at).toLocaleDateString() : ""}
-                  </span>
-                </div>
-                <button
+              {/* Meta-Insights (Second-Order Distillation) */}
+              {metaInsights?.status === "ok" && metaInsights.insights && (
+                <GlassCard className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap size={14} style={{ color: "var(--violet)" }} />
+                      <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Niche Meta-Analysis</h3>
+                      <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                        {metaInsights.sample_size} videos · {metaInsights.generated_at ? new Date(metaInsights.generated_at).toLocaleDateString() : ""}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => metaAnalysisMutation.mutate()}
+                      disabled={metaAnalysisMutation.isPending}
+                      className="p-1 rounded hover:brightness-110 disabled:opacity-50"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {metaAnalysisMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                    </button>
+                  </div>
+
+                  {metaInsights.insights.niche_summary && (
+                    <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                      {metaInsights.insights.niche_summary}
+                    </p>
+                  )}
+
+                  {metaInsights.insights.top_patterns && metaInsights.insights.top_patterns.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Top Patterns</div>
+                      {metaInsights.insights.top_patterns.map((p, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className="shrink-0 w-1 h-1 mt-1.5 rounded-full" style={{ background: p.confidence === "high" ? "var(--emerald)" : p.confidence === "medium" ? "var(--amber)" : "var(--text-muted)" }} />
+                          <div>
+                            <span style={{ color: "var(--text-primary)" }}>{p.pattern}</span>
+                            <span className="ml-1.5" style={{ color: "var(--emerald)" }}>{p.performance}</span>
+                            {p.recommendation && (
+                              <span className="ml-1.5" style={{ color: "var(--text-muted)" }}>· {p.recommendation}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {metaInsights.insights.contrarian_findings && metaInsights.insights.contrarian_findings.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Contrarian Findings</div>
+                      {metaInsights.insights.contrarian_findings.map((f, i) => (
+                        <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>⚡ {f}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {metaInsights.insights.combination_insights && metaInsights.insights.combination_insights.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Winning Combinations</div>
+                      {metaInsights.insights.combination_insights.map((c, i) => (
+                        <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>→ {c}</div>
+                      ))}
+                    </div>
+                  )}
+                </GlassCard>
+              )}
+
+              {/* Generate meta-insights button if none exist */}
+              {(!metaInsights || metaInsights.status === "not_generated") && intelStats.distilled >= 20 && (
+                <ActionButton
+                  variant="outline"
                   onClick={() => metaAnalysisMutation.mutate()}
                   disabled={metaAnalysisMutation.isPending}
-                  className="p-1 rounded hover:brightness-110 disabled:opacity-50"
-                  style={{ color: "var(--text-muted)" }}
                 >
-                  {metaAnalysisMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                </button>
-              </div>
-
-              {metaInsights.insights.niche_summary && (
-                <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                  {metaInsights.insights.niche_summary}
-                </p>
+                  {metaAnalysisMutation.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : <Zap size={12} className="mr-1" />}
+                  Generate Niche Meta-Analysis ({intelStats.distilled} videos)
+                </ActionButton>
               )}
-
-              {metaInsights.insights.top_patterns && metaInsights.insights.top_patterns.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Top Patterns</div>
-                  {metaInsights.insights.top_patterns.map((p, i) => (
-                    <div key={i} className="flex items-start gap-2 text-xs">
-                      <span className="shrink-0 w-1 h-1 mt-1.5 rounded-full" style={{ background: p.confidence === "high" ? "var(--emerald)" : p.confidence === "medium" ? "var(--amber)" : "var(--text-muted)" }} />
-                      <div>
-                        <span style={{ color: "var(--text-primary)" }}>{p.pattern}</span>
-                        <span className="ml-1.5" style={{ color: "var(--emerald)" }}>{p.performance}</span>
-                        {p.recommendation && (
-                          <span className="ml-1.5" style={{ color: "var(--text-muted)" }}>— {p.recommendation}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {metaInsights.insights.contrarian_findings && metaInsights.insights.contrarian_findings.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Contrarian Findings</div>
-                  {metaInsights.insights.contrarian_findings.map((f, i) => (
-                    <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>⚡ {f}</div>
-                  ))}
-                </div>
-              )}
-
-              {metaInsights.insights.combination_insights && metaInsights.insights.combination_insights.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Winning Combinations</div>
-                  {metaInsights.insights.combination_insights.map((c, i) => (
-                    <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>→ {c}</div>
-                  ))}
-                </div>
-              )}
-            </GlassCard>
-          )}
-
-          {/* Generate meta-insights button if none exist */}
-          {(!metaInsights || metaInsights.status === "not_generated") && intelStats.distilled >= 20 && (
-            <ActionButton
-              variant="outline"
-              onClick={() => metaAnalysisMutation.mutate()}
-              disabled={metaAnalysisMutation.isPending}
-            >
-              {metaAnalysisMutation.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : <Zap size={12} className="mr-1" />}
-              Generate Niche Meta-Analysis ({intelStats.distilled} videos)
-            </ActionButton>
-          )}
+            </div>
+          </CollapsibleSection>
         </motion.div>
       )}
-
-      </motion.div>
     </motion.div>
   );
 }

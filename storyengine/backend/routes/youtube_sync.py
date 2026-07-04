@@ -1,21 +1,26 @@
-"""YouTube Analytics sync — pulls CTR, views, impressions into videos table.
+"""YouTube channel sync — imports the tenant's real channel into StoryEngine.
 
-Uses Google OAuth2 (credentials from vault) to query:
-1. YouTube Data API v3 — views, likes, comments, publish date
-2. YouTube Analytics API v2 — avg view duration, retention, watch time
+Channel-first: instead of only refreshing videos we uploaded through the app,
+this walks the connected channel's uploads playlist and mirrors EVERY video on
+the channel into `channel_videos`, with stats from two Google APIs:
 
-Impressions/CTR come from the YouTube Data API v3 (statistics part)
-combined with Analytics API when available.
+1. YouTube Data API v3 — title, thumbnail, publish date, duration, privacy,
+   lifetime views/likes/comments.
+2. YouTube Analytics API v2 — impressions, CTR, average view duration,
+   retention, watch time, subscribers gained (bulk, one query per metric group)
+   plus a day-by-day channel timeseries into `channel_analytics_daily`.
 
-This closes the learning feedback loop:
-Pipeline uploads → YouTube publishes → This sync pulls metrics →
-Learning extraction detects patterns → Discovery uses patterns
+Channel videos that match an internal production row (by youtube_video_id, or
+by exact normalized title) get linked via channel_videos.video_id, and their
+metrics are written back to `videos` so the learning loop keeps working.
+
+Called from the Analytics page Sync button and the daily auto-sync in main.py.
 """
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks
 from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute, safe_column
 
@@ -26,6 +31,8 @@ _sync_tasks: dict[str, dict] = {}
 
 MAX_RETRIES = 2
 RETRY_DELAY = 3.0  # seconds
+MAX_CHANNEL_VIDEOS = 200  # uploads playlist import cap (quota guard)
+DAILY_TIMESERIES_DAYS = 90
 
 
 def _classify_error(e: Exception) -> str:
@@ -56,13 +63,13 @@ async def trigger_sync(
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Trigger YouTube metrics sync for all uploaded videos."""
+    """Trigger a channel-first YouTube sync."""
     if _sync_tasks.get(tenant_id, {}).get("running"):
         return {"status": "already_running", "message": "Sync already in progress"}
 
     _sync_tasks[tenant_id] = {"running": True, "started": datetime.now(timezone.utc).isoformat()}
     background_tasks.add_task(_run_sync, tenant_id)
-    return {"status": "started", "message": "YouTube metrics sync started"}
+    return {"status": "started", "message": "YouTube channel sync started"}
 
 
 @router.get("/sync/status")
@@ -75,6 +82,8 @@ async def sync_status(tenant_id: str = Depends(get_tenant_id)):
         "videos_total": task.get("videos_total", 0),
         "videos_failed": task.get("videos_failed", 0),
         "videos_retried": task.get("videos_retried", 0),
+        "matched_internal": task.get("matched_internal", 0),
+        "channel_synced": task.get("channel_synced", False),
         "errors": task.get("errors", []),
         "error": task.get("error"),
         "error_type": task.get("error_type"),
@@ -82,12 +91,31 @@ async def sync_status(tenant_id: str = Depends(get_tenant_id)):
     }
 
 
+def _parse_ts(value) -> datetime | None:
+    """ISO string (or datetime) -> tz-aware datetime, else None."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
 async def _run_sync(tenant_id: str):
-    """Background task: sync YouTube metrics to videos table."""
+    """Background task: mirror the connected YouTube channel into the DB."""
     try:
         import os
         import httpx
         from vault import get_secret
+        from youtube_owner_api import (
+            fetch_channel_summary,
+            fetch_playlist_video_ids,
+            fetch_video_details,
+            refresh_access_token,
+        )
 
         # Try YouTube OAuth token from channel_profiles first (per-user OAuth flow)
         yt_row = await fetch_one(
@@ -97,7 +125,6 @@ async def _run_sync(tenant_id: str):
         yt_refresh = yt_row.get("youtube_refresh_token") if yt_row else None
 
         if yt_refresh:
-            # Use YouTube OAuth token with global OAuth client credentials
             client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
             client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
             refresh_token = yt_refresh
@@ -115,143 +142,380 @@ async def _run_sync(tenant_id: str):
             }
             return
 
-        # Get access token via refresh
-        access_token = await _refresh_access_token(client_id, client_secret, refresh_token)
+        access_token = await refresh_access_token(client_id, client_secret, refresh_token)
         if not access_token:
-            _sync_tasks[tenant_id] = {"running": False, "error": "Failed to refresh Google access token"}
+            _sync_tasks[tenant_id] = {
+                "running": False,
+                "error": "Google sign-in expired. Re-connect YouTube in Settings.",
+                "error_type": "auth",
+            }
             return
 
-        # Get all uploaded videos with youtube_video_id or youtube_url
-        videos = await fetch_all(
-            """SELECT id, youtube_video_id, youtube_url, upload_date,
-                      views_24h, views_48h, views_7d, views_30d,
-                      ctr_48h, retention_48h
-               FROM videos
-               WHERE tenant_id = $1
-                 AND (youtube_video_id IS NOT NULL OR youtube_url IS NOT NULL)""",
-            tenant_id,
-        )
-
-        if not videos:
-            _sync_tasks[tenant_id] = {"running": False, "videos_synced": 0, "videos_total": 0,
-                                       "finished": datetime.now(timezone.utc).isoformat()}
-            return
-
-        _sync_tasks[tenant_id]["videos_total"] = len(videos)
         synced = 0
         failed = 0
-        errors = []
+        errors: list[dict] = []
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            for video in videos:
+            # 1. Channel identity + lifetime stats -> channel_profiles
+            summary = await _fetch_with_retry(fetch_channel_summary, client, access_token)
+            if not summary:
+                _sync_tasks[tenant_id] = {
+                    "running": False,
+                    "error": "Couldn't read your YouTube channel. Try re-connecting in Settings.",
+                    "error_type": "api",
+                }
+                return
+
+            await execute(
+                """UPDATE channel_profiles SET
+                     youtube_subscriber_count = $1,
+                     youtube_channel_total_views = $2,
+                     youtube_channel_video_count = $3,
+                     youtube_channel_thumbnail = $4,
+                     youtube_stats_synced_at = now(),
+                     youtube_channel_id = COALESCE(youtube_channel_id, $5),
+                     youtube_channel_name = COALESCE(youtube_channel_name, $6)
+                   WHERE tenant_id = $7""",
+                summary["subscriber_count"], summary["total_views"], summary["video_count"],
+                summary["thumbnail"], summary["channel_id"], summary["title"], tenant_id,
+            )
+
+            # 2. Enumerate the uploads playlist and fetch details
+            details: list[dict] = []
+            if summary.get("uploads_playlist"):
+                video_ids = await _fetch_with_retry(
+                    fetch_playlist_video_ids, client, access_token,
+                    summary["uploads_playlist"], MAX_CHANNEL_VIDEOS,
+                )
+                details = await _fetch_with_retry(
+                    fetch_video_details, client, access_token, video_ids
+                )
+
+            _sync_tasks[tenant_id]["videos_total"] = len(details)
+
+            # 3. Mirror into channel_videos
+            for d in details:
                 try:
-                    video_id = video.get("youtube_video_id")
-                    if not video_id and video.get("youtube_url"):
-                        video_id = _extract_video_id(video["youtube_url"])
-
-                    if not video_id:
-                        continue
-
-                    # Fetch stats from YouTube Data API (with retry for transient errors)
-                    stats = await _fetch_with_retry(
-                        _fetch_video_stats, client, access_token, video_id
-                    )
-                    if not stats:
-                        failed += 1
-                        errors.append({
-                            "video_id": str(video.get("id")),
-                            "error_type": "stats_unavailable",
-                            "message": "Could not fetch video stats",
-                        })
-                        _sync_tasks[tenant_id]["videos_failed"] = failed
-                        continue
-
-                    # Fetch analytics from YouTube Analytics API
-                    upload_date = video.get("upload_date")
-                    if not upload_date and stats.get("published_at"):
-                        upload_date = stats["published_at"]
-
-                    analytics = await _fetch_with_retry(
-                        _fetch_video_analytics, client, access_token, video_id, upload_date
-                    )
-
-                    # Build update fields
-                    update_fields = {
-                        "views": stats.get("views", 0),
-                        "likes": stats.get("likes", 0),
-                        "comments": stats.get("comments", 0),
-                        "last_analytics_sync": datetime.now(timezone.utc).isoformat(),
-                    }
-
-                    if not video.get("youtube_video_id"):
-                        update_fields["youtube_video_id"] = video_id
-
-                    if stats.get("published_at") and not video.get("upload_date"):
-                        update_fields["upload_date"] = stats["published_at"]
-
-                    if analytics:
-                        if analytics.get("avg_view_duration") is not None:
-                            update_fields["avg_view_duration_seconds"] = analytics["avg_view_duration"]
-                        if analytics.get("avg_retention") is not None:
-                            update_fields["avg_retention"] = analytics["avg_retention"]
-                        if analytics.get("watch_time_hours") is not None:
-                            update_fields["watch_time_hours"] = analytics["watch_time_hours"]
-                        if analytics.get("subscribers_gained") is not None:
-                            update_fields["subscribers_gained"] = analytics["subscribers_gained"]
-                        if analytics.get("impressions") is not None:
-                            update_fields["impressions"] = analytics["impressions"]
-                        if analytics.get("ctr") is not None:
-                            update_fields["ctr"] = analytics["ctr"]
-
-                    # Calculate snapshots (write-once fields)
-                    snapshots = _calculate_snapshots(video, stats, analytics, upload_date)
-                    update_fields.update(snapshots)
-
-                    # Build dynamic UPDATE query
-                    set_parts = []
-                    values = []
-                    for i, (key, val) in enumerate(update_fields.items(), start=1):
-                        set_parts.append(f"{safe_column(key)} = ${i}")
-                        values.append(val)
-
-                    values.append(str(video["id"]))
-                    param_idx = len(values)
-
-                    # SECURITY: column names from hardcoded update_fields dict keys + safe_column(), values use $N params
                     await execute(
-                        f"UPDATE videos SET {', '.join(set_parts)} WHERE id = ${param_idx}",
-                        *values,
+                        """INSERT INTO channel_videos
+                             (tenant_id, youtube_video_id, title, thumbnail_url, published_at,
+                              duration_seconds, privacy_status, views, likes, comments,
+                              last_synced_at, updated_at)
+                           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now())
+                           ON CONFLICT (tenant_id, youtube_video_id) DO UPDATE SET
+                             title = EXCLUDED.title,
+                             thumbnail_url = EXCLUDED.thumbnail_url,
+                             published_at = EXCLUDED.published_at,
+                             duration_seconds = EXCLUDED.duration_seconds,
+                             privacy_status = EXCLUDED.privacy_status,
+                             views = EXCLUDED.views,
+                             likes = EXCLUDED.likes,
+                             comments = EXCLUDED.comments,
+                             last_synced_at = now(),
+                             updated_at = now()""",
+                        tenant_id, d["video_id"], d["title"], d["thumbnail"],
+                        _parse_ts(d["published_at"]), d["duration_seconds"],
+                        d["privacy_status"], d["views"], d["likes"], d["comments"],
                     )
-
                     synced += 1
                     _sync_tasks[tenant_id]["videos_synced"] = synced
-
                 except Exception as e:
                     error_type = _classify_error(e)
                     failed += 1
                     errors.append({
-                        "video_id": str(video.get("id")),
+                        "video_id": d.get("video_id", ""),
                         "error_type": error_type,
                         "message": str(e)[:200],
                     })
                     _sync_tasks[tenant_id]["videos_failed"] = failed
-                    print(f"[YouTubeSync] Error syncing video {video.get('id')} ({error_type}): {e}")
-                    continue
+                    print(f"[YouTubeSync] Upsert failed for {d.get('video_id')} ({error_type}): {e}")
+
+            # 4. Link channel videos to internal production rows
+            matched = await _match_internal_videos(tenant_id)
+            _sync_tasks[tenant_id]["matched_internal"] = matched
+
+            # 5. Bulk per-video Analytics metrics (CTR, retention, AVD, watch time)
+            try:
+                per_video = await _fetch_with_retry(
+                    _fetch_bulk_video_analytics, client, access_token
+                )
+                for vid, m in per_video.items():
+                    sets = []
+                    values = []
+                    for col in ("impressions", "ctr", "avg_view_duration_seconds",
+                                "avg_view_percentage", "watch_time_hours", "subscribers_gained"):
+                        if m.get(col) is not None:
+                            values.append(m[col])
+                            sets.append(f"{safe_column(col)} = ${len(values)}")
+                    if not sets:
+                        continue
+                    values.append(tenant_id)
+                    values.append(vid)
+                    await execute(
+                        f"UPDATE channel_videos SET {', '.join(sets)}, updated_at = now() "
+                        f"WHERE tenant_id = ${len(values) - 1} AND youtube_video_id = ${len(values)}",
+                        *values,
+                    )
+            except Exception as e:
+                error_type = _classify_error(e)
+                errors.append({"video_id": "", "error_type": error_type,
+                               "message": f"Analytics metrics: {str(e)[:180]}"})
+                print(f"[YouTubeSync] Bulk analytics failed ({error_type}): {e}")
+
+            # 6. Write matched videos' metrics back to `videos` (learning loop)
+            try:
+                await _writeback_matched_videos(tenant_id)
+            except Exception as e:
+                error_type = _classify_error(e)
+                errors.append({"video_id": "", "error_type": error_type,
+                               "message": f"Internal writeback: {str(e)[:180]}"})
+                print(f"[YouTubeSync] Writeback failed ({error_type}): {e}")
+
+            # 7. Channel-level daily timeseries -> channel_analytics_daily
+            channel_synced = False
+            try:
+                days = await _fetch_with_retry(_fetch_channel_daily, client, access_token)
+                for day in days:
+                    await execute(
+                        """INSERT INTO channel_analytics_daily
+                             (tenant_id, date, views, impressions, ctr, watch_time_minutes,
+                              avg_view_duration_seconds, subscribers_gained, subscribers_lost)
+                           VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)
+                           ON CONFLICT (tenant_id, date) DO UPDATE SET
+                             views = EXCLUDED.views,
+                             impressions = EXCLUDED.impressions,
+                             ctr = EXCLUDED.ctr,
+                             watch_time_minutes = EXCLUDED.watch_time_minutes,
+                             avg_view_duration_seconds = EXCLUDED.avg_view_duration_seconds,
+                             subscribers_gained = EXCLUDED.subscribers_gained,
+                             subscribers_lost = EXCLUDED.subscribers_lost""",
+                        tenant_id, day["date"], day.get("views", 0), day.get("impressions"),
+                        day.get("ctr"), day.get("watch_time_minutes"),
+                        day.get("avg_view_duration_seconds"), day.get("subscribers_gained"),
+                        day.get("subscribers_lost"),
+                    )
+                channel_synced = True
+            except Exception as e:
+                error_type = _classify_error(e)
+                errors.append({"video_id": "", "error_type": error_type,
+                               "message": f"Daily timeseries: {str(e)[:180]}"})
+                print(f"[YouTubeSync] Daily timeseries failed ({error_type}): {e}")
 
         _sync_tasks[tenant_id] = {
             "running": False,
             "videos_synced": synced,
-            "videos_total": len(videos),
+            "videos_total": len(details),
             "videos_failed": failed,
-            "errors": errors[-10:],  # Keep last 10 errors
+            "matched_internal": matched,
+            "channel_synced": channel_synced,
+            "errors": errors[-10:],
             "finished": datetime.now(timezone.utc).isoformat(),
         }
-        print(f"[YouTubeSync] Synced {synced}/{len(videos)} videos ({failed} failed) for tenant {tenant_id}")
+        print(f"[YouTubeSync] Channel sync: {synced}/{len(details)} videos, "
+              f"{matched} matched internal, daily={channel_synced} for tenant {tenant_id}")
 
     except Exception as e:
         error_type = _classify_error(e)
         print(f"[YouTubeSync] Error ({error_type}): {e}")
         _sync_tasks[tenant_id] = {"running": False, "error": str(e), "error_type": error_type}
+
+
+async def _match_internal_videos(tenant_id: str) -> int:
+    """Link channel_videos rows to internal production rows.
+
+    Pass 1: by youtube_video_id (set by the in-app upload flow).
+    Pass 2: exact normalized-title match against finished internal videos that
+    were never linked (covers manual uploads via YouTube Studio). No fuzzy
+    matching — a wrong link would poison the learning loop.
+    """
+    await execute(
+        """UPDATE channel_videos cv SET video_id = v.id
+           FROM videos v
+           WHERE cv.tenant_id = $1 AND cv.video_id IS NULL
+             AND v.tenant_id = $1
+             AND v.youtube_video_id = cv.youtube_video_id""",
+        tenant_id,
+    )
+    await execute(
+        """UPDATE channel_videos cv SET video_id = v.id
+           FROM videos v
+           WHERE cv.tenant_id = $1 AND cv.video_id IS NULL
+             AND v.tenant_id = $1
+             AND v.youtube_video_id IS NULL
+             AND v.status IN ('done', 'uploaded_draft')
+             AND length(regexp_replace(lower(cv.title), '[^a-z0-9]+', '', 'g')) > 0
+             AND regexp_replace(lower(v.video_title), '[^a-z0-9]+', '', 'g')
+                 = regexp_replace(lower(cv.title), '[^a-z0-9]+', '', 'g')""",
+        tenant_id,
+    )
+    # Backfill the internal row so the rest of the app knows it's live
+    await execute(
+        """UPDATE videos v SET
+             youtube_video_id = cv.youtube_video_id,
+             youtube_url = 'https://youtu.be/' || cv.youtube_video_id,
+             upload_date = COALESCE(v.upload_date, cv.published_at),
+             updated_at = now()
+           FROM channel_videos cv
+           WHERE cv.tenant_id = $1 AND v.tenant_id = $1
+             AND cv.video_id = v.id AND v.youtube_video_id IS NULL""",
+        tenant_id,
+    )
+    row = await fetch_one(
+        "SELECT COUNT(*)::int AS n FROM channel_videos WHERE tenant_id = $1 AND video_id IS NOT NULL",
+        tenant_id,
+    )
+    return row["n"] if row else 0
+
+
+async def _writeback_matched_videos(tenant_id: str):
+    """Copy synced channel metrics onto linked `videos` rows and fill the
+    write-once 24h/48h/7d/30d snapshot columns the learning loop reads."""
+    rows = await fetch_all(
+        """SELECT cv.video_id AS internal_id, cv.published_at, cv.views, cv.likes, cv.comments,
+                  cv.impressions, cv.ctr, cv.avg_view_duration_seconds,
+                  cv.avg_view_percentage, cv.watch_time_hours, cv.subscribers_gained,
+                  v.upload_date, v.views_24h, v.views_48h, v.views_7d, v.views_30d,
+                  v.ctr_48h, v.retention_48h
+           FROM channel_videos cv
+           JOIN videos v ON v.id = cv.video_id
+           WHERE cv.tenant_id = $1""",
+        tenant_id,
+    )
+    for r in rows:
+        upload_date = r["upload_date"] or r["published_at"]
+        update_fields: dict = {
+            "views": r["views"] or 0,
+            "likes": r["likes"] or 0,
+            "comments": r["comments"] or 0,
+            "last_analytics_sync": datetime.now(timezone.utc),
+        }
+        if r["avg_view_duration_seconds"] is not None:
+            update_fields["avg_view_duration_seconds"] = r["avg_view_duration_seconds"]
+        if r["avg_view_percentage"] is not None:
+            update_fields["avg_retention"] = r["avg_view_percentage"]
+        if r["watch_time_hours"] is not None:
+            update_fields["watch_time_hours"] = r["watch_time_hours"]
+        if r["subscribers_gained"] is not None:
+            update_fields["subscribers_gained"] = r["subscribers_gained"]
+        if r["impressions"] is not None:
+            update_fields["impressions"] = r["impressions"]
+        if r["ctr"] is not None:
+            update_fields["ctr"] = r["ctr"]
+
+        analytics = {"ctr": r["ctr"], "avg_retention": r["avg_view_percentage"]}
+        snapshots = _calculate_snapshots(
+            dict(r), {"views": r["views"] or 0}, analytics, upload_date
+        )
+        update_fields.update(snapshots)
+
+        set_parts = []
+        values = []
+        for key, val in update_fields.items():
+            values.append(val)
+            set_parts.append(f"{safe_column(key)} = ${len(values)}")
+        values.append(r["internal_id"])
+        # SECURITY: column names come from the hardcoded dict keys + safe_column()
+        await execute(
+            f"UPDATE videos SET {', '.join(set_parts)} WHERE id = ${len(values)}",
+            *values,
+        )
+
+
+async def _fetch_bulk_video_analytics(client, access_token: str) -> dict[str, dict]:
+    """Per-video Analytics metrics for the whole channel in two API calls.
+
+    Returns {youtube_video_id: {impressions, ctr, avg_view_duration_seconds,
+    avg_view_percentage, watch_time_hours, subscribers_gained}}.
+    """
+    end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    base = {
+        "ids": "channel==MINE",
+        "startDate": "2015-01-01",
+        "endDate": end_date,
+        "dimensions": "video",
+        "maxResults": 200,
+    }
+    out: dict[str, dict] = {}
+
+    resp = await client.get(
+        "https://youtubeanalytics.googleapis.com/v2/reports",
+        params={**base,
+                "metrics": "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained",
+                "sort": "-views"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    if resp.status_code == 200:
+        for row in resp.json().get("rows", []) or []:
+            out.setdefault(row[0], {}).update({
+                "watch_time_hours": round(row[2] / 60, 2),
+                "avg_view_duration_seconds": round(row[3], 1),
+                "avg_view_percentage": round(row[4], 1),
+                "subscribers_gained": int(row[5]),
+            })
+    else:
+        raise RuntimeError(f"Analytics API {resp.status_code}: {resp.text[:150]}")
+
+    resp2 = await client.get(
+        "https://youtubeanalytics.googleapis.com/v2/reports",
+        params={**base, "metrics": "impressions,impressionClickThroughRate",
+                "sort": "-impressions"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    if resp2.status_code == 200:
+        for row in resp2.json().get("rows", []) or []:
+            out.setdefault(row[0], {}).update({
+                "impressions": int(row[1]),
+                "ctr": round(row[2] * 100, 2),  # decimal -> percent
+            })
+    # Impressions metrics can lag or be unavailable; watch metrics alone are fine.
+
+    return out
+
+
+async def _fetch_channel_daily(client, access_token: str) -> list[dict]:
+    """Channel-level day-by-day metrics for the last DAILY_TIMESERIES_DAYS."""
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=DAILY_TIMESERIES_DAYS)
+    base = {
+        "ids": "channel==MINE",
+        "startDate": start.strftime("%Y-%m-%d"),
+        "endDate": end.strftime("%Y-%m-%d"),
+        "dimensions": "day",
+    }
+    days: dict[str, dict] = {}
+
+    resp = await client.get(
+        "https://youtubeanalytics.googleapis.com/v2/reports",
+        params={**base,
+                "metrics": "views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    if resp.status_code == 200:
+        for row in resp.json().get("rows", []) or []:
+            days[row[0]] = {
+                "date": row[0],
+                "views": int(row[1]),
+                "watch_time_minutes": round(row[2], 1),
+                "avg_view_duration_seconds": round(row[3], 1),
+                "subscribers_gained": int(row[4]),
+                "subscribers_lost": int(row[5]),
+            }
+    else:
+        raise RuntimeError(f"Analytics API {resp.status_code}: {resp.text[:150]}")
+
+    resp2 = await client.get(
+        "https://youtubeanalytics.googleapis.com/v2/reports",
+        params={**base, "metrics": "impressions,impressionClickThroughRate"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    if resp2.status_code == 200:
+        for row in resp2.json().get("rows", []) or []:
+            days.setdefault(row[0], {"date": row[0]}).update({
+                "impressions": int(row[1]),
+                "ctr": round(row[2] * 100, 2),
+            })
+
+    return list(days.values())
 
 
 async def _fetch_with_retry(fn, *args, retries: int = MAX_RETRIES):
@@ -268,127 +532,6 @@ async def _fetch_with_retry(fn, *args, retries: int = MAX_RETRIES):
                 raise
             await asyncio.sleep(RETRY_DELAY * (attempt + 1))
     raise last_error
-
-
-async def _refresh_access_token(client_id: str, client_secret: str, refresh_token: str) -> str | None:
-    """Refresh OAuth2 access token using refresh token."""
-    import httpx
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "refresh_token": refresh_token,
-                    "grant_type": "refresh_token",
-                },
-            )
-            if resp.status_code == 200:
-                return resp.json().get("access_token")
-            print(f"[YouTubeSync] Token refresh failed: {resp.status_code} {resp.text}")
-            return None
-    except Exception as e:
-        print(f"[YouTubeSync] Token refresh error: {e}")
-        return None
-
-
-async def _fetch_video_stats(client, access_token: str, video_id: str) -> dict | None:
-    """Fetch lifetime stats from YouTube Data API v3."""
-    try:
-        resp = await client.get(
-            "https://www.googleapis.com/youtube/v3/videos",
-            params={"part": "statistics,snippet", "id": video_id},
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        if resp.status_code != 200:
-            return None
-
-        items = resp.json().get("items", [])
-        if not items:
-            return None
-
-        item = items[0]
-        stats = item.get("statistics", {})
-        published_at = item.get("snippet", {}).get("publishedAt")
-
-        return {
-            "views": int(stats.get("viewCount", 0)),
-            "likes": int(stats.get("likeCount", 0)),
-            "comments": int(stats.get("commentCount", 0)),
-            "published_at": published_at,
-        }
-    except Exception as e:
-        print(f"[YouTubeSync] Stats fetch failed for {video_id}: {e}")
-        return None
-
-
-async def _fetch_video_analytics(
-    client, access_token: str, video_id: str, upload_date
-) -> dict | None:
-    """Fetch analytics from YouTube Analytics API v2.
-
-    Returns avg_view_duration, avg_retention, watch_time_hours,
-    subscribers_gained, impressions, and CTR.
-    """
-    try:
-        if upload_date:
-            if isinstance(upload_date, datetime):
-                start_date = upload_date.strftime("%Y-%m-%d")
-            else:
-                start_date = str(upload_date)[:10]
-        else:
-            start_date = "2024-01-01"
-
-        end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-        # Fetch watch metrics
-        resp = await client.get(
-            "https://youtubeanalytics.googleapis.com/v2/reports",
-            params={
-                "ids": "channel==MINE",
-                "startDate": start_date,
-                "endDate": end_date,
-                "metrics": "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained",
-                "filters": f"video=={video_id}",
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-
-        result = {}
-        if resp.status_code == 200:
-            rows = resp.json().get("rows", [])
-            if rows and rows[0]:
-                row = rows[0]
-                result["avg_view_duration"] = round(row[2], 1)
-                result["avg_retention"] = round(row[3], 1)
-                result["watch_time_hours"] = round(row[1] / 60, 2)
-                result["subscribers_gained"] = int(row[4])
-
-        # Fetch impressions/CTR (separate query — different metric group)
-        resp2 = await client.get(
-            "https://youtubeanalytics.googleapis.com/v2/reports",
-            params={
-                "ids": "channel==MINE",
-                "startDate": start_date,
-                "endDate": end_date,
-                "metrics": "impressions,impressionClickThroughRate",
-                "filters": f"video=={video_id}",
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-
-        if resp2.status_code == 200:
-            rows2 = resp2.json().get("rows", [])
-            if rows2 and rows2[0]:
-                result["impressions"] = int(rows2[0][0])
-                result["ctr"] = round(rows2[0][1] * 100, 2)  # Convert decimal to percentage
-
-        return result if result else None
-
-    except Exception as e:
-        print(f"[YouTubeSync] Analytics fetch failed for {video_id}: {e}")
-        return None
 
 
 def _extract_video_id(url: str) -> str | None:
