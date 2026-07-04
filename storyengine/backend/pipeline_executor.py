@@ -2210,7 +2210,26 @@ separate scenes."""
                             # a paid clip over the polish pass).
                             spk = (r.get("assigned_dialogue") or "").split(":", 1)[0].strip()
                             voice_id = cast_voice_by_name.get(spk.casefold())
-                            if voice_id:
+                            # A Grok take can chain SEVERAL speakers' lines
+                            # ("Then" chaining) — converting the whole clip
+                            # with one voice puts the tail of a line in the
+                            # wrong throat (La Lavandería v2). Split per turn.
+                            turn_speakers = {(l.get("speaker") or "").casefold()
+                                             for l in (lines or []) if l.get("speaker")}
+                            if len(turn_speakers) > 1:
+                                try:
+                                    from clip_dialogue import swap_voice_turns
+                                    clip_bytes = await swap_voice_turns(
+                                        clip_bytes,
+                                        [{"speaker": l.get("speaker"), "text": l.get("text") or ""}
+                                         for l in lines],
+                                        cast_voice_by_name, xi_key)
+                                    await _report(f"S{sc}.{idx}: voices locked "
+                                                  f"({len(turn_speakers)} speakers)")
+                                except Exception as se:
+                                    print(f"[clips] S{sc}.{idx} multi-voice swap failed "
+                                          f"({str(se)[:120]}) — keeping Grok's take", flush=True)
+                            elif voice_id:
                                 try:
                                     from clip_dialogue import swap_voice
                                     clip_bytes = await swap_voice(clip_bytes, voice_id, xi_key)

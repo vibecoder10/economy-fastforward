@@ -334,27 +334,20 @@ async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: fl
     return await asyncio.to_thread(_sync)
 
 
-async def swap_voice(clip_bytes: bytes, voice_id: str, xi_api_key: str) -> bytes:
-    """Option A voice lock (Ryan's call, 2026-07-04): keep Grok's spoken
-    performance — the mouth was animated to exactly this speech — and re-render
-    the AUDIO in the character's pinned ElevenLabs voice via speech-to-speech.
-    Phoneme timing is preserved, so lips stay synced; the voice becomes
-    consistent across every clip. Raises on failure (caller decides whether
-    the original take ships instead)."""
+def _extract_wav(clip_bytes: bytes) -> bytes:
+    with tempfile.TemporaryDirectory() as td:
+        clip = os.path.join(td, "clip.mp4")
+        wav = os.path.join(td, "voice.wav")
+        with open(clip, "wb") as f:
+            f.write(clip_bytes)
+        _run_ffmpeg(["-i", clip, "-vn", "-ac", "1", "-ar", "44100", wav])
+        with open(wav, "rb") as f:
+            return f.read()
+
+
+async def _sts_convert(wav_bytes: bytes, voice_id: str, xi_api_key: str) -> bytes:
+    """ElevenLabs speech-to-speech: same words, same timing, pinned voice."""
     import httpx
-
-    def _extract() -> bytes:
-        with tempfile.TemporaryDirectory() as td:
-            clip = os.path.join(td, "clip.mp4")
-            wav = os.path.join(td, "voice.wav")
-            with open(clip, "wb") as f:
-                f.write(clip_bytes)
-            _run_ffmpeg(["-i", clip, "-vn", "-ac", "1", "-ar", "44100", wav])
-            with open(wav, "rb") as f:
-                return f.read()
-
-    wav_bytes = await asyncio.to_thread(_extract)
-
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(
             f"https://api.elevenlabs.io/v1/speech-to-speech/{voice_id}",
@@ -365,25 +358,190 @@ async def swap_voice(clip_bytes: bytes, voice_id: str, xi_api_key: str) -> bytes
         )
         if resp.status_code != 200:
             raise RuntimeError(f"speech-to-speech failed: {resp.status_code} {resp.text[:150]}")
-        converted = resp.content
+        return resp.content
 
-    def _remux() -> bytes:
+
+def _remux_audio(clip_bytes: bytes, audio_bytes: bytes, suffix: str = ".mp3") -> bytes:
+    with tempfile.TemporaryDirectory() as td:
+        clip = os.path.join(td, "clip.mp4")
+        aud = os.path.join(td, "converted" + suffix)
+        out = os.path.join(td, "out.mp4")
+        with open(clip, "wb") as f:
+            f.write(clip_bytes)
+        with open(aud, "wb") as f:
+            f.write(audio_bytes)
+        # 0:v:0 — Grok clips carry an mjpeg attached-pic stream that a bare
+        # 0:v grabs by mistake (found live in the STS sample).
+        _run_ffmpeg(["-i", clip, "-i", aud, "-map", "0:v:0", "-map", "1:a:0",
+                     "-c:v", "copy", "-c:a", "aac", "-shortest", out])
+        with open(out, "rb") as f:
+            return f.read()
+
+
+async def swap_voice(clip_bytes: bytes, voice_id: str, xi_api_key: str) -> bytes:
+    """Option A voice lock (Ryan's call, 2026-07-04): keep Grok's spoken
+    performance — the mouth was animated to exactly this speech — and re-render
+    the AUDIO in the character's pinned ElevenLabs voice via speech-to-speech.
+    Phoneme timing is preserved, so lips stay synced; the voice becomes
+    consistent across every clip. Raises on failure (caller decides whether
+    the original take ships instead)."""
+    wav_bytes = await asyncio.to_thread(_extract_wav, clip_bytes)
+    converted = await _sts_convert(wav_bytes, voice_id, xi_api_key)
+    return await asyncio.to_thread(_remux_audio, clip_bytes, converted)
+
+
+def _norm_token(w: str) -> str:
+    import unicodedata
+    w = unicodedata.normalize("NFD", w.lower())
+    return "".join(c for c in w if c.isalnum())
+
+
+def turn_boundaries(words: list, turn_texts: list) -> list:
+    """Split times between consecutive speaker turns in one clip.
+
+    words: heard words [{"word", "start", "end"}] (any STT). turn_texts: the
+    scripted text of each turn in order. Anchors each boundary on difflib-
+    MATCHED words — never raw counts: STT tokenizes "Supermercado" as two
+    words, a count-based boundary lands early and the line tail converts in
+    the WRONG VOICE (La Lavandería v2, Ryan caught it). Falls back to the
+    largest inter-word pause near the expected position, then to proportional
+    time. Returns len(turn_texts) - 1 ascending times."""
+    import difflib
+    if not words or len(turn_texts) < 2:
+        return []
+    script_words = [w for t in turn_texts for w in t.split()]
+    turn_last_idx = []          # index into script_words of each turn's last word
+    acc = 0
+    for t in turn_texts:
+        acc += len(t.split())
+        turn_last_idx.append(acc - 1)
+    a = [_norm_token(w["word"]) for w in words]
+    b = [_norm_token(w) for w in script_words]
+    heard_of = {}               # script word index -> heard word index
+    for blk in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_matching_blocks():
+        for k in range(blk.size):
+            heard_of[blk.b + k] = blk.a + k
+    total_end = words[-1]["end"]
+    bounds = []
+    for ti in range(len(turn_texts) - 1):
+        last_si = turn_last_idx[ti]
+        # nearest matched script word at-or-before the turn's last word
+        anchor = next((heard_of[si] for si in range(last_si, max(last_si - 3, -1), -1)
+                       if si in heard_of), None)
+        # first matched heard word of the NEXT turn
+        nxt = next((heard_of[si] for si in range(last_si + 1, min(last_si + 4, len(script_words)))
+                    if si in heard_of and heard_of[si] > (anchor or -1)), None)
+        b_t = None
+        if anchor is not None and anchor + 1 < len(words):
+            lo = words[anchor]["end"]
+            hi = words[nxt]["start"] if nxt is not None else words[anchor + 1]["start"]
+            b_t = (lo + max(hi, lo)) / 2
+        if b_t is None:
+            # largest pause near the word-share position
+            exp = (last_si + 1) / max(len(script_words), 1) * len(words)
+            best, bestgap = None, -1.0
+            for i in range(len(words) - 1):
+                if abs(i + 1 - exp) <= max(2, 0.3 * len(words)):
+                    gap = words[i + 1]["start"] - words[i]["end"]
+                    if gap > bestgap:
+                        bestgap, best = gap, i
+            if best is not None:
+                b_t = (words[best]["end"] + words[best + 1]["start"]) / 2
+        if b_t is None:
+            b_t = total_end * (last_si + 1) / max(len(script_words), 1)
+        if bounds and b_t <= bounds[-1]:
+            b_t = bounds[-1] + 0.05
+        bounds.append(round(b_t, 3))
+    return bounds
+
+
+async def _stt_words(wav_bytes: bytes, xi_api_key: str) -> list:
+    """Word timestamps via ElevenLabs Scribe (same key as the voice swap)."""
+    import httpx
+    async with httpx.AsyncClient(timeout=180) as client:
+        resp = await client.post(
+            "https://api.elevenlabs.io/v1/speech-to-text",
+            headers={"xi-api-key": xi_api_key},
+            data={"model_id": "scribe_v1"},
+            files={"file": ("voice.wav", wav_bytes, "audio/wav")},
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"speech-to-text failed: {resp.status_code} {resp.text[:150]}")
+        payload = resp.json()
+    out = []
+    for w in payload.get("words", []):
+        if w.get("type", "word") != "word":
+            continue
+        t = (w.get("text") or w.get("word") or "").strip()
+        if t:
+            out.append({"word": t, "start": float(w["start"]), "end": float(w["end"])})
+    return out
+
+
+async def swap_voice_turns(clip_bytes: bytes, turns: list, voice_map: dict,
+                           xi_api_key: str) -> bytes:
+    """Voice-lock a clip whose Grok take carries MULTIPLE speakers' lines
+    (native_speaking_prompt chains them with "Then"). Splits the audio at the
+    scripted turn boundaries (turn_boundaries) and converts each segment with
+    its own pinned voice — converting the whole clip with one voice puts the
+    tail of a line in the wrong throat. turns: [{"speaker", "text"}]. Falls
+    back to single-voice swap when pins are missing or the split cannot be
+    computed."""
+    pins = [voice_map.get((t.get("speaker") or "").casefold()) for t in turns]
+    distinct = {p for p in pins if p}
+    if len(distinct) <= 1:
+        vid = next((p for p in pins if p), None)
+        if not vid:
+            raise RuntimeError("no pinned voice for any speaker on this clip")
+        return await swap_voice(clip_bytes, vid, xi_api_key)
+
+    wav_bytes = await asyncio.to_thread(_extract_wav, clip_bytes)
+    words = await _stt_words(wav_bytes, xi_api_key)
+    bounds = turn_boundaries(words, [t["text"] for t in turns])
+    if not bounds:
+        return await swap_voice(clip_bytes, pins[0] or list(distinct)[0], xi_api_key)
+    print(f"[voice] multi-speaker split at {bounds}", flush=True)
+
+    def _slice(t0, t1) -> bytes:
         with tempfile.TemporaryDirectory() as td:
-            clip = os.path.join(td, "clip.mp4")
-            aud = os.path.join(td, "converted.mp3")
-            out = os.path.join(td, "out.mp4")
-            with open(clip, "wb") as f:
-                f.write(clip_bytes)
-            with open(aud, "wb") as f:
-                f.write(converted)
-            # 0:v:0 — Grok clips carry an mjpeg attached-pic stream that a bare
-            # 0:v grabs by mistake (found live in the STS sample).
-            _run_ffmpeg(["-i", clip, "-i", aud, "-map", "0:v:0", "-map", "1:a:0",
-                         "-c:v", "copy", "-c:a", "aac", "-shortest", out])
-            with open(out, "rb") as f:
+            src = os.path.join(td, "src.wav")
+            seg = os.path.join(td, "seg.wav")
+            with open(src, "wb") as f:
+                f.write(wav_bytes)
+            args = ["-i", src, "-ss", str(t0)]
+            if t1 is not None:
+                args += ["-to", str(t1)]
+            _run_ffmpeg(args + [seg])
+            with open(seg, "rb") as f:
                 return f.read()
 
-    return await asyncio.to_thread(_remux)
+    spans = list(zip([0.0] + bounds, bounds + [None]))
+    converted = []
+    for (t0, t1), t in zip(spans, turns):
+        vid = voice_map.get((t.get("speaker") or "").casefold()) or pins[0] or list(distinct)[0]
+        seg_wav = await asyncio.to_thread(_slice, t0, t1)
+        converted.append(await _sts_convert(seg_wav, vid, xi_api_key))
+
+    def _join(parts) -> bytes:
+        with tempfile.TemporaryDirectory() as td:
+            names = []
+            for i, pbytes in enumerate(parts):
+                pth = os.path.join(td, f"p{i}.mp3")
+                with open(pth, "wb") as f:
+                    f.write(pbytes)
+                names.append(pth)
+            listp = os.path.join(td, "list.txt")
+            with open(listp, "w") as f:
+                for n in names:
+                    f.write(f"file '{n}'\n")
+            joined = os.path.join(td, "joined.mp3")
+            _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", listp,
+                         "-c:a", "libmp3lame", "-q:a", "2", joined])
+            with open(joined, "rb") as f:
+                return f.read()
+
+    joined = await asyncio.to_thread(_join, converted)
+    return await asyncio.to_thread(_remux_audio, clip_bytes, joined)
 
 
 async def pad_line_audio(voice_bytes_list: list, head: float = 0.5,
