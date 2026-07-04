@@ -253,3 +253,21 @@ Ryan flagged two modal issues; both fixed and proven live on prod:
   quiz recap this take, and the launched idea's brief baked in a third
   SPEAKING character (Señora Martínez) - the discovery-launch research brief
   can override the two-speaker rule. Regenerate works if unwanted.
+
+## UPDATE (2026-07-04, same session): first-time-right format contract (deployed @ f4e6e27e)
+
+Ryan: two speakers only for now, no repair-loop bandaids - right the FIRST time.
+- run_script now builds a FINAL OUTPUT CONTRACT from the video's attached
+  locked cast (source='project' video_characters - dynamic, so adding a cast
+  member later updates the rule automatically) and the script skill appends
+  it at the very END of the writing prompt, AFTER the topic brief. Recency
+  wins: the brief can no longer summon speaking instructors/cashiers or bury
+  the quiz recap. Channels without a locked cast are untouched.
+- Deterministic foreign-speaker check (advisory, NO auto-rerun): non-cast
+  labels appearing 2+ times land in script_validation as "Invented speaking
+  character(s)" so the gate shows the truth.
+- PROOF on the real Spanish Class video (cd5d2883), regenerated through the
+  UI, first take: speakers = Ryan + Vanessa only (Senora Martinez exists but
+  never speaks), 0 stage directions, full rapid-fire quiz (11 ¿Qué es...?
+  questions), "Muy bien" close, poco a poco. 141 dialogue lines tagged.
+  Staged at the voice gate.
