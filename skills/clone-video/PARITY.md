@@ -92,7 +92,7 @@ PAID end-to-end run yet - the first live clone per route is its proof.
 | Shorts 9:16 | READY - aspect_ratio 9:16 + compressed cuts + loop rule | PARTIAL: aspect chosen at creation, but no shorts-specific pacing recipe | PORT skill -> platform |
 | Per-video format auto-detection | READY - Phase 1 frame/transcript classification (12 types) | PARTIAL: detection is channel-level (static_docu.py reads channel identity), not per-video | PORT skill -> platform |
 
-| Voice lock (speech-to-speech) | `clip_dialogue.py` swap_voice (Option A, prod @ d92c4a2d) | `revoice.py` | grok speaks -> ElevenLabs STS with pinned voice -> replace audio, map 0:v:0 (thumbnail trap), no bed (echo). DIVERGENCE (intentional): platform converts DRY (assembler lays its own bed); skill converts FULL MIX (stitch has no other bed). PLATFORM GAP: no two-speaker split - port revoice._split_two_speaker (matched-word anchor + pause fallback) before merged-turn masters run through swap_voice |
+| Voice lock (speech-to-speech) | `clip_dialogue.py` swap_voice (Option A, prod @ d92c4a2d) | `revoice.py` | grok speaks -> ElevenLabs STS with pinned voice -> replace audio, map 0:v:0 (thumbnail trap), no bed (echo). DIVERGENCE (intentional): platform converts DRY (assembler lays its own bed); skill converts FULL MIX (stitch has no other bed). two-speaker split IN PARITY since prod @ 2cc9b421 (clip_dialogue.swap_voice_turns + turn_boundaries, word timing via ElevenLabs Scribe since the VPS has no local whisper; 5 unit tests incl. the Supermercado case) |
 
 ## Deliberate differences (not drift)
 
