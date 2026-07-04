@@ -171,6 +171,11 @@ def poll(task_id, key, max_attempts=240, interval=5):
     return None, {}
 
 
+LAST_TASK_IDS = {}  # label -> kie taskId of the last gen() call; callers persist
+                    # these to urls.json so clips stay EXTENDABLE later
+                    # (grok-imagine/extend takes a task_id, not a video URL)
+
+
 def gen(model, inp, key, label):
     print(f"[{label}] {model} ...", flush=True)
     status, resp = post_json(CREATE, {"model": model, "input": inp}, key)
@@ -179,6 +184,7 @@ def gen(model, inp, key, label):
     tid = (resp.get("data") or {}).get("taskId")
     if not tid:
         print(f"[{label}] no taskId: {resp}"); return None
+    LAST_TASK_IDS[label] = tid
     urls, data = poll(tid, key)
     if not urls:
         print(f"[{label}] FAILED"); return None
@@ -520,6 +526,11 @@ def animate(spec, outdir):
                     key, f"{sh['name']} grok {gen_dur}s")
         if c:
             download(c, clip)
+            with threading.Lock():
+                state.setdefault("clip_task", {})[sh["name"]] = \
+                    LAST_TASK_IDS.get(f"{sh['name']} grok {gen_dur}s") or \
+                    LAST_TASK_IDS.get(sh["name"] + " seedance")
+                save_urls(outdir, state)
         return sh["name"], c
 
     if pending:
