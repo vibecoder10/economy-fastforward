@@ -1,0 +1,29 @@
+BEATS + COVERAGE EXAMPLE (worked, proven on the fishing demo)
+
+A "beat" is one moment shown from several matched angles. First shot = master
+(fully establishes the moment); the rest say "same moment, camera now [angle]" and
+get generated off the master so lighting/setting match. Keep screen direction
+consistent within a beat. Inserts (a prop, a detail) bridge cuts.
+
+Example beat (the catch), as it goes in spec.json "beats":
+
+[
+  {"name": "b4_med", "cut": 2.5,
+   "image": "Cinematic MEDIUM shot, Pixar 3D, 16:9. Jake (red plaid flannel, tan cap) kneels on the dock and hoists a shiny silver fish, big grin. Golden sunrise lake, lake on the LEFT.",
+   "motion": "Jake lifts the fish and breaks into a proud grin. Warm. No text.",
+   "dialogue": "Got him!"},
+  {"name": "b4_insert", "cut": 1.6,
+   "image": "Cinematic INSERT CLOSE-UP, Pixar 3D, 16:9. Same warm golden light. The silver fish glistening and dripping in his hand, sun on the scales.",
+   "motion": "The fish glistens, droplets fall, sunlight on the scales. No text.",
+   "dialogue": null},
+  {"name": "b4_wide", "cut": 4.0,
+   "image": "Cinematic WIDE CLOSING, Pixar 3D, 16:9. Pull back: Jake sits content on the dock by the calm golden lake, sun fully risen. Lake on the LEFT.",
+   "motion": "Slow pull-back and gentle hold, peaceful warm ending. No text.",
+   "dialogue": null}
+]
+
+Pacing guide for `cut`: wide/establishing 3-4s, medium 2-2.5s, close 2s, insert
+1.4-1.8s. Quicker cuts during action, hold the establishing and closing longer.
+
+dialogue: set it on shots where the character speaks. grok lip-syncs it. The voice
+is random per clip, so use it for one-off lines, not a consistent recurring voice.

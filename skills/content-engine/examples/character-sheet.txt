@@ -1,0 +1,31 @@
+REFERENCE SHEET TEMPLATE — person / character / mascot
+(Proven in Phase 0. Fill the brackets. If a seed image is used, add: "Match the
+attached reference image exactly.")
+
+Create a professional character reference sheet of the same character from multiple
+angles for consistent AI generation.
+
+Character: [name + appearance: age, build, face, hair, clothing, accessories, colors,
+and any distinctive details].
+
+Layout: display the same character in four views on a plain neutral grey studio
+background: Full Body Front (slight three-quarter front, head to toe); Full Body Back
+(straight rear view, full body); Front Portrait (head-and-shoulders front, showing
+facial features, hair texture, upper clothing); Side Portrait (head-and-shoulders left
+profile, 90 degree side view).
+
+Keep the same face, body proportions, hairstyle, outfit, colors, and accessories across
+all views. Clean balanced studio lighting with soft shadows and realistic material
+textures. Sharp, high detail. Neutral grey background only. No text, labels, logos,
+watermarks, props, or extra characters. Symmetrical, organized layout with equal spacing
+between views.
+
+Art Style: [e.g. Pixar-style 3D animation / realistic / anime / comic book].
+
+---
+PRODUCT VARIANT: replace the four character views with clean studio shots of the exact
+product from multiple angles (front, three-quarter, side, detail) on neutral grey, same
+lighting and consistency rules, no text or props.
+
+BRAND/STYLE VARIANT: a small style board locking the brand's colors, type feel, mood, and
+key visual motifs on a neutral background.
