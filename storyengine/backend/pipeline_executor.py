@@ -2682,9 +2682,14 @@ separate scenes."""
                         continue
                     await execute(
                         "INSERT INTO video_characters (tenant_id, video_id, name, description, "
-                        "reference_url, source, status, sort) VALUES ($1,$2,$3,$4,$5,'project','approved',$6)",
+                        "reference_url, source, status, sort, voice_name) "
+                        "VALUES ($1,$2,$3,$4,$5,'project','approved',$6,$7)",
                         self.tenant_id, video_id, (c.get("name") or f"Character {i+1}")[:120],
                         (c.get("description") or "")[:1000], c["reference_url"], i,
+                        # Channel voice pin rides the locked cast (Ryan=Adam,
+                        # Vanessa=Pamela) — auto-cast only fills BLANK voices,
+                        # so a pinned voice survives every future video.
+                        c.get("voice_name"),
                     )
                 await execute(
                     "UPDATE video_characters SET status = 'approved', updated_at = now() "

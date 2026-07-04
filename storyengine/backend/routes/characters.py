@@ -680,7 +680,7 @@ async def save_cast_to_project(video_id: str, tenant_id=Depends(get_tenant_id)):
     if not video.get("project_id"):
         raise HTTPException(status_code=400, detail="Video has no project.")
     rows = await fetch_all(
-        "SELECT name, description, reference_url FROM video_characters "
+        "SELECT name, description, reference_url, voice_name FROM video_characters "
         "WHERE video_id = $1 AND tenant_id = $2 AND reference_url IS NOT NULL "
         "ORDER BY sort, created_at",
         video_id, tenant_id,
@@ -699,6 +699,9 @@ async def save_cast_to_project(video_id: str, tenant_id=Depends(get_tenant_id)):
             "name": r["name"],
             "description": r.get("description") or "",
             "reference_url": r["reference_url"],
+            # The channel's voice pin travels with the cast — the locked
+            # import stamps it onto every future video's characters.
+            "voice_name": r.get("voice_name") or (by_name.get(r["name"]) or {}).get("voice_name"),
         }
     await execute(
         "UPDATE projects SET character_references = $1, updated_at = now() "
