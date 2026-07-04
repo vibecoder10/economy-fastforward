@@ -179,17 +179,20 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     return false;
   }, [castReady, environmentsReady, toast]);
 
-  // Voice exists when a narrator MP3 does OR when a character-dialogue
+  // Voice exists when a narrator MP3 does, OR when a character-dialogue
   // scene's per-segment performance track is fully voiced (the pure couple
   // format never writes voice_over_url — the gate locked a fully-voiced
-  // video out of its own Scenes tab, found live).
+  // video out of its own Scenes tab, found live), OR when the video is
+  // grok-native dialogue: the clips CARRY their voices, no narrator or TTS
+  // exists by design.
   const hasVoice = useMemo(() => {
     if ((scriptScenes ?? []).some((s) => !!s.voice_over_url)) return true;
     if (dialogueMap?.dialogue_mode !== "character_dialogue") return false;
+    if ((video as { dialogue_audio?: string | null }).dialogue_audio === "grok_native") return true;
     const dscenes = dialogueMap.scenes ?? [];
     return dscenes.length > 0 && dscenes.some(
       (sc) => (sc.segments ?? []).length > 0 && sc.segments.every((g) => g.voiced));
-  }, [scriptScenes, dialogueMap]);
+  }, [scriptScenes, dialogueMap, video]);
 
   // Voice is optional. When AI voice-over is off (skip_voice / no "voice" stage),
   // image segmentation is timed from word count instead (the backend's

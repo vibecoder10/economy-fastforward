@@ -453,7 +453,11 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice"}
+    # skip_voice records the guided flow's "skip the voiceover" choice — the
+    # Scenes gate reads it (advancing status alone left the gate locked).
+    if "skip_voice" in body and not isinstance(body["skip_voice"], bool):
+        raise HTTPException(status_code=400, detail="skip_voice must be a boolean")
     # aspect_ratio flows into image/video gen + render — reject anything unexpected.
     if "aspect_ratio" in body and body["aspect_ratio"] not in {"16:9", "9:16", "1:1", "4:3", "3:4"}:
         raise HTTPException(status_code=400, detail="Invalid aspect_ratio")

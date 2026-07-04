@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
 import {
   advanceVideo,
+  updateVideo,
   designCharacters,
   getVideoAssets,
   getVideoCharacters,
@@ -50,6 +51,12 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
     if (!action.skip) return;
     setSkipping(true);
     try {
+      // Skipping the VOICE step must be RECORDED, not just advanced past —
+      // the Scenes tab's voice gate reads skip_voice (found live: a
+      // grok-native short stayed locked out of its own Scenes tab).
+      if (action.key === "voice") {
+        await updateVideo(video.id, { skip_voice: true });
+      }
       await advanceVideo(video.id, action.skip.to);
       setSkipConfirm(false);
       refreshAll();
