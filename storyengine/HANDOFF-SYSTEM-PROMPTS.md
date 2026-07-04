@@ -181,3 +181,23 @@ sound design is mostly grok-native ambience + the assembler).
 - All three proof videos (43b2011f El Supermercado, 1c9f6383 La Farmacia,
   85c3e557 El Coche) are soft-deleted per Ryan. La Limpieza 18ee8458 kept -
   it predates the quiz-wording lock but its quiz already matches in spirit.
+
+## UPDATE (2026-07-04, same session): New Video modal fixes (deployed @ f2d6b43a)
+
+Ryan flagged two modal issues; both fixed and proven live on prod:
+
+1. **Ideas from your example channels now actually works.** discovery/refresh
+   scrapes the tenant's active example channels inline (YouTube Data API path,
+   ~10s for 2 channels) when competitor_videos is empty, then selects
+   candidates through relaxing tiers (strict fresh/high-VPH -> any unmodeled ->
+   remodel all) so small example channels still produce ideas. The idea prompt
+   now injects the locked house format so hits get MORPHED into the channel's
+   format. Proof: one click on "Generate from my channels" -> 32 videos
+   scraped, 5 ideas, all Ryan-y-Vanessa-shaped (e.g. Slow English's treasure
+   box story -> "He Found a Box That Said NO ABRIR").
+2. **Style picker preselects the channel's style with a gold rim.** New
+   GET /api/videos/style-default (locked channel format first, else the most
+   recent video's style, normalized to a preset id); the modal auto-selects
+   that preset with a gold border + "Your style" tag while remaining
+   changeable. Also fixes bare creations shipping with NULL visual_style when
+   no format lock exists (La Limpieza had hit that).
