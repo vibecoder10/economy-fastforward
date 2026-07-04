@@ -168,3 +168,16 @@ sound design is mostly grok-native ambience + the assembler).
   (creation snapshots house block + tenant row into the video). Thumbnail and
   video_motion edits apply live to any video without a per-video override.
 - EP2 (05ec4952) untouched, still staged at the gate.
+
+## UPDATE (2026-07-04, same session): quiz locked to the La Lavanderia shape + proof videos deleted
+
+- Ryan supplied the La Lavanderia transcript as the quiz exemplar. STORY RULE 5
+  now locks the exact shape: Vanessa opens "Bueno. Quiz time.", fires
+  "¿Qué es 'X'?" through every vocab word, Ryan answers meaning + callback
+  joke, one line each, "Muy bien" close, straight into the next-episode hook.
+- Proven on a throwaway "El Coche" generation: quiz came out in exactly that
+  shape (manguera/jabon/esponja... each with a callback), zero stage
+  directions again. Test video soft-deleted after proof.
+- All three proof videos (43b2011f El Supermercado, 1c9f6383 La Farmacia,
+  85c3e557 El Coche) are soft-deleted per Ryan. La Limpieza 18ee8458 kept -
+  it predates the quiz-wording lock but its quiz already matches in spirit.
