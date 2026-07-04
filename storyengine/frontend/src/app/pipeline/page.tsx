@@ -2,14 +2,14 @@
 import { Spinner } from "@/components/ui/spinner";
 import { VISUAL_PRESETS, type VisualPreset } from "@/lib/visual-presets";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
   RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
-  AlertTriangle, Key,
+  AlertTriangle, Key, Lock, CheckSquare,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -401,6 +401,34 @@ export default function VideosPage() {
       return "preset";
     });
   }, [createModalOpen, channelPresetId]);
+
+  // Per-channel stage preset ("what should we make" lock). Keyed by the
+  // active tenant so each client channel keeps its own default step plan.
+  const stagePresetKey = useCallback(
+    () => `new_video_stages.${(typeof window !== "undefined" && localStorage.getItem("se_active_tenant")) || "default"}`,
+    []
+  );
+  const savedStagePreset = prefs?.[stagePresetKey()] as Record<string, boolean> | undefined;
+  const stagesAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!createModalOpen) { stagesAppliedRef.current = false; return; }
+    if (stagesAppliedRef.current) return;
+    if (savedStagePreset && typeof savedStagePreset === "object") {
+      setNewStages({ ...ALL_STAGES_ON, ...savedStagePreset });
+      stagesAppliedRef.current = true;
+    }
+  }, [createModalOpen, savedStagePreset]);
+  const stagesMatchPreset = !!savedStagePreset &&
+    STAGE_KEYS.every((k) => (savedStagePreset[k] ?? true) === !!newStages[k]);
+  const lockStagePreset = () => {
+    const key = stagePresetKey();
+    setUserPreference(key, newStages).catch(() => {});
+    queryClient.setQueryData(["user-preferences"], (old: Record<string, unknown> | undefined) => ({
+      ...(old || {}),
+      [key]: newStages,
+    }));
+    toast.success("Locked in — new videos for this channel start with these steps");
+  };
 
   // Mutations
   const createMutation = useMutation({
@@ -1406,12 +1434,59 @@ export default function VideosPage() {
             )}
           </div>
 
+          {/* Video length — main-form slider */}
+          <div>
+            <label className="flex items-center justify-between text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+              <span className="flex items-center gap-1.5">
+                <Clock size={12} style={{ color: "var(--text-tertiary)" }} />
+                Video length
+              </span>
+              <span className="font-mono text-[11px]" style={{ color: "var(--turquoise)" }}>{newLength} min</span>
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={30}
+              step={1}
+              value={newLength}
+              onChange={(e) => setNewLength(Number(e.target.value))}
+              className="w-full cursor-pointer"
+              style={{ accentColor: "var(--turquoise)" }}
+            />
+            <div className="flex justify-between text-[9px]" style={{ color: "var(--text-tertiary)" }}>
+              <span>1 min</span>
+              <span>30 min</span>
+            </div>
+          </div>
+
           {/* What should we make? — per-video stage plan */}
           <div>
-            <label className="flex items-center gap-1.5 text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
-              <Film size={12} style={{ color: "var(--text-tertiary)" }} />
-              What should we make?
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                <Film size={12} style={{ color: "var(--text-tertiary)" }} />
+                What should we make?
+              </label>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setNewStages(ALL_STAGES_ON)}
+                  className="inline-flex items-center gap-1 text-[10px]"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  <CheckSquare size={10} /> Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={lockStagePreset}
+                  disabled={stagesMatchPreset}
+                  className="inline-flex items-center gap-1 text-[10px] font-medium"
+                  style={{ color: stagesMatchPreset ? "var(--gold)" : "var(--text-tertiary)" }}
+                  title="Save this step selection as the default for this channel"
+                >
+                  <Lock size={10} /> {stagesMatchPreset ? "Locked for this channel" : "Lock for this channel"}
+                </button>
+              </div>
+            </div>
             <p className="text-[10px] mb-2.5" style={{ color: "var(--text-tertiary)" }}>
               Turn steps on or off. Each step needs the one before it, so turning a step off turns off the steps after it.
             </p>
@@ -1490,86 +1565,6 @@ export default function VideosPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                  Angle / Thesis
-                </label>
-                <textarea
-                  value={newGuidance}
-                  onChange={(e) => setNewGuidance(e.target.value)}
-                  placeholder="What angle should the script take?"
-                  rows={2}
-                  className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none resize-none"
-                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                    Framework
-                  </label>
-                  <select
-                    value={newFramework}
-                    onChange={(e) => setNewFramework(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
-                    style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-                  >
-                    <option value="">None</option>
-                    <option value="Machiavellian Power Analysis">Machiavellian Power</option>
-                    <option value="Systems Thinking">Systems Thinking</option>
-                    <option value="Game Theory">Game Theory</option>
-                    <option value="Historical Parallel">Historical Parallel</option>
-                    <option value="Economic Analysis">Economic Analysis</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                    Video Length
-                  </label>
-                  <select
-                    value={newLength}
-                    onChange={(e) => setNewLength(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
-                    style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-                  >
-                    {[5, 8, 10, 12, 15, 20].map((n) => (
-                      <option key={n} value={n}>{n} minutes</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Accent Color */}
-              <div>
-                <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
-                  Accent Color
-                </label>
-                <div className="flex gap-2">
-                  {[
-                    { id: "cold teal", hex: "#1A8A7A", label: "Teal" },
-                    { id: "muted crimson", hex: "#8B2252", label: "Crimson" },
-                    { id: "warm amber", hex: "#D4A844", label: "Amber" },
-                    { id: "muted green", hex: "#4A7A5A", label: "Green" },
-                  ].map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => setNewAccentColor(newAccentColor === c.id ? "" : c.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs"
-                      style={{
-                        background: newAccentColor === c.id ? "rgba(255,255,255,0.08)" : "var(--bg-elevated)",
-                        border: `1px solid ${newAccentColor === c.id ? c.hex : "var(--border)"}`,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      <span className="inline-block w-3 h-3 rounded-full" style={{ background: c.hex }} />
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
 
