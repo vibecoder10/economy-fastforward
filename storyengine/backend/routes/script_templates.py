@@ -79,7 +79,14 @@ async def analyze_and_save_template(
 async def apply_default_template(tenant_id, video_id: str) -> bool:
     """Prepend the house template's format instructions to this video's
     script_system_prompt (creating it when empty). Fail-soft: returns False
-    when there's no template or on any error — never blocks a launch."""
+    when there's no template or on any error — never blocks a launch.
+
+    When the video has NO per-video prompt yet, the tenant's `script` row from
+    tenant_prompt_defaults (the System Prompts page) is composed in under the
+    house block. Without this, writing the house block alone into the per-video
+    column would SHADOW the tenant row forever (per-video wins the whole
+    precedence chain in resolve_prompt), turning the System Prompts page into a
+    dead control for every video created through create/queue/autopilot."""
     try:
         tpl = await fetch_one(
             "SELECT structure FROM script_templates WHERE tenant_id = $1 AND is_default "
@@ -91,7 +98,13 @@ async def apply_default_template(tenant_id, video_id: str) -> bool:
         block = "## The channel's house script format (follow this)\n" + tpl["structure"]
         await execute(
             """UPDATE videos SET script_system_prompt =
-                   $1 || COALESCE(E'\n\n' || script_system_prompt, ''), updated_at = now()
+                   $1 || COALESCE(E'\n\n' || script_system_prompt,
+                                  COALESCE(E'\n\n' || (
+                                      SELECT prompt_text FROM tenant_prompt_defaults
+                                       WHERE tenant_id = $3 AND prompt_key = 'script'
+                                         AND btrim(prompt_text) <> ''
+                                  ), '')),
+                   updated_at = now()
                WHERE id = $2 AND tenant_id = $3""",
             block, video_id, tenant_id,
         )
