@@ -1699,6 +1699,37 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def _stamp_padded_audio(self, video_id: str, scene: int, line: dict, pad_url: str) -> None:
+        """Record a speaking shot's padded performance audio on its segment in
+        the dialogue_segments jsonb. Two jobs: bookkeeping, and the media-proxy
+        ALLOWLIST — the proxy only serves DB-referenced files, and the talking-
+        clip model fetches this audio through it. Best-effort."""
+        try:
+            import json as _json
+            from clip_dialogue import norm as _norm
+            row = await fetch_one(
+                "SELECT id, dialogue_segments FROM scripts "
+                "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
+                video_id, self.tenant_id, scene)
+            raw = (row or {}).get("dialogue_segments")
+            if isinstance(raw, str):
+                raw = _json.loads(raw)
+            if not raw:
+                return
+            for seg in raw:
+                if (seg.get("type") == "dialogue"
+                        and _norm(seg.get("speaker")) == _norm(line.get("speaker"))
+                        and _norm(seg.get("text")) == _norm(line.get("text"))):
+                    seg["padded_audio_url"] = pad_url
+                    break
+            else:
+                return
+            await execute(
+                "UPDATE scripts SET dialogue_segments=$1, updated_at=now() WHERE id=$2",
+                _json.dumps(raw), row["id"])
+        except Exception as e:
+            print(f"[clips] padded-audio stamp failed ({str(e)[:120]})", flush=True)
+
     async def run_dialogue_voice(self, video_id: str, scene: int = None, progress_callback=None) -> dict:
         """Voice every dialogue_segments entry (per-segment performance track).
 
@@ -1848,7 +1879,7 @@ separate scenes."""
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, match_assigned,
                                        speaking_prompt, native_speaking_prompt, motion_guard,
-                                       duck_audio, download_voice, mux_voice,
+                                       duck_audio, download_voice, mux_voice, pad_line_audio,
                                        DIALOGUE_VOICE_LEAD_SECONDS, speech_seconds,
                                        spoken_word_count, pick_clip_duration, clip_cost_for)
             from shared.clients.image_client import CONTENT_POLICY_MARKER
@@ -2029,29 +2060,83 @@ separate scenes."""
                         # Loose sync by design (Ryan's call): scene
                         # continuity beats mouth precision in this format —
                         # see decisions.md 2026-06-12.
-                        # A coverage master already has a WRITTEN motion prompt
-                        # with its line embedded (motion-writer + assigned
-                        # line) — keep that direction; the generic
-                        # speaking_prompt is the fallback for legacy cards.
-                        if native_voices:
-                            core = native_speaking_prompt(lines, r.get("sentence_text"))
-                        elif vp and embedded_words > 0:
-                            core = vp
-                        else:
-                            core = speaking_prompt(lines)
-                        prompt = _decorate(core)
-                        # The whole spoken line has to fit inside the clip, or
-                        # Grok cuts it off. native = Grok times its own speech
-                        # (size from the word count); voice_over = the synthesized
-                        # line's measured length plus its lead-in.
-                        if native_voices:
-                            need = speech_seconds(spoken_word_count(core))
-                        else:
-                            need = (sum(float(l.get("duration") or 2.0) for l in lines)
-                                    + DIALOGUE_VOICE_LEAD_SECONDS)
-                        clip_dur = pick_clip_duration(need, durations)
-                        clip_url, img = await _animate_recover(r, img, prompt, clip_dur)
-                        clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
+                        # DUAL-ANIMATOR ROUTING (Ryan's call, 2026-07-03):
+                        # voice_over speaking shots animate via InfiniteTalk —
+                        # the mouth is GENERATED FROM the line's waveform, so
+                        # lip-sync is structural (Grok speaking was a coin flip:
+                        # the live test's second mouth never moved). Silent
+                        # shots keep Grok's camera/action motion. Any talking
+                        # failure falls back to the Grok+mux path below.
+                        clip_url = None
+                        clip_cost = 0.0
+                        clip_dur = None
+                        talked = False
+                        talking_model = os.getenv("TALKING_CLIP_MODEL", "infinitalk")
+                        if not native_voices and talking_model != "off":
+                            try:
+                                vbytes = [b for b in [await download_voice(l["audio_url"])
+                                                      for l in lines] if b]
+                                if vbytes:
+                                    padded = await pad_line_audio(
+                                        vbytes, head=DIALOGUE_VOICE_LEAD_SECONDS,
+                                        tail=float(os.getenv("PERFORM_DIALOGUE_TAIL", "0.25")))
+                                    pad_url = await upload_bytes(
+                                        padded, f"{video_id}/voice/padded/S{sc:02d}-{idx:02d}.mp3",
+                                        "audio/mpeg", tenant_id=self.tenant_id)
+                                    # The media proxy serves only DB-referenced
+                                    # files — stamp the padded url into the
+                                    # first line's segment jsonb (allowlist).
+                                    await self._stamp_padded_audio(video_id, sc, lines[0], pad_url)
+                                    talk_prompt = (
+                                        f"{(lines[0].get('speaker') or 'The character')} speaks "
+                                        "naturally with expressive face and small natural "
+                                        "gestures, keeping the exact pose, framing and scene "
+                                        "shown in the image.")
+                                    clip_url = await asyncio.wait_for(
+                                        client.generate_talking_video(
+                                            img + ".png" if "/api/media/drive/" in img else img,
+                                            _proxy_url(pad_url) + ".mp3",
+                                            prompt=talk_prompt,
+                                            resolution=_vres),
+                                        timeout=int(os.getenv("TALKING_CLIP_DEADLINE", "1200")))
+                                    if clip_url:
+                                        talked = True
+                                        audio_len = (DIALOGUE_VOICE_LEAD_SECONDS
+                                                     + sum(float(l.get("duration") or 2.0) for l in lines)
+                                                     + float(os.getenv("PERFORM_DIALOGUE_TAIL", "0.25")))
+                                        clip_dur = round(audio_len, 2)
+                                        clip_cost = round(audio_len * float(
+                                            os.getenv("INFINITALK_USD_PER_SEC", "0.03")), 3)
+                            except Exception as te:
+                                print(f"[clips] S{sc}.{idx} talking clip failed "
+                                      f"({str(te)[:120]}) — falling back to Grok", flush=True)
+                                clip_url = None
+                        if not clip_url:
+                            # Grok speaking path (grok_native, kill-switched
+                            # talking model, or InfiniteTalk failure).
+                            # A coverage master already has a WRITTEN motion
+                            # prompt with its line embedded — keep that
+                            # direction; generic speaking_prompt is the
+                            # fallback for legacy cards.
+                            if native_voices:
+                                core = native_speaking_prompt(lines, r.get("sentence_text"))
+                            elif vp and embedded_words > 0:
+                                core = vp
+                            else:
+                                core = speaking_prompt(lines)
+                            prompt = _decorate(core)
+                            # The whole spoken line has to fit inside the clip,
+                            # or Grok cuts it off. native = Grok times its own
+                            # speech; voice_over = the synthesized line's
+                            # measured length plus its lead-in.
+                            if native_voices:
+                                need = speech_seconds(spoken_word_count(core))
+                            else:
+                                need = (sum(float(l.get("duration") or 2.0) for l in lines)
+                                        + DIALOGUE_VOICE_LEAD_SECONDS)
+                            clip_dur = pick_clip_duration(need, durations)
+                            clip_url, img = await _animate_recover(r, img, prompt, clip_dur)
+                            clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
                         # card without one still animates (safe default) instead
@@ -2105,7 +2190,9 @@ separate scenes."""
                     # Narration cards keep quiet ambience either way — the
                     # renderer mixes narration and music over them.
                     try:
-                        if lines and not native_voices:
+                        if lines and not native_voices and talked:
+                            pass  # an InfiniteTalk clip already carries its line
+                        elif lines and not native_voices:
                             voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
                             vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
                             if vbytes:

@@ -334,6 +334,34 @@ async def mux_voice(clip_bytes: bytes, voice_bytes_list: list, delay_seconds: fl
     return await asyncio.to_thread(_sync)
 
 
+async def pad_line_audio(voice_bytes_list: list, head: float = 0.5,
+                         tail: float = 0.25) -> bytes:
+    """One MP3 for a speaking shot's full performance: the line(s) in order
+    with a silent head and tail. An audio-driven talking clip generated FROM
+    this is exactly window-length (head + lines + tail = the renderer's
+    dialogue span), so mouth and track align by construction."""
+    def _sync() -> bytes:
+        with tempfile.TemporaryDirectory() as td:
+            inputs: list = []
+            for i, vb in enumerate(voice_bytes_list):
+                vp = os.path.join(td, f"v{i}.mp3")
+                with open(vp, "wb") as f:
+                    f.write(vb)
+                inputs += ["-i", vp]
+            out = os.path.join(td, "padded.mp3")
+            n = len(voice_bytes_list)
+            chain = ("".join(f"[{i}:a]" for i in range(n))
+                     + f"concat=n={n}:v=0:a=1[c];" if n > 1 else "[0:a]anull[c];")
+            ms = int(round(max(0.0, head) * 1000))
+            graph = chain + f"[c]adelay={ms}:all=1,apad=pad_dur={tail:.3f}[a]"
+            _run_ffmpeg([*inputs, "-filter_complex", graph, "-map", "[a]",
+                         "-c:a", "libmp3lame", out])
+            with open(out, "rb") as f:
+                return f.read()
+
+    return await asyncio.to_thread(_sync)
+
+
 async def duck_audio(clip_bytes: bytes, gain: float = 0.3) -> bytes:
     """Turn the clip's invented audio into a quiet ambience bed.
 
