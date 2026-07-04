@@ -214,3 +214,24 @@ Ryan flagged two modal issues; both fixed and proven live on prod:
 - Removed Power-Doctrine-era fields: Angle/Thesis, Framework picker
   (Machiavellian etc.), Accent Color. Advanced options = Source URL only.
   Idea-picking still injects our_angle into writer_guidance invisibly.
+
+## UPDATE (2026-07-04, same session): locked cast rides every video (deployed @ 58017aa0)
+
+- apply_locked_cast (routes/characters.py): every video created on a
+  cast-locked project - create modal, queue, autopilot - starts with the
+  locked characters attached, approved, voice pins riding. Proven: fresh
+  create returned Ryan:approved + Vanessa:approved instantly (throwaway
+  deleted). Ryan's real "Spanish Class" video (cd5d2883) backfilled - its
+  Characters tab now shows both sheets.
+- Per-character `always` flag on projects.character_references: true (default)
+  = auto-attach to every video; false = optional extra, imported per video via
+  the Use Saved Cast picker. Honored by creation import AND the pipeline
+  characters-stage fast path.
+- Profile > Channel cast card grew management: generate a new character model
+  sheet in the channel's current style (name + description, ~$0.05, kie key),
+  Every video / Optional pill per character, hover-remove; new endpoints
+  POST /api/projects/current/cast/generate, PATCH/DELETE
+  /api/projects/current/cast/{name}.
+- Note: the male sheet's artwork says LEO but the character's NAME in the
+  system is Ryan (scripts, casting, voice pin all use Ryan). Regenerating the
+  sheet artwork with a RYAN header is a ~$0.05 one-off if wanted.
