@@ -716,6 +716,12 @@ async def _fetch_publish_dates(stubs: list[dict]) -> int:
 async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
     """Background task: scrape YouTube channels via yt-dlp and save to Supabase."""
     try:
+        # Callers that don't pre-seed the task entry (the daily auto-scrape
+        # loop in main.py) used to die instantly on the bare
+        # _scrape_tasks[tenant_id][...] writes below - KeyError(tenant_id),
+        # printed as "[Scrape] Error: '<uuid>'" - so the daily refresh never
+        # actually ran for ANY tenant. Seed the entry defensively.
+        _scrape_tasks.setdefault(tenant_id, {})["running"] = True
         # Get active channels
         channels = await fetch_all(
             """SELECT id, channel_name, channel_url, category
