@@ -45,6 +45,27 @@ isn't dropped. 20 unit tests + full-chain replay (tests/functional/
 test_dialogue_alignment.py). Ryan re-runs pictures on the Marco video next
 (~$2 for the scene); the assembler renders it.
 
+## UPDATE 3 (2026-07-04): PocoAPoco = couple format, Option A voice lock, EP2 staged
+
+Ryan's pivots, all LIVE on prod (latest @ d92c4a2d): channel format = Ryan &
+Vanessa couple dialogue (house template registered, project cast LOCKED with
+voice pins that now travel through the locked-cast import: Ryan=Adam
+zKTOd8cx…, Vanessa=Pamela pmruOMcx…, ElevenLabs DIRECT key in the PocoAPoco
+vault). Production mode = OPTION A: grok_native (Grok animates AND speaks)
++ clip_dialogue.swap_voice per speaking clip (ElevenLabs speech-to-speech,
+timing preserved so lips stay synced; VOICE_SWAP=off kill switch; falls back
+to Grok's take). InfiniteTalk dual-animator routing stays wired as plan B
+(TALKING_CLIP_MODEL). Pure-dialogue scenes plan masters-only in BOTH modes
+(the stitch plays every clip - extra frames ADD runtime).
+
+STAGED, DO NOT SPEND WITHOUT RYAN'S GO: EP2 "El Desayuno" 05ec4952 at the
+gate (script scrubbed of stage directions, cast+voices imported, 22-frame
+plan). Ryan said: "we'll do another test video end to end" - wait for his
+go, then run pictures -> animate (grok + voice swap) -> stitch in ONE run
+(~$4). Coffee Short 71a6b034 + dinner ep1 b885122f parked (voice_over era).
+Ryan-owed: rotate the VPS sudo password (it's in a chat transcript). nginx
+client_max_body_size 25m added (uploads over 1MB used to die at nginx).
+
 ## THE ORIGINAL TASK (done - kept for design context): the performance-track assembler (Ryan said build it)
 
 The hybrid bilingual format (characters speak Spanish, narrator teaches in English)
