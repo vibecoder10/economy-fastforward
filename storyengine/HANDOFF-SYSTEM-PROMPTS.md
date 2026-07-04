@@ -293,3 +293,21 @@ Environments generate). Was one-task-per-video (409).
 - Format note: pure-dialogue videos have no narrator track - the voice stage
   is a near-no-op; lines are spoken by the clips (Option A grok + ElevenLabs
   swap).
+
+## UPDATE (2026-07-04, same session): voice self-heals + refresh rehydration (deployed @ 15b8e1ce)
+
+Ryan's dialogue voiceover stalled at scene 3/4-partial. Root causes + fixes:
+1. dialogue_voice raised on a line that exhausted its 3 attempts - one bad
+   ElevenLabs call killed the whole run, and nothing followed up (resume only
+   on human re-click; per-segment persistence meant his re-click DID finish
+   it: 141/141 voiced). Now: failed lines are recorded and the run continues;
+   run_dialogue_voice does up to 2 automatic sweep passes over stragglers
+   (voiced lines skip - cheap + idempotent); if lines still remain the stage
+   returns FAILED with a run-again message, so queue/autopilot can never
+   advance on a half-voiced video.
+2. Task state was session-local: after a page refresh the tab looked idle
+   while the backend worked, so re-clicks bounced off the 409 guard with no
+   explanation. ScriptVoice/Environments/Characters tabs now query the task
+   on mount and restore their generating state (keyword-routed to the right
+   sub-state). Proof: full reload during a live storyboard run kept the
+   progress bar + Stop visible.
