@@ -311,3 +311,25 @@ Ryan's dialogue voiceover stalled at scene 3/4-partial. Root causes + fixes:
    on mount and restore their generating state (keyword-routed to the right
    sub-state). Proof: full reload during a live storyboard run kept the
    progress bar + Stop visible.
+
+## UPDATE (2026-07-04, same session): SCENE LOCK fixed (deployed @ aa51d2d3)
+
+Ryan: "the storyboards that ran - the scene is not locking." Root cause: the
+coverage engine has supported environment refs all along
+(run_coverage(env_url) conditions master + every angle), but the backend
+caller never passed them - sheets got cast refs ONLY, frames the same, and
+assets.location_id stayed NULL (the old grid path's env resolution had
+nothing to match). Environments were approved and simply never used.
+- _approved_envs + _match_scene_env in coverage_to_app: scene -> ONE approved
+  environment via distinctive-word count on the directive/scene text (single
+  env auto-wins; ambiguous = no lock, never a wrong one).
+- Sheets: env reference image appended after the cast sheets + a LOCKED
+  LOCATION block (name + designed description) on every sheet prompt.
+- Frames ("Generate pictures"): run_coverage(env_url=...) + location_id
+  stamped on every stored frame.
+- PROOF: regenerated Scene 1's sheets on the Spanish Class video - all 12
+  panels now show the EXACT approved "Home kitchen - cram session" reference
+  (yellow retro fridge, teal cabinets, window plants, island with potatoes/
+  onions/eggs) held identically across panels. Scenes 2-4 sheets predate the
+  fix - regenerate per scene before drawing pictures if the lock matters
+  there (~$0.075/sheet).
