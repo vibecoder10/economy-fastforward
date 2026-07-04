@@ -29,7 +29,7 @@ import {
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
   launchIdea, dismissIdea, getUserPreferences, setUserPreference,
   getReadinessStatus, setApiKey, testApiKey,
-  getNicheChannels, suggestTitles,
+  getNicheChannels, suggestTitles, getStyleDefault,
   type VideoSummary, type DiscoveryIdea, type TitleOption, type TitleSuggestion,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -382,6 +382,25 @@ export default function VideosPage() {
     enabled: createModalOpen,
     staleTime: 60000,
   });
+
+  // The channel's current visual style — preselected in the picker (gold rim)
+  // so a bare creation comes out in the channel's look, not styleless.
+  const { data: styleDefault } = useQuery({
+    queryKey: ["styleDefault"],
+    queryFn: getStyleDefault,
+    enabled: createModalOpen,
+    staleTime: 60000,
+  });
+  const channelPresetId = styleDefault?.preset_id || "";
+  useEffect(() => {
+    if (!createModalOpen || !channelPresetId) return;
+    // Only auto-select while the creator hasn't touched the style section.
+    setStyleMode((mode) => {
+      if (mode !== "") return mode;
+      setStylePresetId(channelPresetId);
+      return "preset";
+    });
+  }, [createModalOpen, channelPresetId]);
 
   // Mutations
   const createMutation = useMutation({
@@ -1308,18 +1327,31 @@ export default function VideosPage() {
             <div className="grid grid-cols-3 gap-2">
               {VISUAL_PRESETS.map((p) => {
                 const active = styleMode === "preset" && stylePresetId === p.id;
+                const isChannelStyle = p.id === channelPresetId;
+                // The channel's own style gets a gold rim when selected — it's
+                // preselected on open, so a bare creation ships in-brand.
+                const accent = active ? (isChannelStyle ? "var(--gold)" : "var(--turquoise)") : "var(--border)";
                 return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => { setStyleMode("preset"); setStylePresetId(p.id); }}
-                    className="flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg transition-all text-xs"
+                    className="relative flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg transition-all text-xs"
                     style={{
-                      background: active ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
-                      border: `1px solid ${active ? "var(--turquoise)" : "var(--border)"}`,
+                      background: active ? (isChannelStyle ? "var(--gold-dim)" : "rgba(0,212,170,0.1)") : "var(--bg-elevated)",
+                      border: `1px solid ${accent}`,
+                      boxShadow: active && isChannelStyle ? "0 0 0 1px var(--gold)" : undefined,
                       color: "var(--text-primary)",
                     }}
                   >
+                    {isChannelStyle && (
+                      <span
+                        className="absolute -top-2 px-1.5 py-0.5 rounded-full text-[9px] font-semibold"
+                        style={{ background: "var(--gold)", color: "var(--bg-void)" }}
+                      >
+                        Your style
+                      </span>
+                    )}
                     <img
                       src={p.icon}
                       alt={p.label}

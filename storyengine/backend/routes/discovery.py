@@ -6,7 +6,7 @@ stores results in discovery_ideas table. Supports on-demand refresh and one-clic
 
 import json
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
@@ -359,6 +359,44 @@ async def dismiss_idea(
 
 # --- Background Generation Logic ---
 
+_COMPETITOR_SELECT = """SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.vph,
+              cv.hours_old, cv.published_date, cv.thumbnail_url, cv.duration_seconds,
+              cv.distilled_at,
+              ci.summary as distilled_summary,
+              ci.structured_metadata as distilled_metadata,
+              CASE WHEN cv.distilled_at IS NOT NULL THEN NULL
+                   ELSE LEFT(cv.transcript, 500) END as transcript_hook
+       FROM competitor_videos cv
+       LEFT JOIN content_intelligence ci
+           ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
+           AND ci.source_type = 'competitor_transcript'
+       WHERE cv.tenant_id = $1
+         {extra}
+       ORDER BY cv.vph DESC NULLS LAST
+       LIMIT 15"""
+
+
+async def _fetch_candidate_competitors(tenant_id: str) -> list:
+    """Best candidate competitor videos, relaxing the bar tier by tier.
+
+    Tier 1 is the original strict filter (fresh + high-VPH + unmodeled). Small
+    example channels (the normal case for a new creator) almost never clear
+    it, so tier 2 takes ANY unmodeled videos best-first, and tier 3 allows
+    remodeling everything rather than returning nothing."""
+    tiers = (
+        """AND cv.vph >= 50
+         AND cv.published_date >= (NOW() - INTERVAL '14 days')
+         AND (cv.modeled = false OR cv.modeled IS NULL)""",
+        "AND (cv.modeled = false OR cv.modeled IS NULL)",
+        "",
+    )
+    for extra in tiers:
+        rows = await fetch_all(_COMPETITOR_SELECT.format(extra=extra), tenant_id)
+        if rows:
+            return rows
+    return []
+
+
 async def _run_discovery_generation(tenant_id: str, batch_id: str):
     """Generate ideas from recent competitor videos using Claude.
 
@@ -376,53 +414,53 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             _refresh_tasks[tenant_id] = {"running": False, "error": "No Claude or kie.ai API key configured. Add one in Settings → API Keys."}
             return
 
-        # Fetch recent high-VPH competitor videos (not yet modeled)
-        # Use distilled intelligence when available, fall back to raw transcript
-        competitors = await fetch_all(
-            """SELECT cv.id, cv.video_id, cv.title, cv.url, cv.channel, cv.vph,
-                      cv.hours_old, cv.published_date, cv.thumbnail_url, cv.duration_seconds,
-                      cv.distilled_at,
-                      ci.summary as distilled_summary,
-                      ci.structured_metadata as distilled_metadata,
-                      CASE WHEN cv.distilled_at IS NOT NULL THEN NULL
-                           ELSE LEFT(cv.transcript, 500) END as transcript_hook
-               FROM competitor_videos cv
-               LEFT JOIN content_intelligence ci
-                   ON ci.source_id = cv.id AND ci.tenant_id = cv.tenant_id
-                   AND ci.source_type = 'competitor_transcript'
-               WHERE cv.tenant_id = $1
-                 AND cv.vph >= 50
-                 AND cv.published_date >= (NOW() - INTERVAL '14 days')
-                 AND (cv.modeled = false OR cv.modeled IS NULL)
-               ORDER BY cv.vph DESC
-               LIMIT 15""",
-            tenant_id,
-        )
+        # Fetch candidate competitor videos, best-first with relaxing tiers
+        # (small example channels rarely clear the strict fresh/high-VPH bar).
+        competitors = await _fetch_candidate_competitors(tenant_id)
 
         if not competitors:
-            # Check if there are ANY competitor videos to give a better error
-            total = await fetch_one(
-                "SELECT COUNT(*) as count FROM competitor_videos WHERE tenant_id = $1",
+            # Nothing usable yet. If the creator HAS example channels but they
+            # were never scraped (or stored nothing), scrape them right here
+            # instead of bouncing the creator to another page - that is what
+            # "generate ideas from my channels" means.
+            ch_row = await fetch_one(
+                "SELECT COUNT(*) as count FROM competitor_channels WHERE tenant_id = $1 AND active = true",
                 tenant_id,
             )
-            total_count = total.get("count", 0) if total else 0
+            active_channels = ch_row.get("count", 0) if ch_row else 0
 
-            # Debug: check VPH distribution
-            vph_stats = await fetch_one(
-                "SELECT MAX(vph) as max_vph, AVG(vph) as avg_vph, COUNT(*) FILTER (WHERE vph > 0) as with_vph FROM competitor_videos WHERE tenant_id = $1",
-                tenant_id,
-            )
-            max_vph = float(vph_stats.get("max_vph") or 0) if vph_stats else 0
-            avg_vph = float(vph_stats.get("avg_vph") or 0) if vph_stats else 0
-            with_vph = int(vph_stats.get("with_vph") or 0) if vph_stats else 0
+            if active_channels == 0:
+                msg = "No example channels yet. Add one with Manage channels and we'll model ideas from it."
+                print(f"[Discovery] {msg}")
+                _refresh_tasks[tenant_id] = {"running": False, "error": msg}
+                return
 
-            if total_count == 0:
-                msg = "No competitor videos in database. Scrape competitor channels first."
-            else:
-                msg = f"No eligible competitor videos (need VPH >= 50, published within the last 14 days). {total_count} total, {with_vph} with VPH > 0, max VPH: {max_vph:.1f}, avg VPH: {avg_vph:.1f}. Try scraping channels with more popular recent videos."
-            print(f"[Discovery] {msg}")
-            _refresh_tasks[tenant_id] = {"running": False, "error": msg}
-            return
+            print(f"[Discovery] No competitor videos for tenant {tenant_id}; scraping {active_channels} example channels inline")
+            _refresh_tasks[tenant_id] = {"running": True, "stage": "scraping_channels"}
+            try:
+                from routes.niche import _run_scrape, _scrape_tasks
+                if not _scrape_tasks.get(tenant_id, {}).get("running"):
+                    _scrape_tasks[tenant_id] = {
+                        "running": True,
+                        "started": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await _run_scrape(tenant_id)
+            except Exception as e:  # noqa: BLE001 - fail into the friendly error below
+                print(f"[Discovery] inline scrape failed: {e}")
+
+            competitors = await _fetch_candidate_competitors(tenant_id)
+            if not competitors:
+                scrape_err = ""
+                try:
+                    from routes.niche import _scrape_tasks as _st
+                    scrape_err = (_st.get(tenant_id, {}) or {}).get("error") or ""
+                except Exception:  # noqa: BLE001
+                    pass
+                msg = "Couldn't read any videos from your example channels." + (f" ({scrape_err})" if scrape_err else " Check the channel links in Manage channels.")
+                print(f"[Discovery] {msg}")
+                _refresh_tasks[tenant_id] = {"running": False, "error": msg}
+                return
+            _refresh_tasks[tenant_id] = {"running": True, "stage": "generating_ideas"}
 
         # Build competitor list for Claude (prefer distilled intelligence over raw transcript)
         comp_list = []
@@ -516,7 +554,22 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         except Exception as e:
             print(f"[Discovery] Error loading channel profile: {e}")
 
-        prompt = _build_discovery_prompt(comp_list, learnings_context, channel_name, channel_niche)
+        # House format (if the creator locked one): ideas must MORPH into it,
+        # never copy the competitor's format. E.g. an English-teaching essay
+        # channel's hit becomes a couple-dialogue Spanish episode.
+        house_format = ""
+        try:
+            tpl = await fetch_one(
+                "SELECT name, structure FROM script_templates WHERE tenant_id = $1 AND is_default "
+                "ORDER BY created_at DESC LIMIT 1",
+                tenant_id,
+            )
+            if tpl and (tpl.get("structure") or "").strip():
+                house_format = f"{tpl.get('name') or 'house format'}: {tpl['structure'][:400]}"
+        except Exception as e:
+            print(f"[Discovery] Error loading house format: {e}")
+
+        prompt = _build_discovery_prompt(comp_list, learnings_context, channel_name, channel_niche, house_format)
         # Slop-proofing: force new titles to diverge from THIS channel's own
         # recent videos (a different formula/structure, not just a different
         # topic), so it never ships look-alike titles — a key mass-produced
@@ -741,7 +794,8 @@ async def _get_learnings_context(tenant_id: str) -> str:
 
 
 def _build_discovery_prompt(competitors: list[dict], learnings_context: str = "",
-                            channel_name: str = "", channel_niche: str = "") -> str:
+                            channel_name: str = "", channel_niche: str = "",
+                            house_format: str = "") -> str:
     """Build the Claude prompt for idea generation.
 
     Includes static Master Formula rules + dynamic learnings from Supabase.
@@ -780,8 +834,17 @@ TITLE CRAFT RULES (adapt to the "{ch_niche}" niche — do NOT impose any other t
 - Thumbnail text: 1-3 short punchy words that match the title's emotion.
 """
 
+    format_block = ""
+    if house_format:
+        format_block = f"""
+OUR CHANNEL'S LOCKED FORMAT (every idea must be morphed INTO this format - the competitor's
+topic and appeal survive, their format does not):
+{house_format}
+"""
+
     return f"""You are a YouTube content strategist for a {ch_niche} channel called "{ch_name}".
 Analyze what makes these competitor videos successful — their titles, hooks, and structures — then generate unique angles for OUR channel.
+{format_block}
 
 {mf_rules}
 {learnings_context}

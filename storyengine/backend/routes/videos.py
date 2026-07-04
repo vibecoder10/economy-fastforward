@@ -179,6 +179,64 @@ async def list_videos(
     ]
 
 
+_STYLE_PRESET_IDS = {"pixar_3d", "flat_2d", "realistic", "anime", "watercolor", "comic"}
+
+
+def _normalize_style_preset(value: str) -> Optional[str]:
+    """Map a stored visual_style (preset id OR display label like 'Pixar 3D')
+    onto one of the six canonical preset ids. None when unmappable."""
+    v = (value or "").strip().lower()
+    if not v:
+        return None
+    key = v.replace(" ", "_").replace("-", "_")
+    if key in _STYLE_PRESET_IDS:
+        return key
+    if "pixar" in v or "3d" in v:
+        return "pixar_3d"
+    if "flat" in v or "2d" in v:
+        return "flat_2d"
+    if "anime" in v:
+        return "anime"
+    if "watercolor" in v or "storybook" in v:
+        return "watercolor"
+    if "comic" in v:
+        return "comic"
+    if "real" in v or "cinematic" in v or "photo" in v:
+        return "realistic"
+    return None
+
+
+@router.get("/style-default")
+async def get_style_default(tenant_id: str = Depends(get_tenant_id)):
+    """The channel's current visual style as a preset id, so the New Video
+    modal can preselect it. The locked channel format wins; otherwise the most
+    recent video's style. preset_id is null when the channel has no style
+    signal yet (brand-new tenant)."""
+    preset, source = None, None
+    try:
+        from channel_format import get_channel_format, style_preset_for_format
+        fmt, locked = await get_channel_format(tenant_id)
+        if locked:
+            preset = style_preset_for_format(fmt)
+            if preset:
+                source = "locked_format"
+    except Exception as e:  # noqa: BLE001 - fall through to recent-video signal
+        logging.getLogger(__name__).warning("style-default: format lookup failed: %s", e)
+    if not preset:
+        row = await fetch_one(
+            """SELECT visual_style FROM videos
+               WHERE tenant_id = $1 AND deleted_at IS NULL
+                 AND visual_style IS NOT NULL AND btrim(visual_style) <> ''
+               ORDER BY created_at DESC LIMIT 1""",
+            tenant_id,
+        )
+        if row and row.get("visual_style"):
+            preset = _normalize_style_preset(row["visual_style"])
+            if preset:
+                source = "recent_video"
+    return {"preset_id": preset, "source": source}
+
+
 @router.post("", response_model=VideoSummary)
 async def create_video(
     body: CreateVideoRequest,

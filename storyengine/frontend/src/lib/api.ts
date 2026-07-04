@@ -918,6 +918,12 @@ export const rejectSuggestion = (videoId: string) =>
     { method: "POST" }
   );
 
+// Channel's current visual style (locked format, else most recent video)
+export const getStyleDefault = () =>
+  fetchApi<{ preset_id: string | null; source: "locked_format" | "recent_video" | null }>(
+    "/api/videos/style-default"
+  );
+
 // Discovery Ideas
 export const getDiscoveryIdeas = (status?: string, limit?: number) =>
   fetchApi<DiscoveryIdea[]>(
