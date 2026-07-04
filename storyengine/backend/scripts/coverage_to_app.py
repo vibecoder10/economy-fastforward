@@ -117,11 +117,45 @@ async def build_cast_prompt(claude, script_text: str, model=None, style: str | N
     return (text or "").strip()
 
 
-async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment) -> int:
+async def _approved_envs(vid, tenant) -> list[dict]:
+    """The creator-approved environment references (the Environments tab).
+    Empty for videos that never designed locations."""
+    try:
+        rows = await fetch_all(
+            "SELECT name, description, reference_url FROM video_environments "
+            "WHERE video_id=$1 AND tenant_id=$2 AND reference_url IS NOT NULL "
+            "ORDER BY sort, created_at", vid, tenant)
+        return [dict(r) for r in rows if r.get("name") and r.get("reference_url")]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
+    """Pick the ONE approved environment this scene lives in, by counting the
+    environment name's distinctive words in the scene's plan/text. With one
+    approved environment it always wins; with several and no signal, None
+    (better no lock than the wrong location)."""
+    if not envs:
+        return None
+    if len(envs) == 1:
+        return envs[0]
+    low = (text or "").lower()
+    best, best_score = None, 0
+    for e in envs:
+        words = {w for w in re.split(r"[^a-z0-9]+", (e["name"] or "").lower()) if len(w) > 3}
+        score = sum(low.count(w) for w in words)
+        if score > best_score:
+            best, best_score = e, score
+    return best
+
+
+async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, location_id=None) -> int:
     """Delete this scene's prior coverage rows, then insert the new frames. Each
     item is (summary, frames, speaker, line); the moment's spoken line (assigned
     by the coverage planner) is stored on its MASTER frame as assigned_dialogue
-    so it carries to the clip exactly. Returns count."""
+    so it carries to the clip exactly. location_id (the approved environment
+    name) rides every frame so downstream steps can re-resolve the scene's
+    locked location. Returns count."""
     await execute(
         "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
         "AND generation_method='coverage'", vid, tenant, scene)
@@ -140,11 +174,12 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment) -> in
             await execute(
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
-                "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15)",
+                "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
+                "location_id) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15,$16)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
-                title, aspect, url, url, is_master, assigned,
+                title, aspect, url, url, is_master, assigned, location_id,
             )
             idx += 1
     return idx - COVERAGE_INDEX_BASE
@@ -629,6 +664,10 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
         "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
         "AND reference_url IS NOT NULL ORDER BY sort", vid, tenant)
     cast_refs = [r["reference_url"] for r in crows]
+    # SCENE LOCK: the approved environment reference conditions every sheet so
+    # panel backgrounds match the designed location instead of drifting (the
+    # engine supported env refs; this caller never passed them).
+    envs = await _approved_envs(vid, tenant)
 
     done = 0
     total_shots = 0
@@ -651,12 +690,23 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
         shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
 
         prompts = _plan_sheet_prompts(moments, style_dir)
+        env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
+        env_block = ""
+        sheet_refs = list(cast_refs)
+        if env:
+            env_block = (
+                f"\nLOCKED LOCATION — {env['name']}: every panel's background is this EXACT "
+                "location as shown in the FINAL reference image (after the cast sheets): "
+                f"{(env.get('description') or '')[:220]}. Keep the location's layout, colors and "
+                "props IDENTICAL across all panels; never invent a different room or set."
+            )
+            sheet_refs.append(env["reference_url"])
         urls: list = []
         for bi, sp in enumerate(prompts[:5], start=1):
             _p(f"Scene {sc}: drawing storyboard sheet {bi}/{min(len(prompts), 5)} "
                f"({shot_count} shots)…")
-            res = (await ic.generate_thumbnail_gpt2(sp, cast_refs, aspect) if cast_refs
-                   else await ic.generate_scene_image_gpt(sp, None, aspect))
+            res = (await ic.generate_thumbnail_gpt2(sp + env_block, sheet_refs, aspect) if sheet_refs
+                   else await ic.generate_scene_image_gpt(sp + env_block, None, aspect))
             url = res.get("url") if isinstance(res, dict) else res
             if url:
                 urls.append(await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant))
@@ -1120,6 +1170,9 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     if not cast_refs:
         return {"status": "failed", "error": "no cast to anchor on — lock characters first"}
 
+    # SCENE LOCK: same approved-environment conditioning for the real frames.
+    envs = await _approved_envs(vid, tenant)
+
     total = 0
     for s in targets:
         sc = s["scene"]
@@ -1143,12 +1196,13 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
         if directive is None:
             _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
+        env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         out = await run_coverage(
             beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
             video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
             anthropic_client=claude, directive_model=claude_model, directive_text=directive,
             max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
-            aspect=aspect)
+            aspect=aspect, env_url=(env or {}).get("reference_url"))
         if out.get("error"):
             _p(f"Scene {sc}: skipped ({out['error']})")
             continue
@@ -1159,7 +1213,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         _reconcile_moment_dialogue(out["moments"], s["scene_text"] or "")
         frames_by_moment = [(m["summary"], m["frames"], m.get("speaker"), m.get("line"))
                             for m in out["moments"]]
-        n = await store_scene(vid, tenant, title, aspect, sc, frames_by_moment)
+        n = await store_scene(vid, tenant, title, aspect, sc, frames_by_moment,
+                              location_id=(env or {}).get("name"))
         await set_scene_board(vid, tenant, sc, outdir, title=title)
         # Write a real per-shot grok-imagine MOTION prompt onto each frame, so the clip
         # generator animates with intent instead of falling back to a hardcoded push-in.
