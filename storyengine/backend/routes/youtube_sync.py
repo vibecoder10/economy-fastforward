@@ -193,24 +193,25 @@ async def _run_sync(tenant_id: str):
 
             _sync_tasks[tenant_id]["videos_total"] = len(details)
 
-            # 3. Mirror into channel_videos
+            # 3. Mirror into channel_videos (video_id = the YouTube video id;
+            # table shared with onboarding intelligence, which owns transcripts)
             for d in details:
                 try:
                     await execute(
                         """INSERT INTO channel_videos
-                             (tenant_id, youtube_video_id, title, thumbnail_url, published_at,
-                              duration_seconds, privacy_status, views, likes, comments,
-                              last_synced_at, updated_at)
+                             (tenant_id, video_id, title, thumbnail_url, published_at,
+                              duration_seconds, privacy_status, view_count, like_count,
+                              comment_count, last_synced_at, updated_at)
                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now())
-                           ON CONFLICT (tenant_id, youtube_video_id) DO UPDATE SET
+                           ON CONFLICT (tenant_id, video_id) DO UPDATE SET
                              title = EXCLUDED.title,
                              thumbnail_url = EXCLUDED.thumbnail_url,
                              published_at = EXCLUDED.published_at,
                              duration_seconds = EXCLUDED.duration_seconds,
                              privacy_status = EXCLUDED.privacy_status,
-                             views = EXCLUDED.views,
-                             likes = EXCLUDED.likes,
-                             comments = EXCLUDED.comments,
+                             view_count = EXCLUDED.view_count,
+                             like_count = EXCLUDED.like_count,
+                             comment_count = EXCLUDED.comment_count,
                              last_synced_at = now(),
                              updated_at = now()""",
                         tenant_id, d["video_id"], d["title"], d["thumbnail"],
@@ -242,8 +243,8 @@ async def _run_sync(tenant_id: str):
                 for vid, m in per_video.items():
                     sets = []
                     values = []
-                    for col in ("impressions", "ctr", "avg_view_duration_seconds",
-                                "avg_view_percentage", "watch_time_hours", "subscribers_gained"):
+                    for col in ("impressions", "ctr_percent", "avg_view_duration_seconds",
+                                "avg_retention", "watch_time_hours", "subscribers_gained"):
                         if m.get(col) is not None:
                             values.append(m[col])
                             sets.append(f"{safe_column(col)} = ${len(values)}")
@@ -253,7 +254,7 @@ async def _run_sync(tenant_id: str):
                     values.append(vid)
                     await execute(
                         f"UPDATE channel_videos SET {', '.join(sets)}, updated_at = now() "
-                        f"WHERE tenant_id = ${len(values) - 1} AND youtube_video_id = ${len(values)}",
+                        f"WHERE tenant_id = ${len(values) - 1} AND video_id = ${len(values)}",
                         *values,
                     )
             except Exception as e:
@@ -329,17 +330,17 @@ async def _match_internal_videos(tenant_id: str) -> int:
     matching — a wrong link would poison the learning loop.
     """
     await execute(
-        """UPDATE channel_videos cv SET video_id = v.id
+        """UPDATE channel_videos cv SET internal_video_id = v.id
            FROM videos v
-           WHERE cv.tenant_id = $1 AND cv.video_id IS NULL
+           WHERE cv.tenant_id = $1 AND cv.internal_video_id IS NULL
              AND v.tenant_id = $1
-             AND v.youtube_video_id = cv.youtube_video_id""",
+             AND v.youtube_video_id = cv.video_id""",
         tenant_id,
     )
     await execute(
-        """UPDATE channel_videos cv SET video_id = v.id
+        """UPDATE channel_videos cv SET internal_video_id = v.id
            FROM videos v
-           WHERE cv.tenant_id = $1 AND cv.video_id IS NULL
+           WHERE cv.tenant_id = $1 AND cv.internal_video_id IS NULL
              AND v.tenant_id = $1
              AND v.youtube_video_id IS NULL
              AND v.status IN ('done', 'uploaded_draft')
@@ -351,17 +352,17 @@ async def _match_internal_videos(tenant_id: str) -> int:
     # Backfill the internal row so the rest of the app knows it's live
     await execute(
         """UPDATE videos v SET
-             youtube_video_id = cv.youtube_video_id,
-             youtube_url = 'https://youtu.be/' || cv.youtube_video_id,
+             youtube_video_id = cv.video_id,
+             youtube_url = 'https://youtu.be/' || cv.video_id,
              upload_date = COALESCE(v.upload_date, cv.published_at),
              updated_at = now()
            FROM channel_videos cv
            WHERE cv.tenant_id = $1 AND v.tenant_id = $1
-             AND cv.video_id = v.id AND v.youtube_video_id IS NULL""",
+             AND cv.internal_video_id = v.id AND v.youtube_video_id IS NULL""",
         tenant_id,
     )
     row = await fetch_one(
-        "SELECT COUNT(*)::int AS n FROM channel_videos WHERE tenant_id = $1 AND video_id IS NOT NULL",
+        "SELECT COUNT(*)::int AS n FROM channel_videos WHERE tenant_id = $1 AND internal_video_id IS NOT NULL",
         tenant_id,
     )
     return row["n"] if row else 0
@@ -371,40 +372,41 @@ async def _writeback_matched_videos(tenant_id: str):
     """Copy synced channel metrics onto linked `videos` rows and fill the
     write-once 24h/48h/7d/30d snapshot columns the learning loop reads."""
     rows = await fetch_all(
-        """SELECT cv.video_id AS internal_id, cv.published_at, cv.views, cv.likes, cv.comments,
-                  cv.impressions, cv.ctr, cv.avg_view_duration_seconds,
-                  cv.avg_view_percentage, cv.watch_time_hours, cv.subscribers_gained,
+        """SELECT cv.internal_video_id AS internal_id, cv.published_at,
+                  cv.view_count, cv.like_count, cv.comment_count,
+                  cv.impressions, cv.ctr_percent, cv.avg_view_duration_seconds,
+                  cv.avg_retention AS cv_retention, cv.watch_time_hours, cv.subscribers_gained,
                   v.upload_date, v.views_24h, v.views_48h, v.views_7d, v.views_30d,
                   v.ctr_48h, v.retention_48h
            FROM channel_videos cv
-           JOIN videos v ON v.id = cv.video_id
+           JOIN videos v ON v.id = cv.internal_video_id
            WHERE cv.tenant_id = $1""",
         tenant_id,
     )
     for r in rows:
         upload_date = r["upload_date"] or r["published_at"]
         update_fields: dict = {
-            "views": r["views"] or 0,
-            "likes": r["likes"] or 0,
-            "comments": r["comments"] or 0,
+            "views": r["view_count"] or 0,
+            "likes": r["like_count"] or 0,
+            "comments": r["comment_count"] or 0,
             "last_analytics_sync": datetime.now(timezone.utc),
         }
         if r["avg_view_duration_seconds"] is not None:
             update_fields["avg_view_duration_seconds"] = r["avg_view_duration_seconds"]
-        if r["avg_view_percentage"] is not None:
-            update_fields["avg_retention"] = r["avg_view_percentage"]
+        if r["cv_retention"] is not None:
+            update_fields["avg_retention"] = r["cv_retention"]
         if r["watch_time_hours"] is not None:
             update_fields["watch_time_hours"] = r["watch_time_hours"]
         if r["subscribers_gained"] is not None:
             update_fields["subscribers_gained"] = r["subscribers_gained"]
         if r["impressions"] is not None:
             update_fields["impressions"] = r["impressions"]
-        if r["ctr"] is not None:
-            update_fields["ctr"] = r["ctr"]
+        if r["ctr_percent"] is not None:
+            update_fields["ctr"] = r["ctr_percent"]
 
-        analytics = {"ctr": r["ctr"], "avg_retention": r["avg_view_percentage"]}
+        analytics = {"ctr": r["ctr_percent"], "avg_retention": r["cv_retention"]}
         snapshots = _calculate_snapshots(
-            dict(r), {"views": r["views"] or 0}, analytics, upload_date
+            dict(r), {"views": r["view_count"] or 0}, analytics, upload_date
         )
         update_fields.update(snapshots)
 
@@ -424,8 +426,9 @@ async def _writeback_matched_videos(tenant_id: str):
 async def _fetch_bulk_video_analytics(client, access_token: str) -> dict[str, dict]:
     """Per-video Analytics metrics for the whole channel in two API calls.
 
-    Returns {youtube_video_id: {impressions, ctr, avg_view_duration_seconds,
-    avg_view_percentage, watch_time_hours, subscribers_gained}}.
+    Returns {youtube_video_id: {impressions, ctr_percent, avg_view_duration_seconds,
+    avg_retention, watch_time_hours, subscribers_gained}} — keys match
+    channel_videos column names.
     """
     end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     base = {
@@ -448,8 +451,8 @@ async def _fetch_bulk_video_analytics(client, access_token: str) -> dict[str, di
         for row in resp.json().get("rows", []) or []:
             out.setdefault(row[0], {}).update({
                 "watch_time_hours": round(row[2] / 60, 2),
-                "avg_view_duration_seconds": round(row[3], 1),
-                "avg_view_percentage": round(row[4], 1),
+                "avg_view_duration_seconds": int(round(row[3])),  # column is INTEGER
+                "avg_retention": round(row[4], 1),
                 "subscribers_gained": int(row[5]),
             })
     else:
@@ -465,7 +468,7 @@ async def _fetch_bulk_video_analytics(client, access_token: str) -> dict[str, di
         for row in resp2.json().get("rows", []) or []:
             out.setdefault(row[0], {}).update({
                 "impressions": int(row[1]),
-                "ctr": round(row[2] * 100, 2),  # decimal -> percent
+                "ctr_percent": round(row[2] * 100, 2),  # decimal -> percent
             })
     # Impressions metrics can lag or be unavailable; watch metrics alone are fine.
 

@@ -32,11 +32,11 @@ async def get_overview(tenant_id: str = Depends(get_tenant_id)):
 
     lifetime = await fetch_one(
         """SELECT
-             COUNT(*) FILTER (WHERE privacy_status = 'public')::int AS published_videos,
-             COALESCE(SUM(views) FILTER (WHERE privacy_status = 'public'), 0)::bigint AS total_views,
-             ROUND(AVG(ctr) FILTER (WHERE privacy_status = 'public')::numeric, 2) AS avg_ctr,
-             ROUND(AVG(avg_view_duration_seconds) FILTER (WHERE privacy_status = 'public')::numeric, 1) AS avg_view_duration_seconds,
-             ROUND(AVG(avg_view_percentage) FILTER (WHERE privacy_status = 'public')::numeric, 1) AS avg_retention
+             COUNT(*) FILTER (WHERE COALESCE(privacy_status, 'public') = 'public')::int AS published_videos,
+             COALESCE(SUM(view_count) FILTER (WHERE COALESCE(privacy_status, 'public') = 'public'), 0)::bigint AS total_views,
+             ROUND(AVG(ctr_percent) FILTER (WHERE COALESCE(privacy_status, 'public') = 'public')::numeric, 2) AS avg_ctr,
+             ROUND(AVG(avg_view_duration_seconds) FILTER (WHERE COALESCE(privacy_status, 'public') = 'public')::numeric, 1) AS avg_view_duration_seconds,
+             ROUND(AVG(avg_retention) FILTER (WHERE COALESCE(privacy_status, 'public') = 'public')::numeric, 1) AS avg_retention
            FROM channel_videos
            WHERE tenant_id = $1""",
         tenant_id,
@@ -112,9 +112,9 @@ async def get_channel_videos(
 ):
     """Videos actually on the channel, newest first (YouTube Studio style)."""
     rows = await fetch_all(
-        """SELECT id, youtube_video_id, video_id, title, thumbnail_url, published_at,
-                  duration_seconds, privacy_status, views, likes, comments,
-                  impressions, ctr, avg_view_duration_seconds, avg_view_percentage,
+        """SELECT id, video_id, internal_video_id, title, thumbnail_url, published_at,
+                  duration_seconds, privacy_status, view_count, like_count, comment_count,
+                  impressions, ctr_percent, avg_view_duration_seconds, avg_retention,
                   last_synced_at
            FROM channel_videos
            WHERE tenant_id = $1
@@ -126,21 +126,21 @@ async def get_channel_videos(
     return [
         {
             "id": str(r["id"]),
-            "youtube_video_id": r["youtube_video_id"],
-            "internal_video_id": str(r["video_id"]) if r["video_id"] else None,
+            "youtube_video_id": r["video_id"],
+            "internal_video_id": str(r["internal_video_id"]) if r["internal_video_id"] else None,
             "title": r["title"],
             "thumbnail_url": r["thumbnail_url"],
             "published_at": str(r["published_at"]) if r["published_at"] else None,
             "duration_seconds": r["duration_seconds"],
             "privacy_status": r["privacy_status"],
-            "views": int(r["views"] or 0),
-            "likes": r["likes"] or 0,
-            "comments": r["comments"] or 0,
+            "views": int(r["view_count"] or 0),
+            "likes": r["like_count"] or 0,
+            "comments": r["comment_count"] or 0,
             "impressions": int(r["impressions"]) if r["impressions"] is not None else None,
-            "ctr": _f(r["ctr"]),
+            "ctr": _f(r["ctr_percent"]),
             "avg_view_duration_seconds": _f(r["avg_view_duration_seconds"]),
-            "avg_view_percentage": _f(r["avg_view_percentage"]),
-            "watch_url": f"https://youtu.be/{r['youtube_video_id']}",
+            "avg_view_percentage": _f(r["avg_retention"]),
+            "watch_url": f"https://youtu.be/{r['video_id']}",
             "last_synced_at": str(r["last_synced_at"]) if r["last_synced_at"] else None,
         }
         for r in rows
@@ -187,10 +187,10 @@ async def get_competitor_benchmark(tenant_id: str = Depends(get_tenant_id)):
     """Compare our channel CTR/views against competitor averages."""
     our = await fetch_one(
         """SELECT
-             ROUND(AVG(ctr)::numeric, 2) AS avg_ctr,
-             ROUND(AVG(avg_view_percentage)::numeric, 2) AS avg_retention,
-             COALESCE(SUM(views) FILTER (WHERE privacy_status = 'public'), 0)::bigint AS total_views,
-             COUNT(*) FILTER (WHERE ctr IS NOT NULL)::int AS videos_with_ctr
+             ROUND(AVG(ctr_percent)::numeric, 2) AS avg_ctr,
+             ROUND(AVG(avg_retention)::numeric, 2) AS avg_retention,
+             COALESCE(SUM(view_count) FILTER (WHERE COALESCE(privacy_status, 'public') = 'public'), 0)::bigint AS total_views,
+             COUNT(*) FILTER (WHERE ctr_percent IS NOT NULL)::int AS videos_with_ctr
            FROM channel_videos
            WHERE tenant_id = $1""",
         tenant_id,

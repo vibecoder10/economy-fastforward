@@ -1,39 +1,27 @@
--- Channel-first YouTube sync (Analytics rehaul).
+-- Channel-first YouTube sync (Analytics rehaul). Idempotent.
 --
--- channel_videos mirrors what is actually on the tenant's connected YouTube
--- channel (imported from the uploads playlist), separate from the production
--- pipeline rows in `videos` so dashboard/pipeline/review counts stay untouched.
--- An optional video_id FK links a channel video back to the internal row that
--- produced it, letting the learning loop keep reading `videos`.
+-- channel_videos (created in migration 041 for onboarding intelligence)
+-- already mirrors the tenant's own channel: video_id holds the YouTube video
+-- id, with view_count/like_count/comment_count/ctr_percent/avg_retention and
+-- transcript columns used by identity_builder and channel_profile_documents.
+-- The channel-first sync (routes/youtube_sync.py) now feeds this same table;
+-- here we add the columns it needs:
+--   privacy_status      public | unlisted | private (from Data API status)
+--   watch_time_hours    from the Analytics API
+--   subscribers_gained  from the Analytics API
+--   last_synced_at      sync bookkeeping
+--   internal_video_id   optional link to the production row in `videos`
 --
 -- channel_analytics_daily stores the channel-level day-by-day timeseries from
 -- the YouTube Analytics API, which powers the Views & CTR chart even when the
 -- channel only has a handful of videos.
 
-CREATE TABLE IF NOT EXISTS channel_videos (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  youtube_video_id TEXT NOT NULL,
-  video_id UUID REFERENCES videos(id) ON DELETE SET NULL,
-  title TEXT,
-  thumbnail_url TEXT,
-  published_at TIMESTAMPTZ,
-  duration_seconds INTEGER,
-  privacy_status TEXT,
-  views BIGINT DEFAULT 0,
-  likes INTEGER DEFAULT 0,
-  comments INTEGER DEFAULT 0,
-  impressions BIGINT,
-  ctr NUMERIC,
-  avg_view_duration_seconds NUMERIC,
-  avg_view_percentage NUMERIC,
-  watch_time_hours NUMERIC,
-  subscribers_gained INTEGER,
-  last_synced_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE (tenant_id, youtube_video_id)
-);
+ALTER TABLE channel_videos
+  ADD COLUMN IF NOT EXISTS privacy_status TEXT,
+  ADD COLUMN IF NOT EXISTS watch_time_hours NUMERIC,
+  ADD COLUMN IF NOT EXISTS subscribers_gained INTEGER,
+  ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS internal_video_id UUID REFERENCES videos(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS channel_videos_tenant_published_idx
   ON channel_videos (tenant_id, published_at DESC);
