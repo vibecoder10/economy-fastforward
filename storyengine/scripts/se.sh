@@ -13,6 +13,8 @@
 #   se deploy <session-name> [--with-frontend] [--force]   sanctioned deploy
 #   se restart [backend|frontend]              restart one service, no git pull
 #   se token                                   print API token from /tmp/se_token
+#   se devtoken                                pull token into frontend/.env.local
+#                                              so `npm run dev` auto-logs-in
 #   se run 'commands'                          arbitrary command on the VPS
 set -euo pipefail
 
@@ -86,7 +88,26 @@ case "$cmd" in
     "
     ;;
   token)
-    ssh "$HOST" 'cat /tmp/se_token 2>/dev/null || echo "no token at /tmp/se_token - mint one (see /se skill)"'
+    if [ "${1:-}" = "--mint" ]; then
+      ssh "$HOST" "$RPY $RREPO/storyengine/scripts/se_mint_token.py ${2:-}"
+    else
+      ssh "$HOST" 'cat /tmp/se_token 2>/dev/null || echo "no token at /tmp/se_token - run: se token --mint"'
+    fi
+    ;;
+  devtoken)
+    # Feeds the AuthProvider dev seed: local `npm run dev` auto-logs-in with
+    # this token (fresh 30-day session JWT), so authed pages verify locally.
+    ENVF="$HOME/economy-fastforward/storyengine/frontend/.env.local"
+    TOK="$(ssh "$HOST" "$RPY $RREPO/storyengine/scripts/se_mint_token.py" | tr -d '[:space:]')"
+    if [ -z "$TOK" ]; then
+      echo "mint failed - check se_mint_token.py output above" >&2
+      exit 1
+    fi
+    touch "$ENVF"
+    grep -v '^NEXT_PUBLIC_DEV_TOKEN=' "$ENVF" > "$ENVF.tmp" || true
+    printf 'NEXT_PUBLIC_DEV_TOKEN=%s\n' "$TOK" >> "$ENVF.tmp"
+    mv "$ENVF.tmp" "$ENVF"
+    echo "dev token written to frontend/.env.local (valid ~30 days) - restart the dev server to pick it up"
     ;;
   run)
     ssh "$HOST" "$*"

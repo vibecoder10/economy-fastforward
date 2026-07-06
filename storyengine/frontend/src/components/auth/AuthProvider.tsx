@@ -38,7 +38,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // On mount, check for existing token
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    let token = localStorage.getItem("token");
+    // Local-only auth seed so `npm run dev` can reach authed pages for UI
+    // verification before a deploy. Double-gated: dead in prod builds
+    // (NODE_ENV) and inert unless NEXT_PUBLIC_DEV_TOKEN is set in .env.local
+    // (gitignored). Refresh the token with `se.sh devtoken`.
+    if (
+      (!token || token === "dev-token") &&
+      process.env.NODE_ENV === "development" &&
+      process.env.NEXT_PUBLIC_DEV_TOKEN
+    ) {
+      token = process.env.NEXT_PUBLIC_DEV_TOKEN;
+      localStorage.setItem("token", token);
+    }
     if (!token || token === "dev-token") {
       setIsLoading(false);
       return;
