@@ -543,8 +543,8 @@ export default function AutopilotPage() {
             icon={Rocket}
             title="No candidates available"
             description="Add competitor channels and run a scrape to generate recommendations"
-            actionLabel="Set Up Competitors"
-            actionHref="/competitors"
+            actionLabel="Set Up Competitor Channels"
+            actionHref="/discovery"
           />
         </motion.div>
       )}
@@ -581,7 +581,7 @@ export default function AutopilotPage() {
                 Top Recommendations
               </h2>
               <Link
-                href="/competitors"
+                href="/discovery"
                 className="text-xs font-medium transition-colors hover:brightness-125"
                 style={{ color: "var(--turquoise)" }}
               >
@@ -609,7 +609,7 @@ export default function AutopilotPage() {
                 return (
                   <Link
                     key={candidate.id}
-                    href="/competitors"
+                    href="/discovery"
                     className="flex items-center gap-4 p-3 rounded-xl transition-all duration-200"
                     style={{
                       background: "rgba(255,255,255,0.02)",

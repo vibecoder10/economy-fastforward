@@ -65,7 +65,7 @@ export function WelcomeQuest({ status }: WelcomeQuestProps) {
       description:
         "Paste 3 YouTube channels you admire. We'll learn their hooks, tones, and thumbnail DNA so your videos inherit the patterns that already work.",
       cta: status.competitorCount > 0 ? "Add more" : "Add competitors",
-      href: "/competitors",
+      href: "/discovery",
       icon: Users,
       done: status.competitorCount >= 3,
       accent: "var(--turquoise)",
@@ -76,7 +76,7 @@ export function WelcomeQuest({ status }: WelcomeQuestProps) {
       description:
         "Pick a competitor video that's already crushing. We'll extract the exact structure — hook, pacing, thumbnail style — so you can remix what works.",
       cta: status.distilledCount > 0 ? "Distill another" : "Try it",
-      href: "/competitors",
+      href: "/discovery",
       icon: Sparkles,
       done: status.distilledCount >= 1,
       accent: "var(--gold)",

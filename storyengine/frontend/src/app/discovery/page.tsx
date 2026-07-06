@@ -5,13 +5,13 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Sparkles, RefreshCw, Loader2, TrendingUp, X, ChevronRight, Brain,
-  Lightbulb, ExternalLink, AlertTriangle,
+  Users, ExternalLink, AlertTriangle, Eye,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
-  launchIdea, dismissIdea,
+  launchIdea, dismissIdea, getNicheChannels,
   type DiscoveryIdea, type TitleOption, type DiscoveryStatus,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -19,7 +19,15 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
+import { ExampleChannels } from "@/components/channels/ExampleChannels";
 import { timeAgo } from "@/lib/utils";
+
+// 1_240_000 -> "1.2M", 45_300 -> "45.3K", 812 -> "812"
+function formatViews(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(Math.round(n));
+}
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } };
@@ -47,11 +55,19 @@ export default function DiscoveryPage() {
   const [editIdea, setEditIdea] = useState<DiscoveryIdea | null>(null);
   const [editTitleIndex, setEditTitleIndex] = useState(0);
   const [editLength, setEditLength] = useState(15);
+  const [manageOpen, setManageOpen] = useState(false);
 
   const { data: ideas, isLoading, error: ideasError } = useQuery({
     queryKey: ["discoveryIdeas", statusFilter],
     queryFn: () => getDiscoveryIdeas(statusFilter || undefined),
   });
+
+  const { data: channels } = useQuery({
+    queryKey: ["niche-channels"],
+    queryFn: getNicheChannels,
+    staleTime: 60000,
+  });
+  const hasChannels = (channels ?? []).length > 0;
 
   const { data: status } = useQuery({
     queryKey: ["discoveryStatus"],
@@ -98,20 +114,39 @@ export default function DiscoveryPage() {
       {/* Header */}
       <motion.div variants={item} className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          <Lightbulb size={28} style={{ color: "var(--gold)" }} />
-          <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
-            Discovery
-          </h1>
+          <Users size={28} style={{ color: "var(--gold)" }} />
+          <div>
+            <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
+              Competitor Modeling
+            </h1>
+            <p className="text-xs mt-1 font-body" style={{ color: "var(--text-secondary)" }}>
+              Your competitors&apos; winners, turned into ranked video ideas for your channel.
+            </p>
+          </div>
         </div>
-        <button
-          onClick={() => refreshMutation.mutate()}
-          disabled={isRefreshing}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-50"
-          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-        >
-          <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
-          {isRefreshing ? "Generating..." : "Refresh Ideas"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setManageOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            <Users size={14} />
+            Manage Channels
+          </button>
+          <button
+            onClick={() => refreshMutation.mutate()}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-50"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          >
+            <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+            {isRefreshing ? "Generating..." : "Refresh Ideas"}
+          </button>
+        </div>
       </motion.div>
 
       {/* Status Bar */}
@@ -189,13 +224,23 @@ export default function DiscoveryPage() {
       )}
 
       {!isLoading && (!ideas || ideas.length === 0) && (
-        <EmptyState
-          icon={Sparkles}
-          title={statusFilter === "fresh" ? "No fresh ideas" : `No ${statusFilter || ""} ideas`}
-          description='Click "Refresh Ideas" to generate ideas from your competitor data.'
-          actionLabel="Refresh Ideas"
-          onAction={() => refreshMutation.mutate()}
-        />
+        !hasChannels ? (
+          <EmptyState
+            icon={Users}
+            title="Add your competitor channels"
+            description="Paste the YouTube channels you want to model. We'll pull their top recent videos and turn them into ranked ideas for your channel."
+            actionLabel="Add Channels"
+            onAction={() => setManageOpen(true)}
+          />
+        ) : (
+          <EmptyState
+            icon={Sparkles}
+            title={statusFilter === "fresh" ? "No fresh ideas" : `No ${statusFilter || ""} ideas`}
+            description='Click "Refresh Ideas" to generate ideas from your competitor data.'
+            actionLabel="Refresh Ideas"
+            onAction={() => refreshMutation.mutate()}
+          />
+        )
       )}
 
       {!isLoading && ideas && ideas.length > 0 && (
@@ -220,6 +265,22 @@ export default function DiscoveryPage() {
           ))}
         </motion.div>
       )}
+
+      {/* Manage Channels Modal */}
+      <Modal
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        title="Competitor Channels"
+        size="md"
+      >
+        <div className="space-y-3">
+          <p className="text-xs font-body" style={{ color: "var(--text-secondary)" }}>
+            The channels your ideas are modeled on. Add the ones crushing it in your niche,
+            then hit Refresh Ideas.
+          </p>
+          <ExampleChannels variant="full" />
+        </div>
+      </Modal>
 
       {/* Launch Modal */}
       <Modal
@@ -446,14 +507,30 @@ function IdeaCard({
               {idea.competitor_title}
             </p>
           )}
+          {(idea.competitor_views != null || idea.competitor_published_date) && (
+            <p className="text-[10px] font-mono mt-0.5 flex items-center gap-2" style={{ color: "var(--text-tertiary)" }}>
+              {idea.competitor_views != null && (
+                <span className="inline-flex items-center gap-1">
+                  <Eye size={10} />
+                  {formatViews(idea.competitor_views)} views
+                </span>
+              )}
+              {idea.competitor_published_date && <span>posted {timeAgo(idea.competitor_published_date)}</span>}
+            </p>
+          )}
         </div>
       </div>
 
       {/* Body */}
       <div className="p-4 space-y-3">
-        <p className="text-sm font-body line-clamp-3" style={{ color: "var(--text-primary)" }}>
-          {idea.our_angle}
-        </p>
+        <div>
+          <p className="text-[10px] font-mono uppercase tracking-wide mb-1" style={{ color: "var(--gold)" }}>
+            Why this one
+          </p>
+          <p className="text-sm font-body line-clamp-3" style={{ color: "var(--text-primary)" }}>
+            {idea.our_angle}
+          </p>
+        </div>
 
         {/* Framework + Appeal */}
         <div className="flex items-center gap-2 flex-wrap">

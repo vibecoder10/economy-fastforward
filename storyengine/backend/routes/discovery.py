@@ -34,6 +34,8 @@ class DiscoveryIdea(BaseModel):
     competitor_channel: Optional[str] = None
     competitor_url: Optional[str] = None
     competitor_vph: Optional[float] = None
+    competitor_views: Optional[int] = None
+    competitor_published_date: Optional[str] = None
     competitor_thumbnail_url: Optional[str] = None
     our_angle: str
     hook: Optional[str] = None
@@ -104,11 +106,16 @@ async def get_discovery_ideas(
                di.competitor_url, di.competitor_vph, di.competitor_thumbnail_url,
                di.our_angle, di.hook, di.framework, di.estimated_appeal, di.appeal_breakdown,
                di.title_options, di.status, di.batch_date::text, di.created_at::text,
+               cv.views as competitor_views,
+               cv.published_date::text as competitor_published_date,
                ci.structured_metadata->'hook_dna'->>'type' as hook_type,
                ci.structured_metadata->'content_dna'->>'tone' as tone,
                ci.structured_metadata->'title_dna'->>'structure' as title_structure,
                ci.structured_metadata->'thumbnail_dna'->>'overall_style' as thumbnail_style
         FROM discovery_ideas di
+        LEFT JOIN competitor_videos cv
+            ON cv.id = di.competitor_video_id
+            AND cv.tenant_id = di.tenant_id
         LEFT JOIN content_intelligence ci
             ON ci.source_id = di.competitor_video_id
             AND ci.tenant_id = di.tenant_id
@@ -149,6 +156,8 @@ async def get_discovery_ideas(
             competitor_channel=row.get("competitor_channel"),
             competitor_url=row.get("competitor_url"),
             competitor_vph=float(row["competitor_vph"]) if row.get("competitor_vph") else None,
+            competitor_views=int(row["competitor_views"]) if row.get("competitor_views") is not None else None,
+            competitor_published_date=row.get("competitor_published_date"),
             competitor_thumbnail_url=row.get("competitor_thumbnail_url"),
             our_angle=row.get("our_angle", ""),
             hook=row.get("hook"),

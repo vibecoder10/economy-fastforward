@@ -28,6 +28,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  async redirects() {
+    // The Competitors page was folded into Discovery (Competitor Modeling).
+    return [{ source: "/competitors", destination: "/discovery", permanent: false }];
+  },
 };
 
 export default nextConfig;

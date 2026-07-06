@@ -791,11 +791,11 @@ export default function AnalyticsPage() {
                 ))}
               </div>
               <button
-                onClick={() => router.push("/competitors")}
+                onClick={() => router.push("/discovery")}
                 className="text-xs font-medium hover:brightness-125 transition-all"
                 style={{ color: "var(--turquoise)" }}
               >
-                See all competitors →
+                See competitor ideas →
               </button>
             </div>
           </GlassCard>

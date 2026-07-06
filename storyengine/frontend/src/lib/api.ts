@@ -198,97 +198,6 @@ export const completeOnboarding = () =>
     method: "POST",
   });
 
-// --- Creator setup + intelligence report (chat-onboarding workspace layer) ---
-
-// The durable brief captured during chat onboarding.
-export interface CreatorBrief {
-  intent?: string;
-  goals?: string[];
-  niche_angle?: string;
-  channel?: string;
-  competitors?: string[];
-}
-
-// Subset of /api/onboarding/status we render in the Competitors "Your setup" card.
-export interface CreatorSetup {
-  channel_name: string;
-  youtube_channel_name: string;
-  niche: string;
-  creator_brief: CreatorBrief;
-}
-
-export const getCreatorSetup = () =>
-  fetchApi<CreatorSetup>("/api/onboarding/status");
-
-// The onboarding intelligence report (written by onboarding, previously unshown).
-export interface IntelTitleIdea {
-  title: string;
-  pattern?: string;
-  reasoning?: string;
-  hook_direction?: string;
-  source_titles?: string[];
-}
-export interface IntelInsight {
-  pattern?: string;
-  strategy?: string;
-  reasoning?: string;
-}
-export interface IntelChannelAnalysis {
-  best_pattern?: string;
-  weakest_area?: string;
-  quick_win?: string;
-  opportunity?: string;
-}
-export interface IntelCreationGuidance {
-  research_plan?: string;
-  script_plan?: string;
-  visual_plan?: string;
-  thumbnail_plan?: string;
-  modeling_next_step?: string;
-}
-export interface IntelligenceReport {
-  title_ideas: IntelTitleIdea[];
-  thumbnail_insights: IntelInsight[];
-  hook_ideas: IntelInsight[];
-  channel_analysis: IntelChannelAnalysis | null;
-  creation_guidance: IntelCreationGuidance | null;
-}
-export interface IntelligenceReportResponse {
-  status: "ok" | "not_generated";
-  report: IntelligenceReport | null;
-  competitors_analyzed?: number;
-  videos_analyzed?: number;
-  created_at?: string | null;
-}
-
-// The backend stores these report fields as JSONB; without a pool codec asyncpg
-// hands them back as JSON strings, so normalize string-or-parsed into real values.
-function parseMaybe<T>(v: unknown, fallback: T): T {
-  if (v == null) return fallback;
-  if (typeof v === "string") {
-    try {
-      return JSON.parse(v) as T;
-    } catch {
-      return fallback;
-    }
-  }
-  return v as T;
-}
-
-export async function getIntelligenceReport(): Promise<IntelligenceReportResponse> {
-  const res = await fetchApi<IntelligenceReportResponse>("/api/onboarding/intelligence-report");
-  if (res.report) {
-    res.report = {
-      title_ideas: parseMaybe(res.report.title_ideas, [] as IntelTitleIdea[]),
-      thumbnail_insights: parseMaybe(res.report.thumbnail_insights, [] as IntelInsight[]),
-      hook_ideas: parseMaybe(res.report.hook_ideas, [] as IntelInsight[]),
-      channel_analysis: parseMaybe(res.report.channel_analysis, null as IntelChannelAnalysis | null),
-      creation_guidance: parseMaybe(res.report.creation_guidance, null as IntelCreationGuidance | null),
-    };
-  }
-  return res;
-}
-
 // Calendar
 export type CalendarVideo = {
   id: string;
@@ -1018,16 +927,7 @@ export const toggleLearning = (learningId: string) =>
     method: "PATCH",
   });
 
-// Niche
-export const getNicheConfig = () =>
-  fetchApi<NicheConfig>("/api/niche/config");
-
-export const setupNiche = (niche_category: string, sub_niche: string) =>
-  fetchApi<{ status: string }>("/api/niche/setup", {
-    method: "POST",
-    body: JSON.stringify({ niche_category, sub_niche }),
-  });
-
+// Niche (competitor/example channels)
 export const getNicheChannels = () =>
   fetchApi<CompetitorChannel[]>("/api/niche/channels");
 
@@ -1041,62 +941,6 @@ export const removeNicheChannel = (channelId: string) =>
   fetchApi<{ status: string }>(`/api/niche/channels/${channelId}`, {
     method: "DELETE",
   });
-
-// Competitor Videos (niche)
-export interface NicheVideo {
-  id: string;
-  video_id: string;
-  title: string;
-  url: string | null;
-  channel: string;
-  channel_url: string | null;
-  views: number;
-  vph: number;
-  hours_old: number;
-  published_date: string | null;
-  scrape_date: string | null;
-  thumbnail_url: string | null;
-  duration_seconds: number | null;
-  likes: number | null;
-  description: string | null;
-  like_ratio: number | null;
-  views_per_sub_ratio: number | null;
-  distilled_at: string | null;
-  has_dna: boolean;
-  hook_type: string | null;
-  tone: string | null;
-  title_structure: string | null;
-  thumbnail_style: string | null;
-  face_emotion: string | null;
-  distilled_summary: string | null;
-}
-
-export interface NicheVideosResponse {
-  videos: NicheVideo[];
-  total: number;
-  limit: number;
-  offset: number;
-  channels: string[];
-}
-
-export const getNicheVideos = (params?: {
-  limit?: number;
-  offset?: number;
-  channel?: string;
-  min_vph?: number;
-  max_hours_old?: number;
-  sort?: string;
-}) => {
-  const searchParams = new URLSearchParams();
-  if (params?.limit) searchParams.set("limit", String(params.limit));
-  if (params?.offset) searchParams.set("offset", String(params.offset));
-  if (params?.channel) searchParams.set("channel", params.channel);
-  if (params?.min_vph) searchParams.set("min_vph", String(params.min_vph));
-  if (params?.max_hours_old) searchParams.set("max_hours_old", String(params.max_hours_old));
-  if (params?.sort) searchParams.set("sort", params.sort);
-  const qs = searchParams.toString();
-  return fetchApi<NicheVideosResponse>(`/api/niche/videos${qs ? `?${qs}` : ""}`);
-};
 
 export interface ScrapeStatus {
   is_running: boolean;
@@ -1937,12 +1781,6 @@ export interface AgentVideoResult {
 }
 
 // Niche
-export interface NicheConfig {
-  niche_category: string | null;
-  sub_niche: string | null;
-  has_channels: boolean;
-}
-
 export interface CompetitorChannel {
   id: string;
   channel_name: string;
@@ -2098,6 +1936,8 @@ export interface DiscoveryIdea {
   competitor_channel: string | null;
   competitor_url: string | null;
   competitor_vph: number | null;
+  competitor_views: number | null;
+  competitor_published_date: string | null;
   competitor_thumbnail_url: string | null;
   our_angle: string;
   hook: string | null;

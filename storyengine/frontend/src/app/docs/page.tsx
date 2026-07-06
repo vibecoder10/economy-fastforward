@@ -206,16 +206,16 @@ export default function DocsPage() {
             </GlassCard>
           </Link>
 
-          <Link href="/competitors">
+          <Link href="/discovery">
             <GlassCard hover className="!p-4">
               <div className="flex items-center gap-3">
                 <Rocket size={20} style={{ color: "var(--orange)" }} />
                 <div>
                   <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                    Competitors
+                    Competitor Modeling
                   </h3>
                   <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                    Add competitor YouTube channels. We scrape their videos to find high-performing topics.
+                    Add competitor YouTube channels. We turn their best videos into ranked ideas for your channel.
                   </p>
                 </div>
               </div>

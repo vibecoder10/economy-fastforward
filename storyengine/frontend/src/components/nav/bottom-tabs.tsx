@@ -14,7 +14,6 @@ import {
   MoreHorizontal,
   X,
   Bot,
-  Users,
   Brain,
   Palette,
   BarChart3,
@@ -29,12 +28,11 @@ const primaryTabs = [
   { href: "/", icon: LayoutGrid, label: "Home" },
   { href: "/pipeline", icon: List, label: "Videos" },
   { href: "/review", icon: CheckSquare, label: "Review", badge: true },
-  { href: "/discovery", icon: Lightbulb, label: "Discovery" },
+  { href: "/discovery", icon: Lightbulb, label: "Modeling" },
 ];
 
 const moreTabs = [
   { href: "/autopilot", icon: Bot, label: "Autopilot" },
-  { href: "/competitors", icon: Users, label: "Competitors" },
   { href: "/learnings", icon: Brain, label: "Learnings" },
   { href: "/profile", icon: Palette, label: "Visual Styles" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },

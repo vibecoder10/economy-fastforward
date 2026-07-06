@@ -15,7 +15,7 @@ import { PipelineNotificationProvider } from "@/components/notifications/Pipelin
 const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password", "/verify-email", "/terms", "/privacy", "/demo"];
 
 // Routes that require Pro plan or above
-const PRO_PATHS = ["/autopilot", "/learnings", "/competitors", "/discovery"];
+const PRO_PATHS = ["/autopilot", "/learnings", "/discovery"];
 
 function isPlanAtLeast(plan: string | undefined, required: "starter" | "pro" | "agency"): boolean {
   // "unlimited" is the comped / owner tier (mirrors backend rate_limit.py) and must
