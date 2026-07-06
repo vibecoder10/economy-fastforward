@@ -302,6 +302,75 @@ async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
     return None
 
 
+# =============================================================================
+# Camera Movement Engine hook (storytelling coverage path)
+# =============================================================================
+# A camera move is a contract between two prompts: the STILL must be composed
+# for the move (image_setup), and the MOTION prompt must execute that exact
+# move. plan_camera_moves() decides per shot BEFORE frames are drawn, appends
+# the composition contract to the shot description, and stamps the plan on the
+# shot dict ("move_id|PURPOSE" or "static") so it rides the frame into assets
+# and the motion writer honors it. See image_prompts/engine/camera_selector.py.
+
+_SHOT_TYPE_COMPOSITION = {
+    "WS": "wide", "EWS": "wide", "ESTABLISHING": "wide", "FULL": "wide",
+    "MS": "medium", "MED": "medium", "MCU": "medium", "OTS": "medium",
+    "2S": "medium", "TWO-SHOT": "medium",
+    "CU": "closeup", "ECU": "closeup", "INSERT": "closeup", "XCU": "closeup",
+}
+
+
+def plan_camera_moves(moments: list) -> int:
+    """Plan a camera move per shot across a scene's coverage moments, in shot
+    order (master then angles, moment by moment). Mutates the shot dicts:
+    appends the move's image_setup to the drawing description and stamps
+    shot["camera_move"]. Returns how many shots earned a move. Best-effort —
+    any failure leaves the scene exactly as it was (static/freeform behavior)."""
+    try:
+        from image_prompts.engine.camera_selector import ShotContext, select_camera_move
+    except Exception:
+        return 0
+
+    planned = 0
+    prev_ids: list = []
+    prev_keys: list = []
+    try:
+        for mi, moment in enumerate(moments):
+            shots = [("master", moment.get("master") or {})]
+            shots += [("angle", a) for a in (moment.get("angles") or [])]
+            speaking = bool(moment.get("speaker") and moment.get("line"))
+            for role, shot in shots:
+                if not shot.get("description"):
+                    continue
+                ctx = ShotContext(
+                    sentence_text=f"{moment.get('summary') or ''}. {shot['description']}",
+                    composition=_SHOT_TYPE_COMPOSITION.get(
+                        (shot.get("shot_type") or "MS").upper(), "medium"),
+                    # Lip-synced speaking shots want calm moves — cap intensity low
+                    intensity="low" if (speaking and role == "master") else "medium",
+                    is_scene_open=(mi == 0 and role == "master"),
+                    is_scene_final=(mi == len(moments) - 1 and role == "master"),
+                    prev_move_ids=prev_ids,
+                    prev_legacy_keys=prev_keys,
+                )
+                sel = select_camera_move(ctx)
+                if sel.move:
+                    shot["camera_move"] = f"{sel.move.id}|{sel.purpose}"
+                    shot["description"] = (
+                        f"{shot['description'].rstrip('. ')}. "
+                        f"Composed for a {sel.move.name.lower()} camera move: {sel.move.image_setup}"
+                    )
+                    prev_ids.append(sel.move.id)
+                    prev_keys.append(sel.move.legacy_key)
+                    planned += 1
+                else:
+                    shot["camera_move"] = "static"
+                    prev_keys.append("static")
+    except Exception as e:  # noqa: BLE001 — camera planning must never kill coverage
+        print(f"  camera planning failed (shots stay freeform): {str(e)[:120]}", flush=True)
+    return planned
+
+
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
                                    env_url=None, aspect="16:9", resolution="2K", sem=None) -> list[dict] | None:
     """Master frame (anchored on cast) -> each angle (anchored on cast + master).
@@ -322,13 +391,15 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
     master_url = await _gen(master_prompt, base)  # master first — angles anchor on it
     if not master_url:
         return None
-    frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"], "url": master_url}]
+    frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"],
+               "camera_move": m.get("camera_move"), "url": master_url}]
     angle_refs = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
         ap = build_image_prompt_from_keyframe({"composition": a["description"]}, profile) + _SAME_SUBJECT + _STYLE_LOCK
         url = await _gen(ap, angle_refs)
-        return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"], "url": url} if url else None
+        return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"],
+                "camera_move": a.get("camera_move"), "url": url} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -457,6 +528,13 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
     moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
+
+    # Camera Movement Engine: decide each shot's move NOW, before drawing, so
+    # the stills are composed for their moves (storytelling formats only —
+    # this path IS the storytelling pipeline; data formats never reach it).
+    planned = plan_camera_moves(moments)
+    if planned:
+        print(f"  🎥 camera engine: {planned} shots planned with a move", flush=True)
 
     # Draw all moments CONCURRENTLY (each: master first, then its angles in parallel),
     # with one shared semaphore capping total in-flight Kie image gens. Collapses ~12

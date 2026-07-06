@@ -197,11 +197,12 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
                 "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
-                "location_id) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15,$16)",
+                "location_id, camera_movement) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15,$16,$17)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
                 title, aspect, url, url, is_master, assigned, location_id,
+                fr.get("camera_move"),  # camera engine plan: "move_id|PURPOSE" or "static"
             )
             idx += 1
     return idx - COVERAGE_INDEX_BASE
@@ -832,6 +833,9 @@ _MOTION_SYSTEM = (
     "3) A shot tagged (SPEAKING: <Name>) shows that character delivering their line — frame their face "
     "or upper body and give a small, natural speaking gesture. DO NOT write the words; the line is added "
     "automatically. A shot with NO tag is silent — camera move + ONE small motion, NO people added.\n"
+    "4) A shot tagged (CAMERA LOCKED: ...) had its still image COMPOSED for exactly that camera move — "
+    "open your line with that move verbatim (you may add where it starts and ends), and NEVER substitute "
+    "a different move. A shot tagged (CAMERA: static) holds a Fixed lens — subject motion only.\n"
     "Write like a director calling the shot: concrete blocking, plain language. BANNED: the words gentle/"
     "soft/subtle/faint/slight, mood words (cinematic/dramatic/emotional), negatives ('no ...', 'avoid "
     "...'), repainting the static scene already in the frame, and ANY quoted dialogue. Under 50 words "
@@ -1087,7 +1091,8 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     that drops/duplicates/reorders lines. Stores video_prompt = motion + line.
     Best-effort — leaves video_prompt NULL on failure (the clip gen has a default)."""
     rows = await fetch_all(
-        "SELECT id, shot_type, image_prompt, sentence_text, assigned_dialogue FROM assets "
+        "SELECT id, shot_type, image_prompt, sentence_text, assigned_dialogue, camera_movement "
+        "FROM assets "
         "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 AND generation_method='coverage' "
         "ORDER BY image_index", vid, tenant, scene)
     if not rows:
@@ -1095,12 +1100,31 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     srow = await fetch_one(
         "SELECT scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, scene)
     narration = ((srow or {}).get("scene_text") or "").strip()
+
+    # Camera engine plans ("move_id|PURPOSE" or "static", stamped at compose
+    # time): translate to a per-shot directive tag so the writer executes the
+    # exact move the still was composed for. Unknown/legacy values = freeform.
+    def _camera_tag(r):
+        raw = (r.get("camera_movement") or "").strip()
+        if raw == "static":
+            return "(CAMERA: static) "
+        if raw and "|" in raw:
+            try:
+                from image_prompts.engine.camera_moves import get_move
+                move = get_move(raw.partition("|")[0])
+                if move:
+                    return f"(CAMERA LOCKED: {move.motion_prompt}) "
+            except Exception:  # noqa: BLE001 — plan lookup must never break motion writing
+                pass
+        return ""
+
     # Tag each shot that speaks (so the writer frames the face) — but the writer
     # only writes camera MOTION; the words are appended from assigned_dialogue.
     def _shot(i, r):
         spk, _txt = _split_assigned(r.get("assigned_dialogue"))
         tag = f"(SPEAKING: {spk}) " if spk else ""
-        return f"{i+1}. [{(r['shot_type'] or 'MS')}] {tag}{(r['sentence_text'] or r['image_prompt'] or '')[:200]}"
+        return (f"{i+1}. [{(r['shot_type'] or 'MS')}] {tag}{_camera_tag(r)}"
+                f"{(r['sentence_text'] or r['image_prompt'] or '')[:200]}")
     shots = "\n".join(_shot(i, r) for i, r in enumerate(rows))
     user = (f"SCENE NARRATION (context):\n{narration[:2000]}\n\n"
             f"SHOTS (write ONE camera-motion line per shot, numbered, in order):\n{shots}")
