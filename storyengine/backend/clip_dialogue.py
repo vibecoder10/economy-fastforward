@@ -79,6 +79,45 @@ def pick_clip_duration(need_seconds: float, durations: list) -> int:
     return max(floor, min(cap, math.ceil(need_seconds)))
 
 
+# THE clip-length rule (Ryan, 2026-07-06, after two scene-3 lines got cut
+# mid-sentence): no single shot may carry more spoken words than fit the clip
+# model's TOP duration tier. 34 words ≈ 12.9s at 2.7 wps — inside grok's 15s
+# ceiling with headroom. Enforced at script generation (contract) and again
+# when lines land on frames (store_scene splits overflow across the moment's
+# frames), so pick_clip_duration's cap can never truncate speech.
+MAX_SPOKEN_WORDS_PER_CLIP = int(os.getenv("MAX_SPOKEN_WORDS_PER_CLIP", "34"))
+
+
+def split_line_to_cap(text: str, cap: int = 0) -> list:
+    """Split a spoken line into chunks of <= cap words, breaking at sentence
+    ends where possible (word boundary inside a runaway sentence). Returns
+    [text] unchanged when it already fits."""
+    cap = cap or MAX_SPOKEN_WORDS_PER_CLIP
+    words_of = lambda s: len(s.split())
+    if words_of(text or "") <= cap:
+        return [text]
+    # Sentences with their trailing punctuation kept.
+    sentences = [s.strip() for s in re.findall(r"[^.!?…]+[.!?…]*", text) if s.strip()]
+    chunks, cur = [], ""
+    for s in sentences:
+        # A single sentence over the cap: hard-split it at word boundaries.
+        while words_of(s) > cap:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            w = s.split()
+            chunks.append(" ".join(w[:cap]))
+            s = " ".join(w[cap:])
+        if cur and words_of(cur) + words_of(s) > cap:
+            chunks.append(cur)
+            cur = s
+        else:
+            cur = f"{cur} {s}".strip()
+    if cur:
+        chunks.append(cur)
+    return chunks or [text]
+
+
 def clip_cost_for(cost_map: dict, duration: int) -> float:
     """Cost for an exact duration. Named tiers use their listed price; an
     in-between length is charged at the next named tier up (conservative)."""

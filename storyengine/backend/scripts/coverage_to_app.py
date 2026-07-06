@@ -165,18 +165,34 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
         "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
         "AND (generation_method='coverage' "
         "OR (image_url IS NULL AND video_clip_url IS NULL))", vid, tenant, scene)
+    from clip_dialogue import split_line_to_cap, MAX_SPOKEN_WORDS_PER_CLIP
     idx = COVERAGE_INDEX_BASE
     for summary, frames, speaker, line in frames_by_moment:
-        for fr in frames:
-            fpath = fr.get("_path")
-            if not fpath or not os.path.exists(fpath):
-                continue
-            with open(fpath, "rb") as f:
+        # THE CLIP-LENGTH RULE: a line longer than the clip model can speak in
+        # its top duration tier gets split at sentence ends and spread across
+        # this moment's frames (master speaks first, angles continue) — the
+        # frames stitch in order, so the speech plays whole instead of being
+        # cut mid-sentence at the duration cap. Overflow beyond the frame
+        # count folds into the last frame (still shorter than the original).
+        chunks = split_line_to_cap(line) if (speaker and line) else []
+        usable = [fr for fr in frames if fr.get("_path") and os.path.exists(fr["_path"])]
+        if len(chunks) > 1:
+            # More chunks than frames: fold the tail into the final frame's
+            # chunk — still far shorter than the unsplit original.
+            if len(chunks) > len(usable) and usable:
+                chunks = chunks[:len(usable) - 1] + [" ".join(chunks[len(usable) - 1:])]
+            print(f"  [scene {scene}] split a {len((line or '').split())}-word "
+                  f"{speaker} line across {len(chunks)} shots "
+                  f"(cap {MAX_SPOKEN_WORDS_PER_CLIP} words/clip)", flush=True)
+        for fi, fr in enumerate(usable):
+            with open(fr["_path"], "rb") as f:
                 data = f.read()
             url = await upload_bytes(data, f"{vid}/coverage/S{scene}_i{idx}.png", "image/png", tenant)
             is_master = fr.get("role") == "master"
-            # The line lives on the speaking (master) frame; angles are cutaways.
-            assigned = f'{speaker}: "{line}"' if (is_master and speaker and line) else None
+            # The line lives on the speaking (master) frame; angles are
+            # cutaways UNLESS they carry an overflow chunk of a long line
+            # (frames stitch in order, so the speech plays whole).
+            assigned = f'{speaker}: "{chunks[fi]}"' if fi < len(chunks) else None
             await execute(
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
