@@ -390,9 +390,13 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // the SAME lists the button acts on, so it can never show-but-no-op (the old bug).
   const needStoryboard = scenes.filter((s) => s.storyboardGridCount === 0);
   const needPictures = scenes.filter((s) => s.storyboardGridCount > 0 && !s.assets.some((a) => a.image_url));
-  const bulk: { kind: "gen"; stage: string; label: string; scenes: typeof scenes } | { kind: "animate"; label: string } | null =
+  const picturesMissing = totalSegments - extractedCount;
+  const bulk: { kind: "gen"; stage: string; label: string; scenes: typeof scenes } | { kind: "finish"; label: string } | { kind: "animate"; label: string } | null =
     needStoryboard.length ? { kind: "gen", stage: "storyboard-images", label: `Generate all storyboards (${needStoryboard.length})`, scenes: needStoryboard }
     : needPictures.length ? { kind: "gen", stage: "coverage-images", label: `Generate all pictures (${needPictures.length})`, scenes: needPictures }
+    // Never offer animation while pictures are missing — a partially-drawn set
+    // used to fall through to "Animate everything" and read as ready-to-go.
+    : (extractedCount > 0 && picturesMissing > 0) ? { kind: "finish", label: `Finish pictures (${picturesMissing} missing)` }
     : (videoStageEnabled && clipsPending > 0) ? { kind: "animate", label: `Animate everything · $${remainingCost.toFixed(2)}` }
     : null;
   const modelLabel = WIRED_MODELS.find((m) => m.id === model)?.label.split(" — ")[0] ?? model;
@@ -1051,6 +1055,14 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               style={{ background: confirmKey === "all" ? "var(--gold)" : "var(--green)", color: "var(--bg-void)" }}>
               <Play size={16} /> {confirmKey === "all" ? `Confirm — $${remainingCost.toFixed(2)}` : bulk.label}
             </button>
+          ) : bulk.kind === "finish" ? (
+            <button
+              onClick={handleReExtract}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all hover:brightness-110"
+              style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+              title="Some pictures never finished — draw only the missing ones">
+              <ImageIcon size={16} /> {bulk.label}
+            </button>
           ) : (
             <button
               onClick={() => handleBulkGen(bulk.stage, bulk.scenes)}
@@ -1175,6 +1187,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       {scenes.map((scene) => {
         const sceneCards = scene.assets.filter((a) => a.image_url);
         const scenePending = sceneCards.filter((a) => !a.video_clip_url);
+        const sceneMissing = scene.assets.length - sceneCards.length;
         const sceneCost = clipCost(model, scenePending.length);
         const sceneKey = `scene-${scene.sceneNumber}`;
         return (
@@ -1229,7 +1242,14 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                       </>
                     ) : (
                       <>
-                        {videoStageEnabled && scenePending.length > 0 && (
+                        {videoStageEnabled && sceneMissing > 0 && (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                            style={{ background: "rgba(251, 146, 60, 0.15)", color: "var(--orange)", border: "1px solid rgba(251, 146, 60, 0.35)" }}
+                            title="Some of this scene's pictures never finished — animate after they exist">
+                            {sceneMissing} picture{sceneMissing === 1 ? "" : "s"} missing
+                          </span>
+                        )}
+                        {videoStageEnabled && scenePending.length > 0 && sceneMissing === 0 && (
                           <>
                             {confirmKey === sceneKey && (
                               <button onClick={() => setConfirmKey(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>

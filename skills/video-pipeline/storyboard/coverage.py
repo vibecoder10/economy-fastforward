@@ -288,7 +288,14 @@ async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
     ponytail: retry only covers transient None/502; a moderation 400 also returns None and may not
     recover — that frame is then skipped (coverage degrades to fewer angles rather than failing)."""
     for i in range(attempts):
-        url = _url_of(await image_client.generate_thumbnail_gpt2(prompt, refs, aspect))
+        # A raised error (SSL reset, timeout, connection drop) must count as a
+        # failed attempt, not escape — an escaped exception here used to kill
+        # the whole scene's gather and stop the build mid-run.
+        try:
+            url = _url_of(await image_client.generate_thumbnail_gpt2(prompt, refs, aspect))
+        except Exception as e:  # noqa: BLE001
+            print(f"  frame gen error (attempt {i + 1}/{attempts}): {str(e)[:120]}", flush=True)
+            url = None
         if url:
             return url
         await asyncio.sleep(2 * (i + 1))
@@ -324,8 +331,10 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"], "url": url} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
-    angle_frames = await asyncio.gather(*[_angle(a) for a in moment["angles"]])
-    frames.extend([f for f in angle_frames if f])
+    # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
+    angle_frames = await asyncio.gather(*[_angle(a) for a in moment["angles"]],
+                                        return_exceptions=True)
+    frames.extend([f for f in angle_frames if f and not isinstance(f, BaseException)])
     return frames
 
 
@@ -454,14 +463,20 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # strictly-serial frames into ~2 sequential steps — scene coverage goes from ~20 min
     # to a few minutes. Set COVERAGE_CONCURRENCY to tune.
     sem = asyncio.Semaphore(_COVERAGE_CONCURRENCY)
+    # return_exceptions: one moment blowing up must not kill the sibling
+    # moments' gather — the scene keeps every moment that finished.
     moment_results = await asyncio.gather(*[
         generate_coverage_frames(moment, cast_url, image_client, profile,
                                  env_url=env_url, aspect=aspect, resolution=resolution, sem=sem)
         for moment in moments
-    ])
+    ], return_exceptions=True)
 
     result_moments, frame_total = [], 0
     for moment, frames in zip(moments, moment_results):
+        if isinstance(frames, BaseException):
+            print(f"  [moment {moment['moment_number']}] errored — skipped "
+                  f"({str(frames)[:120]})", flush=True)
+            continue
         if not frames:
             print(f"  [moment {moment['moment_number']}] master failed — skipped", flush=True)
             continue
@@ -470,8 +485,12 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
             try:
                 _download(fr["url"], os.path.join(outdir, name))
                 fr["file"] = name
-            except Exception as e:
-                print(f"  download failed {name}: {e}", flush=True)
+            except Exception:
+                try:  # one more try — a single flaky download shouldn't drop a paid frame
+                    _download(fr["url"], os.path.join(outdir, name))
+                    fr["file"] = name
+                except Exception as e:
+                    print(f"  download failed {name}: {e}", flush=True)
             frame_total += 1
         result_moments.append({**moment, "frames": frames})
         print(f"  [moment {moment['moment_number']}] {len(frames)} frames "

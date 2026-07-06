@@ -156,9 +156,15 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
     so it carries to the clip exactly. location_id (the approved environment
     name) rides every frame so downstream steps can re-resolve the scene's
     locked location. Returns count."""
+    # Coverage is now this scene's plan of record: clear prior coverage rows AND
+    # any pictureless leftovers from the earlier sentence-segmentation plan —
+    # stale 'pending' rows inflate the picture totals (139/203 with nothing
+    # actually missing) and mislead the Scenes page. Rows holding a paid image
+    # or clip are never deleted.
     await execute(
         "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
-        "AND generation_method='coverage'", vid, tenant, scene)
+        "AND (generation_method='coverage' "
+        "OR (image_url IS NULL AND video_clip_url IS NULL))", vid, tenant, scene)
     idx = COVERAGE_INDEX_BASE
     for summary, frames, speaker, line in frames_by_moment:
         for fr in frames:
@@ -1200,12 +1206,16 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         if env:
             _p(f"Scene {sc}: locked to {env['name']}")
-        out = await run_coverage(
-            beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
-            video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
-            anthropic_client=claude, directive_model=claude_model, directive_text=directive,
-            max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
-            aspect=aspect, env_url=(env or {}).get("reference_url"))
+        try:
+            out = await run_coverage(
+                beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
+                video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
+                anthropic_client=claude, directive_model=claude_model, directive_text=directive,
+                max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
+                aspect=aspect, env_url=(env or {}).get("reference_url"))
+        except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest
+            _p(f"Scene {sc}: errored ({str(e)[:150]}) — moving on to the next scene")
+            continue
         if out.get("error"):
             _p(f"Scene {sc}: skipped ({out['error']})")
             continue
