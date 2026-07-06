@@ -2071,7 +2071,10 @@ separate scenes."""
             done = failed = 0
             cost = 0.0
             total = len(todo)
-            sem = asyncio.Semaphore(3)
+            # Clips fan out concurrently; CLIP_CONCURRENCY tunes the width
+            # (Kie queues server-side — same account the coverage image gens
+            # already hit concurrently).
+            sem = asyncio.Semaphore(int(os.getenv("CLIP_CONCURRENCY", "6")))
             cancelled = False
             CLIP_DEADLINE = 420  # hard per-clip cap (sem already held): a stuck Grok
             # job frees its slot in ~7 min instead of holding it for the full internal
