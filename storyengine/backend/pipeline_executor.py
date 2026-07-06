@@ -546,14 +546,32 @@ class PipelineExecutor:
     async def _check_voice_exists(self, video_id: str) -> tuple[bool, int, int]:
         """Check if voice has been generated for all scenes.
 
+        A scene is voiced when its narrator track exists (scripts.voice_over_url)
+        OR when dialogue-voice finished every spoken line (each dialogue_segments
+        entry with text carries its own audio_url). All-dialogue scenes never get
+        a narrator track, so voice_over_url alone would reject them forever.
+
         Returns (all_have_voice, total_scenes, scenes_with_voice).
         """
+        from dialogue_voice import _as_segments
+
         rows = await fetch_all(
-            "SELECT voice_over_url FROM scripts WHERE video_id = $1",
+            "SELECT voice_over_url, dialogue_segments FROM scripts WHERE video_id = $1",
             video_id,
         )
         total = len(rows)
-        with_voice = sum(1 for r in rows if r.get("voice_over_url"))
+        with_voice = 0
+        for r in rows:
+            if r.get("voice_over_url"):
+                with_voice += 1
+                continue
+            segments = _as_segments(r.get("dialogue_segments"))
+            if segments and all(
+                seg.get("audio_url")
+                for seg in segments
+                if (seg.get("text") or "").strip()
+            ):
+                with_voice += 1
         return (total > 0 and with_voice == total), total, with_voice
 
     async def _update_video_status(self, video_id: str, new_status: str, video: Optional[dict] = None):
@@ -2909,9 +2927,11 @@ separate scenes."""
             if scene is None and not video.get("skip_voice"):
                 all_voiced, total, voiced = await self._check_voice_exists(video_id)
                 if not all_voiced:
+                    # Fail without touching status: demoting here regressed a
+                    # status the voice bot had legitimately advanced, trapping
+                    # the video behind the ready_for_voice approval gate.
                     msg = f"Voice generation must complete before image prompts. Missing voice for {total - voiced}/{total} scenes."
                     await self._log_activity(bot_name, video_id, "failed", msg)
-                    await self._update_video_status(video_id, "ready_for_voice")
                     return {"status": "failed", "error": msg}
 
             current_status = video.get("status")
@@ -3694,9 +3714,11 @@ separate scenes."""
             if scene is None and not video.get("skip_voice"):
                 all_voiced, total, voiced = await self._check_voice_exists(video_id)
                 if not all_voiced:
+                    # Fail without touching status: demoting here regressed a
+                    # status the voice bot had legitimately advanced, trapping
+                    # the video behind the ready_for_voice approval gate.
                     msg = f"Voice generation must complete before image generation. Missing voice for {total - voiced}/{total} scenes."
                     await self._log_activity(bot_name, video_id, "failed", msg)
-                    await self._update_video_status(video_id, "ready_for_voice")
                     return {"status": "failed", "error": msg}
 
             if scene is not None and index is not None:
