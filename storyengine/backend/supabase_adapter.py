@@ -842,6 +842,19 @@ class SupabaseAdapter:
         )
         return {"id": record_id}
 
+    def update_image_camera_movement(self, record_id: str, movement: str) -> dict:
+        """Store the camera engine's planned move for an asset.
+
+        Format: "move_id|PURPOSE" (see image_prompts/engine/camera_selector.py)
+        or "static". The video-motion step reads this back so the clip animates
+        the exact move the image was composed for.
+        """
+        _execute(
+            "UPDATE assets SET camera_movement = %s WHERE id = %s",
+            (movement, record_id),
+        )
+        return {"id": record_id}
+
     def update_image_video_url(self, record_id: str, video_url: str) -> dict:
         """Update video clip URL."""
         _execute(

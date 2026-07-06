@@ -49,6 +49,9 @@ async def run(pipeline) -> dict:
     """
     from image_prompts.engine.prompt_builder import build_prompt, build_prompt_from_block, assign_profile_styles
     from image_prompts.engine.sequencer import assign_styles
+    from image_prompts.engine.camera_selector import (
+        ShotContext, select_camera_move_async, clear_tiebreak_cache,
+    )
     from script.brief_translator.scene_expander import expand_scene_concepts, expand_scene_concepts_deterministic
 
     if not pipeline.current_idea:
@@ -185,6 +188,25 @@ async def run(pipeline) -> dict:
     style_counts = {}
     image_index = 0
 
+    # ---------------------------------------------------------------
+    # Camera Movement Engine — plan the move BEFORE the image is drawn
+    # so its image_setup can shape composition (see camera_selector.py).
+    # STORYTELLING ONLY: the engine follows the Story Bible marker — data
+    # display formats (holographic_hud) keep their existing static-first
+    # behavior with no planned moves.
+    # ---------------------------------------------------------------
+    camera_engine_on = uses_story_bible
+    clear_tiebreak_cache()
+    camera_plan_ids: list[str] = []      # recent planned move ids (variety)
+    camera_plan_keys: list[str] = []     # recent legacy keys (anti-repeat)
+    camera_plan_counts: dict[str, int] = {}
+    video_model = (pipeline.current_idea.get(IdeaFields.VIDEO_MODEL) or "").strip() \
+        if pipeline.current_idea else ""
+    if camera_engine_on:
+        print("  🎥 Camera Movement Engine: ON (storytelling format)")
+    else:
+        print("  🎥 Camera Movement Engine: off (non-storytelling format)")
+
     for script in scripts:
         scene_num = script.get("scene", 0)
         scene_text = script.get(ScriptFields.SCENE_TEXT, "") or script.get(IdeaFields.SCRIPT, "")
@@ -262,8 +284,43 @@ async def run(pipeline) -> dict:
                 continue
             print(f"    🎯 Filtered to concept {pipeline.image_filter}: {len(concepts)} concept(s)")
 
-        for concept in concepts:
+        for concept_pos, concept in enumerate(concepts):
             visual_desc = concept["visual_description"]
+
+            # --- Camera Movement Engine: pick the move for this shot ---
+            camera_selection = None
+            if camera_engine_on:
+                try:
+                    shot_ctx = ShotContext(
+                        sentence_text=concept.get("sentence_text", ""),
+                        composition=concept.get("composition", "medium"),
+                        intensity="high" if act_number >= 6 else "medium",
+                        is_scene_open=(concept_pos == 0),
+                        is_scene_final=(concept_pos == len(concepts) - 1),
+                        is_video_open=(image_index == 0),
+                        video_model=video_model,
+                        prev_move_ids=camera_plan_ids,
+                        prev_legacy_keys=camera_plan_keys,
+                    )
+                    camera_selection = await select_camera_move_async(
+                        shot_ctx, anthropic_client=pipeline.anthropic,
+                    )
+                except Exception as e:
+                    print(f"      ⚠️ Camera selection failed (non-blocking, shot stays static): {e}")
+
+            if camera_selection and camera_selection.move:
+                move = camera_selection.move
+                # Two-way contract, image side: compose the still FOR the move
+                visual_desc = (
+                    f"{visual_desc.rstrip('. ')}. "
+                    f"Compose this frame for a {move.name.lower()} camera move: {move.image_setup}"
+                )
+                concept["visual_description"] = visual_desc
+                camera_plan_ids.append(move.id)
+                camera_plan_keys.append(move.legacy_key)
+                camera_plan_counts[move.id] = camera_plan_counts.get(move.id, 0) + 1
+            elif camera_selection:
+                camera_plan_keys.append("static")
 
             # Get style assignment from sequencer (extend if needed)
             if image_index >= len(style_assignments):
@@ -327,8 +384,9 @@ async def run(pipeline) -> dict:
                     shot_type=camera_composition,
                     location_id=block_location_id,
                 )
+                record_id = existing_record["id"]
             else:
-                pipeline.airtable.create_concept_record(
+                created = pipeline.airtable.create_concept_record(
                     scene_number=scene_num,
                     concept_index=concept["concept_index"],
                     sentence_text=concept["sentence_text"],
@@ -337,6 +395,21 @@ async def run(pipeline) -> dict:
                     video_title=pipeline.video_title,
                     location_id=block_location_id,
                 )
+                record_id = (created or {}).get("id")
+
+            # Persist the planned camera move ("move_id|PURPOSE", or "static")
+            # so the video-motion step animates the move this image was
+            # composed for. Duck-typed: legacy adapters without the method
+            # simply skip persistence and fall back to old behavior.
+            _set_cam = getattr(pipeline.airtable, "update_image_camera_movement", None)
+            if _set_cam and record_id and camera_selection is not None:
+                try:
+                    if camera_selection.move:
+                        _set_cam(record_id, f"{camera_selection.move.id}|{camera_selection.purpose}")
+                    else:
+                        _set_cam(record_id, "static")
+                except Exception as e:
+                    print(f"      ⚠️ Could not persist camera plan (non-blocking): {e}")
 
             style_counts[display_format] = style_counts.get(display_format, 0) + 1
             image_index += 1
@@ -348,6 +421,14 @@ async def run(pipeline) -> dict:
     skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
     print(f"\n  Done: {scenes_expanded} scenes expanded, "
           f"{total_concepts} concepts created{skip_note}")
+
+    # Camera Movement Engine summary
+    planned_total = sum(camera_plan_counts.values())
+    if camera_engine_on and total_concepts:
+        print(f"  🎥 Camera plan: {planned_total}/{total_concepts} shots earned a move "
+              f"({total_concepts - planned_total} static)")
+        for move_id, count in sorted(camera_plan_counts.items(), key=lambda x: -x[1]):
+            print(f"      {move_id}: {count}")
 
     # Report display format distribution
     if style_counts:

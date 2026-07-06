@@ -6,8 +6,32 @@ Advances: Ready For Video Scripts → Ready For Video Generation
 Clients: anthropic, airtable
 """
 
+from __future__ import annotations
+
 from orchestrator.pipeline_constants import ImageFields, Statuses, Models
 from image_prompts.engine.prompt_builder import CAMERA_MOVEMENTS, detect_camera_movement, validate_video_prompt
+from image_prompts.engine.camera_moves import get_move
+
+
+def _resolve_planned_camera(img_record: dict) -> tuple[str | None, str | None, str | None]:
+    """Read the camera engine's plan off an asset record.
+
+    The image step stores "move_id|PURPOSE" (or "static") in Camera Movement
+    when it composed the image FOR a specific move. Returns
+    (camera_phrase, purpose, raw) — all None when no plan exists (old videos,
+    storyboard-extract assets), which keeps the legacy behavior untouched.
+    """
+    raw = (img_record.get(ImageFields.CAMERA_MOVEMENT) or "").strip()
+    if not raw:
+        return None, None, None
+    if raw == "static":
+        return "Static shot", "STATIC", raw
+    move_id, _, purpose = raw.partition("|")
+    move = get_move(move_id)
+    if not move:
+        # Legacy detected-key values ("push-in" etc.) or unknown ids: ignore
+        return None, None, None
+    return move.motion_prompt, (purpose or None), raw
 
 
 async def run(pipeline) -> dict:
@@ -75,6 +99,12 @@ async def run(pipeline) -> dict:
         idx = img_record.get(ImageFields.IMAGE_INDEX, "?")
         print(f"    [{idx}] {shot_type} | {duration:.1f}s segment → {clip_duration}s clip {'(HERO)' if is_hero else ''}")
 
+        # Camera engine plan: the image was composed FOR this move at
+        # image-design time — honor it instead of re-deriving from scratch.
+        planned_camera, planned_purpose, planned_raw = _resolve_planned_camera(img_record)
+        if planned_camera and planned_camera != "Static shot":
+            print(f"        🎥 Planned camera: {planned_raw}")
+
         motion_prompt = await pipeline.anthropic.generate_video_prompt(
             image_prompt=image_prompt,
             sentence_text=sentence_text,
@@ -82,6 +112,8 @@ async def run(pipeline) -> dict:
             is_hero_shot=is_hero,
             prev_cameras=camera_history,
             system_prompt_override=getattr(pipeline, "video_motion_system_prompt", None),
+            planned_camera=planned_camera,
+            planned_camera_purpose=planned_purpose,
         )
 
         # Validate video prompt quality — regenerate if it fails
@@ -89,13 +121,20 @@ async def run(pipeline) -> dict:
             motion_prompt, sentence_text,
             prev_cameras=camera_history,
             clip_duration_seconds=clip_duration,
+            planned_camera=planned_raw,
         )
         if not validation["valid"]:
             print(f"    ⚠️ Video prompt failed validation: {validation['issues']}")
 
-            # Build camera-aware regeneration prompt
+            # Build camera-aware regeneration prompt. A planned camera move
+            # (image composed for it) survives regeneration verbatim.
             camera_block = ""
-            if camera_history:
+            if planned_camera:
+                camera_block = (
+                    f"\n\nCAMERA (LOCKED): The clip MUST open with exactly this camera "
+                    f"direction, unchanged: \"{planned_camera}\". Rewrite only the subject motion."
+                )
+            elif camera_history:
                 blocked = camera_history[-1]
                 allowed = ", ".join(k for k in CAMERA_MOVEMENTS if k != blocked)
                 camera_block = (

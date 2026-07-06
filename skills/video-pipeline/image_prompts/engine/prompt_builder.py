@@ -1236,6 +1236,7 @@ def validate_video_prompt(
     sentence_text: str = "",
     prev_cameras: list[str] | None = None,
     clip_duration_seconds: int | None = None,
+    planned_camera: str | None = None,
 ) -> dict:
     """Validate a video prompt meets narrative quality standards.
 
@@ -1251,6 +1252,11 @@ def validate_video_prompt(
         clip_duration_seconds: Clip duration (6 or 10). Scales the minimum
             word count: ~25 words for 6s clips, ~42 for 10s. Falls back to
             40-word minimum when not provided.
+        planned_camera: When the camera engine planned this shot's move at
+            image-design time (see camera_selector.py), the sentence-based
+            "unjustified camera" check is skipped — the move was earned by
+            the selector's wider gate (which includes positional purposes
+            like ESTABLISH/PAYOFF that sentence keywords can't see).
 
     Returns a dict with ``valid`` (bool), ``issues`` (list[str]),
     ``prompt``, ``sentence``, ``camera`` (detected movement),
@@ -1298,9 +1304,16 @@ def validate_video_prompt(
     # Camera movement detection
     current_camera = detect_camera_movement(prompt)
 
-    # Rule 2: Camera should be static unless purpose justifies it
+    # Rule 2: Camera should be static unless purpose justifies it.
+    # A camera-engine planned move was already earned at image-design time
+    # (selector gate includes positional purposes the sentence can't show),
+    # so the sentence-keyword check must not veto it.
     camera_purpose = classify_camera_purpose(sentence_text)
-    if current_camera not in ("static", "unknown") and camera_purpose == CAMERA_PURPOSE_STATIC:
+    if (
+        not planned_camera
+        and current_camera not in ("static", "unknown")
+        and camera_purpose == CAMERA_PURPOSE_STATIC
+    ):
         issues.append(
             f"UNJUSTIFIED CAMERA: '{current_camera}' detected but sentence doesn't justify "
             f"REVEAL, SCALE, or ISOLATION — use static shot"

@@ -1168,6 +1168,8 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         is_hero_shot: bool = False,
         prev_cameras: list[str] | None = None,
         system_prompt_override: str = None,
+        planned_camera: str = None,
+        planned_camera_purpose: str = None,
     ) -> str:
         """Generate a motion prompt for image-to-video animation.
 
@@ -1180,6 +1182,12 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
             scene_type: Scene type string (e.g., "isometric_diorama", "split_screen").
             is_hero_shot: If True, generate a richer prompt for 10s duration (vs 6s standard).
             prev_cameras: Recent camera movements (most recent last) for rotation enforcement.
+            planned_camera: Camera-engine move phrase decided at image-design time
+                (the image was COMPOSED for this move). When set, it overrides the
+                scene-type camera lookup — including "Static shot" to hold a
+                deliberately static frame. See image_prompts/engine/camera_selector.py.
+            planned_camera_purpose: Why that move was earned (REVEAL/SCALE/ISOLATION/
+                ESTABLISH/PAYOFF). Only used alongside planned_camera.
 
         Returns:
             Motion prompt (max 40 words for 6s, max 55 words for 10s hero).
@@ -1191,8 +1199,14 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         from animation_prompt_engine import classify_camera_purpose, CAMERA_PURPOSE_STATIC
         camera_purpose = classify_camera_purpose(sentence_text)
 
-        # Only request camera motion when purpose justifies it
-        if camera_purpose != CAMERA_PURPOSE_STATIC and scene_type:
+        if planned_camera:
+            # Camera engine already decided at image-design time; the still image
+            # is composed for this exact move. Honor the plan.
+            camera_motion = planned_camera
+            if planned_camera_purpose:
+                camera_purpose = planned_camera_purpose
+        elif camera_purpose != CAMERA_PURPOSE_STATIC and scene_type:
+            # Legacy path (no planned move stored): random per-format lookup
             camera_motion = get_camera_motion(scene_type, is_hero_shot)
         else:
             camera_motion = "Static shot"
