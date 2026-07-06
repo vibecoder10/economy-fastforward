@@ -2,6 +2,7 @@
 
 import os
 import io
+import threading
 import time
 from typing import Optional
 import httpx
@@ -88,23 +89,31 @@ class GoogleClient:
             client_secret=self.client_secret,
         )
         
-        # Initialize services
-        self._drive_service = None
-        self._docs_service = None
-    
+        # Services are PER-THREAD. A googleapiclient service owns one
+        # httplib2.Http (one SSL connection); two threads using the same one
+        # corrupts the OpenSSL heap and killed the backend twice on
+        # 2026-07-06 ("free(): corrupted unsorted chunks", segfault repro at
+        # concurrency 6). Credentials are shared across threads - that's
+        # Google's documented pattern; a concurrent token refresh is benign.
+        self._services = threading.local()
+
     @property
     def drive_service(self):
-        """Get the Drive API service."""
-        if self._drive_service is None:
-            self._drive_service = build("drive", "v3", credentials=self.credentials)
-        return self._drive_service
-    
+        """Get the Drive API service (one per calling thread)."""
+        svc = getattr(self._services, "drive", None)
+        if svc is None:
+            svc = build("drive", "v3", credentials=self.credentials)
+            self._services.drive = svc
+        return svc
+
     @property
     def docs_service(self):
-        """Get the Docs API service."""
-        if self._docs_service is None:
-            self._docs_service = build("docs", "v1", credentials=self.credentials)
-        return self._docs_service
+        """Get the Docs API service (one per calling thread)."""
+        svc = getattr(self._services, "docs", None)
+        if svc is None:
+            svc = build("docs", "v1", credentials=self.credentials)
+            self._services.docs = svc
+        return svc
 
     def _retry_with_backoff(self, func, *args, **kwargs):
         """Execute a function with exponential backoff retry on transient errors.

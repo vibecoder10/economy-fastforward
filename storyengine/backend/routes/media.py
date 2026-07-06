@@ -17,6 +17,7 @@ import asyncio
 import io
 import logging
 import re
+import threading
 import time
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -75,14 +76,32 @@ async def _is_allowed(file_id: str) -> bool:
     return allowed
 
 
+_google_client = None
+_google_client_lock = threading.Lock()
+
+
 def _drive_service():
-    import sys
-    from pathlib import Path
-    pipeline_path = Path(__file__).resolve().parents[3] / "skills" / "video-pipeline"
-    if str(pipeline_path) not in sys.path:
-        sys.path.insert(0, str(pipeline_path))
-    from shared.clients.google_client import GoogleClient
-    return GoogleClient().drive_service
+    """Drive service for the calling thread.
+
+    One GoogleClient is shared (so the OAuth token refreshes once, not per
+    request - a fresh client per request added a token POST and a discovery
+    build to every proxy hit). The service it hands back is PER-THREAD:
+    sharing one googleapiclient service (= one httplib2/SSL connection)
+    across to_thread workers corrupted the heap and crashed the backend
+    twice on 2026-07-06.
+    """
+    global _google_client
+    if _google_client is None:
+        with _google_client_lock:
+            if _google_client is None:
+                import sys
+                from pathlib import Path
+                pipeline_path = Path(__file__).resolve().parents[3] / "skills" / "video-pipeline"
+                if str(pipeline_path) not in sys.path:
+                    sys.path.insert(0, str(pipeline_path))
+                from shared.clients.google_client import GoogleClient
+                _google_client = GoogleClient()
+    return _google_client.drive_service
 
 
 def _fetch_drive_meta(file_id: str) -> dict:

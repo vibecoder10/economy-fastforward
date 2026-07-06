@@ -15,6 +15,7 @@ import asyncio
 import os
 import logging
 import mimetypes
+import threading
 from typing import Optional
 
 import httpx
@@ -29,22 +30,32 @@ SUPABASE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "assets")
 # --- Google Drive backend (existing) ---
 
 _google_client = None
+_google_client_lock = threading.Lock()
 _root_folder_id: Optional[str] = None
 _folder_cache: dict[str, str] = {}
 
 
 def _get_google_client():
-    """Lazy-init GoogleClient singleton. Raises on missing credentials."""
+    """Lazy-init GoogleClient singleton. Raises on missing credentials.
+
+    Locked: concurrent first calls from the to_thread pool used to double-init
+    (two clients, two root-folder lookups). The client itself is safe to share
+    across threads now - its Drive/Docs services are per-thread inside
+    GoogleClient (see the 2026-07-06 heap-corruption note there).
+    """
     global _google_client, _root_folder_id
     if _google_client is not None:
         return _google_client
 
-    from shared.clients.google_client import GoogleClient
-    _google_client = GoogleClient()
-
-    root = _google_client.get_or_create_folder("StoryEngine Assets")
-    _root_folder_id = root["id"]
-    logger.info("Google Drive root folder: StoryEngine Assets (%s)", _root_folder_id)
+    with _google_client_lock:
+        if _google_client is not None:
+            return _google_client
+        from shared.clients.google_client import GoogleClient
+        client = GoogleClient()
+        root = client.get_or_create_folder("StoryEngine Assets")
+        _root_folder_id = root["id"]
+        logger.info("Google Drive root folder: StoryEngine Assets (%s)", _root_folder_id)
+        _google_client = client
     return _google_client
 
 
