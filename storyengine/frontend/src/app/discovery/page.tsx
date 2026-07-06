@@ -56,6 +56,7 @@ export default function DiscoveryPage() {
   const [editTitleIndex, setEditTitleIndex] = useState(0);
   const [editLength, setEditLength] = useState(15);
   const [manageOpen, setManageOpen] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
 
   const { data: ideas, isLoading, error: ideasError } = useQuery({
     queryKey: ["discoveryIdeas", statusFilter],
@@ -78,7 +79,15 @@ export default function DiscoveryPage() {
   const refreshMutation = useMutation({
     mutationFn: refreshDiscoveryIdeas,
     onSuccess: () => {
+      setRefreshError("");
+      let ticks = 0;
       const interval = setInterval(async () => {
+        // Bounded poll: generation runs ~1 min; bail out after 5 so a hung
+        // backend can't leave this ticking forever.
+        if (++ticks > 100) {
+          clearInterval(interval);
+          return;
+        }
         const s = await getDiscoveryStatus();
         if (!s.is_refreshing) {
           clearInterval(interval);
@@ -86,6 +95,9 @@ export default function DiscoveryPage() {
           queryClient.invalidateQueries({ queryKey: ["discoveryStatus"] });
         }
       }, 3000);
+    },
+    onError: (e: Error) => {
+      setRefreshError(e.message || "Couldn't start the refresh - try again.");
     },
   });
 
@@ -149,16 +161,44 @@ export default function DiscoveryPage() {
         </div>
       </motion.div>
 
+      {/* Generating banner - refresh takes ~a minute; make the work visible */}
+      {isRefreshing && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
+          <GlassCard
+            className="px-5 py-4"
+            style={{ border: "1px solid var(--border-turquoise, rgba(0,212,170,0.35))" }}
+          >
+            <div className="flex items-center gap-3">
+              <Loader2 size={18} className="animate-spin shrink-0" style={{ color: "var(--turquoise)" }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Generating fresh ideas from your competitors&apos; latest videos
+                </p>
+                <p className="text-xs font-body mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                  Takes about a minute. New ideas will appear at the top when it finishes.
+                </p>
+              </div>
+            </div>
+          </GlassCard>
+        </motion.div>
+      )}
+
+      {/* Refresh couldn't start (network/auth) - surface it instead of failing silently */}
+      {refreshError && !isRefreshing && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <GlassCard className="px-5 py-3">
+            <div className="flex items-start gap-2 text-xs font-mono" style={{ color: "var(--red, #ff6b6b)" }} role="alert">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+              <span>Refresh failed to start: {refreshError}</span>
+            </div>
+          </GlassCard>
+        </motion.div>
+      )}
+
       {/* Status Bar */}
       <motion.div variants={item}>
         <GlassCard className="px-5 py-3">
           <div className="flex items-center gap-4 flex-wrap text-xs font-mono">
-            {isRefreshing && (
-              <span className="flex items-center gap-1.5" style={{ color: "var(--turquoise)" }}>
-                <Loader2 size={12} className="animate-spin" />
-                Generating ideas...
-              </span>
-            )}
             {status && (
               <>
                 <span style={{ color: "var(--text-secondary)" }}>

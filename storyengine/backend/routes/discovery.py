@@ -121,7 +121,7 @@ async def get_discovery_ideas(
             AND ci.tenant_id = di.tenant_id
             AND ci.source_type = 'competitor_transcript'
         WHERE {where}
-        ORDER BY di.estimated_appeal DESC NULLS LAST, di.created_at DESC
+        ORDER BY di.batch_date DESC, di.estimated_appeal DESC NULLS LAST, di.created_at DESC
         LIMIT ${idx}
     """
     params.append(limit)
@@ -187,8 +187,11 @@ async def get_discovery_status(tenant_id: str = Depends(get_tenant_id)):
     fresh_count = 0
 
     try:
+        # created_at (timestamptz), not batch_date (a bare DATE): batch_date reads
+        # as midnight UTC, so "Last batch" showed hours-old right after a refresh.
         row = await fetch_one(
-            "SELECT MAX(batch_date)::text as last_date, COUNT(*) as total FROM discovery_ideas WHERE tenant_id = $1",
+            "SELECT to_char(MAX(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as last_date, "
+            "COUNT(*) as total FROM discovery_ideas WHERE tenant_id = $1",
             tenant_id,
         )
         if row:
