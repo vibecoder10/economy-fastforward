@@ -89,12 +89,14 @@ Lens: {profile.lens_profile.focal_range}
 1) NO INVENTED PEOPLE — only characters named in the VISUAL BIBLE may appear. Never add a guest, \
 extra, sibling, neighbour or crowd member, and never invent a name. If a moment names no one, \
 show the existing cast or the empty environment.
-2) The VISUAL BIBLE (if provided) is BINDING and is the ONLY source of how each character looks. In \
-EVERY shot's description, restate that character's exact appearance VERBATIM from the bible — same \
-wardrobe and colors, same hair, same face, same creature scale-colour/wings/eyes. NEVER paraphrase, \
-swap, or add: do NOT turn plate armour into leather, do NOT add a helmet/cloak/accessory the bible \
-does not list, do NOT recolour or resize the creature. If the narration implies a different look, \
-the bible STILL wins. The goal is an identical character in every single panel.
+2) The VISUAL BIBLE (if provided) is BINDING, and the attached CAST REFERENCE image carries each \
+character's exact look — the drawing model copies identity from the reference, not from prose. \
+In every shot description, name each character with a SHORT LOCKED TAG: first name plus 2-4 \
+bible words, IDENTICAL words in identical order every time — e.g. "Ryan (black polo, beard)", \
+"Vanessa (burgundy wrap top, long dark waves)". NEVER a full wardrobe paragraph inside a shot \
+description: long re-descriptions fight the reference image and cause drift. NEVER paraphrase, \
+swap, or add an item the bible does not list; if the narration implies a different look, the \
+bible STILL wins. The goal is an identical character in every single panel.
 3) Within a moment every angle is the SAME instant — identical wardrobe, props, blocking, light. \
 Only framing/angle/lens changes. Angles must be genuinely DISTINCT (different shot size AND a \
 different visual focus: face vs hands vs object), never near-duplicate zooms of one framing. \
@@ -127,15 +129,25 @@ their declared positions — never an empty room unless the narration demands it
 the audience watches the CUTS between them. If shot A is one character alone and shot B is the \
 other character alone, the first person POPS OUT OF EXISTENCE at the cut — that is a FAILURE. \
 In a two-person scene the partner NEVER fully leaves the frame: the DEFAULT dialogue framing \
-is OVER-THE-SHOULDER (the listener's near shoulder and back of head soft in the foreground on \
-their own side of frame, the speaker in focus across the frame delivering the line) or a DIRTY \
-SINGLE (the partner's profile or shoulder held at the frame edge). Alternate the axis — past \
-Ryan's shoulder onto Vanessa, then past Vanessa's shoulder onto Ryan — and drop in a fresh \
-TWO-SHOT every few moments to re-anchor the geography. A CLEAN single (partner fully out of \
-frame) is a deliberate accent for an isolated internal beat, at most one or two per scene, \
-and never two clean singles back to back. Screen direction always holds: the person on the \
-left looks screen-RIGHT, the person on the right looks screen-LEFT; NEVER a lone character \
-dead-center staring into the camera.{motivated_rule}
+is OVER-THE-SHOULDER (the listener's near shoulder and back of head soft in the foreground \
+corner on the listener's OWN side of frame, the speaker in focus across the frame delivering \
+the line) or a DIRTY SINGLE (the partner's profile or shoulder held at the frame edge). A \
+CLEAN single (partner fully out of frame) is a deliberate accent for an isolated internal \
+beat, at most one or two per scene, never two back to back, and NEVER a lone character \
+dead-center staring into the camera. Drop in a fresh TWO-SHOT every few moments to re-anchor \
+the geography.
+5d) THE 180-DEGREE RULE — THE CAMERA NEVER CROSSES THE AXIS. Declare the scene's screen \
+geography ONCE on the [AXIS | ...] line: which character owns frame-LEFT and which owns \
+frame-RIGHT, each one's fixed eyeline (the frame-left character ALWAYS looks frame-RIGHT, the \
+frame-right character ALWAYS looks frame-LEFT), and the key-light direction. EVERY shot obeys \
+it: each character appears on their own side of the frame looking their fixed direction, even \
+when they are only a soft foreground shoulder. Shot/reverse-shot alternates the SUBJECT, never \
+the side: OTS pairs are over OPPOSITE shoulders (over A's right shoulder onto B, then over B's \
+left shoulder onto A) at MATCHED shot sizes. Punch in to tighter MATCHED singles only at an \
+emotional turn — if one character gets a CU, the partner's reverse is also a CU. When a \
+character physically moves position, re-establish with a fresh TWO-SHOT (the move redraws the \
+axis). A shot may violate the axis ONLY if its description explicitly says NEUTRAL (a dead-on \
+frontal or a no-orientation insert used to reset geography).{motivated_rule}
 </rules>
 
 <output_format>
@@ -148,18 +160,26 @@ of eggs, loose potatoes and onions on a cutting board; counters clear; no books,
 laptop. Ryan stands at the LEFT end of the island facing Vanessa; Vanessa at the RIGHT end \
 facing Ryan"]
 
+Second line — the SET geography resolved into SCREEN coordinates, the scene's contract (rule 5d):
+[AXIS | <name> frame-LEFT looking frame-RIGHT; <name> frame-RIGHT looking frame-LEFT; key \
+light from screen-<left|right>. Holds in EVERY shot unless the shot says NEUTRAL]
+
 Then, for each moment:
 
 [MOMENT n | one-line description of what happens]
 LINE: <Speaker> | "<exact spoken words>"   (ONLY for a speaking moment; omit entirely if silent)
-- MASTER [shot_type]: full visual description — subjects with exact appearance, environment, \
-blocking, lighting. This is the widest / establishing framing of the moment. PEOPLE COME FIRST: \
-name everyone in frame and where they stand within the FIRST 15 words of the description \
-("Ryan at the left end of the island, Vanessa at the right — wide shot of..."); environment \
-detail comes AFTER the people. Only a shot with genuinely nobody in it may open with the set, \
-and it must say "Empty of people" explicitly. (Downstream sheet briefs truncate long \
-descriptions — an environment-first opener got its people silently cut and drew an empty room.)
-- ANGLE [shot_type]: same instant, different camera — the new framing and what it emphasises.
+- MASTER [shot_type]: ONE flowing sentence in SCREEN coordinates, COMPOSITION FIRST: where each \
+visible character sits in the FRAME and which way they look (frame-left, right-of-center, "soft \
+shoulder in the frame-right foreground corner"), then ONE action in ≤15 words, then only the \
+props that matter. Identity is the locked tag from rule 2 — never a wardrobe paragraph. \
+Example: "MCU OTS over Vanessa's LEFT shoulder onto Ryan (black polo, beard): her dark waves \
+soft in the frame-RIGHT foreground corner, Ryan sharp left-of-center looking frame-RIGHT, \
+spreading both hands flat on the island." This is the widest / establishing framing of the \
+moment. NEVER describe blocking in world space ("at the left end of the island", "his left") — \
+the drawing model cannot do camera geometry; give it the finished frame. Only a shot with \
+genuinely nobody in it may open with the set, and it must say "Empty of people" explicitly.
+- ANGLE [shot_type]: same instant, different camera — same format: frame placement + eyeline \
+first, then what the new framing emphasises. The axis still holds.
 - ANGLE [shot_type]: ...
 
 shot_type is one of: {SHOT_TYPES}.
@@ -259,6 +279,27 @@ def parse_set_dressing(directive_text: str) -> str | None:
     None when the planner omitted it (older stored directives)."""
     m = _SET_RE.search(directive_text or "")
     return m.group(1).strip() if m else None
+
+
+_AXIS_RE = re.compile(r"\[AXIS\s*\|\s*([^\]]+)\]", re.IGNORECASE)
+
+
+def parse_axis_line(directive_text: str) -> str | None:
+    """The scene's screen-direction contract from the plan's [AXIS | ...] line
+    (rule 5d): who owns frame-left/right, fixed eyelines, key-light side.
+    None for legacy plans that predate the axis contract."""
+    m = _AXIS_RE.search(directive_text or "")
+    return m.group(1).strip() if m else None
+
+
+def panels_per_sheet_for(directive_text: str) -> int:
+    """Gate-sheet panel capacity for THIS plan. New-format plans (with an
+    [AXIS | ...] line) draw 9-panel 3x3 sheets — the adherence ceiling image
+    models hold; legacy plans keep their original 12 so the board-anchor math
+    (panel k -> sheet k//cap) still points at the right panel on sheets that
+    were approved before the change. Sheet chunking and board anchoring MUST
+    both call this on the SAME directive."""
+    return 9 if _AXIS_RE.search(directive_text or "") else 12
 # Tolerant of how the LLM writes the shot line: "- MASTER [WS]:", "- MASTER WS:",
 # or multi-word "- ANGLE INSERT ECU:" (brackets optional, shot type 1+ words, colon required).
 _SHOT_RE = re.compile(
@@ -353,9 +394,9 @@ _BOARD_ANCHOR = (
     "cinematic image. Do NOT draw the sheet itself: no grid, no panel borders, no panel numbers, "
     "no caption strips, no text.")
 
-# Panels per gate sheet — MUST match _plan_sheet_prompts(panels_per_sheet=12) in
-# backend/scripts/coverage_to_app.py, or panel numbers point at the wrong sheet.
-_PANELS_PER_SHEET = 12
+# Panels per gate sheet now depends on the plan's format — see
+# panels_per_sheet_for(). Sheet chunking (coverage_to_app._plan_sheet_prompts
+# caller) and the board-anchor math below must both use it on the same plan.
 
 
 async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
@@ -632,6 +673,20 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                 a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
         print("  🪑 set-dressing lock applied to every shot", flush=True)
 
+    # SCREEN-DIRECTION LOCK (rule 5d): stamp the axis contract into every
+    # shot's image prompt too — each frame is generated independently, so the
+    # per-scene invariant must ride on each one or singles/OTS shots drift to
+    # the wrong side of frame and the cut flips.
+    axis_line = parse_axis_line(directive_text)
+    if axis_line:
+        tail = (f"Screen-direction lock, identical in every shot of this scene: {axis_line}. "
+                "Never mirror or flip the composition.")
+        for m in moments:
+            m["master"]["description"] = f"{m['master']['description'].rstrip('. ')}. {tail}"
+            for a in m.get("angles") or []:
+                a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
+        print("  🎬 screen-direction lock applied to every shot", flush=True)
+
     # BOARD ANCHOR: pin each shot to its numbered panel on the approved gate
     # sheet(s). Panel numbers are GLOBAL across sheets and count masters then
     # angles in moment order — the exact order _plan_sheet_prompts drew them in
@@ -640,13 +695,15 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # came from THIS directive_text; a re-planned scene passes no board_urls.
     if board_urls:
         k = 0
+        _cap = panels_per_sheet_for(directive_text)
         for m in moments:
             for shot in [m["master"], *(m.get("angles") or [])]:
                 k += 1
-                si = (k - 1) // _PANELS_PER_SHEET
+                si = (k - 1) // _cap
                 if si < len(board_urls) and board_urls[si]:
                     shot["board_url"], shot["board_panel"] = board_urls[si], k
-        print(f"  📌 board anchor: {k} shots pinned to the approved sheet panels", flush=True)
+        print(f"  📌 board anchor: {k} shots pinned to the approved sheet panels "
+              f"({_cap}/sheet)", flush=True)
 
     # Camera Movement Engine: decide each shot's move NOW, before drawing, so
     # the stills are composed for their moves (storytelling formats only —

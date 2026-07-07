@@ -54,6 +54,7 @@ from kie_unified import get_text_client_for_tenant            # noqa: E402
 from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
     parse_coverage, enforce_shot_budget, parse_set_dressing,
+    parse_axis_line, panels_per_sheet_for,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.channel_profile import load_profile               # noqa: E402
@@ -689,20 +690,22 @@ def _scene_text_hash(text: str) -> str:
     return hashlib.sha1(" ".join((text or "").split()).encode()).hexdigest()
 
 
-def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 12,
-                        set_line: str = "") -> list[str]:
+def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
+                        set_line: str = "", axis_line: str = "") -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
-    ≤panels_per_sheet per sheet so panels stay readable. The preview shows
-    exactly what the pictures step will draw: same shots, same order, same
-    spoken lines. No LLM in between to drift.
+    ≤panels_per_sheet per sheet (9 = the adherence ceiling; pass
+    panels_per_sheet_for(directive) so legacy 12-panel plans redraw true).
+    The preview shows exactly what the pictures step will draw: same shots,
+    same order, same spoken lines. No LLM in between to drift.
 
-    set_line is the plan's [SET | ...] geography/props line. It MUST ride on
-    the sheet prompt itself: per-panel briefs are truncated and always open
-    with verbatim wardrobe (bible rule), so the blocking language never
-    survived the cut — the 2026-07-07 sheets drew a perfect plan as centered
-    alternating mugshots in an empty-opener room because the sheet drawer
-    never saw the staging."""
+    Structure follows the researched winning shape (2026-07-07): a short
+    invariant block (identity = the cast reference, the [SET|] line, the
+    [AXIS|] screen-direction contract), then ONE compact line per panel
+    already resolved into screen space by the planner, dialogue in the
+    caption bars, and the hard constraints in a final slot. Long per-panel
+    wardrobe prose is the documented failure mode — it fights the reference
+    image — so briefs stay tight and captions carry the spoken line."""
     def _trunc(s, n):
         # Word-boundary cut with an ellipsis. A hard slice amputates mid-word
         # ("Why didn'", "cream stove at ba") and the sheet drawer renders that
@@ -715,39 +718,41 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
     panels: list[str] = []
     for m in moments:
         n = m.get("moment_number")
-        speak = (f' SPEAKING {m["speaker"]}: "{_trunc(m["line"], 70)}"'
-                 if m.get("speaker") and m.get("line") else "")
+        cap = (f' CAPTION: {m["speaker"]}: "{_trunc(m["line"], 90)}"'
+               if m.get("speaker") and m.get("line") else " CAPTION: (silent)")
         master = m.get("master") or {}
         panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
-                      f"{_trunc(master.get('description'), 300)}{speak}")
+                      f"{_trunc(master.get('description'), 300)}{cap}")
         for a in (m.get("angles") or []):
             panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
-                          f"{_trunc(a.get('description'), 300)}")
+                          f"{_trunc(a.get('description'), 300)} CAPTION: (silent)")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
-    set_block = (
-        f"\nFIXED SET & BLOCKING — identical in EVERY panel that shows the location: {set_line} "
-        "Characters ALWAYS occupy their declared positions and face their declared directions; "
-        "when a panel frames one character, keep them on THEIR side of the frame with their "
-        "eyeline across the frame toward their partner — never centered staring into the camera. "
-        "In dialogue panels the partner stays ANCHORED in frame: near shoulder and back of head "
-        "soft in the foreground (over-the-shoulder) or a profile at the frame edge — a "
-        "conversation panel showing only one visible person is WRONG unless its brief explicitly "
-        "says the partner is out of frame. A panel described with both characters MUST show both.\n"
-        if (set_line or "").strip() else "")
+    set_block = (f"\nFIXED SET — identical in EVERY panel that shows the location: {set_line}\n"
+                 if (set_line or "").strip() else "")
+    axis_block = (f"\nSCREEN-DIRECTION LOCK — holds in EVERY panel of this sheet: {axis_line} "
+                  "Each character stays on their own side of the frame looking their fixed "
+                  "direction in every panel, even when they are only a soft foreground "
+                  "shoulder.\n"
+                  if (axis_line or "").strip() else "")
     prompts = []
     chunks = [panels[i:i + panels_per_sheet] for i in range(0, len(panels), panels_per_sheet)]
     for ci, chunk in enumerate(chunks, start=1):
         listed = "\n".join(chunk)
         prompts.append(
-            f"A professional storyboard SHEET (sheet {ci} of {len(chunks)}): a clean grid of "
-            f"{len(chunk)} numbered panels, 3 columns, each panel a WIDE 16:9 widescreen cinematic "
-            "frame (never square or tall), with a small caption strip under each panel showing its "
-            "number, shot type and one short action line. Render EVERY panel in this EXACT art "
-            f"style, held identically across all panels: {style_line}. Consistent lighting and "
-            "grade. Use the EXACT characters from the cast reference wherever they appear — never "
-            "invent people or change their look. INSIDE the panels draw NO text of any kind — no "
-            "speech bubbles, no dialogue balloons, no captions; spoken lines live only in the "
-            f"caption strip BELOW each panel.{set_block}Draw these panels IN ORDER:\n" + listed)
+            f"Professional animation PRODUCTION STORYBOARD SHEET (sheet {ci} of {len(chunks)}): "
+            f"a clean grid of {len(chunk)} numbered panels, 3 columns, on a light grey page; "
+            "each panel a WIDE 16:9 widescreen cinematic frame (never square or tall). "
+            f"Art style, identical in every panel: {style_line}. Consistent lighting and grade. "
+            "Every character's face, hair and wardrobe come from the attached cast reference — "
+            "the same people in every panel; never invent a person or change their look. "
+            "Under EVERY panel a white caption bar with its bold panel number and its CAPTION "
+            "text, large and correctly spelled; a (silent) panel's bar shows just the number "
+            "and shot type. INSIDE the panels draw NO text of any kind — no speech bubbles, "
+            f"no signs, no lettering.{set_block}{axis_block}Draw these panels IN ORDER:\n"
+            + listed +
+            "\nCONSTRAINTS: never swap which side of the frame a character occupies; never "
+            "mirror or flip a panel; one action per panel; a panel may break the "
+            "screen-direction lock only if its brief says NEUTRAL.")
     return prompts
 
 
@@ -837,7 +842,9 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
 
         prompts = _plan_sheet_prompts(moments, style_dir,
-                                      set_line=parse_set_dressing(directive or "") or "")[:5]
+                                      panels_per_sheet=panels_per_sheet_for(directive or ""),
+                                      set_line=parse_set_dressing(directive or "") or "",
+                                      axis_line=parse_axis_line(directive or "") or "")[:5]
         if beat is not None and not (1 <= beat <= len(prompts)):
             return {"status": "failed",
                     "error": f"Scene {sc} has {len(prompts)} board(s) — board {beat} doesn't exist."}
