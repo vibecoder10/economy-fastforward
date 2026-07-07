@@ -1195,6 +1195,54 @@ class PipelineExecutor:
         except Exception as e:
             print(f"[Script] Error injecting learnings: {e}")
 
+    async def _static_unit_roster(self, video: dict) -> list[str]:
+        """The machine list a static documentary must cover, in order.
+
+        Source of truth is the research payload: a structured `unit_roster`
+        field when research provided one, else a one-shot extraction from the
+        fact sheet (cheap, and works for payloads created before the roster
+        field existed). Returns [] when nothing reliable is available - the
+        script then runs uncontracted rather than with a bad roster."""
+        import json as _json_ur
+
+        rp = video.get("research_payload")
+        if isinstance(rp, str):
+            try:
+                rp = _json_ur.loads(rp)
+            except (ValueError, TypeError):
+                return []
+        if not isinstance(rp, dict):
+            return []
+
+        roster = rp.get("unit_roster")
+        if isinstance(roster, list):
+            names = [str(m).strip() for m in roster if str(m).strip()]
+            if 8 <= len(names) <= 32:
+                return names
+
+        fact = rp.get("fact_sheet") or ""
+        if not isinstance(fact, str) or len(fact) < 200:
+            return []
+        try:
+            raw = await self._pipeline.anthropic.generate(
+                prompt=(
+                    "From this research fact sheet, list every distinct MACHINE it covers "
+                    "(exact designation and name, e.g. 'Boeing XB-15', 'Convair B-36 Peacemaker'), "
+                    "in the order they appear. One per line. No numbering, no commentary, "
+                    "no variants that are only mentioned in passing - only machines with their "
+                    "own story block.\n\n" + fact[:12000]
+                ),
+                system_prompt="You extract structured lists. Output only the list, one item per line.",
+                max_tokens=800,
+                temperature=0.0,
+            )
+            names = [ln.strip(" -•\t") for ln in (raw or "").splitlines() if ln.strip()]
+            names = [n for n in names if 2 <= len(n.split()) <= 8][:32]
+            return names if len(names) >= 8 else []
+        except Exception as e:  # noqa: BLE001 — roster is an enhancement, never a blocker
+            _logger.warning("[unit-roster] extraction failed: %s", str(e)[:150])
+            return []
+
     async def _resplit_static_scenes(self, video_id: str) -> None:
         """Static documentaries: one scene per UNIT PARAGRAPH, not per act.
 
@@ -1695,6 +1743,29 @@ separate scenes."""
             else:
                 self._pipeline.script_allowed_speakers = None
                 self._pipeline.script_format_contract = None
+
+            # Static documentaries: the research already SELECTED the machines
+            # (curated shortlist). Hand the writer that roster as a locked
+            # contract - one 95-120 word paragraph per machine, in order - so
+            # the script can never skip, merge, or substitute units. The
+            # contract seam is appended LAST in generate_script, which is what
+            # makes it stick against the topic brief.
+            if (video.get("render_mode") or "") == "static_docu":
+                roster = await self._static_unit_roster(video)
+                if roster:
+                    roster_lines = "\n".join(f"{i}. {m}" for i, m in enumerate(roster, 1))
+                    self._pipeline.script_format_contract = (
+                        ((self._pipeline.script_format_contract or "") + "\n\n").lstrip()
+                        + "=== UNIT ROSTER - NON-NEGOTIABLE (static documentary) ===\n"
+                        f"The research selected exactly these {len(roster)} machines. Write EXACTLY ONE "
+                        "self-contained unit paragraph of 95-120 words for EACH machine below, in THIS "
+                        "order, grouped into your acts. One machine = one paragraph.\n"
+                        f"{roster_lines}\n"
+                        "Do not skip, merge, add, or substitute machines. Every machine on this list "
+                        "appears exactly once; no machine not on this list appears at all."
+                    )
+                    await self._log_activity(bot_name, video_id, "started",
+                                             f"Unit roster locked: {len(roster)} machines from research")
 
             # Run script generation
             result = await self._pipeline.run_brief_translator()
