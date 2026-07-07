@@ -1622,40 +1622,61 @@ async def fix_text_card(
             "message": "Fixing card text with GPT Image 2…"}
 
 
+async def _channel_default_prompt(tenant_id, prompt_key: str, fallback: str) -> str:
+    """The prompt this channel actually runs with when a video has no
+    per-video override: tenant custom prompt first, neutral template second.
+    Mirrors the pipeline's resolve order (per-video > tenant > neutral) so
+    the per-video editor shows the REAL default instead of the generic
+    engine text (seen live on DvsU: the box displayed 'general educational
+    content channel' while the tenant's custom prompt was what actually ran
+    — and saving that generic text would have silently overridden the
+    channel's prompt for the video)."""
+    try:
+        row = await fetch_one(
+            "SELECT prompt_text FROM tenant_prompt_defaults WHERE tenant_id = $1 AND prompt_key = $2",
+            tenant_id, prompt_key,
+        )
+        if row and (row.get("prompt_text") or "").strip():
+            return row["prompt_text"]
+    except Exception:  # noqa: BLE001 — display helper, never block
+        pass
+    return fallback
+
+
 @router.get("/defaults/video-motion-prompt")
-async def get_default_video_motion_prompt():
-    """Return the default video motion system prompt template."""
-    return {"prompt": VIDEO_MOTION_SYSTEM_PROMPT}
+async def get_default_video_motion_prompt(tenant_id=Depends(get_tenant_id)):
+    """Return the channel's effective video motion system prompt."""
+    return {"prompt": await _channel_default_prompt(tenant_id, "video_motion", VIDEO_MOTION_SYSTEM_PROMPT)}
 
 
 @router.get("/defaults/script-prompt")
-async def get_default_script_prompt():
-    """Return the default script system prompt template."""
-    return {"prompt": SCRIPT_SYSTEM_PROMPT}
+async def get_default_script_prompt(tenant_id=Depends(get_tenant_id)):
+    """Return the channel's effective script system prompt."""
+    return {"prompt": await _channel_default_prompt(tenant_id, "script", SCRIPT_SYSTEM_PROMPT)}
 
 
 @router.get("/defaults/thumbnail-prompt")
-async def get_default_thumbnail_prompt():
-    """Return the default thumbnail system prompt template."""
-    return {"prompt": THUMBNAIL_SYSTEM_PROMPT}
+async def get_default_thumbnail_prompt(tenant_id=Depends(get_tenant_id)):
+    """Return the channel's effective thumbnail system prompt."""
+    return {"prompt": await _channel_default_prompt(tenant_id, "thumbnail", THUMBNAIL_SYSTEM_PROMPT)}
 
 
 @router.get("/defaults/sound-curation-prompt")
-async def get_default_sound_curation_prompt():
-    """Return the default sound curation system prompt."""
-    return {"prompt": SOUND_CURATION_SYSTEM_PROMPT}
+async def get_default_sound_curation_prompt(tenant_id=Depends(get_tenant_id)):
+    """Return the channel's effective sound curation system prompt."""
+    return {"prompt": await _channel_default_prompt(tenant_id, "sound_curation", SOUND_CURATION_SYSTEM_PROMPT)}
 
 
 @router.get("/defaults/sound-generation-prompt")
-async def get_default_sound_generation_prompt():
-    """Return the default sound generation system prompt."""
-    return {"prompt": SOUND_GENERATION_SYSTEM_PROMPT}
+async def get_default_sound_generation_prompt(tenant_id=Depends(get_tenant_id)):
+    """Return the channel's effective sound generation system prompt."""
+    return {"prompt": await _channel_default_prompt(tenant_id, "sound_generation", SOUND_GENERATION_SYSTEM_PROMPT)}
 
 
 @router.get("/defaults/research-prompt")
-async def get_default_research_prompt():
-    """Return the default research system prompt."""
-    return {"prompt": RESEARCH_SYSTEM_PROMPT}
+async def get_default_research_prompt(tenant_id=Depends(get_tenant_id)):
+    """Return the channel's effective research system prompt."""
+    return {"prompt": await _channel_default_prompt(tenant_id, "research", RESEARCH_SYSTEM_PROMPT)}
 
 
 from pydantic import BaseModel as _BaseModel
