@@ -54,7 +54,7 @@ from kie_unified import get_text_client_for_tenant            # noqa: E402
 from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
     parse_coverage, enforce_shot_budget, parse_set_dressing,
-    parse_axis_line, panels_per_sheet_for,
+    parse_axis_line, parse_setups_line, panels_per_sheet_for,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.channel_profile import load_profile               # noqa: E402
@@ -691,7 +691,8 @@ def _scene_text_hash(text: str) -> str:
 
 
 def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
-                        set_line: str = "", axis_line: str = "") -> list[str]:
+                        set_line: str = "", axis_line: str = "",
+                        setups_line: str = "") -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
     ≤panels_per_sheet per sheet (9 = the adherence ceiling; pass
@@ -734,6 +735,13 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
                   "direction in every panel, even when they are only a soft foreground "
                   "shoulder.\n"
                   if (axis_line or "").strip() else "")
+    setups_block = (f"\nCAMERA KIT — the actors are PLANTED on the set and never move; the "
+                    f"whole scene is covered by these repeated setups: {setups_line} Panels "
+                    "whose brief carries the same SETUP letter are the SAME camera position "
+                    "and the SAME frozen staging repeated EXACTLY — copy the framing, body "
+                    "positions, distance and orientation from the first panel with that "
+                    "letter; only faces, gestures and the caption change between them.\n"
+                    if (setups_line or "").strip() else "")
     prompts = []
     chunks = [panels[i:i + panels_per_sheet] for i in range(0, len(panels), panels_per_sheet)]
     for ci, chunk in enumerate(chunks, start=1):
@@ -748,7 +756,8 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
             "Under EVERY panel a white caption bar with its bold panel number and its CAPTION "
             "text, large and correctly spelled; a (silent) panel's bar shows just the number "
             "and shot type. INSIDE the panels draw NO text of any kind — no speech bubbles, "
-            f"no signs, no lettering.{set_block}{axis_block}Draw these panels IN ORDER:\n"
+            f"no signs, no lettering.{set_block}{axis_block}{setups_block}"
+            "Draw these panels IN ORDER:\n"
             + listed +
             "\nCONSTRAINTS: never swap which side of the frame a character occupies; never "
             "mirror or flip a panel; one action per panel; a panel may break the "
@@ -844,7 +853,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         prompts = _plan_sheet_prompts(moments, style_dir,
                                       panels_per_sheet=panels_per_sheet_for(directive or ""),
                                       set_line=parse_set_dressing(directive or "") or "",
-                                      axis_line=parse_axis_line(directive or "") or "")[:5]
+                                      axis_line=parse_axis_line(directive or "") or "",
+                                      setups_line=parse_setups_line(directive or "") or "")[:5]
         if beat is not None and not (1 <= beat <= len(prompts)):
             return {"status": "failed",
                     "error": f"Scene {sc} has {len(prompts)} board(s) — board {beat} doesn't exist."}

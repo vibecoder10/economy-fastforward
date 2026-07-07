@@ -147,7 +147,18 @@ left shoulder onto A) at MATCHED shot sizes. Punch in to tighter MATCHED singles
 emotional turn — if one character gets a CU, the partner's reverse is also a CU. When a \
 character physically moves position, re-establish with a fresh TWO-SHOT (the move redraws the \
 axis). A shot may violate the axis ONLY if its description explicitly says NEUTRAL (a dead-on \
-frontal or a no-orientation insert used to reset geography).{motivated_rule}
+frontal or a no-orientation insert used to reset geography).
+5e) ONE STAGING, NAMED SETUPS. A real crew plants the actors ONCE and covers the whole \
+conversation with a small kit of repeated camera SETUPS — the bodies never move between cuts. \
+Declare the kit ONCE on the [SETUPS | ...] line: SETUP A is the establishing two-shot that \
+plants each body on the set (exact spot, distance apart, body orientation); the other setups \
+(the OTS pair, a matched CU pair, an insert position) view THAT SAME frozen staging from other \
+cameras. Every shot's description MUST begin with its setup letter, e.g. "(SETUP B)". Shots \
+sharing a letter are the IDENTICAL camera position and IDENTICAL staging repeated — only \
+expressions, gestures and the spoken line change between them. Bodies never drift closer, swap \
+ends, lean across the set, or change orientation between moments unless the narration \
+explicitly moves someone — and then you re-establish with a new two-shot and restate the \
+setups.{motivated_rule}
 </rules>
 
 <output_format>
@@ -164,22 +175,28 @@ Second line — the SET geography resolved into SCREEN coordinates, the scene's 
 [AXIS | <name> frame-LEFT looking frame-RIGHT; <name> frame-RIGHT looking frame-LEFT; key \
 light from screen-<left|right>. Holds in EVERY shot unless the shot says NEUTRAL]
 
+Third line — the camera kit, ONE line (rule 5e); 3-5 setups cover the whole scene:
+[SETUPS | A: WS two-shot — <each body's exact spot on the set, distance apart, orientation to \
+camera>; B: MCU OTS over <name>'s <left/right> shoulder onto <name>; C: MCU OTS over <name>'s \
+<left/right> shoulder onto <name>, the matched reverse of B; D: matched CU pair, tighter B/C; \
+E: INSERT on the props, no people]
+
 Then, for each moment:
 
 [MOMENT n | one-line description of what happens]
 LINE: <Speaker> | "<exact spoken words>"   (ONLY for a speaking moment; omit entirely if silent)
-- MASTER [shot_type]: ONE flowing sentence in SCREEN coordinates, COMPOSITION FIRST: where each \
-visible character sits in the FRAME and which way they look (frame-left, right-of-center, "soft \
-shoulder in the frame-right foreground corner"), then ONE action in ≤15 words, then only the \
-props that matter. Identity is the locked tag from rule 2 — never a wardrobe paragraph. \
-Example: "MCU OTS over Vanessa's LEFT shoulder onto Ryan (black polo, beard): her dark waves \
-soft in the frame-RIGHT foreground corner, Ryan sharp left-of-center looking frame-RIGHT, \
-spreading both hands flat on the island." This is the widest / establishing framing of the \
-moment. NEVER describe blocking in world space ("at the left end of the island", "his left") — \
-the drawing model cannot do camera geometry; give it the finished frame. Only a shot with \
-genuinely nobody in it may open with the set, and it must say "Empty of people" explicitly.
-- ANGLE [shot_type]: same instant, different camera — same format: frame placement + eyeline \
-first, then what the new framing emphasises. The axis still holds.
+- MASTER [shot_type]: setup letter FIRST, then ONE flowing sentence in SCREEN coordinates, \
+COMPOSITION FIRST: where each visible character sits in the FRAME and which way they look \
+(frame-left, right-of-center, "soft shoulder in the frame-right foreground corner"), then ONE \
+action in ≤15 words, then only the props that matter. Identity is the locked tag from rule 2 — \
+never a wardrobe paragraph. Example: "(SETUP C) MCU OTS over Vanessa's LEFT shoulder onto Ryan \
+(black polo, beard): her dark waves soft in the frame-RIGHT foreground corner, Ryan sharp \
+left-of-center looking frame-RIGHT, spreading both hands flat on the island." NEVER describe \
+blocking in world space ("at the left end of the island", "his left") — the drawing model \
+cannot do camera geometry; give it the finished frame. Only a shot with genuinely nobody in it \
+may open with the set, and it must say "Empty of people" explicitly.
+- ANGLE [shot_type]: same instant, different camera — same format: setup letter, then frame \
+placement + eyeline, then what the new framing emphasises. The axis still holds.
 - ANGLE [shot_type]: ...
 
 shot_type is one of: {SHOT_TYPES}.
@@ -282,6 +299,7 @@ def parse_set_dressing(directive_text: str) -> str | None:
 
 
 _AXIS_RE = re.compile(r"\[AXIS\s*\|\s*([^\]]+)\]", re.IGNORECASE)
+_SETUPS_RE = re.compile(r"\[SETUPS\s*\|\s*([^\]]+)\]", re.IGNORECASE)
 
 
 def parse_axis_line(directive_text: str) -> str | None:
@@ -289,6 +307,13 @@ def parse_axis_line(directive_text: str) -> str | None:
     (rule 5d): who owns frame-left/right, fixed eyelines, key-light side.
     None for legacy plans that predate the axis contract."""
     m = _AXIS_RE.search(directive_text or "")
+    return m.group(1).strip() if m else None
+
+
+def parse_setups_line(directive_text: str) -> str | None:
+    """The scene's camera kit from the plan's [SETUPS | ...] line (rule 5e):
+    the 3-5 named setups covering one frozen staging. None on legacy plans."""
+    m = _SETUPS_RE.search(directive_text or "")
     return m.group(1).strip() if m else None
 
 
@@ -691,6 +716,19 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
             for a in m.get("angles") or []:
                 a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
         print("  🎬 screen-direction lock applied to every shot", flush=True)
+
+    # STAGING LOCK (rule 5e): each frame prompt carries the whole camera kit,
+    # so a shot marked (SETUP B) is drawn as that exact camera on the one
+    # frozen staging — bodies can't drift closer/apart or re-stage per frame.
+    setups_line = parse_setups_line(directive_text)
+    if setups_line:
+        tail = (f"Camera kit for this scene — the actors are PLANTED and never move; every "
+                f"shot is one of these setups viewing the same frozen staging: {setups_line}.")
+        for m in moments:
+            m["master"]["description"] = f"{m['master']['description'].rstrip('. ')}. {tail}"
+            for a in m.get("angles") or []:
+                a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
+        print("  📷 staging/setup lock applied to every shot", flush=True)
 
     # BOARD ANCHOR: pin each shot to its numbered panel on the approved gate
     # sheet(s). Panel numbers are GLOBAL across sheets and count masters then
