@@ -829,7 +829,12 @@ def write_to_airtable(
             IdeaFields.FRAMEWORK_ANGLE: framework_angle,
             IdeaFields.THEMATIC_FRAMEWORK: payload.get("themes", ""),
             IdeaFields.HEADLINE: payload.get("headline", ""),
-            IdeaFields.VIDEO_TITLE: video_title,
+            # VIDEO_TITLE is deliberately NOT written on existing records: the
+            # operator's chosen title is the product input (same decision that
+            # disabled the post-script refiner - "user wants to keep their
+            # chosen title"). Research silently renaming a video was seen live
+            # on DvsU, where titles are the customer's proven series formats.
+            # The scored candidates stay available in Title Candidates.
             # Narrative fields for Past → Present → Future framing
             IdeaFields.PAST_CONTEXT: narrative["past_context"],
             IdeaFields.PRESENT_PARALLEL: narrative["present_parallel"],
