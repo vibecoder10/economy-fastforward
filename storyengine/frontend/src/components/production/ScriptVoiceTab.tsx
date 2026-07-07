@@ -13,7 +13,7 @@ import {
   getVideoScript, getVideoAssets, advanceVideo, rejectVideo,
   runPipelineStage, updateSceneText, updateVideo, clearStaleTask,
   runVoiceForScene, runSplit, getSceneSegments, updateSceneSegments,
-  getDefaultScriptPrompt,
+  getDefaultScriptPrompt, rewriteSceneText,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
   setApiKey, getApiKeyStatus, getDialogueMap, getAudioToken,
   getPipelineTaskStatus,
@@ -495,6 +495,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const [rejecting, setRejecting] = useState(false);
   const [regeneratingScript, setRegeneratingScript] = useState(false);
   const [deletingScene, setDeletingScene] = useState<number | null>(null);
+  const [rewritingScene, setRewritingScene] = useState<number | null>(null);
   const [savingScene, setSavingScene] = useState<number | null>(null);
   const [savedScene, setSavedScene] = useState<number | null>(null);
   const [showRevisionModal, setShowRevisionModal] = useState(false);
@@ -881,6 +882,37 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         toast.error(`Failed to delete scene: ${(err as Error).message}`);
       } finally {
         setDeletingScene(null);
+      }
+    },
+    [video.id, invalidateAll],
+  );
+
+  // AI-rewrite one scene (static docu: one machine's unit paragraph) from the
+  // research facts — dial in a single machine without re-rolling the script.
+  const handleRewriteScene = useCallback(
+    async (sceneNum: number) => {
+      setRewritingScene(sceneNum);
+      try {
+        const res = await rewriteSceneText(video.id, sceneNum);
+        setScenes((prev) =>
+          prev.map((s) => {
+            if (s.sceneNumber !== sceneNum) return s;
+            const newSentences = splitSentences(res.text).map((t, i) => ({
+              ...(s.sentences[i] || { sfxMode: "none" as const, sfxLibraryValue: "", sfxCustomPrompt: "", durationSeconds: null, cumulativeStart: null, imagePrompt: null, imageIndex: null }),
+              text: t,
+            }));
+            return {
+              ...s, narrationText: res.text, displayText: stripStyleDirectives(res.text),
+              sentences: newSentences, voiceOverUrl: null, voiceStatus: null,
+            };
+          }),
+        );
+        invalidateAll();
+        toast.success(`Scene ${sceneNum} rewritten (${res.word_count} words) — voice cleared for re-record`);
+      } catch (err) {
+        toast.error(`Rewrite failed: ${(err as Error).message}`);
+      } finally {
+        setRewritingScene(null);
       }
     },
     [video.id, invalidateAll],
@@ -1299,15 +1331,27 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             </button>
           );
           if (!voiceDone) return (
-            <button
-              onClick={handleGenerateAllVoice}
-              disabled={isVoiceBusy}
-              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-              style={{ background: "var(--orange)", color: "var(--bg-void)" }}
-            >
-              {isVoiceBusy ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
-              {voiceTaskRunning ? voiceTaskMessage || "Generating..." : "Step 2: Generate Voice"}
-            </button>
+            <>
+              <button
+                onClick={handleGenerateAllVoice}
+                disabled={isVoiceBusy}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+              >
+                {isVoiceBusy ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+                {voiceTaskRunning ? voiceTaskMessage || "Generating..." : "Step 2: Generate Voice"}
+              </button>
+              {/* Re-roll the script before spending on voice (prompt/profile changes). */}
+              <button
+                onClick={handleRegenerateScript}
+                disabled={regeneratingScript || scriptTaskRunning || isVoiceBusy}
+                className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
+                style={{ background: "transparent", border: "1px solid var(--orange)", color: "var(--orange)" }}
+              >
+                {(regeneratingScript || scriptTaskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+                {scriptTaskRunning ? scriptTaskMessage || "Regenerating…" : "Regenerate script"}
+              </button>
+            </>
           );
           if (!approved) return (
             <>
@@ -1462,6 +1506,19 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               style={{ color: "var(--text-tertiary)" }}
                             >
                               <Plus size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleRewriteScene(scene.sceneNumber)}
+                              disabled={rewritingScene !== null}
+                              title="AI-rewrite this scene from the research facts (clears its voice)"
+                              className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
+                              style={{ color: rewritingScene === scene.sceneNumber ? "var(--orange)" : "var(--text-tertiary)" }}
+                            >
+                              {rewritingScene === scene.sceneNumber ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Wand2 size={12} />
+                              )}
                             </button>
                             <button
                               onClick={() => handleDeleteScene(scene.sceneNumber)}

@@ -1622,6 +1622,95 @@ async def fix_text_card(
             "message": "Fixing card text with GPT Image 2…"}
 
 
+@router.post("/{video_id}/scenes/{scene}/rewrite")
+async def rewrite_scene_text(
+    video_id: str,
+    scene: int,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """AI-rewrite ONE scene's narration in place (static documentary workflow:
+    each scene is one machine's unit paragraph — dial in a single machine
+    without re-rolling the whole script). Uses the channel's script system
+    prompt + the video's research payload, keeps 95-120 words, then clears
+    that scene's voice so the next voice run re-records only this scene."""
+    import json as _json
+    import httpx as _httpx
+    from vault import get_secret
+    from prompt_defaults import SCRIPT_SYSTEM_PROMPT
+
+    video = await fetch_one(
+        "SELECT id, video_title, research_payload FROM videos "
+        "WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    row = await fetch_one(
+        "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene = $3",
+        video_id, tenant_id, scene)
+    if not row or not (row.get("scene_text") or "").strip():
+        raise HTTPException(status_code=404, detail="Scene has no text yet")
+
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        raise HTTPException(status_code=400,
+                            detail="Anthropic API key required. Configure it in Settings > API Keys.")
+
+    system_prompt = await _channel_default_prompt(tenant_id, "script", SCRIPT_SYSTEM_PROMPT)
+
+    rp = video.get("research_payload")
+    if isinstance(rp, str):
+        try:
+            rp = _json.loads(rp)
+        except (ValueError, TypeError):
+            rp = {}
+    fact_sheet = (rp or {}).get("fact_sheet") or ""
+    if not isinstance(fact_sheet, str):
+        fact_sheet = _json.dumps(fact_sheet)
+
+    task = (
+        f'Video: "{video.get("video_title", "")}"\n\n'
+        "Rewrite the following SINGLE unit paragraph — one machine, one paragraph. "
+        "Keep it a self-contained unit of 95 to 120 words obeying every channel law "
+        "in your instructions. Use ONLY facts about this machine from the research "
+        "fact sheet below; hedge anything uncertain; never speak source names aloud. "
+        "Output ONLY the rewritten paragraph, nothing else.\n\n"
+        f"CURRENT PARAGRAPH:\n{row['scene_text']}\n\n"
+        f"RESEARCH FACT SHEET (verified material):\n{fact_sheet[:6000]}"
+    )
+    try:
+        async with _httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"},
+                json={"model": "claude-sonnet-4-6", "max_tokens": 600,
+                      "system": system_prompt,
+                      "messages": [{"role": "user", "content": task}]})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=humanize_error(
+                f"Claude {resp.status_code}", context="Couldn't rewrite this scene"))
+        new_text = resp.json()["content"][0]["text"].strip()
+    except _httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Failed to reach Claude API")
+    if not new_text or len(new_text.split()) < 40:
+        raise HTTPException(status_code=502, detail="Rewrite came back too short — try again")
+
+    # Save the paragraph; clear this scene's voice so only it re-records.
+    await execute(
+        """UPDATE scripts SET scene_text = $4, voice_over_url = NULL,
+               voice_duration_seconds = NULL, voice_status = NULL
+           WHERE video_id = $1 AND tenant_id = $2 AND scene = $3""",
+        video_id, tenant_id, scene, new_text)
+    # Keep videos.script in sync (it is the display/export copy).
+    scenes_rows = await fetch_all(
+        "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+        "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
+    await execute(
+        "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id, "\n\n".join(r["scene_text"] for r in scenes_rows))
+
+    return {"scene": scene, "text": new_text, "word_count": len(new_text.split())}
+
+
 async def _channel_default_prompt(tenant_id, prompt_key: str, fallback: str) -> str:
     """The prompt this channel actually runs with when a video has no
     per-video override: tenant custom prompt first, neutral template second.

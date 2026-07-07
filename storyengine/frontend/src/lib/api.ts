@@ -315,6 +315,12 @@ export const getVideos = (status?: string) =>
 
 export const getVideo = (id: string) => fetchApi<VideoDetail>(`/api/videos/${id}`);
 
+export const rewriteSceneText = (videoId: string, scene: number) =>
+  fetchApi<{ scene: number; text: string; word_count: number }>(
+    `/api/videos/${videoId}/scenes/${scene}/rewrite`,
+    { method: "POST" },
+  );
+
 export const getDefaultVideoMotionPrompt = () =>
   fetchApi<{ prompt: string }>("/api/videos/defaults/video-motion-prompt");
 
