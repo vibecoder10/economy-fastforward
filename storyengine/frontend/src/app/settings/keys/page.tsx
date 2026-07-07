@@ -172,6 +172,11 @@ export default function ApiKeysPage() {
     },
   });
 
+  // Most entries are API keys, but some are plain config values (a voice ID);
+  // label the input by what the field actually holds so the modal never asks
+  // for a "key" when it wants an ID.
+  const valueLabel = editingKey === "elevenlabs_voice_id" ? "Voice ID" : "API Key";
+
   const closeEditModal = () => {
     setEditingKey(null);
     setKeyValue("");
@@ -332,9 +337,9 @@ export default function ApiKeysPage() {
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
               <Check size={24} className="text-green-500" />
             </div>
-            <p className="font-medium text-green-500">API Key Saved Successfully!</p>
+            <p className="font-medium text-green-500">{valueLabel} Saved Successfully!</p>
             <p className="text-sm text-[var(--text-secondary)]">
-              The key is now stored securely.
+              The value is now stored securely.
             </p>
           </div>
         ) : (
@@ -348,10 +353,10 @@ export default function ApiKeysPage() {
             className="space-y-4"
           >
             <PasswordInput
-              label="API Key"
+              label={valueLabel}
               value={keyValue}
               onChange={(e) => setKeyValue(e.target.value)}
-              placeholder="Enter your API key..."
+              placeholder={valueLabel === "Voice ID" ? "Enter your voice ID..." : "Enter your API key..."}
               autoFocus
               disabled={saveStatus === "saving"}
             />
@@ -399,7 +404,7 @@ export default function ApiKeysPage() {
                 className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
               >
                 {saveStatus === "saving" && <Spinner size="sm" className="text-black" />}
-                {saveStatus === "saving" ? "Saving..." : "Save Key"}
+                {saveStatus === "saving" ? "Saving..." : `Save ${valueLabel}`}
               </button>
             </div>
           </form>

@@ -1433,6 +1433,12 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       const hasVoice = sceneHasVoice(scene);
                       const isPlayingThis = false;
                       const isGeneratingThisVoice = generatingVoiceScene === scene.sceneNumber;
+                      // Per-scene word count. The wand rewrite enforces 95-120
+                      // words per scene (routes/videos.py rewrite contract), but
+                      // without a visible count over-cap scenes are invisible
+                      // until the voice runs long.
+                      const wordCount = scene.narrationText.split(/\s+/).filter(Boolean).length;
+                      const overCap = wordCount > 120;
 
                       return (
                         <GlassCard
@@ -1457,6 +1463,23 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                             {/* Status badges */}
                             <ScriptStatusBadge status={scene.scriptStatus} />
                             <VoiceStatusBadge status={scene.voiceStatus} />
+
+                            {/* Word count — bold so out-of-cap scenes read at a glance */}
+                            <span
+                              className="text-[11px] font-mono font-bold px-1.5 py-0.5 rounded"
+                              style={
+                                overCap
+                                  ? { background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)" }
+                                  : { color: "var(--text-secondary)" }
+                              }
+                              title={
+                                overCap
+                                  ? "Over the 120-word scene cap — wand-rewrite this scene to shorten it"
+                                  : "Scene word count (target 95-120)"
+                              }
+                            >
+                              {wordCount} words{overCap ? " · OVER CAP" : ""}
+                            </span>
 
                             <div className="flex-1" />
 
