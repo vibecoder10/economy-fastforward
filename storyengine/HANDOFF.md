@@ -1,90 +1,32 @@
-# HANDOFF - 2026-07-06 (Scenes page: "Finish pictures" gate + crash-resistant coverage)
+# HANDOFF - 2026-07-07 DvsU first-customer build-out: profile encoded, pipeline hardened, beta video mid-flight
 
-(Prior handoff preserved as `HANDOFF.md.bak-20260706-111420`. Read GOAL.md too.)
+## State
+- Prod: fb60a3db deployed, healthy (se health green; backend+frontend active)
+- Branch: main - uncommitted changes in CAMERA-ENGINE-PLAN.md (another session's, do not touch)
+- What shipped this session:
+  - All six DvsU tenant prompts hand-written from Anton's 10-doc package, live (tenant 561b872d); profile filled; format locked; package archived to Agent Vault/Projects/storyengine/designed-vs-used/
+  - Narrator voice vault wiring fixed (voice/model/style secrets -> env; multilingual-v2 pin; .env defaults restored for others) @ 34f276c3
+  - Static-docu image accuracy: pure-white studio, no nano fallback, page-title trust check, output vision gate, 1K resolution, Wikimedia Retry-After + verified-reference cache @ fad2cd3a/19793f7d/ed186ec4
+  - Script format enforcement: no spoken citations, per-unit scene re-split @ 1c61773d, research roster -> script contract @ fb60a3db; research never renames a video @ 6bbda52e (title restored)
+  - UI: per-video prompt editor shows the channel's real prompt @ d52f0daf; per-scene wand rewrite + always-visible Regenerate script @ 477c80c4
+  - Beta video "Every US Strategic Bomber Ever Built" (6398a4e5-6aaa-4e8b-855d-b6c439323c32): research PASS, script restructured offline into 13 machine scenes (one per machine, wand-editable). NOT voiced/imaged/rendered yet.
 
-Why this handoff exists: TWO desktop Claude threads doing this work leaked to
-~70 GB and had to be cut (image-heavy threads balloon the desktop app). The
-durable rule now: StoryEngine UI verification runs ONLY in a terminal CLI
-session. This file is the full state - nothing needs re-deriving.
+## Next action (start here cold)
+Ryan reviews the 13 machine blocks in the UI (storyengine.dev/pipeline/6398a4e5-6aaa-4e8b-855d-b6c439323c32, operating "Designed vs Used"), wands any machine he dislikes (scenes 11 and 13 run 132/140 words - over the 120 cap), then:
+1. Confirm Anton's ElevenLabs key is in the tenant profile (Settings > API Keys while operating DvsU). Verify presence: `se db "SELECT name FROM secrets WHERE name LIKE '561b872d%'"` - need `elevenlabs_api_key`.
+2. Generate Voice, then walk images/render/thumbnail gate by gate. Grade each against `Agent Vault/Projects/storyengine/designed-vs-used/` checklists.
 
-## The task (Ryan's report)
+## Open threads
+- Voice blocked on Anton's elevenlabs_api_key (Kie roster rejects the custom Nathaniel C voice; direct key required).
+- Beta video has 13 units, not ~23 - research pre-dates the roster mandate; missing B-47, B-58, XB-70. Fine for pipeline proof, NOT for upload. Real production videos start fresh (research now mandates 24-30 shortlist + unit_roster field).
+- Thumbnail gate watch item: research stores a generic winner_thumbnail suggestion; check the fixed series text (EVER BUILT) wins at generation. If not, cut that wire like the title one.
+- Word-count drift: script model still writes long (115-140) even under the 95-120 law; wand rewrites enforce it per scene. If it stays chronic, add a code-side trim pass.
+- Never uploaded anything to Anton's channel - keep it that way until Ryan/Anton review.
+- Background chip pending: fix stale test_prompt_override_wiring.py (task_544dc92e, spawned to separate session).
 
-On video `cd5d2883-427e-4bfb-854d-8849d025d444` (PocoAPoco tenant
-`44ecc95a-80f3-4261-8294-f963c03af2bd`) the Scenes page showed
-"139/203 pictures" as if generation stalled, yet offered
-"Animate everything - $13.90". Ryan asked: find the mismatch, make Build
-run all images to completion, and audit the prompts before the paid run.
-
-## Diagnosis - PROVEN against prod DB, do not redo
-
-- **All planned images DID finish.** The four scene plans total 139 shots
-  (32+36+38+33); all 139 are status='done', generation_method='coverage',
-  created today 15:06-16:09. The background_tasks log shows all four
-  coverage runs completed cleanly.
-- **The "203" is fake.** The 64 extra rows are leftovers from the OLD
-  sentence-segmentation plan: all created 2026-07-04 20:21:57-59, all
-  status='pending', generation_method=NULL, never updated since. Coverage
-  replaced that plan but never deleted its rows.
-- Frontend gap: `needPictures` only counts scenes with ZERO pictures, so a
-  partial set fell through to "Animate everything".
-- The "one SSL error kills a scene" fragility was real: two asyncio.gather
-  calls without return_exceptions in coverage.py.
-
-## What's changed (uncommitted WIP, 3 files, verified: py_compile OK + tsc clean)
-
-1. **`skills/video-pipeline/storyboard/coverage.py`** - crash-resistant frame gen:
-   - `_gen_ref` wraps the image call in try/except: an SSL reset/timeout counts
-     as a failed attempt and retries instead of escaping.
-   - Moments + angles gathers use `return_exceptions=True` - one bad frame
-     degrades to fewer frames, never kills siblings.
-   - Flaky downloads get one retry before dropping a paid frame.
-
-2. **`storyengine/backend/scripts/coverage_to_app.py`**:
-   - `store_scene` DELETE also clears pictureless leftover rows
-     (`image_url IS NULL AND video_clip_url IS NULL`) - coverage is the
-     scene's plan of record. Rows with a paid image/clip are never deleted.
-   - Each scene's `run_coverage` wrapped in try/except so one scene's crash
-     doesn't stop the rest.
-
-3. **`storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx`**:
-   - New bulk kind `"finish"`: orange "Finish pictures (N missing)" button
-     (calls handleReExtract) when some pictures exist but others are missing.
-     Animate everything only offered when missing == 0.
-   - Per-scene: amber "N pictures missing" chip; per-scene animate suppressed
-     until sceneMissing === 0.
-
-## What's LEFT (in order)
-
-- [ ] **UI proof walk (LOCAL, terminal session).** `se devtoken`, run the dev
-      server (port 3001), in the browser set
-      `localStorage.se_active_tenant='44ecc95a-80f3-4261-8294-f963c03af2bd'`
-      (else the video 404s - it belongs to the client tenant), open
-      `/pipeline/cd5d2883-427e-4bfb-854d-8849d025d444` > Scenes. Expect:
-      "Finish pictures (64 missing)" instead of Animate everything, amber
-      chips per scene. Keep screenshots to 1-2 at the final gate.
-- [ ] **One-time prod cleanup - NEEDS RYAN'S YES (deletes 64 rows):**
-      `se db "DELETE FROM assets WHERE video_id='cd5d2883-427e-4bfb-854d-8849d025d444' AND image_url IS NULL AND video_clip_url IS NULL AND generation_method IS NULL"`
-      After this the page reads 139/139 and Animate everything returns.
-- [ ] **Deploy - NEEDS RYAN'S YES:** commit + push from local, `se deploy`
-      (frontend + backend), then one /se-smoke pass.
-- [ ] **Flag before the animate run:**
-      - 2 dialogue lines exceed grok's 15s cap at 2.7 words/sec and WILL be cut
-        mid-line: scene 3 image_index 136 (61 words, ~23s) and 137 (44 words,
-        ~17s). Fix = shorten or split those lines - Ryan's call.
-      - Real animate cost ~= $15.30, not $13.90 (115 clips @6s $0.10,
-        20 @10s $0.15, 4 @15s $0.20). The UI estimate assumes flat $0.10/clip;
-        optional later fix in clipCost().
-      - Prompt audit otherwise CLEAN: 139/139 have image+video prompts, 130
-        carry their dialogue embedded in the motion prompt, aspect 16:9
-        consistent, clip durations are sized at animate time from spoken words
-        (correct behavior; assigned_video_duration NULL is fine).
-
-## Guardrails
-- All VPS ops through `se` (health/logs/db/deploy/restart), not raw ssh.
-- The store_scene DELETE is the one risky bit - its WHERE clause already
-  protects any row holding a paid image_url or video_clip_url.
-- UI verification for StoryEngine: terminal CLI only, never the desktop app.
-
-## Kickoff line for the fresh terminal session
-Read storyengine/HANDOFF.md and continue: walk the Scenes page proof locally,
-then ask Ryan before the 64-row cleanup and the deploy.
+## Gotchas learned this session
+- NEVER deploy while a generation is in flight - se deploy kill -9s the backend and the stage dies mid-run (burned two of Ryan's script rolls).
+- The script bot writes ONE scripts row per ACT; static docu needs the post-script re-split (now in run_script) - if scenes==acts, the re-split didn't run.
+- tenant_prompt_defaults overrides: research/script system prompts must explicitly force the task JSON/output contract or Claude follows the persona into prose (research parse failure at char 0).
+- Kie ElevenLabs gateway silently swaps off-roster voices to "Mark"; custom voices need the direct key path.
+- /api/videos/defaults/*-prompt endpoints were tenant-blind (fixed) - if a prompt box ever shows "general educational content channel" on a custom channel, suspect that class of bug.

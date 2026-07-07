@@ -156,9 +156,13 @@ his only future input is a list of titles. Tenant 561b872d, static_docu render m
   restored for tenants without overrides. `[done 2026-07-07, main @ 34f276c3, deployed +
   test_narrator_voice_wiring.py ALL PASS on prod]` OPEN: tenant has NO direct elevenlabs_api_key
   (Kie roster rejects custom voices) - Ryan decides whose key goes in before the beta.
-- G3 beta test video "Most Hated Tanks by Their Own Crews Ever": walk gate by gate in the UI,
-  cost ~$5-10 (needs Ryan's yes), judge against the package checklists + his real scripts.
-  NOT uploaded to his channel without Ryan/Anton review. `[todo]`
+- G3 beta test video (switched to "Every US Strategic Bomber Ever Built" - his real #1, direct
+  script comparison possible): Ryan walks gates in the UI, I verify data-side. `[in progress
+  2026-07-07: research PASS, script restructured to 13 machine scenes; voice gate next, blocked
+  on Anton's elevenlabs_api_key. Gate-driven fixes shipped along the way @ fb60a3db: no spoken
+  citations, scene-per-machine re-split, research unit_roster -> locked script contract, title
+  lock (research can never rename a video), per-scene wand rewrite + regenerate button, image
+  accuracy pack (pure white, no nano, vision gates, ref cache, 1K). See HANDOFF.md.]`
 - G4 production: Anton's first 3-5 real titles through the same flow; monitor 2-3 weeks;
   enhancements (thumbnail A/B via YouTube Experiments, autopilot scoring on his format table)
   only after baseline parity. `[todo]`
