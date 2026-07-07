@@ -53,7 +53,7 @@ from vault import get_secret                                  # noqa: E402
 from kie_unified import get_text_client_for_tenant            # noqa: E402
 from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
-    parse_coverage, enforce_shot_budget,
+    parse_coverage, enforce_shot_budget, parse_set_dressing,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.channel_profile import load_profile               # noqa: E402
@@ -689,12 +689,20 @@ def _scene_text_hash(text: str) -> str:
     return hashlib.sha1(" ".join((text or "").split()).encode()).hexdigest()
 
 
-def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 12) -> list[str]:
+def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 12,
+                        set_line: str = "") -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
     ≤panels_per_sheet per sheet so panels stay readable. The preview shows
     exactly what the pictures step will draw: same shots, same order, same
-    spoken lines. No LLM in between to drift."""
+    spoken lines. No LLM in between to drift.
+
+    set_line is the plan's [SET | ...] geography/props line. It MUST ride on
+    the sheet prompt itself: per-panel briefs are truncated and always open
+    with verbatim wardrobe (bible rule), so the blocking language never
+    survived the cut — the 2026-07-07 sheets drew a perfect plan as centered
+    alternating mugshots in an empty-opener room because the sheet drawer
+    never saw the staging."""
     panels: list[str] = []
     for m in moments:
         n = m.get("moment_number")
@@ -702,11 +710,18 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
                  if m.get("speaker") and m.get("line") else "")
         master = m.get("master") or {}
         panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
-                      f"{(master.get('description') or '')[:130]}{speak}")
+                      f"{(master.get('description') or '')[:200]}{speak}")
         for a in (m.get("angles") or []):
             panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
-                          f"{(a.get('description') or '')[:130]}")
+                          f"{(a.get('description') or '')[:200]}")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
+    set_block = (
+        f"\nFIXED SET & BLOCKING — identical in EVERY panel that shows the location: {set_line} "
+        "Characters ALWAYS occupy their declared positions and face their declared directions; "
+        "when a panel frames one character, keep them on THEIR side of the frame with their "
+        "eyeline across the frame toward their partner — never centered staring into the camera. "
+        "A panel described with both characters MUST show both.\n"
+        if (set_line or "").strip() else "")
     prompts = []
     chunks = [panels[i:i + panels_per_sheet] for i in range(0, len(panels), panels_per_sheet)]
     for ci, chunk in enumerate(chunks, start=1):
@@ -720,7 +735,7 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
             "grade. Use the EXACT characters from the cast reference wherever they appear — never "
             "invent people or change their look. INSIDE the panels draw NO text of any kind — no "
             "speech bubbles, no dialogue balloons, no captions; spoken lines live only in the "
-            "caption strip BELOW each panel. Draw these panels IN ORDER:\n" + listed)
+            f"caption strip BELOW each panel.{set_block}Draw these panels IN ORDER:\n" + listed)
     return prompts
 
 
@@ -808,7 +823,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         _reconcile_moment_dialogue(moments, s["scene_text"] or "")
         shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
 
-        prompts = _plan_sheet_prompts(moments, style_dir)[:5]
+        prompts = _plan_sheet_prompts(moments, style_dir,
+                                      set_line=parse_set_dressing(directive or "") or "")[:5]
         if beat is not None and not (1 <= beat <= len(prompts)):
             return {"status": "failed",
                     "error": f"Scene {sc} has {len(prompts)} board(s) — board {beat} doesn't exist."}
