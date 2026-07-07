@@ -97,7 +97,11 @@ does not list, do NOT recolour or resize the creature. If the narration implies 
 the bible STILL wins. The goal is an identical character in every single panel.
 3) Within a moment every angle is the SAME instant — identical wardrobe, props, blocking, light. \
 Only framing/angle/lens changes. Angles must be genuinely DISTINCT (different shot size AND a \
-different visual focus: face vs hands vs object), never near-duplicate zooms of one framing.
+different visual focus: face vs hands vs object), never near-duplicate zooms of one framing. \
+Every shot description freezes ONE instant — one pose, one expression. NEVER describe a \
+transition or sequence inside a single shot ("smile fading to worry", "turns then looks") — \
+the image model draws both beats as a split panel. The ANIMATION carries the change; the still \
+holds one beat.
 4) Across moments keep continuity: same characters, consistent palette and light per location. \
 The scene's SET DRESSING is FIXED: decide once what surfaces and props exist and where they sit \
 (what's on the table, what's against the wall), declare it on the [SET | ...] line, and never \
@@ -298,7 +302,14 @@ _STYLE_LOCK = (
     # drew them as an English speech bubble on live frames (2026-07-03). A
     # character can be MOUTHING words; the words themselves never appear.
     "NEVER draw speech bubbles, dialogue balloons, captions or subtitles; on-screen text or "
-    "lettering only if this shot's description explicitly asks for it.")
+    "lettering only if this shot's description explicitly asks for it. "
+    # A description that narrates an ARC ("triumph turning to dread, glances at
+    # the clock") made GPT Image 2 render a side-by-side two-panel diptych
+    # (2026-07-06, PocoAPoco i120) — unusable as a clip source frame.
+    "This is ONE SINGLE FRAME — one continuous scene from one camera at one instant. NEVER a "
+    "split screen, diptych, side-by-side comparison, before/after, grid, collage, comic panels "
+    "or any composition divided into sections. If the description mentions an emotional change, "
+    "draw only the LAST beat of it.")
 
 # BOARD ANCHOR (Ryan's scene-lock workflow, 2026-07-06): the approved storyboard
 # sheet drives each final frame's COMPOSITION. Text alone lets consecutive shots
