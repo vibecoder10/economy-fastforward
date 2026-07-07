@@ -873,6 +873,7 @@ class ImageClient:
         reference_image_url=None,
         aspect_ratio: str = "16:9",
         allow_fallback: bool = True,
+        resolution: str = "2K",
     ) -> Optional[dict]:
         """Scene image via GPT Image 2 — holds the cast's character identity far better than
         nano-banana (see generate_thumbnail_gpt2). With a reference it's image-to-image; without
@@ -883,7 +884,8 @@ class ImageClient:
         than ship a lesser model's guess of a specific historical machine."""
         prompt = scrub_minor_terms(prompt)
         if reference_image_url:
-            return await self.generate_thumbnail_gpt2(prompt, reference_image_url, aspect_ratio)
+            return await self.generate_thumbnail_gpt2(
+                prompt, reference_image_url, aspect_ratio, resolution=resolution)
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         async def _run(model: str, extra: dict, label: str):
@@ -922,7 +924,7 @@ class ImageClient:
         # away; a transient blip just RETRIES GPT (better quality), with nano as a last resort.
         status = "fail"
         for attempt in range(2):
-            status, url = await _run("gpt-image-2-text-to-image", {"resolution": "2K"}, "gpt-image-2")
+            status, url = await _run("gpt-image-2-text-to-image", {"resolution": resolution}, "gpt-image-2")
             if status == "ok":
                 return {"url": url}
             if status == "blocked":

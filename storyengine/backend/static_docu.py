@@ -688,8 +688,11 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # nano fallback; a scene that can't produce a verified image FAILS
         # for review instead of shipping a lookalike. Re-running the stage
         # regenerates only the failed scenes (idempotent per scene).
+        # 1K resolution: the held Ken Burns frame doesn't need more, and 1K is
+        # ~3 cents per image vs the 2K price — the channel runs on volume.
         res = await ic.generate_scene_image_gpt(
-            prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False)
+            prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False,
+            resolution="1K")
         url = (res or {}).get("url")
         if not url:
             _p(f"Segment {sc}: image generation failed — scene marked for re-run")
@@ -708,7 +711,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 " Render the historically documented configuration of this "
                 "exact machine with precise accuracy.")
             res = await ic.generate_scene_image_gpt(
-                retry_prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False)
+                retry_prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False,
+                resolution="1K")
             url2 = (res or {}).get("url")
             if url2 and await _vision_confirms(tenant_id, url2, machine, sub.get("aliases")):
                 url = url2
