@@ -703,17 +703,26 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
     survived the cut — the 2026-07-07 sheets drew a perfect plan as centered
     alternating mugshots in an empty-opener room because the sheet drawer
     never saw the staging."""
+    def _trunc(s, n):
+        # Word-boundary cut with an ellipsis. A hard slice amputates mid-word
+        # ("Why didn'", "cream stove at ba") and the sheet drawer renders that
+        # fragment verbatim into the caption strip.
+        s = (s or "").strip()
+        if len(s) <= n:
+            return s
+        return s[:n].rsplit(" ", 1)[0].rstrip(" ,;:.") + " …"
+
     panels: list[str] = []
     for m in moments:
         n = m.get("moment_number")
-        speak = (f' SPEAKING {m["speaker"]}: "{(m["line"] or "")[:70]}"'
+        speak = (f' SPEAKING {m["speaker"]}: "{_trunc(m["line"], 70)}"'
                  if m.get("speaker") and m.get("line") else "")
         master = m.get("master") or {}
         panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
-                      f"{(master.get('description') or '')[:300]}{speak}")
+                      f"{_trunc(master.get('description'), 300)}{speak}")
         for a in (m.get("angles") or []):
             panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
-                          f"{(a.get('description') or '')[:300]}")
+                          f"{_trunc(a.get('description'), 300)}")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
     set_block = (
         f"\nFIXED SET & BLOCKING — identical in EVERY panel that shows the location: {set_line} "
