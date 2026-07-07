@@ -83,6 +83,7 @@ interface SceneGroup {
   sceneVideoUrl: string | null;
   storyboardBeats: Array<{ beatNumber: number; prompt: string; gridUrl: string | null }>;
   coverageDirective: string | null;
+  storyboardPromptsRaw: string | null;
   storyboardStatus: string | null;
   storyboardBeatCount: number | null;
   storyboardGridCount: number;
@@ -145,11 +146,41 @@ function parseShotPlan(directive: string | null | undefined) {
   return { set: setMatch ? setMatch[1].trim() : null, shots };
 }
 
+/** Parse the ENFORCED plan out of the persisted BEAT blocks — the exact
+ * numbered panel briefs the board sheets draw ([13] M13 MS — desc SPEAKING …),
+ * grouped per board. The raw directive can contain MORE shots than the budget
+ * allows (planner overshoot), so parsing it showed "40 shots" while the boards
+ * draw 27 — the BEAT blocks are post-budget and match the boards 1:1. */
+function parseEnforcedPlan(promptText: string | null | undefined) {
+  const beats = parseStoryboardPromptBlocks(promptText);
+  if (!beats.length || !beats[0].prompt.includes("[1]")) return null;
+  const shots: Array<{ panel: number; moment: number; board: number; role: string;
+    shotType: string; speaker: string | null; line: string | null; desc: string }> = [];
+  const lineRe = /\[(\d+)\]\s+M(\d+)\s+(ANGLE\s+)?([A-Za-z][\w /-]*?)\s+—\s+([^\n]*)/g;
+  for (const b of beats) {
+    for (const m of Array.from(b.prompt.matchAll(lineRe))) {
+      let desc = m[5].trim();
+      let speaker: string | null = null, line: string | null = null;
+      const sp = desc.match(/\sSPEAKING\s+([^:]+):\s*"([^"]*)"?\s*$/);
+      if (sp) { speaker = sp[1].trim(); line = sp[2].trim(); desc = desc.slice(0, sp.index).trim(); }
+      shots.push({ panel: Number(m[1]), moment: Number(m[2]), board: b.beatNumber,
+        role: m[3] ? "ANGLE" : "MASTER", shotType: m[4].trim().toUpperCase(), speaker, line, desc });
+    }
+  }
+  return shots.length ? shots : null;
+}
+
 /** Read-the-plan-before-you-pay viewer: the scene's saved shot plan, formatted —
- * the fixed SET/blocking line up top, then one row per panel. Panel numbers
- * match the board sheets 1:1. */
-function ShotPlanViewer({ directive }: { directive: string | null }) {
-  const plan = useMemo(() => parseShotPlan(directive), [directive]);
+ * the fixed SET/blocking line up top, then one row per panel grouped by board.
+ * Panel numbers match the board sheets 1:1. */
+function ShotPlanViewer({ directive, storyboardPrompts, sceneNumber }: { directive: string | null; storyboardPrompts: string | null; sceneNumber: number }) {
+  const plan = useMemo(() => {
+    const enforced = parseEnforcedPlan(storyboardPrompts);
+    const raw = parseShotPlan(directive);
+    if (enforced) return { set: raw?.set ?? null, shots: enforced, enforced: true };
+    if (raw) return { set: raw.set, shots: raw.shots.map((s) => ({ ...s, board: Math.ceil(s.panel / 12) })), enforced: false };
+    return null;
+  }, [directive, storyboardPrompts]);
   if (!plan) return null;
   return (
     <details className="mb-3">
@@ -166,8 +197,15 @@ function ShotPlanViewer({ directive }: { directive: string | null }) {
           </div>
         )}
         <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
-          {plan.shots.map((s) => (
-            <div key={s.panel} className="flex gap-2 items-baseline text-[11px] leading-snug">
+          {plan.shots.map((s, i) => (
+            <div key={s.panel}>
+              {(i === 0 || plan.shots[i - 1].board !== s.board) && (
+                <p className="text-[10px] font-mono font-bold uppercase tracking-wider mt-2 mb-1"
+                  style={{ color: "var(--text-tertiary)" }}>
+                  Board S{sceneNumber}.{s.board}
+                </p>
+              )}
+              <div className="flex gap-2 items-baseline text-[11px] leading-snug">
               <span className="flex-shrink-0 font-mono font-bold w-6 text-right" style={{ color: "var(--text-tertiary)" }}>{s.panel}</span>
               <span className="flex-shrink-0 font-semibold px-1.5 py-0.5 rounded" style={{
                 background: s.role === "MASTER" ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.06)",
@@ -183,6 +221,7 @@ function ShotPlanViewer({ directive }: { directive: string | null }) {
                 )}
                 {s.desc.length > 220 ? `${s.desc.slice(0, 220)}…` : s.desc}
               </span>
+              </div>
             </div>
           ))}
         </div>
@@ -341,6 +380,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         sceneVideoUrl: scene.scene_video_url || null,
         storyboardBeats,
         coverageDirective: scene.coverage_directive || null,
+        storyboardPromptsRaw: scene.storyboard_prompts || null,
         storyboardStatus: scene.storyboard_status || null,
         storyboardBeatCount: scene.storyboard_beat_count ?? (storyboardBeats.length || null),
         storyboardGridCount: gridUrls.filter(Boolean).length,
@@ -1441,7 +1481,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
             <div className="flex flex-col lg:flex-row gap-4 mb-3 lg:items-stretch">
             {(scene.storyboardBeats.length > 0 || scene.hasStoryboardData) && (
               <div className="lg:flex-1 min-w-0">
-                <ShotPlanViewer directive={scene.coverageDirective} />
+                <ShotPlanViewer directive={scene.coverageDirective}
+                  storyboardPrompts={scene.storyboardPromptsRaw}
+                  sceneNumber={scene.sceneNumber} />
                 <div className={`flex gap-4 pb-2 ${scene.storyboardBeats.length === 1 ? "" : "overflow-x-auto"}`} style={{ scrollbarWidth: "thin" }}>
                   {scene.storyboardBeats.map((beat) => {
                     const slotKey = `${scene.sceneNumber}-${beat.beatNumber}`;

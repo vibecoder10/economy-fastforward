@@ -710,17 +710,20 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
                  if m.get("speaker") and m.get("line") else "")
         master = m.get("master") or {}
         panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
-                      f"{(master.get('description') or '')[:200]}{speak}")
+                      f"{(master.get('description') or '')[:300]}{speak}")
         for a in (m.get("angles") or []):
             panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
-                          f"{(a.get('description') or '')[:200]}")
+                          f"{(a.get('description') or '')[:300]}")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
     set_block = (
         f"\nFIXED SET & BLOCKING — identical in EVERY panel that shows the location: {set_line} "
         "Characters ALWAYS occupy their declared positions and face their declared directions; "
         "when a panel frames one character, keep them on THEIR side of the frame with their "
         "eyeline across the frame toward their partner — never centered staring into the camera. "
-        "A panel described with both characters MUST show both.\n"
+        "In dialogue panels the partner stays ANCHORED in frame: near shoulder and back of head "
+        "soft in the foreground (over-the-shoulder) or a profile at the frame edge — a "
+        "conversation panel showing only one visible person is WRONG unless its brief explicitly "
+        "says the partner is out of frame. A panel described with both characters MUST show both.\n"
         if (set_line or "").strip() else "")
     prompts = []
     chunks = [panels[i:i + panels_per_sheet] for i in range(0, len(panels), panels_per_sheet)]
@@ -866,8 +869,12 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         todo = [(beat, prompts[beat - 1])] if beat is not None else list(enumerate(prompts, start=1))
         ok = 0
         for bi, sp in todo:
-            _p(f"Scene {sc}: drawing board {bi}/{len(prompts)} "
-               f"({shot_count} shots{lock_note})…")
+            # Panels ON THIS SHEET, not the scene's total — "(27 shots)" on a
+            # single-board draw read as "everything is generating" (Ryan hit
+            # Stop on a correct one-board run, 2026-07-07).
+            on_sheet = min(12, shot_count - 12 * (bi - 1))
+            _p(f"Scene {sc}: drawing {'ONLY board' if beat is not None else 'board'} "
+               f"{bi} of {len(prompts)} — one sheet, {on_sheet} panels{lock_note}…")
             res = (await ic.generate_thumbnail_gpt2(sp + env_block, sheet_refs, aspect) if sheet_refs
                    else await ic.generate_scene_image_gpt(sp + env_block, None, aspect))
             url = res.get("url") if isinstance(res, dict) else res

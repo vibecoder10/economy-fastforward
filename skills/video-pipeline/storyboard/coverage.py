@@ -111,7 +111,9 @@ flicker in and out between shots — the [SET | ...] line is what stops that.
 ONE moment per speaker TURN (each time the speaker changes, that is a new moment), IN SCRIPT ORDER, \
 covering EVERY spoken line exactly once. For a speaking moment, put the spoken line on its own \
 `LINE:` row right under the MOMENT header — `LINE: <Speaker> | "<exact words, verbatim from the \
-SCENE DIALOGUE>"` — and the MASTER must FRAME that speaker delivering it. A run of consecutive \
+SCENE DIALOGUE>"` — and the MASTER must FRAME that speaker delivering it WITH their listener \
+anchored in frame (over-the-shoulder or dirty single per rule 5c — the speaking master IS the \
+clip the audience watches, so the partner must not vanish). A run of consecutive \
 sentences by the SAME speaker may share one moment's LINE. NEVER put two different speakers in one \
 moment. A speaking moment can be JUST a master (no ANGLE). Silent moments (establishing wide, \
 insert, cutaway, reaction) have NO `LINE:` row — add a few for visual variety.
@@ -120,14 +122,20 @@ once and declare it on the [SET | ...] line: where each character stands or sits
 the set and to each other (e.g. "Ryan at the LEFT end of the island, Vanessa at the RIGHT end, \
 facing each other across it"), and nobody moves between moments unless the narration moves \
 them. The FIRST moment of a scene with characters is a TWO-SHOT master showing everyone at \
-their declared positions — never an empty room unless the narration demands it. Singles in a \
-conversation obey screen direction: frame the speaker OFF-CENTER on their own side of the \
-frame, body angled toward their partner, eyeline looking ACROSS the frame at them (the person \
-on the left looks screen-RIGHT, the person on the right looks screen-LEFT); over-the-shoulder \
-framings that show the listener's shoulder/head are encouraged. NEVER frame a lone character \
-dead-center staring into the camera during a two-person scene, and never let two characters \
-occupy the same spot in alternating shots. Sprinkle in a fresh TWO-SHOT every few moments so \
-the audience re-anchors the geography.{motivated_rule}
+their declared positions — never an empty room unless the narration demands it.
+5c) DIRECT THE CUT, NOT THE FRAME. Every shot becomes a video clip several seconds long, and \
+the audience watches the CUTS between them. If shot A is one character alone and shot B is the \
+other character alone, the first person POPS OUT OF EXISTENCE at the cut — that is a FAILURE. \
+In a two-person scene the partner NEVER fully leaves the frame: the DEFAULT dialogue framing \
+is OVER-THE-SHOULDER (the listener's near shoulder and back of head soft in the foreground on \
+their own side of frame, the speaker in focus across the frame delivering the line) or a DIRTY \
+SINGLE (the partner's profile or shoulder held at the frame edge). Alternate the axis — past \
+Ryan's shoulder onto Vanessa, then past Vanessa's shoulder onto Ryan — and drop in a fresh \
+TWO-SHOT every few moments to re-anchor the geography. A CLEAN single (partner fully out of \
+frame) is a deliberate accent for an isolated internal beat, at most one or two per scene, \
+and never two clean singles back to back. Screen direction always holds: the person on the \
+left looks screen-RIGHT, the person on the right looks screen-LEFT; NEVER a lone character \
+dead-center staring into the camera.{motivated_rule}
 </rules>
 
 <output_format>
@@ -145,7 +153,12 @@ Then, for each moment:
 [MOMENT n | one-line description of what happens]
 LINE: <Speaker> | "<exact spoken words>"   (ONLY for a speaking moment; omit entirely if silent)
 - MASTER [shot_type]: full visual description — subjects with exact appearance, environment, \
-blocking, lighting. This is the widest / establishing framing of the moment.
+blocking, lighting. This is the widest / establishing framing of the moment. PEOPLE COME FIRST: \
+name everyone in frame and where they stand within the FIRST 15 words of the description \
+("Ryan at the left end of the island, Vanessa at the right — wide shot of..."); environment \
+detail comes AFTER the people. Only a shot with genuinely nobody in it may open with the set, \
+and it must say "Empty of people" explicitly. (Downstream sheet briefs truncate long \
+descriptions — an environment-first opener got its people silently cut and drew an empty room.)
 - ANGLE [shot_type]: same instant, different camera — the new framing and what it emphasises.
 - ANGLE [shot_type]: ...
 
