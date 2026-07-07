@@ -144,6 +144,25 @@ act machinery); attachments in the video-scoped dock (home-chat only today); sho
 B, then C. D and E run alongside as capacity allows. Each phase proven by a real run on prod, never
 a self-test (the anti-rot rule that kept this project honest).
 
+**Phase G - First customer: DvsU (Designed vs Used) profile build-out + beta. [IN PROGRESS 2026-07-07]**
+Anton's channel (youtube.com/@designedused, monetized, 175 videos) is customer #1. He handed over a
+10-doc standards package (source of truth: `Agent Vault/Projects/storyengine/designed-vs-used/`);
+his only future input is a list of titles. Tenant 561b872d, static_docu render mode.
+- G1 encode the standards: all six tenant prompt slots hand-written from the docs (script,
+  research, thumbnail, video_motion, sound_curation, sound_generation) + profile fields +
+  format_locked. `[done 2026-07-07 - live on prod, verified via /api/system-prompts: 6/6 CUSTOM]`
+- G2 fixed narrator voice: vault->env wiring for elevenlabs_voice_id/model_id/voice_style
+  (was silently ignored), multilingual-v2 pin + style honored in the client, .env defaults
+  restored for tenants without overrides. `[done 2026-07-07, main @ 34f276c3, deployed +
+  test_narrator_voice_wiring.py ALL PASS on prod]` OPEN: tenant has NO direct elevenlabs_api_key
+  (Kie roster rejects custom voices) - Ryan decides whose key goes in before the beta.
+- G3 beta test video "Most Hated Tanks by Their Own Crews Ever": walk gate by gate in the UI,
+  cost ~$5-10 (needs Ryan's yes), judge against the package checklists + his real scripts.
+  NOT uploaded to his channel without Ryan/Anton review. `[todo]`
+- G4 production: Anton's first 3-5 real titles through the same flow; monitor 2-3 weeks;
+  enhancements (thumbnail A/B via YouTube Experiments, autopilot scoring on his format table)
+  only after baseline parity. `[todo]`
+
 ---
 
 ## Director pass - status (the prior GOAL, condensed)
@@ -206,6 +225,11 @@ any clip spend.
 - Multi-language until the Slow Spanish channel is the active model.
 
 ## Log
+- 2026-07-07: Phase G (first customer DvsU) started and G1+G2 landed same day: six hand-written
+  prompt overrides live on the DvsU tenant (6/6 CUSTOM via API), profile filled, format locked,
+  package archived to the vault; narrator-voice vault wiring fixed + deployed (main @ 34f276c3,
+  voice/model/style secrets set, all tests pass on prod). Blockers for G3 beta: tenant needs a
+  direct elevenlabs_api_key, and the ~$5-10 run cost needs a yes.
 - 2026-07-02 (later): Phase F COMPLETE - all 6 sub-phases shipped + proven on prod in one day
   (final @ d52606fa). The chat now files dropped assets for real: CSV titles -> production_queue
   -> calendar-first slots -> autopilot drains queue-first (proven incl. the FOR UPDATE SKIP
