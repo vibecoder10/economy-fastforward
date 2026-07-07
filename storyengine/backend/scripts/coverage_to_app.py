@@ -437,10 +437,11 @@ _BOARD_CSS = (
     ".desc{font-size:12px;line-height:1.42;color:#33312e}")
 
 
-def render_burger_board(moments, title, scene, workdir=None):
-    """Render the burger-style storyboard (numbered, timecoded, captioned) to a PNG via headless
-    chromium. Frames are embedded as base64 (snap chromium can't read /tmp) and the HTML + output
-    live under $HOME (the only tree the snap's home interface allows). Returns PNG bytes or None."""
+def _burger_cells(moments):
+    """Flatten moments into numbered, timecoded panel cells with LEAN captions —
+    speaker + spoken line for a speaking moment, else the planner's one-line
+    moment summary. The full image prompt stays in the app (prompt expander);
+    the board is a shot list, not a spec sheet."""
     import base64
     from PIL import Image
 
@@ -449,6 +450,11 @@ def render_burger_board(moments, title, scene, workdir=None):
 
     cells, t, n = [], 0.0, 0
     for m in moments:
+        speaker, line = (m.get("speaker") or "").strip(), (m.get("line") or "").strip()
+        if speaker and line:
+            cap = f'SPEAKING {speaker}: “{line}”'
+        else:
+            cap = (m.get("summary") or "").strip()
         for fr in m["frames"]:
             p = fr.get("_path")
             if not p or not os.path.exists(p):
@@ -464,24 +470,33 @@ def render_burger_board(moments, title, scene, workdir=None):
             n += 1
             st = (fr.get("shot_type") or "").split()[0].upper()
             lbl = _html.escape((fr.get("shot_type") or "").upper()) + f" &middot; Moment {m['moment_number']}"
-            desc = _html.escape((fr.get("description") or "")[:180])
+            desc = _html.escape((cap or (fr.get("description") or ""))[:130])
             cells.append(
                 f'<div class="panel"><div class="iw"><img src="{uri}">'
                 f'<span class="num">{n}</span><span class="tc">{tc(t)}</span></div>'
                 f'<div class="cap"><div class="lbl">{lbl}</div><div class="desc">{desc}</div></div></div>')
             t += _CUT.get(st, 2.0)
-    if not cells:
-        return None
+    return cells
+
+
+def _render_board_png(cells, title, scene, page, pages):
+    """Render one board page (a list of panel cells) to PNG via headless chromium.
+    Frames are embedded as base64 (snap chromium can't read /tmp) and the HTML +
+    output live under $HOME (the only tree the snap's home interface allows).
+    Returns PNG bytes or None."""
+    n = len(cells)
     rows = (n + 3) // 4
+    page_note = f" &middot; board {page}/{pages}" if pages > 1 else ""
     body = (f'<div class="card"><h1>{_html.escape(title)} — Scene {scene}</h1>'
-            f'<div class="sub">Cinematic shot list &middot; {n} shots &middot; coverage built in '
+            f'<div class="sub">Cinematic shot list{page_note} &middot; {n} shots &middot; coverage built in '
             f'(master + matched angles per moment)</div><div class="grid">{"".join(cells)}</div></div>')
     html_str = (f'<!doctype html><html><head><meta charset="utf-8"><style>{_BOARD_CSS}</style></head>'
                 f'<body>{body}</body></html>')
 
     rdir = os.path.expanduser("~/coverage_render")
     os.makedirs(rdir, exist_ok=True)
-    hp, pp = os.path.join(rdir, f"board_s{scene}.html"), os.path.join(rdir, f"board_s{scene}.png")
+    hp = os.path.join(rdir, f"board_s{scene}_p{page}.html")
+    pp = os.path.join(rdir, f"board_s{scene}_p{page}.png")
     with open(hp, "w") as f:
         f.write(html_str)
     if os.path.exists(pp):
@@ -500,6 +515,27 @@ def render_burger_board(moments, title, scene, workdir=None):
         except Exception:
             continue
     return None
+
+
+# Panels per rendered board page. 12 (3 rows of 4) keeps each board readable
+# at the workspace card size; a long scene pages across the 5 board slots.
+_BOARD_PAGE_SIZE = 12
+
+
+def render_burger_boards(moments, title, scene, workdir=None):
+    """Render the scene's coverage frames as burger-style board PAGES (numbered,
+    timecoded, lean captions), ~12 panels each, capped at the 5 board slots.
+    Returns a list of PNG bytes (possibly empty)."""
+    cells = _burger_cells(moments)
+    if not cells:
+        return []
+    pages = [cells[i:i + _BOARD_PAGE_SIZE] for i in range(0, len(cells), _BOARD_PAGE_SIZE)][:5]
+    out = []
+    for pi, page_cells in enumerate(pages, start=1):
+        png = _render_board_png(page_cells, title, scene, pi, len(pages))
+        if png:
+            out.append(png)
+    return out
 
 
 # Canonical CHARACTER-CREATION prompt (Ryan's locked 4-view reference-sheet template). Each
@@ -563,24 +599,37 @@ async def redo_characters(vid, tenant, claude, claude_model, ic, script_text, on
 
 
 async def set_scene_board(vid, tenant, scene, outdir, title="Storyboard"):
-    """Render the scene's coverage frames into the burger-style storyboard board and set the
-    board slot. Falls back to a plain grid if chromium rendering fails."""
+    """FALLBACK boards: render the scene's coverage frames into burger-style
+    board PAGES (contact sheets of the real frames) and fill ALL the board
+    slots, clearing leftovers. Callers must NOT invoke this when the frames
+    were drawn anchored to approved gate sheets — those boards are the
+    creator's scene lock and stay put (Ryan's board-anchored workflow,
+    2026-07-06). Used when the gate never ran, the scene re-planned (stale
+    sheets), or --complete rebuilds a video from frames on disk. Falls back
+    to a plain grid if chromium fails."""
     moments = load_existing(outdir)
     if not moments:
         return False
-    png = render_burger_board(moments, title, scene, outdir)
-    if not png:
+    pngs = render_burger_boards(moments, title, scene, outdir)
+    if not pngs:
         print(f"    (chromium render failed for scene {scene} — falling back to plain grid)")
         paths = [fr["_path"] for m in moments for fr in m["frames"] if fr.get("_path")]
         png = compose_grid(paths, cols=4)
-    if not png:
+        pngs = [png] if png else []
+    if not pngs:
         return False
     srow = await fetch_one("SELECT id FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
                            vid, tenant, scene)
     if not srow:
         return False
-    url = await upload_bytes(png, f"{vid}/storyboard/S{scene}-B1.png", "image/png", tenant)
-    await execute("UPDATE scripts SET storyboard_1_url=$1, updated_at=now() WHERE id=$2", url, srow["id"])
+    urls = []
+    for bi, png in enumerate(pngs[:5], start=1):
+        urls.append(await upload_bytes(png, f"{vid}/storyboard/S{scene}-B{bi}.png", "image/png", tenant))
+    slots = (urls + [None] * 5)[:5]
+    await execute(
+        "UPDATE scripts SET storyboard_1_url=$1, storyboard_2_url=$2, storyboard_3_url=$3, "
+        "storyboard_4_url=$4, storyboard_5_url=$5, updated_at=now() WHERE id=$6",
+        *slots, srow["id"])
     return True
 
 
@@ -1232,13 +1281,23 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         # hasn't changed since, draw THAT exact plan — the sheets the creator
         # reviewed are binding. An edited script invalidates the preview.
         directive = None
+        board_urls: list = []
         saved = await fetch_one(
-            "SELECT coverage_directive, coverage_directive_hash FROM scripts "
+            "SELECT coverage_directive, coverage_directive_hash, "
+            "storyboard_1_url, storyboard_2_url, storyboard_3_url, "
+            "storyboard_4_url, storyboard_5_url FROM scripts "
             "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
         if saved and (saved.get("coverage_directive") or "").strip():
             if saved.get("coverage_directive_hash") == _scene_text_hash(s["scene_text"] or ""):
                 directive = saved["coverage_directive"]
-                _p(f"Scene {sc}: drawing the storyboarded plan (GPT Image 2)…")
+                # BOARD ANCHOR: these sheets were drawn FROM this exact directive
+                # (the gate stores both together), so each shot can be pinned to
+                # its approved panel — same framing, same character placement.
+                board_urls = [saved.get(f"storyboard_{i}_url") for i in range(1, 6)]
+                while board_urls and not board_urls[-1]:
+                    board_urls.pop()
+                anchored = " — matching the approved boards" if any(board_urls) else ""
+                _p(f"Scene {sc}: drawing the storyboarded plan (GPT Image 2){anchored}…")
             else:
                 _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
         if directive is None:
@@ -1252,7 +1311,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
                 anthropic_client=claude, directive_model=claude_model, directive_text=directive,
                 max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
-                aspect=aspect, env_url=(env or {}).get("reference_url"))
+                aspect=aspect, env_url=(env or {}).get("reference_url"),
+                board_urls=board_urls or None)
         except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest
             _p(f"Scene {sc}: errored ({str(e)[:150]}) — moving on to the next scene")
             continue
@@ -1268,7 +1328,13 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                             for m in out["moments"]]
         n = await store_scene(vid, tenant, title, aspect, sc, frames_by_moment,
                               location_id=(env or {}).get("name"))
-        await set_scene_board(vid, tenant, sc, outdir, title=title)
+        # Boards are the creator's approved SCENE LOCK — when the frames were
+        # drawn anchored to them, never touch them. Burger boards (contact
+        # sheets of the real frames) only fill in when there was no valid
+        # approved board: the gate never ran, or the script changed and the
+        # scene re-planned (stale sheets would silently lie about the frames).
+        if not board_urls:
+            await set_scene_board(vid, tenant, sc, outdir, title=title)
         # Write a real per-shot grok-imagine MOTION prompt onto each frame, so the clip
         # generator animates with intent instead of falling back to a hardcoded push-in.
         try:

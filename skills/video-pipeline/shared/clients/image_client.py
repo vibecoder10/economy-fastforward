@@ -817,6 +817,7 @@ class ImageClient:
         prompt: str,
         reference_image_url,
         aspect_ratio: str = "16:9",
+        resolution: str = "2K",
     ) -> Optional[dict]:
         """Generate a thumbnail with OpenAI GPT Image 2 via kie.ai
         (gpt-image-2-image-to-image). Same shape as generate_with_reference but
@@ -836,7 +837,7 @@ class ImageClient:
                 "prompt": prompt,
                 "input_urls": refs,
                 "aspect_ratio": aspect_ratio,
-                "resolution": "2K",
+                "resolution": resolution,
             },
         }
         print("      🎨 Generating thumbnail (gpt-image-2)...")

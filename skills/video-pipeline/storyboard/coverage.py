@@ -98,7 +98,11 @@ the bible STILL wins. The goal is an identical character in every single panel.
 3) Within a moment every angle is the SAME instant — identical wardrobe, props, blocking, light. \
 Only framing/angle/lens changes. Angles must be genuinely DISTINCT (different shot size AND a \
 different visual focus: face vs hands vs object), never near-duplicate zooms of one framing.
-4) Across moments keep continuity: same characters, consistent palette and light per location.
+4) Across moments keep continuity: same characters, consistent palette and light per location. \
+The scene's SET DRESSING is FIXED: decide once what surfaces and props exist and where they sit \
+(what's on the table, what's against the wall), declare it on the [SET | ...] line, and never \
+add, remove or move a prop between moments. If the image model isn't told, it invents props that \
+flicker in and out between shots — the [SET | ...] line is what stops that.
 5) DIALOGUE = ONE SPEAKER PER MOMENT, ASSIGNED HERE. A clip can only lip-sync one character, so plan \
 ONE moment per speaker TURN (each time the speaker changes, that is a new moment), IN SCRIPT ORDER, \
 covering EVERY spoken line exactly once. For a speaking moment, put the spoken line on its own \
@@ -110,7 +114,14 @@ insert, cutaway, reaction) have NO `LINE:` row — add a few for visual variety.
 </rules>
 
 <output_format>
-Output ONLY the coverage plan, nothing else. For each moment:
+Output ONLY the coverage plan, nothing else.
+
+First line — the scene's fixed set dressing, ONE line, concrete and visual:
+[SET | the constant physical dressing of this scene: each key surface and exactly what sits on \
+it, e.g. "wooden island with a bowl of eggs, loose potatoes and onions on a cutting board; \
+counters clear; no books, papers or laptop"]
+
+Then, for each moment:
 
 [MOMENT n | one-line description of what happens]
 LINE: <Speaker> | "<exact spoken words>"   (ONLY for a speaking moment; omit entirely if silent)
@@ -208,6 +219,14 @@ async def generate_coverage_directive(
 # =============================================================================
 
 _MOMENT_RE = re.compile(r"\[MOMENT\s+(\d+)\s*\|\s*([^\]]*)\]", re.IGNORECASE)
+_SET_RE = re.compile(r"\[SET\s*\|\s*([^\]]+)\]", re.IGNORECASE)
+
+
+def parse_set_dressing(directive_text: str) -> str | None:
+    """The scene's fixed set-dressing line from the plan's [SET | ...] header.
+    None when the planner omitted it (older stored directives)."""
+    m = _SET_RE.search(directive_text or "")
+    return m.group(1).strip() if m else None
 # Tolerant of how the LLM writes the shot line: "- MASTER [WS]:", "- MASTER WS:",
 # or multi-word "- ANGLE INSERT ECU:" (brackets optional, shot type 1+ words, colon required).
 _SHOT_RE = re.compile(
@@ -281,6 +300,24 @@ _STYLE_LOCK = (
     "NEVER draw speech bubbles, dialogue balloons, captions or subtitles; on-screen text or "
     "lettering only if this shot's description explicitly asks for it.")
 
+# BOARD ANCHOR (Ryan's scene-lock workflow, 2026-07-06): the approved storyboard
+# sheet drives each final frame's COMPOSITION. Text alone lets consecutive shots
+# re-imagine the blocking — a character standing left of the island in one shot
+# and right of it in the next, so the cut jumps. Anchoring on the approved panel
+# inherits framing and character placement; identity still comes from the cast
+# sheet, pixels are generated fresh at full quality (never a crop/upscale of the
+# tiny panel — that was the old extract path and it produced mush + bad crops).
+_BOARD_ANCHOR = (
+    " The LAST attached reference image is the APPROVED STORYBOARD SHEET. This shot is the sheet's "
+    "panel numbered {panel}: recreate that panel's exact composition — same camera framing, same "
+    "character positions and blocking, everyone on the same side of the frame — as ONE full-frame "
+    "cinematic image. Do NOT draw the sheet itself: no grid, no panel borders, no panel numbers, "
+    "no caption strips, no text.")
+
+# Panels per gate sheet — MUST match _plan_sheet_prompts(panels_per_sheet=12) in
+# backend/scripts/coverage_to_app.py, or panel numbers point at the wrong sheet.
+_PANELS_PER_SHEET = 12
+
 
 async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
     """Generate one frame via GPT Image 2 (gpt-image-2-image-to-image — our main model; holds the
@@ -292,7 +329,8 @@ async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
         # failed attempt, not escape — an escaped exception here used to kill
         # the whole scene's gather and stop the build mid-run.
         try:
-            url = _url_of(await image_client.generate_thumbnail_gpt2(prompt, refs, aspect))
+            url = _url_of(await image_client.generate_thumbnail_gpt2(
+                prompt, refs, aspect, resolution=resolution))
         except Exception as e:  # noqa: BLE001
             print(f"  frame gen error (attempt {i + 1}/{attempts}): {str(e)[:120]}", flush=True)
             url = None
@@ -372,7 +410,7 @@ def plan_camera_moves(moments: list) -> int:
 
 
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
-                                   env_url=None, aspect="16:9", resolution="2K", sem=None) -> list[dict] | None:
+                                   env_url=None, aspect="16:9", resolution="1K", sem=None) -> list[dict] | None:
     """Master frame (anchored on cast) -> each angle (anchored on cast + master).
     Returns frames [{role, shot_type, description, url}] or None if the master fails.
     The master MUST be drawn first (angles reference it), but the angles only depend on
@@ -386,18 +424,29 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         async with sem:
             return await _gen_ref(image_client, prompt, refs, aspect, resolution)
 
+    def _board(shot):
+        """(anchor_text, extra_ref) when this shot is pinned to an approved board panel.
+        The board ref goes LAST so the anchor's 'LAST attached reference' holds."""
+        if shot.get("board_url") and shot.get("board_panel"):
+            return _BOARD_ANCHOR.format(panel=shot["board_panel"]), [shot["board_url"]]
+        return "", []
+
     m = moment["master"]
-    master_prompt = build_image_prompt_from_keyframe({"composition": m["description"]}, profile) + _STYLE_LOCK
-    master_url = await _gen(master_prompt, base)  # master first — angles anchor on it
+    m_anchor, m_ref = _board(m)
+    master_prompt = (build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
+                     + _STYLE_LOCK + m_anchor)
+    master_url = await _gen(master_prompt, base + m_ref)  # master first — angles anchor on it
     if not master_url:
         return None
     frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"],
                "camera_move": m.get("camera_move"), "url": master_url}]
-    angle_refs = cast_refs + [master_url] + ([env_url] if env_url else [])
+    angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
-        ap = build_image_prompt_from_keyframe({"composition": a["description"]}, profile) + _SAME_SUBJECT + _STYLE_LOCK
-        url = await _gen(ap, angle_refs)
+        a_anchor, a_ref = _board(a)
+        ap = (build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
+              + _SAME_SUBJECT + _STYLE_LOCK + a_anchor)
+        url = await _gen(ap, angle_base + a_ref)
         return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"],
                 "camera_move": a.get("camera_move"), "url": url} if url else None
 
@@ -503,7 +552,8 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        env_url=None, image_prompts=None, directive_text=None,
                        anthropic_client=None, directive_model=None,
                        max_moments=3, angles_min=2, angles_max=4, max_frames=None,
-                       aspect="16:9", resolution="2K") -> dict:
+                       aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
+                       board_urls=None) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
     bible (or cast_prompt) so coverage always has something to lock characters to.
@@ -528,6 +578,36 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
     moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
+
+    # SET-DRESSING LOCK: the planner declares the scene's fixed props once on the
+    # [SET | ...] line; stamp it into EVERY shot's image prompt. Per-shot prompts
+    # that stay silent about props let the image model invent them — observed
+    # live (PocoAPoco kitchen): "cram session" phrasing conjured books/laptops in
+    # some panels while the food vanished and reappeared between neighbours.
+    set_line = parse_set_dressing(directive_text)
+    if set_line:
+        tail = f"Set dressing, identical in every shot of this scene: {set_line}."
+        for m in moments:
+            m["master"]["description"] = f"{m['master']['description'].rstrip('. ')}. {tail}"
+            for a in m.get("angles") or []:
+                a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
+        print("  🪑 set-dressing lock applied to every shot", flush=True)
+
+    # BOARD ANCHOR: pin each shot to its numbered panel on the approved gate
+    # sheet(s). Panel numbers are GLOBAL across sheets and count masters then
+    # angles in moment order — the exact order _plan_sheet_prompts drew them in
+    # (same directive, same deterministic parse + budget, so the k-th shot here
+    # IS panel k on the sheets). Only sound when the caller verified the sheets
+    # came from THIS directive_text; a re-planned scene passes no board_urls.
+    if board_urls:
+        k = 0
+        for m in moments:
+            for shot in [m["master"], *(m.get("angles") or [])]:
+                k += 1
+                si = (k - 1) // _PANELS_PER_SHEET
+                if si < len(board_urls) and board_urls[si]:
+                    shot["board_url"], shot["board_panel"] = board_urls[si], k
+        print(f"  📌 board anchor: {k} shots pinned to the approved sheet panels", flush=True)
 
     # Camera Movement Engine: decide each shot's move NOW, before drawing, so
     # the stills are composed for their moves (storytelling formats only —

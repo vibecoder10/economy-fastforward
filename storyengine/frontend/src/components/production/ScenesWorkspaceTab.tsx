@@ -229,8 +229,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       }));
       // The cheap one-image storyboard writes only storyboard_N_url (no prompts → no
       // parsed beats). Synthesize a board per filled slot so the sheet stays visible.
+      // Real-picture burger boards can also fill MORE slots than the gate had prompt
+      // blocks — append those so every filled slot displays.
+      const extraBoards = gridUrls.flatMap((url, i) =>
+        (url && i >= parsedBeats.length ? [{ beatNumber: i + 1, prompt: "", gridUrl: url }] : []));
       const storyboardBeats = parsedBeats.length > 0
-        ? parsedBeats
+        ? [...parsedBeats, ...extraBoards]
         : gridUrls.flatMap((url, i) => (url ? [{ beatNumber: i + 1, prompt: "", gridUrl: url }] : []));
       return {
         sceneNumber: scene.scene || 0,
@@ -277,6 +281,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // Replace-in-place uploads keep the same URL — bump a cache key per slot
   // so the <img> refetches the new pixels.
   const [gridBust, setGridBust] = useState<Record<string, number>>({});
+  // Full-screen board viewer — clicking a board must NEVER leave the app
+  // (the raw storage URL serves as a download).
+  const [lightbox, setLightbox] = useState<{ items: { url: string; label: string }[]; index: number } | null>(null);
   const promptsAutoRan = useRef(false);
 
   // Per-scene auto-chain: "Start scene over" runs plan → pictures back to back.
@@ -1325,8 +1332,21 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                                 : "1px dashed rgba(255,255,255,0.1)",
                           }}
                           onClick={() => {
-                            if (beat.gridUrl) window.open(beat.gridUrl, "_blank");
-                            else if (!running) handleGenerateSceneGrids(scene.sceneNumber);
+                            if (beat.gridUrl) {
+                              // Open the in-app viewer with every board of this
+                              // scene, starting at the one that was clicked.
+                              const withUrls = scene.storyboardBeats.filter((b) => b.gridUrl);
+                              const items = withUrls.map((b) => {
+                                const k = `${scene.sceneNumber}-${b.beatNumber}`;
+                                const bv = gridBust[k] || scene.gridVersion;
+                                return {
+                                  url: `${toDisplayImageUrl(b.gridUrl!)}${bv ? `?cb=${bv}` : ""}`,
+                                  label: `Board S${scene.sceneNumber}.${b.beatNumber}`,
+                                };
+                              });
+                              const start = withUrls.findIndex((b) => b.beatNumber === beat.beatNumber);
+                              setLightbox({ items, index: Math.max(0, start) });
+                            } else if (!running) handleGenerateSceneGrids(scene.sceneNumber);
                           }}
                           onDragOver={(e) => { e.preventDefault(); setDragOver(slotKey); }}
                           onDragLeave={() => setDragOver(null)}
@@ -1506,6 +1526,78 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           </GlassCard>
         );
       })}
+      {lightbox && (
+        <BoardLightbox
+          items={lightbox.items}
+          index={lightbox.index}
+          onNavigate={(i) => setLightbox({ ...lightbox, index: i })}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Full-screen in-app board viewer. Esc or backdrop closes; ←/→ move between
+ * the scene's boards. Exists because the raw storage URL downloads instead of
+ * displaying — the user should never leave the page to look at a board. */
+function BoardLightbox({ items, index, onNavigate, onClose }: {
+  items: { url: string; label: string }[];
+  index: number;
+  onNavigate: (i: number) => void;
+  onClose: () => void;
+}) {
+  const item = items[Math.min(index, items.length - 1)];
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight" && index < items.length - 1) onNavigate(index + 1);
+      else if (e.key === "ArrowLeft" && index > 0) onNavigate(index - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [index, items.length, onNavigate, onClose]);
+  if (!item) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.92)" }}
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        title="Close (Esc)"
+        className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center transition-colors hover:brightness-125"
+        style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
+        <X size={18} />
+      </button>
+      {index > 0 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onNavigate(index - 1); }}
+          title="Previous board (←)"
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-xl transition-colors hover:brightness-125"
+          style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
+          ‹
+        </button>
+      )}
+      {index < items.length - 1 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onNavigate(index + 1); }}
+          title="Next board (→)"
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-xl transition-colors hover:brightness-125"
+          style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
+          ›
+        </button>
+      )}
+      <img
+        src={item.url}
+        alt={item.label}
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-[94vw] max-h-[88vh] object-contain rounded-lg"
+      />
+      <p className="mt-3 text-sm font-mono" style={{ color: "rgba(255,255,255,0.75)" }}>
+        {item.label}{items.length > 1 ? ` · ${index + 1}/${items.length}` : ""}
+      </p>
     </div>
   );
 }
