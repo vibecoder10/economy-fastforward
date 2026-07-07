@@ -114,16 +114,31 @@ covering EVERY spoken line exactly once. For a speaking moment, put the spoken l
 SCENE DIALOGUE>"` — and the MASTER must FRAME that speaker delivering it. A run of consecutive \
 sentences by the SAME speaker may share one moment's LINE. NEVER put two different speakers in one \
 moment. A speaking moment can be JUST a master (no ANGLE). Silent moments (establishing wide, \
-insert, cutaway, reaction) have NO `LINE:` row — add a few for visual variety.{motivated_rule}
+insert, cutaway, reaction) have NO `LINE:` row — add a few for visual variety.
+5b) BLOCKING IS FIXED — this is cinematography, not a slideshow. Decide the scene's GEOGRAPHY \
+once and declare it on the [SET | ...] line: where each character stands or sits relative to \
+the set and to each other (e.g. "Ryan at the LEFT end of the island, Vanessa at the RIGHT end, \
+facing each other across it"), and nobody moves between moments unless the narration moves \
+them. The FIRST moment of a scene with characters is a TWO-SHOT master showing everyone at \
+their declared positions — never an empty room unless the narration demands it. Singles in a \
+conversation obey screen direction: frame the speaker OFF-CENTER on their own side of the \
+frame, body angled toward their partner, eyeline looking ACROSS the frame at them (the person \
+on the left looks screen-RIGHT, the person on the right looks screen-LEFT); over-the-shoulder \
+framings that show the listener's shoulder/head are encouraged. NEVER frame a lone character \
+dead-center staring into the camera during a two-person scene, and never let two characters \
+occupy the same spot in alternating shots. Sprinkle in a fresh TWO-SHOT every few moments so \
+the audience re-anchors the geography.{motivated_rule}
 </rules>
 
 <output_format>
 Output ONLY the coverage plan, nothing else.
 
-First line — the scene's fixed set dressing, ONE line, concrete and visual:
-[SET | the constant physical dressing of this scene: each key surface and exactly what sits on \
-it, e.g. "wooden island with a bowl of eggs, loose potatoes and onions on a cutting board; \
-counters clear; no books, papers or laptop"]
+First line — the scene's fixed set dressing AND geography, ONE line, concrete and visual:
+[SET | the constant physical dressing of this scene (each key surface and exactly what sits on \
+it) PLUS where each character stands and which way they face, e.g. "wooden island with a bowl \
+of eggs, loose potatoes and onions on a cutting board; counters clear; no books, papers or \
+laptop. Ryan stands at the LEFT end of the island facing Vanessa; Vanessa at the RIGHT end \
+facing Ryan"]
 
 Then, for each moment:
 
@@ -597,7 +612,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # some panels while the food vanished and reappeared between neighbours.
     set_line = parse_set_dressing(directive_text)
     if set_line:
-        tail = f"Set dressing, identical in every shot of this scene: {set_line}."
+        tail = f"Set dressing and character blocking, identical in every shot of this scene: {set_line}."
         for m in moments:
             m["master"]["description"] = f"{m['master']['description'].rstrip('. ')}. {tail}"
             for a in m.get("angles") or []:
