@@ -872,10 +872,15 @@ class ImageClient:
         prompt: str,
         reference_image_url=None,
         aspect_ratio: str = "16:9",
+        allow_fallback: bool = True,
     ) -> Optional[dict]:
         """Scene image via GPT Image 2 — holds the cast's character identity far better than
         nano-banana (see generate_thumbnail_gpt2). With a reference it's image-to-image; without
-        one it falls back to gpt-image-2 text-to-image. Returns {'url': ...} or None."""
+        one it falls back to gpt-image-2 text-to-image. Returns {'url': ...} or None.
+
+        allow_fallback=False disables the nano-banana-2 last resort: accuracy-critical
+        callers (static documentary channels) would rather fail the scene for review
+        than ship a lesser model's guess of a specific historical machine."""
         prompt = scrub_minor_terms(prompt)
         if reference_image_url:
             return await self.generate_thumbnail_gpt2(prompt, reference_image_url, aspect_ratio)
@@ -924,6 +929,9 @@ class ImageClient:
                 break  # GPT will never render this — switch to nano now
             await asyncio.sleep(2 * (attempt + 1))  # transient — retry GPT
         why = "content-policy block" if status == "blocked" else "GPT Image 2 unavailable after retries"
+        if not allow_fallback:
+            print(f"      ❌ {why} — nano fallback disabled for this caller, failing the image")
+            return None
         print(f"      ↩️  {why} — switching to nano-banana-2...")
         status, url = await _run("nano-banana-2", {"output_format": "png"}, "nano-banana-2")
         return {"url": url} if status == "ok" and url else None

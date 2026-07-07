@@ -109,8 +109,10 @@ _STUDIO_PROMPT = (
     "Studio product photograph of the {machine}, THE EXACT SAME machine as in "
     "the reference photo — keep its real proportions, configuration and "
     "details precisely accurate. Restored museum condition, centered full "
-    "side profile on a seamless white-to-light-gray studio background, soft "
-    "even lighting, ultra crisp and clean, subtle ground shadow. "
+    "side profile on a seamless PURE WHITE studio background (clean bright "
+    "white, never gray, never off-white), soft even lighting, ultra crisp "
+    "and clean, only a subtle soft ground shadow directly beneath the "
+    "machine. "
     "ABSOLUTELY NO text, NO lettering, NO labels, NO watermark anywhere in "
     "the image. No people. Neutral documentary presentation of a static "
     "museum subject."
@@ -119,8 +121,9 @@ _STUDIO_PROMPT = (
 _STUDIO_PROMPT_NOREF = (
     "Studio product photograph of the {machine}, historically accurate "
     "configuration. Restored museum condition, centered full side profile on "
-    "a seamless white-to-light-gray studio background, soft even lighting, "
-    "ultra crisp and clean, subtle ground shadow. "
+    "a seamless PURE WHITE studio background (clean bright white, never "
+    "gray, never off-white), soft even lighting, ultra crisp and clean, "
+    "only a subtle soft ground shadow directly beneath the machine. "
     "ABSOLUTELY NO text, NO lettering, NO labels, NO watermark anywhere in "
     "the image. No people. Neutral documentary presentation of a static "
     "museum subject."
@@ -335,21 +338,64 @@ async def _host_reference(url: str, video_id: str, tenant_id: str,
     """Fetch the Commons photo OURSELVES (proper User-Agent — Wikimedia 403s
     Kie's fetcher on raw file URLs) and re-host it on our storage. The image
     client rewrites the stored Drive URL to the media proxy, so Kie always
-    fetches references from US, never from Wikimedia."""
-    try:
-        async with httpx.AsyncClient(timeout=60.0, headers=_COMMONS_UA,
-                                     follow_redirects=True) as c:
-            r = await (_wm_get(c, url) if "wikimedia.org" in url else c.get(url))
-            r.raise_for_status()
-            data = r.content
-        if len(data) < 10_000:
-            return None
-        ext = "png" if url.lower().endswith(".png") else "jpg"
-        return await upload_bytes(
-            data, f"{video_id}/static/ref_S{scene:02d}_{idx}.{ext}",
-            "image/png" if ext == "png" else "image/jpeg", tenant_id)
-    except Exception:  # noqa: BLE001
-        return None
+    fetches references from US, never from Wikimedia.
+
+    Wikimedia rate-limits bursts (429, seen live on the DvsU micro-test) —
+    retry with backoff before giving up, because losing the reference is what
+    pushes generation onto the inaccurate no-reference path."""
+    import asyncio as _asyncio
+
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=60.0, headers=_COMMONS_UA,
+                                         follow_redirects=True) as c:
+                r = await (_wm_get(c, url) if "wikimedia.org" in url else c.get(url))
+                if r.status_code == 429 and attempt < 2:
+                    await _asyncio.sleep(4 * (attempt + 1))
+                    continue
+                r.raise_for_status()
+                data = r.content
+            if len(data) < 10_000:
+                return None
+            ext = "png" if url.lower().endswith(".png") else "jpg"
+            return await upload_bytes(
+                data, f"{video_id}/static/ref_S{scene:02d}_{idx}.{ext}",
+                "image/png" if ext == "png" else "image/jpeg", tenant_id)
+        except Exception:  # noqa: BLE001
+            if attempt < 2:
+                await _asyncio.sleep(4 * (attempt + 1))
+    return None
+
+
+def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
+    """Does the Wikipedia article title actually name this machine?
+
+    A lead image is only 'trusted' because it belongs to the machine's OWN
+    article — but the title search is fuzzy and can land on a similar
+    machine's article (seen live: the 'Covenanter' search returned the
+    Crusader tank's lead image). If the page title doesn't share the
+    machine's designation token or a significant name word, the provenance
+    guarantee is void and the candidate must pass the strict vision check."""
+    _GENERIC = {"tank", "tanks", "aircraft", "airplane", "plane", "ship",
+                "boat", "submarine", "helicopter", "carrier", "battleship",
+                "destroyer", "cruiser", "frigate", "bomber", "fighter",
+                "class", "type", "mark", "light", "heavy", "medium", "main",
+                "battle", "vehicle", "gun", "self", "propelled", "united",
+                "states", "british", "soviet", "german", "american", "army",
+                "navy", "royal"}
+    norm_page = re.sub(r"[^a-z0-9 ]", "", (page or "").lower())
+    if not norm_page:
+        return False
+    compact_page = norm_page.replace(" ", "")
+    page_words = set(norm_page.split())
+    for name in [machine] + list(aliases or []):
+        tok = _designation_token(name)
+        if tok and tok in compact_page:
+            return True
+        for word in re.sub(r"[^a-z0-9 ]", "", (name or "").lower()).split():
+            if len(word) >= 4 and word not in _GENERIC and word in page_words:
+                return True
+    return False
 
 
 def _designation_token(machine: str) -> str:
@@ -559,7 +605,14 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         _p(f"Segment {sc}: finding a real photo of the {machine}…")
         wiki = await find_wikipedia_lead_images(
             [machine] + list(sub.get("aliases") or []))
-        candidates = [(w["url"], w["trusted"]) for w in wiki]
+        # 'trusted' provenance only holds when the article title names OUR
+        # machine — a fuzzy search that landed on a lookalike's article gets
+        # demoted to the strict vision check instead of a free pass.
+        candidates = [
+            (w["url"],
+             w["trusted"] and _page_matches(machine, sub.get("aliases"), w.get("page", "")))
+            for w in wiki
+        ]
         have = {u for u, _ in candidates}
         if sub.get("search_query"):
             candidates += [(c, False) for c in await find_commons_photos(sub["search_query"])
@@ -584,40 +637,50 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         prompt = template.format(machine=machine)
         _p(f"Segment {sc}/{len(scenes)}: rendering the studio image"
            + (" (from real reference)" if ref_url else " (no verified reference)") + "…")
+        # Accuracy policy ("a wrong image is worse than a missing one" — the
+        # static-docu channels' own standard): GPT Image 2 ONLY, never the
+        # nano fallback; a scene that can't produce a verified image FAILS
+        # for review instead of shipping a lookalike. Re-running the stage
+        # regenerates only the failed scenes (idempotent per scene).
         res = await ic.generate_scene_image_gpt(
-            prompt, ref_url, aspect_ratio=v["aspect"])
+            prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False)
         url = (res or {}).get("url")
-        if not url and ref_url:
-            # Reference path failed (fetch/policy) — retry without it.
-            res = await ic.generate_scene_image_gpt(
-                _STUDIO_PROMPT_NOREF.format(machine=machine),
-                None, aspect_ratio=v["aspect"])
-            url = (res or {}).get("url")
         if not url:
+            _p(f"Segment {sc}: image generation failed — scene marked for re-run")
             await execute("DELETE FROM assets WHERE id=$1", row_id)
             failed.append(str(sc))
             continue
 
         # Post-generation accuracy check: does the OUTPUT actually look like
-        # the machine? One bounded retry with a match-the-reference
-        # reinforcement; a still-failing image ships with a warning (the
-        # operator sees it in the progress feed) rather than blocking.
+        # the machine? One bounded retry, then FAIL the scene — never ship an
+        # unverified machine on an audience that knows every rivet.
         if not await _vision_confirms(tenant_id, url, machine, sub.get("aliases")):
-            if ref_url:
-                _p(f"Segment {sc}: render doesn't match the {machine} — retrying against the reference…")
-                res = await ic.generate_scene_image_gpt(
-                    prompt + " Reproduce the machine in the reference image "
-                    "EXACTLY — same hull, turret, wheels and proportions.",
-                    ref_url, aspect_ratio=v["aspect"])
-                url2 = (res or {}).get("url")
-                if url2 and await _vision_confirms(tenant_id, url2, machine, sub.get("aliases")):
-                    url = url2
-                else:
-                    url = url2 or url
-                    _p(f"Segment {sc}: WARNING — image may not match the real {machine}; review it")
+            _p(f"Segment {sc}: render doesn't match the {machine} — one retry…")
+            retry_prompt = prompt + (
+                " Reproduce the machine in the reference image EXACTLY — same "
+                "hull, turret, wheels and proportions." if ref_url else
+                " Render the historically documented configuration of this "
+                "exact machine with precise accuracy.")
+            res = await ic.generate_scene_image_gpt(
+                retry_prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False)
+            url2 = (res or {}).get("url")
+            if url2 and await _vision_confirms(tenant_id, url2, machine, sub.get("aliases")):
+                url = url2
+            elif ref_url:
+                # We HAVE proof of what this machine looks like and the render
+                # doesn't match it — fail the scene rather than ship it.
+                _p(f"Segment {sc}: could not verify the render shows the real "
+                   f"{machine} — scene failed for review (not shipped)")
+                await execute("DELETE FROM assets WHERE id=$1", row_id)
+                failed.append(str(sc))
+                continue
             else:
-                _p(f"Segment {sc}: WARNING — no reference photo found and the "
-                   f"render may not match the real {machine}; review it")
+                # No reference exists (e.g. never-built prototype) — vision
+                # can't reasonably NAME an obscure machine from a render, so
+                # ship it flagged; the operator judges it at the images gate.
+                url = url2 or url
+                _p(f"Segment {sc}: WARNING — no reference photo exists for the "
+                   f"{machine}; review this render at the images gate")
 
         async with httpx.AsyncClient(timeout=120.0) as c:
             r = await c.get(url, follow_redirects=True)
