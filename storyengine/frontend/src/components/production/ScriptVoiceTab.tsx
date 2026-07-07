@@ -690,6 +690,30 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       toast.error("Couldn't play that line — generate the voiceover first.");
     }
   }, [playingLine, video.id, toast]);
+
+  // Scene narration audition: play a scene's voiceover right on its card so
+  // the voice can be judged at the gate where it was generated (the full
+  // player still lives on the Scenes tab).
+  const sceneAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingSceneVoice, setPlayingSceneVoice] = useState<number | null>(null);
+  const playSceneVoice = useCallback(async (scene: number) => {
+    const a = sceneAudioRef.current;
+    if (!a) return;
+    if (playingSceneVoice === scene) {
+      a.pause();
+      setPlayingSceneVoice(null);
+      return;
+    }
+    try {
+      const { token } = await getAudioToken(video.id);
+      a.src = `${API_URL}/api/videos/${video.id}/audio/${scene}?token=${token}`;
+      await a.play();
+      setPlayingSceneVoice(scene);
+    } catch {
+      setPlayingSceneVoice(null);
+      toast.error("Couldn't play this scene's voice — try regenerating it.");
+    }
+  }, [playingSceneVoice, video.id, toast]);
   const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const [driveConflict, setDriveConflict] = useState(false);
 
@@ -1857,6 +1881,21 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                             >
                               {hasVoice ? "Voice Ready" : "No Voice"}
                             </span>
+                            {hasVoice && (
+                              <button
+                                onClick={() => playSceneVoice(scene.sceneNumber)}
+                                title={playingSceneVoice === scene.sceneNumber ? "Stop playback" : "Listen to this scene's voiceover"}
+                                className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110"
+                                style={{
+                                  background: playingSceneVoice === scene.sceneNumber ? "var(--green)" : "rgba(0, 200, 83, 0.12)",
+                                  color: playingSceneVoice === scene.sceneNumber ? "var(--bg-void)" : "var(--green)",
+                                  border: "1px solid rgba(0, 200, 83, 0.3)",
+                                }}
+                              >
+                                {playingSceneVoice === scene.sceneNumber ? <Square size={10} /> : <Play size={10} className="ml-px" />}
+                                {playingSceneVoice === scene.sceneNumber ? "Stop" : "Play Voice"}
+                              </button>
+                            )}
                             <span
                               className="text-[10px] font-mono shrink-0"
                               style={{ color: "var(--text-tertiary)" }}
@@ -2256,7 +2295,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         </div>
       </div>
 
-      {/* Audio playback moved to Storyboard & Visuals tab */}
+      {/* Full animatic playback lives on the Scenes tab; this hidden element
+          backs the per-scene Play Voice audition button on the cards above.
+          It sits at the component root so it exists in narration-only mode. */}
+      <audio ref={sceneAudioRef} onEnded={() => setPlayingSceneVoice(null)} className="hidden" />
 
       {/* ============================================================= */}
       {/* Revision Modal                                                  */}
