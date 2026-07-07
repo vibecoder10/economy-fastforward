@@ -888,7 +888,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # Panels ON THIS SHEET, not the scene's total — "(27 shots)" on a
             # single-board draw read as "everything is generating" (Ryan hit
             # Stop on a correct one-board run, 2026-07-07).
-            on_sheet = min(12, shot_count - 12 * (bi - 1))
+            _cap = panels_per_sheet_for(directive or "")
+            on_sheet = min(_cap, shot_count - _cap * (bi - 1))
             _p(f"Scene {sc}: drawing {'ONLY board' if beat is not None else 'board'} "
                f"{bi} of {len(prompts)} — one sheet, {on_sheet} panels{lock_note}…")
             res = (await ic.generate_thumbnail_gpt2(sp + env_block, sheet_refs, aspect) if sheet_refs

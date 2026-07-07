@@ -324,7 +324,12 @@ def parse_coverage(directive_text: str) -> list[dict]:
         speaker = lm.group(1).strip() if lm else None
         line = lm.group(2).strip() if lm else None
         for m in _SHOT_RE.finditer(block):
-            shot = {"shot_type": m.group(2).strip().upper(), "description": m.group(3).strip()}
+            # Planners often emit `---` separator lines between moments; the
+            # shot regex captures to the next MOMENT header, so a trailing
+            # separator rides into the description and then into every image
+            # prompt downstream. Strip separator-only trailing lines.
+            desc = re.sub(r"(?:\s*\n\s*[-—*_]{3,}\s*)+$", "", m.group(3)).strip()
+            shot = {"shot_type": m.group(2).strip().upper(), "description": desc}
             if m.group(1).upper() == "MASTER" and master is None:
                 master = shot
             else:
