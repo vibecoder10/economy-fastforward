@@ -147,7 +147,7 @@ async def _wm_get(c: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
     global _wm_lock, _wm_last
     if _wm_lock is None:
         _wm_lock = asyncio.Lock()
-    for attempt in range(3):
+    for attempt in range(4):
         async with _wm_lock:
             wait = _WM_MIN_INTERVAL - (time.monotonic() - _wm_last)
             if wait > 0:
@@ -156,7 +156,10 @@ async def _wm_get(c: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
         r = await c.get(url, **kwargs)
         if r.status_code not in (429, 403):
             return r
-        retry_after = min(float(r.headers.get("retry-after") or 5 * (attempt + 1)), 30.0)
+        # Honor Wikimedia's own Retry-After. Cap at 90s (not 30) — a real
+        # cooldown after a burst lasts minutes, and truncating it just burns
+        # attempts inside the block window (seen live on the DvsU micro-test).
+        retry_after = min(float(r.headers.get("retry-after") or 10 * (attempt + 1)), 90.0)
         await asyncio.sleep(retry_after)
     return r
 
@@ -367,6 +370,27 @@ async def _host_reference(url: str, video_id: str, tenant_id: str,
     return None
 
 
+def _machine_key(machine: str) -> str:
+    """Stable cache key for a machine name (case/punctuation-insensitive)."""
+    return re.sub(r"[^a-z0-9]", "", (machine or "").lower())[:80]
+
+
+async def _ensure_ref_cache_schema() -> None:
+    """Verified-reference cache: one Wikimedia lookup per machine, ever.
+    Defensive CREATE (same pattern as channel_profile_documents) so the
+    feature works without waiting on a migration run."""
+    await execute(
+        """CREATE TABLE IF NOT EXISTS static_reference_cache (
+            tenant_id UUID NOT NULL,
+            machine_key TEXT NOT NULL,
+            machine TEXT,
+            hosted_url TEXT NOT NULL,
+            source_url TEXT,
+            verified_at TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (tenant_id, machine_key)
+        )""")
+
+
 def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     """Does the Wikipedia article title actually name this machine?
 
@@ -567,6 +591,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     if not kie_key:
         return {"status": "failed", "error": "no image key on this workspace"}
     ic = ImageClient(api_key=kie_key)
+    await _ensure_ref_cache_schema()
 
     done, failed = 0, []
     for s in scenes:
@@ -597,39 +622,60 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # 1) Find a REAL photo, SELF-HOST it (Wikimedia 403s Kie's fetcher),
         #    and vision-check it actually shows this machine (designation
         #    collisions like the Russian T-95 vs the US T95).
+        #    LAYER 0: the tenant's own verified-reference cache — series reuse
+        #    the same machines across videos, so each machine costs ONE
+        #    Wikimedia conversation ever (and rate limits stop mattering).
         #    LAYER 1: the machine's Wikipedia article lead image — curated,
         #    unambiguous, and API-issued. LAYER 2: Commons search for extra
         #    candidates/angles.
         ref_url = None
         ref_src = None
-        _p(f"Segment {sc}: finding a real photo of the {machine}…")
-        wiki = await find_wikipedia_lead_images(
-            [machine] + list(sub.get("aliases") or []))
-        # 'trusted' provenance only holds when the article title names OUR
-        # machine — a fuzzy search that landed on a lookalike's article gets
-        # demoted to the strict vision check instead of a free pass.
-        candidates = [
-            (w["url"],
-             w["trusted"] and _page_matches(machine, sub.get("aliases"), w.get("page", "")))
-            for w in wiki
-        ]
-        have = {u for u, _ in candidates}
-        if sub.get("search_query"):
-            candidates += [(c, False) for c in await find_commons_photos(sub["search_query"])
-                           if c not in have]
-        if not candidates and machine:
-            candidates = [(c, False) for c in await find_commons_photos(machine)]
-        for idx, (cand, trusted) in enumerate(candidates):
-            hosted = await _host_reference(cand, video_id, tenant_id, sc, idx)
-            if not hosted:
-                continue
+        mkey = _machine_key(machine)
+        cached = await fetch_one(
+            "SELECT hosted_url, source_url FROM static_reference_cache "
+            "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, mkey)
+        if cached:
+            ref_url, ref_src = cached["hosted_url"], cached["source_url"]
             await execute(
-                "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, hosted)
-            if await _vision_confirms(tenant_id, hosted, machine,
-                                      sub.get("aliases"), trusted_source=trusted):
-                ref_url, ref_src = hosted, cand
-                break
-            _p(f"Segment {sc}: candidate photo rejected (not the {machine})")
+                "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, ref_url)
+            _p(f"Segment {sc}: using the cached verified photo of the {machine}")
+        if not ref_url:
+            _p(f"Segment {sc}: finding a real photo of the {machine}…")
+            wiki = await find_wikipedia_lead_images(
+                [machine] + list(sub.get("aliases") or []))
+            # 'trusted' provenance only holds when the article title names OUR
+            # machine — a fuzzy search that landed on a lookalike's article gets
+            # demoted to the strict vision check instead of a free pass.
+            candidates = [
+                (w["url"],
+                 w["trusted"] and _page_matches(machine, sub.get("aliases"), w.get("page", "")))
+                for w in wiki
+            ]
+            have = {u for u, _ in candidates}
+            if sub.get("search_query"):
+                candidates += [(c, False) for c in await find_commons_photos(sub["search_query"])
+                               if c not in have]
+            if not candidates and machine:
+                candidates = [(c, False) for c in await find_commons_photos(machine)]
+            for idx, (cand, trusted) in enumerate(candidates):
+                hosted = await _host_reference(cand, video_id, tenant_id, sc, idx)
+                if not hosted:
+                    continue
+                await execute(
+                    "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, hosted)
+                if await _vision_confirms(tenant_id, hosted, machine,
+                                          sub.get("aliases"), trusted_source=trusted):
+                    ref_url, ref_src = hosted, cand
+                    await execute(
+                        """INSERT INTO static_reference_cache
+                               (tenant_id, machine_key, machine, hosted_url, source_url)
+                           VALUES ($1,$2,$3,$4,$5)
+                           ON CONFLICT (tenant_id, machine_key)
+                           DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
+                                         verified_at=now()""",
+                        tenant_id, mkey, machine[:200], hosted, cand)
+                    break
+                _p(f"Segment {sc}: candidate photo rejected (not the {machine})")
 
         # 2) Clean crisp studio render — image-to-image from the real photo
         #    when we have one, text-to-image only as the fallback.
