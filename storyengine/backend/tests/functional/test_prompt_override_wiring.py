@@ -146,8 +146,16 @@ async def test_load_prompt_overrides_attaches_all_six(monkeypatch=None):
     finally:
         pe_mod.fetch_all = original
 
-    assert executor._pipeline.script_system_prompt == seeded["script"]
-    assert executor._pipeline.thumbnail_system_prompt == seeded["thumbnail"]
+    # script + thumbnail are POST-PROCESSED after resolution:
+    # _load_prompt_overrides appends the channel thumbnail formula (when
+    # channel_profiles has one) and the originality/slop-proofing mandates
+    # (backend/originality.py) on top of the resolved prompt. So the seeded
+    # override must be the PREFIX of the resolved attribute, not the whole
+    # thing. The other four slots are untouched — exact equality holds.
+    assert executor._pipeline.script_system_prompt.startswith(seeded["script"]), \
+        f"seeded script override not a prefix of resolved prompt: {executor._pipeline.script_system_prompt[:200]!r}"
+    assert executor._pipeline.thumbnail_system_prompt.startswith(seeded["thumbnail"]), \
+        f"seeded thumbnail override not a prefix of resolved prompt: {executor._pipeline.thumbnail_system_prompt[:200]!r}"
     assert executor._pipeline.video_motion_system_prompt == seeded["video_motion"]
     assert executor._pipeline.sound_curation_system_prompt == seeded["sound_curation"]
     assert executor._pipeline.sound_generation_system_prompt == seeded["sound_generation"]
@@ -175,7 +183,10 @@ async def test_per_video_override_beats_tenant():
     finally:
         pe_mod.fetch_all = original
 
-    assert executor._pipeline.script_system_prompt == "PER-VIDEO wins"
+    # Prefix check, not equality: script is post-processed (originality
+    # mandates appended) after resolution — see the note in the test above.
+    assert executor._pipeline.script_system_prompt.startswith("PER-VIDEO wins")
+    assert "TENANT default script prompt" not in executor._pipeline.script_system_prompt
     print("✅ test_per_video_override_beats_tenant")
 
 
