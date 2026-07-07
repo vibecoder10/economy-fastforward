@@ -1195,6 +1195,55 @@ class PipelineExecutor:
         except Exception as e:
             print(f"[Script] Error injecting learnings: {e}")
 
+    async def _resplit_static_scenes(self, video_id: str) -> None:
+        """Static documentaries: one scene per UNIT PARAGRAPH, not per act.
+
+        The script bot writes one scripts row per ACT (pipeline_control), which
+        for a static docu collapses a 24-30 machine video into ~6 scenes = ~6
+        held images (seen live on DvsU 2026-07-07). The channel format is one
+        machine / one paragraph / one image / one caption, so re-split the
+        narration into paragraph scenes. Also strips non-spoken junk (act
+        markers, markdown headings, dividers, meta notes) so nothing that is
+        not narration can reach TTS. Fail-open: a resplit error keeps the
+        act-level rows rather than blocking the stage."""
+        try:
+            video = await self._get_video(video_id)
+            script = (video or {}).get("script") or ""
+            if not script.strip():
+                return
+            units: list[str] = []
+            for para in script.split("\n\n"):
+                p = para.strip()
+                if not p or p.startswith("[ACT") or p.startswith("@@@"):
+                    continue
+                if p.startswith("#") or p.startswith("---") or p.lower().startswith("**angle"):
+                    continue
+                # Drop leftover markdown emphasis wrappers on meta lines
+                if len(p.split()) < 25:
+                    continue  # fragments / stray connectors are not units
+                units.append(p)
+            if len(units) < 8:
+                _logger.warning("[static-resplit] %s: only %d unit paragraphs — keeping act scenes",
+                                video_id, len(units))
+                return
+            rows = await fetch_all(
+                "SELECT voice_id FROM scripts WHERE video_id = $1 LIMIT 1", video_id)
+            voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
+            await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
+                          video_id, self.tenant_id)
+            for i, text in enumerate(units, start=1):
+                await execute(
+                    """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                       VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
+                    self.tenant_id, video_id, i, text,
+                    video.get("video_title"), voice_id,
+                )
+            await self._log_activity("Script Bot", video_id, "completed",
+                                     f"Static format: split into {len(units)} unit scenes (one machine per scene)")
+            _logger.info("[static-resplit] %s: %d unit scenes", video_id, len(units))
+        except Exception as e:  # noqa: BLE001 — never block the stage
+            _logger.warning("[static-resplit] failed for %s: %s", video_id, str(e)[:200])
+
     async def _factual_gate_static(self, video_id: str) -> None:
         """Factual gate for static documentaries: verify every claim in the
         script against the research payload; on flagged claims, regenerate
@@ -1662,6 +1711,9 @@ separate scenes."""
             # can't be traced. (Advisory-only elsewhere; a GATE here.)
             if (video.get("render_mode") or "") == "static_docu":
                 await self._factual_gate_static(video_id)
+                # One machine / one paragraph / one image: scene rows must be
+                # unit paragraphs, not acts (the bot writes one row per act).
+                await self._resplit_static_scenes(video_id)
 
             # Dialogue intelligence runs unattended after EVERY script path —
             # the modeled and user-supplied paths already had this hook, but
