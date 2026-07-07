@@ -130,20 +130,51 @@ async def _approved_envs(vid, tenant) -> list[dict]:
         return []
 
 
+def _norm_env_text(s: str) -> str:
+    """Lowercase and collapse punctuation/dashes to single spaces, so
+    'Home kitchen — cram session' matches 'home kitchen - cram session'."""
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
 def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
-    """Pick the ONE approved environment this scene lives in, by counting the
-    environment name's distinctive words in the scene's plan/text. With one
-    approved environment it always wins; with several and no signal, None
-    (better no lock than the wrong location)."""
+    """Pick the ONE approved environment this scene lives in.
+
+    NAME-AS-PHRASE first: the coverage plan names its location verbatim from
+    the bible ('Home kitchen — cram session. Ryan — ...' heads every shot), so
+    count occurrences of each environment's full name, then its head segment
+    (before any dash/colon). Single-WORD counting is a trap — scene 1's
+    DIALOGUE says 'cooking class' over and over ('I have one hour to survive a
+    cooking class'), which locked the home cram-session scene to the class
+    kitchen (caught live 2026-07-07). Word counting survives only as the
+    fallback when no name phrase appears at all. With one approved environment
+    it always wins; with several and no signal, None (better no lock than the
+    wrong location)."""
     if not envs:
         return None
     if len(envs) == 1:
         return envs[0]
-    low = (text or "").lower()
+    low_text = f" {_norm_env_text(text)} "
+
+    def _phrase_count(phrase: str) -> int:
+        p = _norm_env_text(phrase)
+        return low_text.count(f" {p} ") if p else 0
+
+    best, best_score = None, 0
+    for e in envs:
+        name = e["name"] or ""
+        head = re.split(r"[—:\-]", name)[0].strip()
+        score = _phrase_count(name) * 3
+        if head and _norm_env_text(head) != _norm_env_text(name) and len(head) >= 8:
+            score += _phrase_count(head) * 2
+        if score > best_score:
+            best, best_score = e, score
+    if best:
+        return best
+    # Fallback: no environment NAME appears as a phrase — old distinctive-word count.
     best, best_score = None, 0
     for e in envs:
         words = {w for w in re.split(r"[^a-z0-9]+", (e["name"] or "").lower()) if len(w) > 3}
-        score = sum(low.count(w) for w in words)
+        score = sum(low_text.count(w) for w in words)
         if score > best_score:
             best, best_score = e, score
     return best
