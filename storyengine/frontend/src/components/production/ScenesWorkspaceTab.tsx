@@ -318,9 +318,21 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       // blocks — append those so every filled slot displays.
       const extraBoards = gridUrls.flatMap((url, i) =>
         (url && i >= parsedBeats.length ? [{ beatNumber: i + 1, prompt: "", gridUrl: url }] : []));
-      const storyboardBeats = parsedBeats.length > 0
+      let storyboardBeats = parsedBeats.length > 0
         ? [...parsedBeats, ...extraBoards]
         : gridUrls.flatMap((url, i) => (url ? [{ beatNumber: i + 1, prompt: "", gridUrl: url }] : []));
+      // A saved shot plan ALWAYS shows its board slots — even with zero boards
+      // drawn yet (the plan gate) and even for plans saved before the gate
+      // persisted prompts/beat_count. One placeholder per coming board, each
+      // clickable to draw JUST that board.
+      if (storyboardBeats.length === 0 && scene.coverage_directive) {
+        const plan = parseShotPlan(scene.coverage_directive);
+        const expected = scene.storyboard_beat_count
+          ?? (plan ? Math.min(5, Math.ceil(plan.shots.length / 12)) : 0);
+        storyboardBeats = Array.from({ length: expected }, (_, i) => ({
+          beatNumber: i + 1, prompt: "(planned)", gridUrl: gridUrls[i] || null,
+        }));
+      }
       return {
         sceneNumber: scene.scene || 0,
         narrationText: scene.scene_text || "",
@@ -335,7 +347,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         hasStoryboardPrompt: !!scene.storyboard_prompts,
         hasStoryboardData: !!(
           scene.storyboard_prompts || scene.storyboard_status ||
-          scene.storyboard_beat_count != null || gridUrls.some(Boolean)
+          scene.storyboard_beat_count != null || gridUrls.some(Boolean) ||
+          scene.coverage_directive
         ),
         gridVersion: scene.updated_at ? Date.parse(scene.updated_at) || 0 : 0,
         assets: assets
@@ -1532,6 +1545,16 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                                 <>
                                   <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
                                   <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>Generating...</span>
+                                </>
+                              ) : beat.prompt.trim() ? (
+                                <>
+                                  <span className="w-9 h-9 rounded-full flex items-center justify-center"
+                                    style={{ background: "rgba(168,85,247,0.18)", border: "1px solid var(--purple)" }}>
+                                    <Play size={16} style={{ color: "var(--purple)" }} />
+                                  </span>
+                                  <span className="text-[11px] font-semibold" style={{ color: "var(--purple)" }}>
+                                    Draw board S{scene.sceneNumber}.{beat.beatNumber}
+                                  </span>
                                 </>
                               ) : (
                                 <>
