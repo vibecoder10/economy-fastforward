@@ -32,6 +32,8 @@ SECRET_ENV_MAP: dict[str, str] = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "elevenlabs_api_key": "ELEVENLABS_API_KEY",
     "elevenlabs_voice_id": "ELEVENLABS_VOICE_ID",
+    "elevenlabs_model_id": "ELEVENLABS_MODEL_ID",
+    "elevenlabs_voice_style": "ELEVENLABS_VOICE_STYLE",
     "kie_ai_api_key": "KIE_AI_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
     "gemini_api_key": "GEMINI_API_KEY",

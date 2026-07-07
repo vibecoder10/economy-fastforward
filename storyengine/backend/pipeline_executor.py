@@ -118,10 +118,27 @@ class PipelineExecutor:
             "anthropic_api_key",
             "airtable_api_key",
             "elevenlabs_api_key",
+            # Narrator voice configuration (not API keys, same vault->env seam).
+            # Without these the tenant's configured narrator voice/model is
+            # silently ignored and every channel gets the process default —
+            # seen live on DvsU 2026-07-07 (fixed voice is part of that brand).
+            "elevenlabs_voice_id",
+            "elevenlabs_model_id",
+            "elevenlabs_voice_style",
             "kie_ai_api_key",
             "openai_api_key",
             "gemini_api_key",
         ]
+        # Voice-config keys have a legitimate process-level default in the
+        # service .env (legacy single-tenant behavior). Snapshot those before
+        # clearing so a tenant WITHOUT a vault override keeps the .env value
+        # instead of silently dropping to the hardcoded default voice.
+        VOICE_CONFIG_KEYS = ("elevenlabs_voice_id", "elevenlabs_model_id", "elevenlabs_voice_style")
+        process_voice_defaults = {
+            k.upper(): os.environ[k.upper()]
+            for k in VOICE_CONFIG_KEYS
+            if k.upper() in os.environ
+        }
         env_names_to_clear = [k.upper() for k in keys_to_load] + ["WAVESPEED_API_KEY", "ANTHROPIC_BASE_URL"]
         for env_name in env_names_to_clear:
             os.environ.pop(env_name, None)
@@ -141,6 +158,12 @@ class PipelineExecutor:
                     print(f"[INIT]   - {key_name} not found", flush=True)
             except Exception as e:
                 print(f"[INIT]   ✗ {key_name} error: {e}", flush=True)
+
+        # Restore process-level voice defaults for keys no tenant override set.
+        for env_name, value in process_voice_defaults.items():
+            if not os.environ.get(env_name):
+                os.environ[env_name] = value
+                print(f"[INIT]   ↩ {env_name} restored from process env (no tenant override)", flush=True)
 
         # Claude runs on DIRECT Anthropic (the tenant's anthropic_api_key loaded
         # above) — it's the reliable path. Kie is ONLY a fallback for Claude when a

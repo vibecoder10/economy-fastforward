@@ -153,6 +153,16 @@ class ElevenLabsClient:
             Dict with "audio_content" (bytes) on success, or "error" key on failure.
         """
         target_voice = voice_id or self.voice_id
+        # Tenant narrator style (vault -> env seam, see pipeline_executor).
+        # Applies only when the caller passed no explicit style, so dialogue
+        # lines that set their own performance knobs are untouched.
+        if style is None:
+            env_style = os.getenv("ELEVENLABS_VOICE_STYLE", "").strip()
+            if env_style:
+                try:
+                    style = float(env_style)
+                except ValueError:
+                    pass
         if self._kie_mode:
             return await self._generate_via_kie(
                 text, target_voice, stability, similarity_boost, style=style, speed=speed
@@ -177,7 +187,10 @@ class ElevenLabsClient:
 
         payload = {
             "text": text,
-            "model_id": "eleven_turbo_v2_5",
+            # Tenant-pinned TTS model (vault -> env seam). Long-form documentary
+            # channels pin eleven_multilingual_v2; default stays turbo so
+            # existing tenants are byte-identical.
+            "model_id": os.getenv("ELEVENLABS_MODEL_ID", "").strip() or "eleven_turbo_v2_5",
             "voice_settings": voice_settings,
         }
 
