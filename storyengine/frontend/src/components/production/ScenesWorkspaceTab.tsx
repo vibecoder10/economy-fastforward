@@ -82,6 +82,7 @@ interface SceneGroup {
   voiceOverUrl: string | null;
   sceneVideoUrl: string | null;
   storyboardBeats: Array<{ beatNumber: number; prompt: string; gridUrl: string | null }>;
+  coverageDirective: string | null;
   storyboardStatus: string | null;
   storyboardBeatCount: number | null;
   storyboardGridCount: number;
@@ -104,6 +105,90 @@ function parseStoryboardPromptBlocks(promptText: string | null | undefined) {
   }));
   if (beats.length > 0) return beats;
   return [{ beatNumber: 1, prompt }];
+}
+
+/** Parse the saved coverage directive (the shot plan) into a clean structure:
+ * the [SET | ...] geography/props line plus one row per SHOT with its global
+ * panel number (masters then angles, in order — the SAME numbering the board
+ * sheets use, so row 13 here IS panel 13 on the boards). */
+function parseShotPlan(directive: string | null | undefined) {
+  const text = (directive || "").trim();
+  if (!text) return null;
+  const setMatch = text.match(/\[SET\s*\|\s*([^\]]+)\]/i);
+  const momentRe = /\[MOMENT\s+(\d+)\s*\|\s*([^\]]*)\]/gi;
+  const heads = Array.from(text.matchAll(momentRe));
+  let panel = 0;
+  const shots: Array<{ panel: number; moment: number; summary: string; role: string;
+    shotType: string; speaker: string | null; line: string | null; desc: string }> = [];
+  heads.forEach((h, i) => {
+    const block = text.slice((h.index || 0) + h[0].length,
+      i + 1 < heads.length ? heads[i + 1].index : text.length);
+    const lineMatch = block.match(/^\s*\*{0,2}\s*LINE\s*:\s*([^|"\n]+?)\s*\|\s*"([^"]+)"/im);
+    const shotRe = /-\s*\*{0,2}\s*(MASTER|ANGLE)\s*\[?\s*([A-Za-z][\w /-]*?)\s*\]?\s*\*{0,2}\s*:\s*([\s\S]*?)(?=\n\s*-\s*\*{0,2}\s*(?:MASTER|ANGLE)\b|$)/gi;
+    let first = true;
+    for (const m of Array.from(block.matchAll(shotRe))) {
+      panel += 1;
+      shots.push({
+        panel,
+        moment: Number(h[1]),
+        summary: h[2].trim(),
+        role: m[1].toUpperCase(),
+        shotType: m[2].trim().toUpperCase(),
+        speaker: first && lineMatch ? lineMatch[1].trim() : null,
+        line: first && lineMatch ? lineMatch[2].trim() : null,
+        desc: m[3].trim().replace(/\s+/g, " "),
+      });
+      first = false;
+    }
+  });
+  if (!shots.length) return null;
+  return { set: setMatch ? setMatch[1].trim() : null, shots };
+}
+
+/** Read-the-plan-before-you-pay viewer: the scene's saved shot plan, formatted —
+ * the fixed SET/blocking line up top, then one row per panel. Panel numbers
+ * match the board sheets 1:1. */
+function ShotPlanViewer({ directive }: { directive: string | null }) {
+  const plan = useMemo(() => parseShotPlan(directive), [directive]);
+  if (!plan) return null;
+  return (
+    <details className="mb-3">
+      <summary className="cursor-pointer text-xs font-semibold inline-flex items-center gap-1.5"
+        style={{ color: "var(--purple)" }}>
+        <LayoutGrid size={12} /> Shot plan · {plan.shots.length} shots — read it before you draw
+      </summary>
+      <div className="mt-2 rounded-lg p-3 space-y-2" style={{ background: "var(--bg-elevated)", border: "1px solid rgba(255,255,255,0.06)" }}>
+        {plan.set && (
+          <div className="text-[11px] leading-relaxed rounded-md p-2"
+            style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.25)", color: "var(--text-secondary)" }}>
+            <span className="font-bold uppercase tracking-wide mr-1.5" style={{ color: "var(--purple)" }}>Set & blocking — every shot</span>
+            {plan.set}
+          </div>
+        )}
+        <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
+          {plan.shots.map((s) => (
+            <div key={s.panel} className="flex gap-2 items-baseline text-[11px] leading-snug">
+              <span className="flex-shrink-0 font-mono font-bold w-6 text-right" style={{ color: "var(--text-tertiary)" }}>{s.panel}</span>
+              <span className="flex-shrink-0 font-semibold px-1.5 py-0.5 rounded" style={{
+                background: s.role === "MASTER" ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.06)",
+                color: s.role === "MASTER" ? "var(--purple)" : "var(--text-tertiary)",
+              }}>
+                M{s.moment} {s.role === "ANGLE" ? "· angle " : "· "}{s.shotType}
+              </span>
+              <span className="min-w-0" style={{ color: "var(--text-secondary)" }}>
+                {s.speaker && s.line && (
+                  <span className="font-medium mr-1" style={{ color: "var(--turquoise)" }}>
+                    {s.speaker}: “{s.line.length > 90 ? `${s.line.slice(0, 90)}…` : s.line}”
+                  </span>
+                )}
+                {s.desc.length > 220 ? `${s.desc.slice(0, 220)}…` : s.desc}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </details>
+  );
 }
 
 interface ScenesWorkspaceTabProps {
@@ -243,6 +328,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         voiceOverUrl: scene.voice_over_url || null,
         sceneVideoUrl: scene.scene_video_url || null,
         storyboardBeats,
+        coverageDirective: scene.coverage_directive || null,
         storyboardStatus: scene.storyboard_status || null,
         storyboardBeatCount: scene.storyboard_beat_count ?? (storyboardBeats.length || null),
         storyboardGridCount: gridUrls.filter(Boolean).length,
@@ -492,6 +578,20 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     } catch (err: unknown) {
       setGeneratingScene(null);
       toast.error(`Scene ${sceneNumber} failed: ${(err as Error).message}`);
+    }
+  }, [runStageWith409Retry, toast, requireEnvironments]);
+
+  // PLAN GATE: write the shot plan + board placeholders, draw NOTHING. The
+  // creator reads the formatted plan, then draws boards one at a time.
+  const handlePlanShots = useCallback(async (sceneNumber: number) => {
+    if (!requireEnvironments()) return;
+    chainRef.current = null;
+    setGeneratingScene(sceneNumber);
+    try {
+      await runStageWith409Retry("storyboard-images", { scene: sceneNumber, plan_only: 1 });
+    } catch (err: unknown) {
+      setGeneratingScene(null);
+      toast.error(`Scene ${sceneNumber} planning failed: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry, toast, requireEnvironments]);
 
@@ -1235,13 +1335,22 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                         1 storyboard (purple) → 2 pictures (orange) → 3 animate (green).
                         Redo is a small secondary once pictures exist. */}
                     {sceneCards.length === 0 && scene.storyboardGridCount === 0 ? (
-                      <button onClick={() => handleGenerateScene(scene.sceneNumber)}
-                        disabled={running || storyLocked}
-                        title={storyLocked ? "Unlock the story first (top right)" : "Write a quick one-image storyboard to preview the direction"}
-                        className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                        style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
-                        <LayoutGrid size={15} /> Generate storyboard
-                      </button>
+                      <>
+                        <button onClick={() => handlePlanShots(scene.sceneNumber)}
+                          disabled={running || storyLocked}
+                          title={storyLocked ? "Unlock the story first (top right)" : "Plan the shots only (a few cents, nothing drawn) — read the plan, then draw boards one at a time"}
+                          className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                          style={{ background: "transparent", border: "1px solid var(--purple)", color: "var(--purple)" }}>
+                          <LayoutGrid size={15} /> {scene.coverageDirective ? "Re-plan shots" : "Plan shots"}
+                        </button>
+                        <button onClick={() => handleGenerateScene(scene.sceneNumber)}
+                          disabled={running || storyLocked}
+                          title={storyLocked ? "Unlock the story first (top right)" : "Plan the shots AND draw every board in one go"}
+                          className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                          style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
+                          <LayoutGrid size={15} /> Generate storyboard
+                        </button>
+                      </>
                     ) : sceneCards.length === 0 ? (
                       <>
                         {/* Storyboard exists but no pictures yet: let them REDO the board
@@ -1319,6 +1428,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
             <div className="flex flex-col lg:flex-row gap-4 mb-3 lg:items-stretch">
             {(scene.storyboardBeats.length > 0 || scene.hasStoryboardData) && (
               <div className="lg:flex-1 min-w-0">
+                <ShotPlanViewer directive={scene.coverageDirective} />
                 <div className={`flex gap-4 pb-2 ${scene.storyboardBeats.length === 1 ? "" : "overflow-x-auto"}`} style={{ scrollbarWidth: "thin" }}>
                   {scene.storyboardBeats.map((beat) => {
                     const slotKey = `${scene.sceneNumber}-${beat.beatNumber}`;

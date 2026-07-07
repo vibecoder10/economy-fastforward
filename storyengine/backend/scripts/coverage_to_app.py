@@ -739,7 +739,8 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
     return prompts
 
 
-async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, beat=None, progress=None):
+async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, beat=None,
+                                              plan_only=False, progress=None):
     """The STORYBOARD GATE (Ryan's design): run the REAL coverage planner for
     the scene — channel-paced shot count, earned angles, verbatim line
     placement — persist that plan, and draw cheap sheet image(s) previewing
@@ -841,6 +842,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
                 "storyboard_5_url=NULL, updated_at=now() WHERE id=$5",
                 directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
+            if plan_only:
+                # PLAN GATE (Ryan, 2026-07-07): stop here — the creator reads
+                # the shot plan in the app, then draws boards one at a time.
+                done += 1
+                total_shots += shot_count
+                _p(f"Scene {sc}: plan ready — {shot_count} shots on {len(prompts)} board(s), "
+                   "nothing drawn yet")
+                continue
 
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         env_block = ""
@@ -875,6 +884,10 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         done += 1
         total_shots += shot_count
         _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s)")
+    if plan_only:
+        return {"status": "completed",
+                "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "
+                            "nothing drawn. Review the plan, then draw boards one at a time.")}
     return {"status": "completed",
             "message": (f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
                         "Review the sheets; 'Generate pictures' draws exactly this plan.")}

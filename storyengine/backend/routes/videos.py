@@ -729,6 +729,7 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
                   storyboard_1_url, storyboard_2_url, storyboard_3_url,
                   storyboard_4_url, storyboard_5_url, scene_video_url,
                   storyboard_prompts, storyboard_beat_count, storyboard_status,
+                  coverage_directive,
                   created_at::text, updated_at::text
            FROM scripts WHERE video_id = $1 AND tenant_id = $2
            ORDER BY scene NULLS FIRST, created_at""",

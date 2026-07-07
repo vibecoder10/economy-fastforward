@@ -1582,6 +1582,7 @@ export interface ScriptScene {
   storyboard_prompts: string | null;
   storyboard_beat_count: number | null;
   storyboard_status: string | null;
+  coverage_directive: string | null; // the saved shot plan the boards + pictures draw from
   tone: string | null; // serious | conversational | urgent | concise
   updated_at?: string | null; // bumps when a board is (re)generated — used to cache-bust grid images
 }
