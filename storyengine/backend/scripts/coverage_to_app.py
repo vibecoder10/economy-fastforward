@@ -724,7 +724,7 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 1
     return prompts
 
 
-async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, progress=None):
+async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, beat=None, progress=None):
     """The STORYBOARD GATE (Ryan's design): run the REAL coverage planner for
     the scene — channel-paced shot count, earned angles, verbatim line
     placement — persist that plan, and draw cheap sheet image(s) previewing
@@ -776,12 +776,28 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
     total_shots = 0
     for s in targets:
         sc = s["scene"]
-        _p(f"Scene {sc}: planning the shots…")
+        srow = await fetch_one(
+            "SELECT id, coverage_directive, coverage_directive_hash FROM scripts "
+            "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
+        if not srow:
+            continue
         _mm, _amin, _amax, _mframes = _coverage_shape(s["scene_text"] or "", dialogue_audio)
-        directive = await generate_coverage_directive(
-            s["scene_text"] or "", title, profile, bible, [sc], [],
-            max_moments=_mm, angles_min=_amin, angles_max=_amax,
-            anthropic_client=claude, model=claude_model)
+        if beat is not None:
+            # PER-BOARD REDO: redraw ONE sheet from the SAVED plan — never
+            # re-plan (that would silently change the other boards' panels).
+            if not (srow.get("coverage_directive") or "").strip() or \
+                    srow.get("coverage_directive_hash") != _scene_text_hash(s["scene_text"] or ""):
+                return {"status": "failed",
+                        "error": f"Scene {sc} has no current plan — generate the scene's "
+                                 "storyboard first, then redo boards one at a time."}
+            directive = srow["coverage_directive"]
+            _p(f"Scene {sc}: redrawing board {beat} from the saved plan…")
+        else:
+            _p(f"Scene {sc}: planning the shots…")
+            directive = await generate_coverage_directive(
+                s["scene_text"] or "", title, profile, bible, [sc], [],
+                max_moments=_mm, angles_min=_amin, angles_max=_amax,
+                anthropic_client=claude, model=claude_model)
         moments = parse_coverage(directive or "")
         if not moments:
             _p(f"Scene {sc}: the planner returned no shots"); continue
@@ -792,7 +808,24 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
         _reconcile_moment_dialogue(moments, s["scene_text"] or "")
         shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
 
-        prompts = _plan_sheet_prompts(moments, style_dir)
+        prompts = _plan_sheet_prompts(moments, style_dir)[:5]
+        if beat is not None and not (1 <= beat <= len(prompts)):
+            return {"status": "failed",
+                    "error": f"Scene {sc} has {len(prompts)} board(s) — board {beat} doesn't exist."}
+        if beat is None:
+            # STREAMING CONTRACT (Ryan, 2026-07-07): persist the plan and the
+            # board COUNT the moment planning finishes — the UI shows one
+            # placeholder slot per coming board immediately, and each board
+            # drops into its slot the moment it lands (per-slot UPDATE below),
+            # not in one batch at the end.
+            blocks = "\n\n".join(f"--- BEAT {i} ---\n{p}" for i, p in enumerate(prompts, start=1))
+            await execute(
+                "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
+                "storyboard_prompts=$3, storyboard_beat_count=$4, storyboard_1_url=NULL, "
+                "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
+                "storyboard_5_url=NULL, updated_at=now() WHERE id=$5",
+                directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
+
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         env_block = ""
         sheet_refs = list(cast_refs)
@@ -805,31 +838,27 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, p
             )
             sheet_refs.append(env["reference_url"])
         lock_note = f", locked to {env['name']}" if env else ""
-        urls: list = []
-        for bi, sp in enumerate(prompts[:5], start=1):
-            _p(f"Scene {sc}: drawing storyboard sheet {bi}/{min(len(prompts), 5)} "
+        todo = [(beat, prompts[beat - 1])] if beat is not None else list(enumerate(prompts, start=1))
+        ok = 0
+        for bi, sp in todo:
+            _p(f"Scene {sc}: drawing board {bi}/{len(prompts)} "
                f"({shot_count} shots{lock_note})…")
             res = (await ic.generate_thumbnail_gpt2(sp + env_block, sheet_refs, aspect) if sheet_refs
                    else await ic.generate_scene_image_gpt(sp + env_block, None, aspect))
             url = res.get("url") if isinstance(res, dict) else res
             if url:
-                urls.append(await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant))
-        if not urls:
+                stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant)
+                # bi is 1-5 by construction (prompts capped, beat validated).
+                await execute(
+                    f"UPDATE scripts SET storyboard_{bi}_url=$1, updated_at=now() WHERE id=$2",
+                    stable, srow["id"])
+                ok += 1
+                _p(f"Scene {sc}: board {bi} is up")
+        if not ok:
             _p(f"Scene {sc}: storyboard image failed"); continue
-
-        srow = await fetch_one("SELECT id FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
-                               vid, tenant, sc)
-        if srow:
-            slots = (urls + [None] * 5)[:5]
-            await execute(
-                "UPDATE scripts SET storyboard_1_url=$1, storyboard_2_url=$2, "
-                "storyboard_3_url=$3, storyboard_4_url=$4, storyboard_5_url=$5, "
-                "coverage_directive=$6, coverage_directive_hash=$7, updated_at=now() "
-                "WHERE id=$8",
-                *slots, directive, _scene_text_hash(s["scene_text"] or ""), srow["id"])
         done += 1
         total_shots += shot_count
-        _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {len(urls)} sheet(s)")
+        _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s)")
     return {"status": "completed",
             "message": (f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
                         "Review the sheets; 'Generate pictures' draws exactly this plan.")}

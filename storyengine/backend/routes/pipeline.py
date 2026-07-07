@@ -865,6 +865,7 @@ async def run_storyboard_images(
     video_id: str,
     background_tasks: BackgroundTasks,
     scene: Optional[int] = None,
+    beat: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Generate storyboard images for a video.
@@ -874,7 +875,12 @@ async def run_storyboard_images(
 
     Args:
         scene: If set, only generate images for this scene (per-scene mode).
+        beat: If set (requires scene), redraw ONLY that board slot (1-5) from
+            the scene's saved plan — never re-plans the scene.
     """
+    if beat is not None and (scene is None or not 1 <= beat <= 5):
+        raise HTTPException(status_code=400,
+                            detail="beat needs a scene and must be between 1 and 5")
     # NOTE: this route was retired in the Phase-0 unify (2026-06-29), then
     # REWIRED to the one-sheet storyboard preview below — but the deprecation
     # raise was left in, making the new body unreachable ("Retired endpoint"
@@ -908,7 +914,7 @@ async def run_storyboard_images(
             # story direction. The real per-shot images come later (generate_coverage_for_video).
             from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
             result = await generate_storyboard_sheet_for_scene(
-                video_id, tenant_id, scene=scene, progress=progress_callback
+                video_id, tenant_id, scene=scene, beat=beat, progress=progress_callback
             )
             _set_task_status(
                 video_id,

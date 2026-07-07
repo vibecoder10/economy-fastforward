@@ -495,6 +495,20 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [runStageWith409Retry, toast, requireEnvironments]);
 
+  // Redraw ONE board slot from the scene's saved plan (the plan is untouched,
+  // so the other boards' panels can't shift). Ryan drives boards one at a time.
+  const handleGenerateSingleBoard = useCallback(async (sceneNumber: number, beatNumber: number) => {
+    if (!requireEnvironments()) return;
+    chainRef.current = null;
+    setGeneratingScene(sceneNumber);
+    try {
+      await runStageWith409Retry("storyboard-images", { scene: sceneNumber, beat: beatNumber });
+    } catch (err: unknown) {
+      setGeneratingScene(null);
+      toast.error(`Board S${sceneNumber}.${beatNumber} failed: ${(err as Error).message}`);
+    }
+  }, [runStageWith409Retry, toast, requireEnvironments]);
+
   // One per-scene action: PLAN then DRAW as two chained tasks (the draw runs
   // from onComplete, after the plan task finishes — separate tasks so the draw
   // reads the freshly-written plan; an in-process plan+draw can't see its own
@@ -1346,7 +1360,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                               });
                               const start = withUrls.findIndex((b) => b.beatNumber === beat.beatNumber);
                               setLightbox({ items, index: Math.max(0, start) });
-                            } else if (!running) handleGenerateSceneGrids(scene.sceneNumber);
+                            } else if (!running) {
+                              // A planned-but-empty slot draws JUST this board;
+                              // no plan yet → plan + draw the whole scene.
+                              if (beat.prompt.trim()) handleGenerateSingleBoard(scene.sceneNumber, beat.beatNumber);
+                              else handleGenerateSceneGrids(scene.sceneNumber);
+                            }
                           }}
                           onDragOver={(e) => { e.preventDefault(); setDragOver(slotKey); }}
                           onDragLeave={() => setDragOver(null)}
@@ -1358,7 +1377,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                               handleGridDrop(scene.sceneNumber, beat.beatNumber, file);
                             }
                           }}
-                          title={beat.gridUrl ? "Click to open full size · drop an image here to replace it" : "Click to generate or drag & drop an image"}
+                          title={beat.gridUrl
+                            ? "Click to view full-screen · drop an image here to replace it"
+                            : beat.prompt.trim()
+                              ? "Click to draw just this board from the saved plan · or drag & drop an image"
+                              : "Click to plan + draw this scene's boards · or drag & drop an image"}
                         >
                           {beat.gridUrl ? (
                             <>
