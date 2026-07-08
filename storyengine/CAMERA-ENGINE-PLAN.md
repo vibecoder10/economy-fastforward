@@ -1,7 +1,12 @@
 # Camera Movement Engine — Grand Plan
 
-**Status: Phases 1-4 BUILT + verified locally (2026-07-06). NOT yet deployed to the VPS —
-deploy via `se deploy` needs Ryan's go, then prove on a real video build.**
+**Status: LIVE + PROVEN on prod (2026-07-06). Deployed @ 8318ed1a/73c64d7c and proven
+end-to-end on a real PocoAPoco 1-minute episode (video 170f52ed): 17 shots, 5 earned
+moves + 12 statics, every still composed for its move, every motion prompt executed
+the locked move, episode rendered. ALSO wired into the unified coverage path
+(storyboard/coverage.py plan_camera_moves + coverage_to_app store_scene/_write_motion_prompts)
+— that's the live image path; the Phase 3 wiring below covers the legacy path.
+Open: eyeball the footage, per-shot UI override picker (later pass).**
 **Decisions locked with Ryan:** earn-the-move discipline / rules + Claude tie-break /
 own catalog seeded by aicameramovements.com / engine first, UI later.
 

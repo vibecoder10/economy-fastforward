@@ -591,6 +591,10 @@ Respond in the following JSON format (no markdown code blocks, just raw JSON):
   "thesis": "The core argument or revelation of this video in 2-3 sentences",
   "executive_hook": "The opening 15-second hook that stops the scroll. Must create immediate curiosity gap.",
   "fact_sheet": "Verified facts with inline source tags. Format EVERY fact as: 'Bread dough proofs fastest at around 27C / 80F [King Arthur Baking 2023].' Use concrete specifics appropriate to the topic — exact names, dates, amounts, steps, measurements, or ratios — EACH with a [Source Name Year] tag immediately after the claim. If a source is uncertain, use [unverified]. Every [Source] tag must match an entry in source_bibliography. Not 'significant growth' but the real, sourced specific. Include as many verified specifics as the topic genuinely needs — there is no fixed quota.",
+  "unit_roster": [
+    {"name": "Exact named unit/item/machine/person/case #1", "designation": "short code if applicable", "role": "why it belongs", "source": "Source tag"}
+  ],
+  "roster_contract": "For any title promising 'Every...', 'All...', a complete class list, or a duplicate/parity test, explain the inclusion boundary and confirm the roster is complete. If the research is incomplete, say INCOMPLETE and list missing categories/items. Never silently narrow the title.",
   "historical_parallels": "Background, prior examples, or comparable cases that illuminate this topic. Include specific details and outcomes. Provide a few distinct, genuinely relevant examples (omit if a topic has none — do not force them).",
   "framework_analysis": "The mental model or lens that best explains this topic for the audience. What makes it click? Use whatever framing actually fits the subject — a process, a cause-and-effect, a comparison, a story shape — not a fixed theory.",
   "character_dossier": "Key people, characters, or figures involved (if any). For each: name, role, specific actions, motivations, and a visual description for imagery. Omit if the topic has no people.",
@@ -613,6 +617,8 @@ IMPORTANT:
 - Visual seeds must describe SCENES, not abstract concepts
 - The hook must create an irresistible curiosity gap in under 15 seconds of speech
 - Verify load-bearing claims before including them; mark anything you cannot verify as [unverified]
+- For “Every…” / “All…” / complete-roster titles, the `unit_roster` is the promise of the video. Research the full class list before choosing an angle. Do not curate a shortlist unless the title is narrowed to match it.
+- If a complete-roster title cannot be fully researched, set `roster_contract` to INCOMPLETE and name the missing items/classes so the UI can block scripting instead of silently producing the wrong video.
 """
 
 

@@ -177,6 +177,15 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   }, [video.id]);
 
   const handleApproveResearch = useCallback(async () => {
+    let rosterGate: any = null;
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload) : video.research_payload;
+      rosterGate = payload?.unit_roster_validation;
+    } catch { /* ignore malformed payload */ }
+    if (rosterGate?.complete_title && rosterGate?.passed === false) {
+      setApproveError(`Roster gate failed: ${(rosterGate.warnings || []).join("; ") || "research roster is incomplete"}`);
+      return;
+    }
     if (!confirm("Approve research and move to scripting?")) return;
     setIsApproving(true);
     setApproveError(null);
@@ -190,11 +199,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setApproveError((err as Error).message);
       setIsApproving(false);
     }
-  }, [video.id, queryClient, onApproved]);
+  }, [video.id, video.research_payload, queryClient, onApproved]);
 
   const research = useMemo(() => {
     if (!video) return null;
-    let payload: Record<string, string> = {};
+    let payload: Record<string, any> = {};
     if (video.research_payload) {
       try {
         payload = typeof video.research_payload === "string"
@@ -218,6 +227,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       themes: payload.themes || null,
       psychological_angles: payload.psychological_angles || null,
       source_bibliography: payload.source_bibliography || null,
+      unit_roster: Array.isArray(payload.unit_roster) ? payload.unit_roster : [],
+      roster_contract: payload.roster_contract || null,
+      unit_roster_validation: payload.unit_roster_validation || null,
     };
   }, [video]);
 
@@ -259,6 +271,54 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
         />
       </GlassCard>
+
+      {research.unit_roster_validation && (
+        <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: research.unit_roster_validation.passed ? "var(--green)" : "var(--orange)" }}>
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>
+                Unit Roster Contract
+              </h3>
+              <p className="text-sm" style={{ color: research.unit_roster_validation.passed ? "var(--green)" : "var(--orange)" }}>
+                {research.unit_roster_validation.passed
+                  ? `Passed — ${research.unit_roster_validation.roster_count || research.unit_roster.length} locked item(s)`
+                  : "Needs fix before scripting"}
+              </p>
+            </div>
+            <span className="px-2 py-1 rounded-md text-[10px] font-semibold" style={{ background: research.unit_roster_validation.passed ? "rgba(0,230,138,.12)" : "rgba(255,120,73,.12)", color: research.unit_roster_validation.passed ? "var(--green)" : "var(--orange)" }}>
+              {research.unit_roster_validation.passed ? "LOCKED" : "BLOCKED"}
+            </span>
+          </div>
+          {research.unit_roster_validation.warnings?.length > 0 && (
+            <ul className="mb-3 space-y-1">
+              {research.unit_roster_validation.warnings.map((w: string, i: number) => (
+                <li key={i} className="text-sm" style={{ color: "var(--orange)" }}>• {w}</li>
+              ))}
+            </ul>
+          )}
+          {research.unit_roster_validation.gaps?.length > 0 && (
+            <div className="mb-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Likely gaps named by research</div>
+              <div className="flex flex-wrap gap-2">
+                {research.unit_roster_validation.gaps.map((g: string) => (
+                  <span key={g} className="px-2 py-1 rounded-md text-xs" style={{ background: "rgba(255,120,73,.12)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.25)" }}>{g}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {research.unit_roster.length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Locked roster</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-56 overflow-auto pr-1">
+                {research.unit_roster.map((item: any, i: number) => {
+                  const label = typeof item === "string" ? item : [item.designation, item.name].filter(Boolean).join(" — ");
+                  return <div key={i} className="text-xs px-2 py-1.5 rounded-md" style={{ background: "rgba(255,255,255,.04)", color: "var(--text-secondary)" }}>{i + 1}. {label}</div>;
+                })}
+              </div>
+            </div>
+          )}
+        </GlassCard>
+      )}
 
       {/* Thesis — full width with accent border */}
       {research.thesis && (

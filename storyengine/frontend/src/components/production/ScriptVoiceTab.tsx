@@ -1202,6 +1202,20 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     }
   }, [video.id, invalidateAll, onAdvanced]);
 
+  const researchRosterGate = (() => {
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload) : video.research_payload;
+      return payload?.unit_roster_validation || null;
+    } catch { return null; }
+  })();
+  const scriptRosterGate = (() => {
+    try {
+      const validation = typeof video.script_validation === "string" ? JSON.parse(video.script_validation) : video.script_validation;
+      return validation?.unit_roster || null;
+    } catch { return null; }
+  })();
+  const activeRosterGate = scriptRosterGate || researchRosterGate;
+
   // ---------------------------------------------------------------------------
   // Loading state
   // ---------------------------------------------------------------------------
@@ -1232,9 +1246,22 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           Research must be approved before script generation can begin. Current stage:{" "}
           <span style={{ color: "var(--turquoise)" }}>{(video.status || "").replace(/_/g, " ")}</span>
         </p>
+        {activeRosterGate?.complete_title && activeRosterGate?.passed === false && (
+          <div className="mb-5 rounded-xl p-4 text-left" style={{ background: "rgba(255,120,73,.08)", border: "1px solid rgba(255,120,73,.25)" }}>
+            <div className="flex items-center gap-2 mb-2" style={{ color: "var(--orange)" }}>
+              <AlertCircle size={16} />
+              <span className="text-xs font-semibold uppercase tracking-wider">Roster gate blocked scripting</span>
+            </div>
+            <ul className="space-y-1">
+              {(activeRosterGate.warnings || ["Research roster is incomplete."]).map((w: string, i: number) => (
+                <li key={i} className="text-sm" style={{ color: "var(--text-secondary)" }}>• {w}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <button
           onClick={handleRegenerateScript}
-          disabled={regeneratingScript || scriptTaskRunning}
+          disabled={regeneratingScript || scriptTaskRunning || (activeRosterGate?.complete_title && activeRosterGate?.passed === false)}
           className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
           style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
         >
@@ -1280,6 +1307,29 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           </button>
         </div>
       </div>
+
+      {activeRosterGate && (
+        <div className="rounded-xl p-4" style={{ background: activeRosterGate.passed ? "rgba(0,230,138,.06)" : "rgba(255,120,73,.08)", border: `1px solid ${activeRosterGate.passed ? "rgba(0,230,138,.22)" : "rgba(255,120,73,.25)"}` }}>
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div className="flex items-center gap-2" style={{ color: activeRosterGate.passed ? "var(--green)" : "var(--orange)" }}>
+              {activeRosterGate.passed ? <ShieldCheck size={16} /> : <AlertCircle size={16} />}
+              <span className="text-xs font-semibold uppercase tracking-wider">Script roster gate</span>
+            </div>
+            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+              {activeRosterGate.roster_count || 0} locked item(s)
+            </span>
+          </div>
+          {activeRosterGate.passed ? (
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Script matches the locked research roster.</p>
+          ) : (
+            <ul className="space-y-1">
+              {(activeRosterGate.warnings || ["Roster validation failed."]).map((w: string, i: number) => (
+                <li key={i} className="text-sm" style={{ color: "var(--text-secondary)" }}>• {w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Script System Prompt */}
       <SystemPromptEditor
@@ -1346,7 +1396,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           if (!scriptDone) return (
             <button
               onClick={handleRegenerateScript}
-              disabled={regeneratingScript || scriptTaskRunning}
+              disabled={regeneratingScript || scriptTaskRunning || (activeRosterGate?.complete_title && activeRosterGate?.passed === false)}
               className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
               style={{ background: "var(--orange)", color: "var(--bg-void)" }}
             >

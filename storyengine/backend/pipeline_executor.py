@@ -46,6 +46,108 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
+def _unit_display_name(item: Any) -> str:
+    """Normalize a research unit_roster entry into a human-readable name."""
+    if isinstance(item, dict):
+        name = str(item.get("name") or item.get("title") or "").strip()
+        designation = str(item.get("designation") or item.get("code") or "").strip()
+        if name and designation and designation.lower() not in name.lower():
+            return f"{designation} {name}".strip()
+        return name or designation
+    return str(item or "").strip()
+
+
+def _unit_code(text: str) -> str:
+    """Extract the short machine/unit code that DvsU-style rosters hinge on."""
+    import re
+    s = str(text or "").upper().replace("–", "-").replace("—", "-")
+    # Prefer explicit bomber/aircraft designations, then fall back to compact tokens.
+    for pat in (
+        r"\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b",  # XB-70, YB-40, B-52H, FB-111A
+        r"\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b",
+    ):
+        m = re.search(pat, s)
+        if m:
+            return m.group(0).replace(" ", "")
+    words = re.findall(r"[A-Z0-9]+", s)
+    return " ".join(words[:4])
+
+
+def _title_needs_complete_roster(title: str) -> bool:
+    import re
+    t = str(title or "").strip().lower()
+    return bool(re.search(r"\b(every|all)\b", t) or "ever built" in t or "complete" in t)
+
+
+def _payload_blob(payload: Any) -> str:
+    import json
+    if isinstance(payload, str):
+        return payload
+    try:
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        return str(payload or "")
+
+
+def _roster_validation(title: str, payload: dict, script_units: Optional[list[str]] = None) -> dict:
+    """Validate the research/script roster contract without adding DB columns.
+
+    Stored into research_payload/script_validation so the UI can show the same
+    truth Ryan just caught manually: a complete-title video cannot silently run
+    on a curated shortlist.
+    """
+    roster_raw = payload.get("unit_roster") if isinstance(payload, dict) else None
+    roster = [_unit_display_name(x) for x in (roster_raw or [])]
+    roster = [x for x in roster if x]
+    roster_codes = [_unit_code(x) for x in roster if _unit_code(x)]
+    contract = str((payload or {}).get("roster_contract") or "") if isinstance(payload, dict) else ""
+    counter = str((payload or {}).get("counter_arguments") or "") if isinstance(payload, dict) else ""
+    complete_title = _title_needs_complete_roster(title)
+
+    warnings: list[str] = []
+    gaps: list[str] = []
+    lower = f"{contract}\n{counter}".lower()
+    if complete_title and not roster:
+        warnings.append("This title promises a complete roster, but research_payload.unit_roster is missing.")
+    if complete_title and len(roster) < 3:
+        warnings.append(f"Complete-roster title has only {len(roster)} roster item(s); likely incomplete.")
+    if any(term in lower for term in ("incomplete", "not included", "isn't included", "missing", "misleading", "should either be narrowed", "research expanded", "exclude")):
+        warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
+    # Pull explicit designations from caveats so the UI can name the likely gaps.
+    import re
+    for code in re.findall(r"\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b", f"{contract}\n{counter}", flags=re.I):
+        norm = code.upper().replace(" ", "")
+        if norm not in roster_codes and norm not in gaps:
+            gaps.append(norm)
+
+    script_missing: list[str] = []
+    script_extra: list[str] = []
+    if script_units is not None and roster_codes:
+        script_blob = "\n".join(script_units)
+        script_codes = [_unit_code(u) for u in script_units if _unit_code(u)]
+        for name, code in zip(roster, roster_codes):
+            if code and code not in script_blob.upper():
+                script_missing.append(name)
+        for code in script_codes:
+            if code and code not in roster_codes and code not in script_extra:
+                script_extra.append(code)
+        if script_missing:
+            warnings.append(f"Script omitted {len(script_missing)} roster item(s).")
+        if script_extra:
+            warnings.append(f"Script added {len(script_extra)} item(s) outside the locked roster.")
+
+    return {
+        "passed": len(warnings) == 0,
+        "complete_title": complete_title,
+        "roster_count": len(roster),
+        "roster": roster,
+        "warnings": warnings,
+        "gaps": gaps,
+        "script_missing": script_missing,
+        "script_extra": script_extra,
+    }
+
+
 def resolve_prompt(
     per_video: Optional[str],
     tenant: Optional[str],
@@ -1081,6 +1183,14 @@ class PipelineExecutor:
             if not payload:
                 raise Exception("Research returned no results")
 
+            roster_check = _roster_validation(topic, payload)
+            payload["unit_roster_validation"] = roster_check
+            if not roster_check.get("passed"):
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    "Roster contract needs review: " + "; ".join(roster_check.get("warnings", []))[:800],
+                )
+
             # Update Supabase with research payload
             import json
             await execute(
@@ -1216,8 +1326,9 @@ class PipelineExecutor:
 
         roster = rp.get("unit_roster")
         if isinstance(roster, list):
-            names = [str(m).strip() for m in roster if str(m).strip()]
-            if 8 <= len(names) <= 32:
+            names = [_unit_display_name(m) for m in roster]
+            names = [n for n in names if n]
+            if 3 <= len(names) <= 40:
                 return names
 
         fact = rp.get("fact_sheet") or ""
@@ -1291,6 +1402,41 @@ class PipelineExecutor:
             _logger.info("[static-resplit] %s: %d unit scenes", video_id, len(units))
         except Exception as e:  # noqa: BLE001 — never block the stage
             _logger.warning("[static-resplit] failed for %s: %s", video_id, str(e)[:200])
+
+    async def _validate_static_script_roster(self, video_id: str) -> dict:
+        """Hard gate: static complete-roster videos must script every locked unit."""
+        import json as _json_vr
+        video = await self._get_video(video_id)
+        rp = (video or {}).get("research_payload") or {}
+        if isinstance(rp, str):
+            try:
+                rp = _json_vr.loads(rp)
+            except Exception:
+                rp = {}
+        rows = await fetch_all(
+            "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
+            video_id, self.tenant_id,
+        )
+        units = [r.get("scene_text") or "" for r in (rows or [])]
+        check = _roster_validation((video or {}).get("video_title") or "", rp if isinstance(rp, dict) else {}, units)
+        existing = (video or {}).get("script_validation")
+        try:
+            validation = _json_vr.loads(existing) if isinstance(existing, str) and existing.strip() else (existing or {})
+        except Exception:
+            validation = {}
+        if not isinstance(validation, dict):
+            validation = {}
+        validation["unit_roster"] = check
+        await execute(
+            "UPDATE videos SET script_validation = $1 WHERE id = $2 AND tenant_id = $3",
+            _json_vr.dumps(validation), video_id, self.tenant_id,
+        )
+        if not check.get("passed"):
+            await self._log_activity(
+                "Script Bot", video_id, "failed",
+                "Script roster gate failed: " + "; ".join(check.get("warnings", []))[:800],
+            )
+        return check
 
     async def _factual_gate_static(self, video_id: str) -> None:
         """Factual gate for static documentaries: verify every claim in the
@@ -1664,6 +1810,27 @@ separate scenes."""
             if not is_at_or_past_stage(current_status, "ready_for_scripting"):
                 return {"status": "failed", "error": f"Video not ready for scripting (status: {current_status})"}
 
+            rp_for_gate = video.get("research_payload")
+            import json as _json_gate
+            if isinstance(rp_for_gate, str):
+                try:
+                    rp_for_gate = _json_gate.loads(rp_for_gate)
+                except Exception:
+                    rp_for_gate = {}
+            if isinstance(rp_for_gate, dict):
+                roster_gate = rp_for_gate.get("unit_roster_validation") or _roster_validation(
+                    video.get("video_title") or video.get("headline") or "", rp_for_gate
+                )
+                if isinstance(roster_gate, str):
+                    try:
+                        roster_gate = _json_gate.loads(roster_gate)
+                    except Exception:
+                        roster_gate = {}
+                if roster_gate.get("complete_title") and not roster_gate.get("passed"):
+                    msg = "Fix research roster before scripting: " + "; ".join(roster_gate.get("warnings", []))
+                    await self._log_activity(bot_name, video_id, "failed", msg[:900])
+                    return {"status": "failed", "error": msg}
+
             # Creator-supplied scripts are used VERBATIM: no generation, no
             # grading, no gates (user_script.set_user_script already persisted
             # the scenes). This guard also makes re-runs and the queue/autopilot
@@ -1785,6 +1952,9 @@ separate scenes."""
                 # One machine / one paragraph / one image: scene rows must be
                 # unit paragraphs, not acts (the bot writes one row per act).
                 await self._resplit_static_scenes(video_id)
+                roster_check = await self._validate_static_script_roster(video_id)
+                if roster_check.get("complete_title") and not roster_check.get("passed"):
+                    raise Exception("Script roster gate failed: " + "; ".join(roster_check.get("warnings", [])))
 
             # Dialogue intelligence runs unattended after EVERY script path —
             # the modeled and user-supplied paths already had this hook, but
