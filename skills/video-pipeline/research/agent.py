@@ -592,7 +592,7 @@ Respond in the following JSON format (no markdown code blocks, just raw JSON):
   "executive_hook": "The opening 15-second hook that stops the scroll. Must create immediate curiosity gap.",
   "fact_sheet": "Verified facts with inline source tags. Format EVERY fact as: 'Bread dough proofs fastest at around 27C / 80F [King Arthur Baking 2023].' Use concrete specifics appropriate to the topic — exact names, dates, amounts, steps, measurements, or ratios — EACH with a [Source Name Year] tag immediately after the claim. If a source is uncertain, use [unverified]. Every [Source] tag must match an entry in source_bibliography. Not 'significant growth' but the real, sourced specific. Include as many verified specifics as the topic genuinely needs — there is no fixed quota.",
   "unit_roster": [
-    {"name": "Exact named unit/item/machine/person/case #1", "designation": "short code if applicable", "role": "why it belongs", "source": "Source tag"}
+    {{"name": "Exact named unit/item/machine/person/case #1", "designation": "short code if applicable", "role": "why it belongs", "source": "Source tag"}}
   ],
   "roster_contract": "For any title promising 'Every...', 'All...', a complete class list, or a duplicate/parity test, explain the inclusion boundary and confirm the roster is complete. If the research is incomplete, say INCOMPLETE and list missing categories/items. Never silently narrow the title.",
   "historical_parallels": "Background, prior examples, or comparable cases that illuminate this topic. Include specific details and outcomes. Provide a few distinct, genuinely relevant examples (omit if a topic has none — do not force them).",
