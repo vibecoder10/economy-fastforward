@@ -134,7 +134,7 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         warnings.append(
             f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise."
         )
-    if any(term in lower for term in ("incomplete", "not included", "isn't included", "missing", "misleading", "should either be narrowed", "research expanded", "exclude")):
+    if any(term in lower for term in ("incomplete", "not included", "isn't included", "missing", "misleading", "should either be narrowed", "research expanded")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
     if complete_title:
         queries = audit.get("search_queries_used") or []
