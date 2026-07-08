@@ -596,6 +596,33 @@ most useful context and examples, the angles that would keep the audience
 watching, and concrete visual ideas for the imagery. Note honestly where the
 evidence is thin or contested."""
 
+COMPLETE_ROSTER_SYSTEM_APPEND = """\
+
+NON-NEGOTIABLE COMPLETE-ROSTER OVERRIDE:
+If the topic/title promises a complete set — for example "Every...", "All...",
+"...Ever Built", "Complete History/List", or a duplicate/parity test — this
+instruction overrides any channel preference for curation, shortlists, or
+story-first selection.
+
+For these titles, the roster is the product. Build and cross-check the full
+roster first, before thesis or story selection. Do not return a curated
+shortlist. Do not exclude a machine because its story is weaker if it belongs to
+the title boundary. Include production aircraft, prototypes, converted variants,
+cancelled-but-built programs, interim models, renamed programs, special-purpose
+versions, and disputed edge cases unless the inclusion boundary explicitly and
+defensibly excludes them.
+
+For machine/program topics, search designation families and edge-case language:
+XB/YB/B/FB designations, prototype, experimental, cancelled, converted, escort,
+interim, variant, strategic, heavy, very heavy, bomber, program, built, flown,
+entered service, and manufacturer names. Cross-check against official/service
+history, manufacturer/program history, museum/encyclopedia lists, and designation
+indexes.
+
+If you cannot resolve the complete roster, mark roster_contract INCOMPLETE and
+list each unresolved/missing candidate. Never silently narrow a complete-title
+video into a curated list."""
+
 RESEARCH_PROMPT_TEMPLATE = """\
 Research the following topic in depth:
 
@@ -770,9 +797,13 @@ class ResearchAgent:
 
         prompt = _build_research_prompt(topic, seed_urls, context)
 
+        system_prompt = self.system_prompt_override or RESEARCH_SYSTEM_PROMPT
+        if COMPLETE_ROSTER_SYSTEM_APPEND not in system_prompt:
+            system_prompt = f"{system_prompt}\n{COMPLETE_ROSTER_SYSTEM_APPEND}"
+
         response = await self.anthropic.generate(
             prompt=prompt,
-            system_prompt=self.system_prompt_override or RESEARCH_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             model=self.model,
             max_tokens=16000,
             temperature=0.7,
