@@ -557,6 +557,29 @@ the brief.
 - For niche or hard-to-find topics, try several query variations before
   concluding something is unknown.
 
+COMPLETE-ROSTER TITLES ARE A CONTRACT:
+If the title promises a complete set — for example "Every...", "All...",
+"...Ever Built", "Complete History/List", or a duplicate/parity test — your
+first job is not to find an angle. Your first job is to discover the full roster
+that the title promises. Do not start writing the thesis until you have built,
+cross-checked, and stress-tested that roster.
+
+For machines/vehicles/weapons/programs, search like an archivist, not a casual
+summarizer. Use multiple query families before declaring a roster complete:
+- exact title and close variants,
+- official designation/category pages,
+- manufacturer/program lists,
+- service/operator inventory or historical-office pages,
+- museum/encyclopedia lists,
+- prototype/cancelled/experimental designation searches,
+- "missing" edge cases such as variants, escort versions, cancelled prototypes,
+  interim models, renamed programs, and role-boundary disputes.
+
+Never silently narrow a title. If the title says "Every US Strategic Bomber Ever
+Built," do not return only postwar operational bombers unless the title is also
+changed. Include production aircraft, prototypes, cancelled-but-built aircraft,
+and disputed edge cases unless the roster boundary explicitly excludes them.
+
 SPECIFICITY OVER VAGUENESS — APPROPRIATE TO THE TOPIC:
 Concrete beats abstract. Give the real detail — the exact name, the specific
 step, the precise figure, the named example — not "significant", "a lot", or
@@ -592,9 +615,18 @@ Respond in the following JSON format (no markdown code blocks, just raw JSON):
   "executive_hook": "The opening 15-second hook that stops the scroll. Must create immediate curiosity gap.",
   "fact_sheet": "Verified facts with inline source tags. Format EVERY fact as: 'Bread dough proofs fastest at around 27C / 80F [King Arthur Baking 2023].' Use concrete specifics appropriate to the topic — exact names, dates, amounts, steps, measurements, or ratios — EACH with a [Source Name Year] tag immediately after the claim. If a source is uncertain, use [unverified]. Every [Source] tag must match an entry in source_bibliography. Not 'significant growth' but the real, sourced specific. Include as many verified specifics as the topic genuinely needs — there is no fixed quota.",
   "unit_roster": [
-    {{"name": "Exact named unit/item/machine/person/case #1", "designation": "short code if applicable", "role": "why it belongs", "source": "Source tag"}}
+    {{"name": "Exact named unit/item/machine/person/case #1", "designation": "short code if applicable", "role": "why it belongs", "status": "production/prototype/cancelled/variant/disputed", "source": "Source tag"}}
   ],
-  "roster_contract": "For any title promising 'Every...', 'All...', a complete class list, or a duplicate/parity test, explain the inclusion boundary and confirm the roster is complete. If the research is incomplete, say INCOMPLETE and list missing categories/items. Never silently narrow the title.",
+  "roster_contract": "For any title promising 'Every...', 'All...', a complete class list, or a duplicate/parity test, explain the inclusion boundary and confirm the roster is complete. If the research is incomplete, start with INCOMPLETE and list missing categories/items. Never silently narrow the title.",
+  "roster_audit": {{
+    "is_complete_title": true,
+    "inclusion_boundary": "What qualifies and what does not, written as a strict rule",
+    "search_queries_used": ["exact query #1", "exact query #2", "exact query #3", "exact query #4", "exact query #5", "exact query #6"],
+    "source_families_crosschecked": ["official/service history", "manufacturer/program history", "museum/encyclopedia list", "designation/index list"],
+    "excluded_candidates": [{{"name": "candidate reviewed but excluded", "reason": "why it does not fit the boundary", "source": "Source tag"}}],
+    "unresolved_candidates": [{{"name": "candidate not resolved", "reason": "what still needs verification", "source": "Source tag or [unverified]"}}],
+    "confidence": "high/medium/low"
+  }},
   "historical_parallels": "Background, prior examples, or comparable cases that illuminate this topic. Include specific details and outcomes. Provide a few distinct, genuinely relevant examples (omit if a topic has none — do not force them).",
   "framework_analysis": "The mental model or lens that best explains this topic for the audience. What makes it click? Use whatever framing actually fits the subject — a process, a cause-and-effect, a comparison, a story shape — not a fixed theory.",
   "character_dossier": "Key people, characters, or figures involved (if any). For each: name, role, specific actions, motivations, and a visual description for imagery. Omit if the topic has no people.",
@@ -618,7 +650,9 @@ IMPORTANT:
 - The hook must create an irresistible curiosity gap in under 15 seconds of speech
 - Verify load-bearing claims before including them; mark anything you cannot verify as [unverified]
 - For “Every…” / “All…” / complete-roster titles, the `unit_roster` is the promise of the video. Research the full class list before choosing an angle. Do not curate a shortlist unless the title is narrowed to match it.
-- If a complete-roster title cannot be fully researched, set `roster_contract` to INCOMPLETE and name the missing items/classes so the UI can block scripting instead of silently producing the wrong video.
+- For complete-roster titles, `roster_audit.search_queries_used` must show at least 6 genuinely different searches and `source_families_crosschecked` must show at least 3 different source families. If you did not do that work, mark `roster_contract` INCOMPLETE.
+- For complete-roster machine/vehicle/program videos, actively look for edge cases: prototypes, experimental designations, cancelled-but-built examples, variants, interim models, escort/special-purpose versions, renamed programs, and role-boundary disputes.
+- If a complete-roster title cannot be fully researched, set `roster_contract` to INCOMPLETE, put unresolved items in `roster_audit.unresolved_candidates`, and name the missing categories/items so the UI can block scripting instead of silently producing the wrong video.
 """
 
 

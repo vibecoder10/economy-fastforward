@@ -229,6 +229,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       source_bibliography: payload.source_bibliography || null,
       unit_roster: Array.isArray(payload.unit_roster) ? payload.unit_roster : [],
       roster_contract: payload.roster_contract || null,
+      roster_audit: payload.roster_audit || null,
       unit_roster_validation: payload.unit_roster_validation || null,
     };
   }, [video]);
@@ -304,6 +305,35 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   <span key={g} className="px-2 py-1 rounded-md text-xs" style={{ background: "rgba(255,120,73,.12)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.25)" }}>{g}</span>
                 ))}
               </div>
+            </div>
+          )}
+          {research.roster_audit && (
+            <div className="mb-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {research.roster_audit.inclusion_boundary && (
+                <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,.04)" }}>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>Inclusion boundary</div>
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{research.roster_audit.inclusion_boundary}</p>
+                </div>
+              )}
+              <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,.04)" }}>
+                <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Research audit</div>
+                <div className="text-xs space-y-1" style={{ color: "var(--text-secondary)" }}>
+                  <div>Searches: {research.roster_audit.search_queries_used?.length || 0}</div>
+                  <div>Source families: {research.roster_audit.source_families_crosschecked?.length || 0}</div>
+                  <div>Unresolved candidates: {research.roster_audit.unresolved_candidates?.length || 0}</div>
+                  {research.roster_audit.confidence && <div>Confidence: {research.roster_audit.confidence}</div>}
+                </div>
+              </div>
+              {research.roster_audit.search_queries_used?.length > 0 && (
+                <div className="lg:col-span-2 rounded-lg p-3" style={{ background: "rgba(255,255,255,.04)" }}>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Roster-discovery searches</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {research.roster_audit.search_queries_used.map((q: string, i: number) => (
+                      <span key={`${q}-${i}`} className="px-2 py-1 rounded-md text-[11px]" style={{ background: "rgba(255,255,255,.06)", color: "var(--text-secondary)" }}>{q}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {research.unit_roster.length > 0 && (

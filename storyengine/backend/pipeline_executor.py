@@ -79,6 +79,22 @@ def _title_needs_complete_roster(title: str) -> bool:
     return bool(re.search(r"\b(every|all)\b", t) or "ever built" in t or "complete" in t)
 
 
+def _title_is_broad_machine_roster(title: str) -> bool:
+    """True for titles where a short shortlist is almost certainly wrong."""
+    import re
+    t = str(title or "").strip().lower()
+    machine_terms = (
+        "aircraft", "bomber", "fighter", "jet", "plane", "tank", "ship",
+        "submarine", "helicopter", "missile", "weapon", "vehicle", "machine",
+    )
+    broad_terms = ("us ", "u.s.", "american", "soviet", "russian", "british", "german", "strategic")
+    return (
+        _title_needs_complete_roster(t)
+        and any(term in t for term in machine_terms)
+        and ("ever built" in t or any(term in t for term in broad_terms) or bool(re.search(r"\bevery\b", t)))
+    )
+
+
 def _payload_blob(payload: Any) -> str:
     import json
     if isinstance(payload, str):
@@ -102,6 +118,9 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
     roster_codes = [_unit_code(x) for x in roster if _unit_code(x)]
     contract = str((payload or {}).get("roster_contract") or "") if isinstance(payload, dict) else ""
     counter = str((payload or {}).get("counter_arguments") or "") if isinstance(payload, dict) else ""
+    audit = payload.get("roster_audit") if isinstance(payload, dict) else None
+    if not isinstance(audit, dict):
+        audit = {}
     complete_title = _title_needs_complete_roster(title)
 
     warnings: list[str] = []
@@ -111,8 +130,33 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         warnings.append("This title promises a complete roster, but research_payload.unit_roster is missing.")
     if complete_title and len(roster) < 3:
         warnings.append(f"Complete-roster title has only {len(roster)} roster item(s); likely incomplete.")
+    if _title_is_broad_machine_roster(title) and len(roster) < 15:
+        warnings.append(
+            f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise."
+        )
     if any(term in lower for term in ("incomplete", "not included", "isn't included", "missing", "misleading", "should either be narrowed", "research expanded", "exclude")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
+    if complete_title:
+        queries = audit.get("search_queries_used") or []
+        families = audit.get("source_families_crosschecked") or []
+        unresolved = audit.get("unresolved_candidates") or []
+        confidence = str(audit.get("confidence") or "").strip().lower()
+        if not audit:
+            warnings.append("Complete-roster research is missing roster_audit proof of exhaustive search.")
+        elif len(queries) < 6:
+            warnings.append("Complete-roster research used fewer than 6 distinct roster-discovery searches.")
+        if audit and len(families) < 3:
+            warnings.append("Complete-roster research cross-checked fewer than 3 source families.")
+        if audit and unresolved:
+            warnings.append(f"Complete-roster research still has {len(unresolved)} unresolved candidate(s).")
+        if audit and confidence and confidence != "high":
+            warnings.append(f"Complete-roster audit confidence is {confidence}, not high.")
+        if isinstance(unresolved, list):
+            for item in unresolved:
+                name = _unit_display_name(item)
+                code = _unit_code(name)
+                if code and code not in roster_codes and code not in gaps:
+                    gaps.append(code)
     # Pull explicit designations from caveats so the UI can name the likely gaps.
     import re
     for code in re.findall(r"\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b", f"{contract}\n{counter}", flags=re.I):
