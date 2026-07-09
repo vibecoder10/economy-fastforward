@@ -173,11 +173,11 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         _title_is_broad_machine_roster(title)
         and complete_title
         and any(term in title_lower for term in broad_national_terms)
-        and len(roster) < 20
+        and len(roster) < 24
         and not small_category_proof
     ):
         warnings.append(
-            "Broad national complete-roster title has fewer than 20 final items without proving the category is genuinely small."
+            "Broad national complete-roster title has fewer than 24 final items without proving the category is genuinely small."
         )
     if _title_is_broad_machine_roster(title):
         if bucket_total == 0:

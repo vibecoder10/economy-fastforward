@@ -729,6 +729,16 @@ Rules:
   names, manufacturer program-family neighbors, and common false positives.
   Do not let any class disappear just because it is a variant; include, bucket,
   or source-backed exclude it explicitly.
+- For any machine family with formal designations, trace the full designation
+  neighborhood rather than starting at the first famous production model. Search
+  earlier numbers, skipped numbers, X/Y/prototype prefixes, production prefixes,
+  role prefixes, and variant suffixes. If a designation appears in sequence/index
+  sources, it must be visible somewhere in the output with a final placement.
+- For complete roster titles, never use “not production” as the only reason to
+  exclude a physically built/flown/commissioned candidate. If it was physically
+  built and plausibly fits the title's machine category, the default is include
+  in the final roster or include as a combined family entry; exclusion requires a
+  stronger category-mismatch reason.
 - For each candidate, decide: core include, edge-case include, operator decision,
   exclude, or unresolved.
 - `unit_roster` must be the recommended final documentary roster: one section per
