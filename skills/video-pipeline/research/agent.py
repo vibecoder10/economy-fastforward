@@ -697,6 +697,12 @@ Rules:
   experimental designations, cancelled-but-built programs, secret/black programs,
   converted variants, escort/special-purpose versions, interim models, renamed
   programs, and role-boundary disputes.
+- For bomber/aircraft roster titles specifically, the gap hunt must include
+  prefix/role searches beyond the obvious B/XB/YB production line: FB or
+  fighter-bomber strategic variants, escort-bomber or mission-converted bomber
+  variants, and aircraft whose role changed between tactical/medium/strategic.
+  Do not let these disappear just because they are variants; include, bucket,
+  or source-backed exclude them explicitly.
 - For each candidate, decide: core include, edge-case include, operator decision,
   exclude, or unresolved.
 - `unit_roster` must be the recommended final documentary roster: one section per

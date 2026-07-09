@@ -171,6 +171,15 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
             warnings.append("Broad machine-roster research is missing recommended_final_roster.")
         if not has_gap_hunt:
             warnings.append("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.")
+        blob_upper = _payload_blob(payload or {}).upper()
+        title_lower = str(title or "").lower()
+        if "bomber" in title_lower and "strategic" in title_lower:
+            if "FB-" not in blob_upper and "FIGHTER-BOMBER" not in blob_upper:
+                warnings.append("Strategic bomber roster did not explicitly resolve FB/fighter-bomber strategic variants.")
+                gaps.append("FB-prefix strategic variants")
+            if "ESCORT BOMBER" not in blob_upper and "ESCORT-BOMBER" not in blob_upper:
+                warnings.append("Strategic bomber roster did not explicitly resolve escort-bomber/mission-converted bomber variants.")
+                gaps.append("escort-bomber converted variants")
     if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
     if complete_title:
