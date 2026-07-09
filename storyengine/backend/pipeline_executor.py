@@ -125,7 +125,40 @@ def _machine_bucket_summary(payload: dict) -> dict:
     return {key: _list_len(buckets.get(key)) for key in keys}
 
 
-def _roster_validation(title: str, payload: dict, script_units: Optional[list[str]] = None) -> dict:
+def _roster_pacing_targets(video_length_minutes: Any) -> Optional[dict]:
+    """Channel-calibrated roster pressure for DVsU/Anton-style machine videos."""
+    try:
+        minutes = float(video_length_minutes or 0)
+    except (TypeError, ValueError):
+        return None
+    if minutes <= 0:
+        return None
+
+    import math
+
+    target_final = max(1, round((minutes * 60) / 60))
+    minimum_final = max(1, math.floor(target_final * 0.85))
+    good_measure = max(3, math.ceil(target_final * 0.17))
+    candidate_target = target_final + good_measure
+    return {
+        "video_length_minutes": minutes,
+        "seconds_per_machine_screen_time": 60,
+        "words_per_machine_segment_range": "95-120",
+        "default_words_per_machine_segment": 105,
+        "expected_final_roster": target_final,
+        "minimum_final_roster": minimum_final,
+        "candidate_universe_target": candidate_target,
+        "extra_good_measure": good_measure,
+        "heuristic_note": "Pressure target only; do not pad with weak candidates if sources prove the universe is smaller.",
+    }
+
+
+def _roster_validation(
+    title: str,
+    payload: dict,
+    script_units: Optional[list[str]] = None,
+    video_length_minutes: Any = None,
+) -> dict:
     """Validate the research/script roster contract without adding DB columns.
 
     Stored into research_payload/script_validation so the UI can show the same
@@ -148,6 +181,7 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
     lower = f"{contract}\n{counter}".lower()
     bucket_counts = _machine_bucket_summary(payload or {})
     bucket_total = sum(bucket_counts.values())
+    pacing_targets = _roster_pacing_targets(video_length_minutes)
     recommended = payload.get("recommended_final_roster") if isinstance(payload, dict) else None
     gap_hunt = payload.get("gap_hunt_matrix") if isinstance(payload, dict) else None
     edge_case_matrix = payload.get("edge_case_matrix") if isinstance(payload, dict) else None
@@ -166,18 +200,32 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         warnings.append(
             f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise."
         )
-    title_lower = str(title or "").lower()
-    broad_national_terms = ("us ", "u.s.", "american", "soviet", "russian", "british", "german", "japanese", "chinese")
     small_category_proof = any(term in lower for term in ("genuinely small", "small closed category", "only known", "no additional built"))
     if (
         _title_is_broad_machine_roster(title)
         and complete_title
-        and any(term in title_lower for term in broad_national_terms)
-        and len(roster) < 24
+        and pacing_targets
+        and len(roster) < pacing_targets["minimum_final_roster"]
         and not small_category_proof
     ):
         warnings.append(
-            "Broad national complete-roster title has fewer than 24 final items without proving the category is genuinely small."
+            "Broad complete-roster title has fewer than "
+            f"{pacing_targets['minimum_final_roster']} final items for a "
+            f"{pacing_targets['video_length_minutes']:g}-minute Anton-paced video "
+            f"(expected around {pacing_targets['expected_final_roster']}) without proving the category is genuinely small."
+        )
+    if (
+        _title_is_broad_machine_roster(title)
+        and complete_title
+        and pacing_targets
+        and bucket_total > 0
+        and bucket_total < pacing_targets["candidate_universe_target"]
+        and not small_category_proof
+    ):
+        warnings.append(
+            "Broad complete-roster research candidate universe is below the "
+            f"Anton-paced target of {pacing_targets['candidate_universe_target']} "
+            f"candidates for a {pacing_targets['video_length_minutes']:g}-minute video."
         )
     if _title_is_broad_machine_roster(title):
         if bucket_total == 0:
@@ -268,6 +316,7 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         "script_extra": script_extra,
         "machine_bucket_counts": bucket_counts,
         "candidate_universe_count": bucket_total,
+        "roster_pacing_targets": pacing_targets,
         "has_recommended_final_roster": has_recommendation,
         "has_gap_hunt_matrix": has_gap_hunt,
         "operator_decision_count": len(operator_points) if isinstance(operator_points, list) else 0,
@@ -1295,6 +1344,23 @@ class PipelineExecutor:
             except Exception:  # noqa: BLE001 — context is a bonus, never a blocker
                 pass
 
+            pacing_targets = _roster_pacing_targets(video.get("video_length_minutes"))
+            if pacing_targets and _title_is_broad_machine_roster(topic):
+                pacing_context = (
+                    "VIDEO LENGTH / ROSTER PACING PRESSURE:\n"
+                    f"Target length: {pacing_targets['video_length_minutes']:g} minutes. "
+                    "For Anton/DVsU machine-roster videos, calibrate to ~60 seconds "
+                    "of final screen time per audience-facing machine section, with "
+                    "95-120 script words per machine. "
+                    f"Expected final roster: around {pacing_targets['expected_final_roster']} machines. "
+                    f"Minimum acceptable final roster before proving a small closed category: {pacing_targets['minimum_final_roster']}. "
+                    f"Candidate universe target before final filtering: at least {pacing_targets['candidate_universe_target']} candidates "
+                    f"({pacing_targets['extra_good_measure']} extra for good measure). "
+                    "This is a completeness-pressure heuristic, not permission to pad weak fits; "
+                    "if verified sources prove the universe is smaller, state that proof explicitly."
+                )
+                research_context = (research_context + "\n\n" if research_context else "") + pacing_context
+
             # Run research. record_id MUST be this video — without it the
             # adapter creates a brand-new idea row (a stray duplicate video
             # appeared in the workspace, seen live on DVU 2026-07-02).
@@ -1310,7 +1376,7 @@ class PipelineExecutor:
             if not payload:
                 raise Exception("Research returned no results")
 
-            roster_check = _roster_validation(topic, payload)
+            roster_check = _roster_validation(topic, payload, video_length_minutes=video.get("video_length_minutes"))
             if roster_check.get("complete_title") and not roster_check.get("passed"):
                 repair_context = (
                     (research_context or "")
@@ -1341,7 +1407,7 @@ class PipelineExecutor:
                     system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
                 )
                 if repair_payload:
-                    repair_check = _roster_validation(topic, repair_payload)
+                    repair_check = _roster_validation(topic, repair_payload, video_length_minutes=video.get("video_length_minutes"))
                     payload = repair_payload
                     roster_check = repair_check
             payload["unit_roster_validation"] = roster_check
@@ -1578,7 +1644,12 @@ class PipelineExecutor:
             video_id, self.tenant_id,
         )
         units = [r.get("scene_text") or "" for r in (rows or [])]
-        check = _roster_validation((video or {}).get("video_title") or "", rp if isinstance(rp, dict) else {}, units)
+        check = _roster_validation(
+            (video or {}).get("video_title") or "",
+            rp if isinstance(rp, dict) else {},
+            units,
+            video_length_minutes=(video or {}).get("video_length_minutes"),
+        )
         existing = (video or {}).get("script_validation")
         try:
             validation = _json_vr.loads(existing) if isinstance(existing, str) and existing.strip() else (existing or {})

@@ -716,12 +716,15 @@ Rules:
   discard older, wartime, interim, converted, or doctrinally-adjacent machines
   merely because their official category name was narrower.
 - For national or force-level complete titles using words like every/all/ever
-  built/complete, a final roster under 20 is suspicious unless the category is
-  genuinely small and closed. If your first final roster is under 20, run an
-  extra broadening pass across earlier eras, alternate role terms, designation
-  sequences, converted/special variants, predecessor/successor families, and
-  adjacent official categories before finalizing. If the roster is still under
-  20, state exactly why the title-implied category is genuinely small.
+  built/complete, use any VIDEO LENGTH / ROSTER PACING PRESSURE context as a
+  completeness-pressure heuristic. Anton/DVsU machine-roster benchmarks average
+  about 95-120 words per audience-facing machine but about 60 seconds of final
+  screen time per machine once VO pacing, pauses, transitions, and visuals are
+  included. If the requested length implies about N machines, your candidate
+  universe should exceed N by the stated good-measure buffer before final
+  filtering, and your final roster should land near N unless sources prove the
+  category is genuinely smaller. Do not pad with weak fits; instead, search
+  harder, then document why a smaller verified universe is closed if applicable.
 - Your gap hunt must explicitly test generic omission classes, not title-specific
   memorized examples: designation/number sequence gaps, prefix/classification
   variants, role synonyms, mission-converted platforms, special-purpose support
