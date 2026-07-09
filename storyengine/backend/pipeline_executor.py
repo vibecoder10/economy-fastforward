@@ -1276,6 +1276,39 @@ class PipelineExecutor:
                 raise Exception("Research returned no results")
 
             roster_check = _roster_validation(topic, payload)
+            if roster_check.get("complete_title") and not roster_check.get("passed"):
+                repair_context = (
+                    (research_context or "")
+                    + "\n\nAUTONOMOUS ROSTER REPAIR PASS:\n"
+                    + "The first roster-discovery draft failed the production gate. "
+                    + "Do not ask the operator for help. Re-run the discovery as a corrective pass, "
+                    + "apply defensible default boundary decisions, and return a script-ready roster if possible.\n"
+                    + "Validator warnings to fix:\n- "
+                    + "\n- ".join(str(w) for w in roster_check.get("warnings", []))
+                    + "\nLikely gaps/designations named by validation:\n- "
+                    + "\n- ".join(str(g) for g in roster_check.get("gaps", []))
+                    + "\nRequired fixes: include a non-empty gap_hunt_matrix, at least 6 search_queries_used, "
+                    + "at least 3 source_families_crosschecked, a recommended_final_roster, and a final "
+                    + "roster_contract of CONFIRMED unless the roster is genuinely impossible to bound. "
+                    + "Every disputed candidate must land in unit_roster, a discovery bucket with an "
+                    + "applied decision, or excluded_candidates with a source-backed reason."
+                )
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    "Roster gate failed first pass; running autonomous repair pass before scripting.",
+                )
+                repair_payload = await run_research(
+                    anthropic_client=self._pipeline.anthropic,
+                    topic=topic,
+                    context=repair_context,
+                    airtable_client=self._pipeline.airtable,
+                    record_id=video_id,
+                    system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
+                )
+                if repair_payload:
+                    repair_check = _roster_validation(topic, repair_payload)
+                    payload = repair_payload
+                    roster_check = repair_check
             payload["unit_roster_validation"] = roster_check
             if not roster_check.get("passed"):
                 await self._log_activity(
