@@ -181,6 +181,38 @@ def _roster_validation(
     lower = f"{contract}\n{counter}".lower()
     bucket_counts = _machine_bucket_summary(payload or {})
     bucket_total = sum(bucket_counts.values())
+    audit_excluded = []
+    audit_obj = payload.get("roster_audit") if isinstance(payload, dict) else None
+    if isinstance(audit_obj, dict) and isinstance(audit_obj.get("excluded_candidates"), list):
+        audit_excluded = audit_obj.get("excluded_candidates") or []
+    gap_hunt_items = payload.get("gap_hunt_matrix") if isinstance(payload, dict) else None
+    if not isinstance(gap_hunt_items, list):
+        gap_hunt_items = []
+    # Candidate-universe pressure should count everything the research visibly
+    # chased: final roster, buckets, gap-hunt candidates, and source-backed
+    # exclusions. Some good passes put researched rejects in excluded_candidates
+    # instead of duplicating them in buckets.
+    candidate_names: set[str] = set()
+    def _add_candidate_name(value: Any) -> None:
+        name = _unit_display_name(value)
+        if name:
+            candidate_names.add(name.lower())
+    for item in roster_raw or []:
+        _add_candidate_name(item)
+    buckets_obj = payload.get("machine_discovery_buckets") if isinstance(payload, dict) else None
+    if isinstance(buckets_obj, dict):
+        for values in buckets_obj.values():
+            if isinstance(values, list):
+                for item in values:
+                    _add_candidate_name(item)
+    for item in audit_excluded:
+        _add_candidate_name(item)
+    for item in gap_hunt_items:
+        if isinstance(item, dict):
+            _add_candidate_name(item.get("candidate") or item.get("name"))
+        else:
+            _add_candidate_name(item)
+    candidate_universe_count = max(bucket_total, len(candidate_names))
     pacing_targets = _roster_pacing_targets(video_length_minutes)
     recommended = payload.get("recommended_final_roster") if isinstance(payload, dict) else None
     gap_hunt = payload.get("gap_hunt_matrix") if isinstance(payload, dict) else None
@@ -190,7 +222,8 @@ def _roster_validation(
     has_gap_hunt = isinstance(gap_hunt, list) and len(gap_hunt) > 0
     has_edge_case_matrix = isinstance(edge_case_matrix, list) and len(edge_case_matrix) > 0
     is_review_ready = "review_ready" in lower
-    is_incomplete = "incomplete" in lower and not is_review_ready
+    contract_norm = contract.strip().lower()
+    is_incomplete = contract_norm.startswith("incomplete") and not is_review_ready
 
     if complete_title and not roster:
         warnings.append("This title promises a complete roster, but research_payload.unit_roster is missing.")
@@ -231,8 +264,8 @@ def _roster_validation(
         _title_is_broad_machine_roster(title)
         and complete_title
         and pacing_targets
-        and bucket_total > 0
-        and bucket_total < pacing_targets["candidate_universe_target"]
+        and candidate_universe_count > 0
+        and candidate_universe_count < pacing_targets["candidate_universe_target"]
         and not small_category_proof
     ):
         warnings.append(
@@ -353,7 +386,7 @@ def _roster_validation(
         "script_missing": script_missing,
         "script_extra": script_extra,
         "machine_bucket_counts": bucket_counts,
-        "candidate_universe_count": bucket_total,
+        "candidate_universe_count": candidate_universe_count,
         "roster_pacing_targets": pacing_targets,
         "has_recommended_final_roster": has_recommendation,
         "has_gap_hunt_matrix": has_gap_hunt,
