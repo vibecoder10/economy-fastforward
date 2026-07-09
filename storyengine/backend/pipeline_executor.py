@@ -149,8 +149,10 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
     bucket_counts = _machine_bucket_summary(payload or {})
     bucket_total = sum(bucket_counts.values())
     recommended = payload.get("recommended_final_roster") if isinstance(payload, dict) else None
+    gap_hunt = payload.get("gap_hunt_matrix") if isinstance(payload, dict) else None
     operator_points = payload.get("operator_decision_points") if isinstance(payload, dict) else None
     has_recommendation = isinstance(recommended, list) and len(recommended) > 0
+    has_gap_hunt = isinstance(gap_hunt, list) and len(gap_hunt) > 0
     is_review_ready = "review_ready" in lower
     is_incomplete = "incomplete" in lower and not is_review_ready
 
@@ -167,13 +169,20 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
             warnings.append("Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.")
         if not has_recommendation:
             warnings.append("Broad machine-roster research is missing recommended_final_roster.")
+        if not has_gap_hunt:
+            warnings.append("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.")
     if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
     if complete_title:
         queries = audit.get("search_queries_used") or []
         families = audit.get("source_families_crosschecked") or []
         unresolved = audit.get("unresolved_candidates") or []
-        confidence = str(audit.get("confidence") or "").strip().lower()
+        confidence_raw = str(audit.get("confidence") or "").strip().lower()
+        confidence = ""
+        for level in ("high", "medium", "low"):
+            if level in confidence_raw:
+                confidence = level
+                break
         if not audit:
             warnings.append("Complete-roster research is missing roster_audit proof of exhaustive search.")
         elif len(queries) < 6:
@@ -225,6 +234,7 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         "machine_bucket_counts": bucket_counts,
         "candidate_universe_count": bucket_total,
         "has_recommended_final_roster": has_recommendation,
+        "has_gap_hunt_matrix": has_gap_hunt,
         "operator_decision_count": len(operator_points) if isinstance(operator_points, list) else 0,
         "review_ready": is_review_ready,
     }

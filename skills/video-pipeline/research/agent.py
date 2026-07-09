@@ -625,18 +625,27 @@ secret program. Cross-check against official/service history, manufacturer or
 program history, museum/encyclopedia lists, designation/index lists, and
 credible specialist references.
 
+Before finalizing the roster, run an explicit adversarial gap-hunt pass. Assume
+your first roster missed machines. Search for omissions by designation sequence,
+role synonyms, prototype/cancelled terms, converted/special variants, and
+program-family neighbors. For every plausible missed candidate you discover,
+force it into one of three places: the recommended final roster, a bucketed
+operator decision, or excluded_candidates with a concrete source-backed reason.
+Do not leave researched machines in narrative prose only.
+
 For broad DvsU-style machine videos, separate discovery from recommendation:
 1) gather the widest defensible candidate universe in buckets;
 2) recommend the best final documentary roster for the title;
-3) surface operator decision points instead of pretending boundary calls do not
-exist. Benchmarks/customer scripts are validation targets, not hard-coded product
-boundaries.
+3) make autonomous default decisions for boundary calls instead of waiting for a
+human operator. Benchmarks/customer scripts are validation targets, not hard-coded
+product boundaries.
 
 If you cannot recommend a defensible final roster, mark roster_contract
 INCOMPLETE and list each unresolved/missing candidate. If you can recommend a
-final roster but some boundary choices need human taste, mark roster_contract
-REVIEW_READY, include the recommended_final_roster, and list operator decision
-points. Never silently narrow a complete-title video into a hidden shortlist.
+final roster, mark roster_contract CONFIRMED and apply your default decisions in
+the recommended roster. Boundary calls should be documented in
+operator_decision_points for audit only, not treated as a reason to stop. Never
+silently narrow a complete-title video into a hidden shortlist.
 
 For complete-roster titles, keep this pass research-only. Do not write script
 prose, hooks, act breaks, thumbnail copy, or production-ready narration. The
@@ -669,11 +678,18 @@ Research the following topic as a ROSTER DISCOVERY pass only:
 This is NOT the script pass and NOT the full documentary brief pass.
 Your job is to discover the broad machine/unit candidate universe promised by the
 title, organize it into reusable DVsU machine buckets, then recommend the best
-final documentary roster for the title.
+final documentary roster for the title. This runs in autonomous production mode:
+Anton is not operating the research step, so you must make defensible default
+boundary decisions yourself and document them.
 
 Rules:
 - Search wide first. Return every plausible candidate category even when the
   final recommendation excludes some items.
+- After the first roster draft, run a second adversarial gap hunt. Assume the
+  first draft missed machines. Search by designation sequence, role synonyms,
+  prototype/cancelled language, converted/special variants, and program-family
+  neighbors. Promote every plausible find into a bucket, operator decision, or
+  source-backed exclusion.
 - Do not hard-code one benchmark roster or overfit one customer script. Benchmarks
   are validation checks, not the product path.
 - Do not write narration, hooks, act breaks, thumbnail ideas, or final script prose.
@@ -688,9 +704,20 @@ Rules:
   itself the machine viewers expect to see.
 - Also return the wider candidate universe in `machine_discovery_buckets` so the
   operator can see what was found and why boundary calls were made.
-- If you can recommend a strong final roster but boundary taste calls remain, mark
-  roster_contract REVIEW_READY and list operator_decision_points. Only mark
-  INCOMPLETE when you cannot make a defensible recommendation.
+- Return `gap_hunt_matrix` showing the follow-up omission hunt: candidate name,
+  discovery path/query family, final placement, and reason. This is how the
+  operator verifies that edge cases were actively chased instead of missed.
+- Default inclusion rule for complete DVsU machine titles: include audience-facing
+  built/flown/commissioned/converted machines and historically important built
+  prototypes when the title wording can defensibly cover them; exclude pure paper
+  studies unless the title explicitly promises never-built/cancelled programs.
+- Boundary decisions are not a stop sign. If a candidate is debatable but likely
+  valuable to the title promise/audience, apply a default include/exclude call,
+  put the result in the roster or exclusions, and document the call in
+  operator_decision_points.
+- If you can recommend a strong final roster, mark roster_contract CONFIRMED even
+  when boundary taste calls exist. Only mark INCOMPLETE when you cannot make a
+  defensible recommendation after the gap hunt.
 - Keep per-machine notes compact: enough for verification, not a 95-120 word
   script paragraph. Script expansion happens later.
 
@@ -721,8 +748,9 @@ Respond ONLY as raw JSON in this format:
     "boundary_disputes": [{{"name": "Candidate with real boundary ambiguity", "decision_needed": "operator/customer call", "source": "Source tag"}}]
   }},
   "recommended_final_roster": ["Ordered list of names/designations from unit_roster"],
-  "operator_decision_points": [{{"question": "Boundary/taste decision for the operator", "default_recommendation": "include/exclude", "options": ["include", "exclude"], "reason": "why this is not purely mechanical"}}],
-  "roster_contract": "CONFIRMED, REVIEW_READY, or INCOMPLETE. State the inclusion boundary and whether the recommended final roster is defensible. REVIEW_READY is acceptable when the final roster is usable but operator taste/boundary calls are surfaced.",
+  "gap_hunt_matrix": [{{"candidate": "Plausible missed machine/program", "discovery_path": "designation sequence / role synonym / prototype search / variant search / program-family neighbor / source cross-check", "final_placement": "unit_roster / machine_discovery_buckets.<bucket> / operator_decision_points / excluded_candidates", "reason": "why it landed there"}}],
+  "operator_decision_points": [{{"question": "Boundary/taste decision documented for audit", "default_recommendation": "include/exclude", "applied_decision": "include/exclude", "options": ["include", "exclude"], "reason": "why this was the autonomous default"}}],
+  "roster_contract": "CONFIRMED or INCOMPLETE. State the inclusion boundary and whether the recommended final roster is defensible. In autonomous mode, do not use REVIEW_READY as a stopping state when you can apply defensible default decisions.",
   "roster_audit": {{
     "is_complete_title": true,
     "inclusion_boundary": "Strict inclusion/exclusion rule",
@@ -927,13 +955,17 @@ class ResearchAgent:
         if COMPLETE_ROSTER_SYSTEM_APPEND not in system_prompt:
             system_prompt = f"{system_prompt}\n{COMPLETE_ROSTER_SYSTEM_APPEND}"
 
+        tools = [WEB_SEARCH_TOOL]
+        if _is_complete_roster_topic(topic):
+            tools = [dict(WEB_SEARCH_TOOL, max_uses=8)]
+
         response = await self.anthropic.generate(
             prompt=prompt,
             system_prompt=system_prompt,
             model=self.model,
             max_tokens=16000,
             temperature=0.7,
-            tools=[WEB_SEARCH_TOOL],
+            tools=tools,
         )
 
         payload = _parse_research_payload(response)

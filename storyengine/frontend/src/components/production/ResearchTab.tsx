@@ -230,6 +230,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       unit_roster: Array.isArray(payload.unit_roster) ? payload.unit_roster : [],
       machine_discovery_buckets: payload.machine_discovery_buckets || null,
       recommended_final_roster: Array.isArray(payload.recommended_final_roster) ? payload.recommended_final_roster : [],
+      gap_hunt_matrix: Array.isArray(payload.gap_hunt_matrix) ? payload.gap_hunt_matrix : [],
       operator_decision_points: Array.isArray(payload.operator_decision_points) ? payload.operator_decision_points : [],
       roster_contract: payload.roster_contract || null,
       roster_audit: payload.roster_audit || null,
@@ -326,6 +327,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   <div>Unresolved candidates: {research.roster_audit.unresolved_candidates?.length || 0}</div>
                   {research.roster_audit.confidence && <div>Confidence: {research.roster_audit.confidence}</div>}
                   {research.unit_roster_validation?.candidate_universe_count !== undefined && <div>Candidate universe: {research.unit_roster_validation.candidate_universe_count}</div>}
+                  {research.unit_roster_validation?.has_gap_hunt_matrix !== undefined && <div>Gap hunt: {research.unit_roster_validation.has_gap_hunt_matrix ? "done" : "missing"}</div>}
                 </div>
               </div>
               {research.machine_discovery_buckets && (
@@ -350,6 +352,21 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                         <span style={{ color: "var(--text-primary)" }}>{point.question || point.name || `Decision ${i + 1}`}</span>
                         {point.default_recommendation && <span> — default: {point.default_recommendation}</span>}
                         {point.reason && <div style={{ color: "var(--text-tertiary)" }}>{point.reason}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {research.gap_hunt_matrix?.length > 0 && (
+                <div className="lg:col-span-2 rounded-lg p-3" style={{ background: "rgba(255,255,255,.04)" }}>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Adversarial gap hunt</div>
+                  <div className="space-y-2 max-h-48 overflow-auto pr-1">
+                    {research.gap_hunt_matrix.map((item: any, i: number) => (
+                      <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                        <span style={{ color: "var(--text-primary)" }}>{item.candidate || item.name || `Candidate ${i + 1}`}</span>
+                        {item.final_placement && <span> — {item.final_placement}</span>}
+                        {item.discovery_path && <div style={{ color: "var(--text-tertiary)" }}>Found by: {item.discovery_path}</div>}
+                        {item.reason && <div style={{ color: "var(--text-tertiary)" }}>{item.reason}</div>}
                       </div>
                     ))}
                   </div>
