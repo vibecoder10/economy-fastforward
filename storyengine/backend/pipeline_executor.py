@@ -218,6 +218,19 @@ def _roster_validation(
         _title_is_broad_machine_roster(title)
         and complete_title
         and pacing_targets
+        and len(roster) < pacing_targets["expected_final_roster"]
+        and not small_category_proof
+    ):
+        warnings.append(
+            "Broad complete-roster title is below the Anton-paced final roster target: "
+            f"{len(roster)} final items vs expected around {pacing_targets['expected_final_roster']} "
+            f"for a {pacing_targets['video_length_minutes']:g}-minute video. Search harder or "
+            "prove with sources that the category is genuinely smaller."
+        )
+    if (
+        _title_is_broad_machine_roster(title)
+        and complete_title
+        and pacing_targets
         and bucket_total > 0
         and bucket_total < pacing_targets["candidate_universe_target"]
         and not small_category_proof
@@ -1378,12 +1391,23 @@ class PipelineExecutor:
 
             roster_check = _roster_validation(topic, payload, video_length_minutes=video.get("video_length_minutes"))
             if roster_check.get("complete_title") and not roster_check.get("passed"):
+                pacing = roster_check.get("roster_pacing_targets") or {}
+                pacing_repair_note = ""
+                if pacing:
+                    pacing_repair_note = (
+                        "\nAnton/DVsU pacing gate to satisfy unless sources prove a small closed category:\n"
+                        f"- Expected final roster: around {pacing.get('expected_final_roster')} audience-facing machines.\n"
+                        f"- Minimum failure floor: {pacing.get('minimum_final_roster')} machines. Do not treat this as the target.\n"
+                        f"- Candidate universe target before filtering: at least {pacing.get('candidate_universe_target')} candidates.\n"
+                        "If your final roster is below the expected target, explicitly show the source-backed closure proof; otherwise expand the roster.\n"
+                    )
                 repair_context = (
                     (research_context or "")
                     + "\n\nAUTONOMOUS ROSTER REPAIR PASS:\n"
                     + "The first roster-discovery draft failed the production gate. "
                     + "Do not ask the operator for help. Re-run the discovery as a corrective pass, "
                     + "apply defensible default boundary decisions, and return a script-ready roster if possible.\n"
+                    + pacing_repair_note
                     + "Validator warnings to fix:\n- "
                     + "\n- ".join(str(w) for w in roster_check.get("warnings", []))
                     + "\nLikely gaps/designations named by validation:\n- "
@@ -1417,8 +1441,12 @@ class PipelineExecutor:
                     "Roster contract needs review: " + "; ".join(roster_check.get("warnings", []))[:800],
                 )
 
-            # Update Supabase with research payload
+            # Update Supabase with research payload. Never advance a complete-roster
+            # title to scripting when the production roster gate still failed after
+            # repair; that is exactly how a bad paid pass leaks downstream.
             import json
+            passed_roster_gate = bool(roster_check.get("passed"))
+            next_status = "ready_for_scripting" if passed_roster_gate else (current_status or "idea_logged")
             await execute(
                 """UPDATE videos SET
                    research_payload = $1,
@@ -1430,9 +1458,19 @@ class PipelineExecutor:
                 json.dumps(payload),
                 payload.get("thesis", ""),
                 payload.get("executive_hook", ""),
-                "ready_for_scripting",
+                next_status,
                 video_id,
             )
+
+            if not passed_roster_gate:
+                await self._log_transition(video_id, current_status or "unknown", next_status, "api", error_message="Roster validation failed")
+                await self._log_activity(bot_name, video_id, "failed", "Research roster gate failed; not advancing to scripting")
+                return {
+                    "status": "failed",
+                    "video_id": video_id,
+                    "error": "Research roster gate failed; not advancing to scripting",
+                    "headline": payload.get("headline"),
+                }
 
             await self._log_transition(video_id, current_status, "ready_for_scripting", "api")
             await self._log_activity(bot_name, video_id, "completed", "Research complete")

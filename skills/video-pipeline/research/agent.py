@@ -723,8 +723,16 @@ Rules:
   included. If the requested length implies about N machines, your candidate
   universe should exceed N by the stated good-measure buffer before final
   filtering, and your final roster should land near N unless sources prove the
-  category is genuinely smaller. Do not pad with weak fits; instead, search
-  harder, then document why a smaller verified universe is closed if applicable.
+  category is genuinely smaller. The minimum acceptable count is a failure floor,
+  not the target. Do not pad with weak fits; instead, search harder, then
+  document why a smaller verified universe is closed if applicable.
+- For historical role terms, include the era-equivalent machines a knowledgeable
+  viewer would expect. Example class of reasoning: a "strategic bomber" roster
+  may include pre-modern-designation heavy/long-range bombers, built prototypes,
+  escort or converted strategic-bombing variants, and role-shifted fighter-bomber
+  programs when sources tie them to the title's strategic-bombing promise. Do not
+  start the roster at the first famous postwar model just because official role
+  labels changed later.
 - Your gap hunt must explicitly test generic omission classes, not title-specific
   memorized examples: designation/number sequence gaps, prefix/classification
   variants, role synonyms, mission-converted platforms, special-purpose support
