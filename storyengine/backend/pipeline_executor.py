@@ -166,6 +166,19 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         warnings.append(
             f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise."
         )
+    title_lower = str(title or "").lower()
+    broad_national_terms = ("us ", "u.s.", "american", "soviet", "russian", "british", "german", "japanese", "chinese")
+    small_category_proof = any(term in lower for term in ("genuinely small", "small closed category", "only known", "no additional built"))
+    if (
+        _title_is_broad_machine_roster(title)
+        and complete_title
+        and any(term in title_lower for term in broad_national_terms)
+        and len(roster) < 20
+        and not small_category_proof
+    ):
+        warnings.append(
+            "Broad national complete-roster title has fewer than 20 final items without proving the category is genuinely small."
+        )
     if _title_is_broad_machine_roster(title):
         if bucket_total == 0:
             warnings.append("Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.")

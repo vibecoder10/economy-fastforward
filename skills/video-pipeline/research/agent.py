@@ -708,6 +708,20 @@ Rules:
   families, foreign-built/license-built/locally modified machines used by the
   title-implied country or force, civilian machines militarized in conflict, and
   role-boundary disputes.
+- Interpret role words by audience/title intent, not by the narrowest modern
+  official label. If a title says strategic bomber, off-road warfare vehicle,
+  battleship, tank destroyer, missile truck, submarine class, etc., include
+  historical or functional equivalents that viewers would reasonably expect even
+  when official terminology changed by era, branch, or country. Do not silently
+  discard older, wartime, interim, converted, or doctrinally-adjacent machines
+  merely because their official category name was narrower.
+- For national or force-level complete titles using words like every/all/ever
+  built/complete, a final roster under 20 is suspicious unless the category is
+  genuinely small and closed. If your first final roster is under 20, run an
+  extra broadening pass across earlier eras, alternate role terms, designation
+  sequences, converted/special variants, predecessor/successor families, and
+  adjacent official categories before finalizing. If the roster is still under
+  20, state exactly why the title-implied category is genuinely small.
 - Your gap hunt must explicitly test generic omission classes, not title-specific
   memorized examples: designation/number sequence gaps, prefix/classification
   variants, role synonyms, mission-converted platforms, special-purpose support
