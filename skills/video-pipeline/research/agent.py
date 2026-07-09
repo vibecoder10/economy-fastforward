@@ -621,7 +621,94 @@ indexes.
 
 If you cannot resolve the complete roster, mark roster_contract INCOMPLETE and
 list each unresolved/missing candidate. Never silently narrow a complete-title
-video into a curated list."""
+video into a curated list.
+
+For complete-roster titles, keep this pass research-only. Do not write script
+prose, hooks, act breaks, thumbnail copy, or production-ready narration. The
+first pass should gather and validate the roster. A later enrichment pass may add
+compact machine facts, and the script stage is responsible for making the final
+95-120 word paragraph per machine."""
+
+
+def _is_complete_roster_topic(topic: str) -> bool:
+    """Detect titles where research must discover a complete roster first."""
+    import re
+
+    t = str(topic or "").strip().lower()
+    return bool(
+        re.search(r"\b(every|all)\b", t)
+        or "ever built" in t
+        or "complete list" in t
+        or "complete history" in t
+    )
+
+
+ROSTER_DISCOVERY_PROMPT_TEMPLATE = """\
+Research the following topic as a ROSTER DISCOVERY pass only:
+
+<topic>{TOPIC}</topic>
+
+{SEED_URLS_SECTION}
+{CONTEXT_SECTION}
+
+This is NOT the script pass and NOT the full documentary brief pass.
+Your job is to find the complete machine/unit roster promised by the title.
+
+Rules:
+- Return every machine that fits the title boundary, even if its story is weaker.
+- Do not curate by story strength.
+- Do not write narration, hooks, act breaks, thumbnail ideas, or final script prose.
+- Actively search edge cases: prototypes, experimental designations,
+  cancelled-but-built aircraft, converted variants, escort/special-purpose
+  versions, interim models, renamed programs, and role-boundary disputes.
+- For each candidate, decide: include, exclude, or unresolved.
+- If unresolved items remain, mark roster_contract INCOMPLETE.
+- Keep per-machine notes compact: enough for verification, not a 95-120 word
+  script paragraph. Script expansion happens later.
+
+Respond ONLY as raw JSON in this format:
+
+{{
+  "research_phase": "roster_discovery",
+  "headline": "{TOPIC}",
+  "thesis": "Roster discovery only — final thesis is deferred until enrichment/script.",
+  "executive_hook": "Deferred until script stage.",
+  "unit_roster": [
+    {{
+      "name": "Exact machine name",
+      "designation": "Short code/designation",
+      "role": "Why it belongs under the title boundary",
+      "status": "production/prototype/cancelled-built/converted/variant/disputed/planned",
+      "built_count": "Exact count or best verified range, with source tag",
+      "years": "first flight/service/planned years if verified, with source tag",
+      "source": "Strongest source tag"
+    }}
+  ],
+  "roster_contract": "CONFIRMED or INCOMPLETE. State the inclusion boundary and whether the roster is complete. If incomplete, list missing categories/items.",
+  "roster_audit": {{
+    "is_complete_title": true,
+    "inclusion_boundary": "Strict inclusion/exclusion rule",
+    "search_queries_used": ["exact query #1", "exact query #2", "exact query #3", "exact query #4", "exact query #5", "exact query #6", "exact query #7", "exact query #8"],
+    "source_families_crosschecked": ["official/service history", "manufacturer/program history", "museum/encyclopedia list", "designation/index list"],
+    "excluded_candidates": [{{"name": "Reviewed but excluded", "reason": "Boundary reason", "source": "Source tag"}}],
+    "unresolved_candidates": [{{"name": "Candidate not resolved", "reason": "What still needs verification", "source": "Source tag or [unverified]"}}],
+    "confidence": "high/medium/low"
+  }},
+  "fact_sheet": "Roster-discovery summary only. One compact line per included machine: designation/name — status — built count — years — strongest source tag. No script prose.",
+  "source_bibliography": "Every [Source Year] tag used above, one entry each.",
+  "counter_arguments": "Boundary disputes and source disagreements only.",
+  "historical_parallels": "Deferred until enrichment pass.",
+  "framework_analysis": "Deferred until enrichment/script.",
+  "character_dossier": "Deferred until enrichment pass unless a named person is needed to verify a roster boundary.",
+  "narrative_arc": "Deferred until script stage.",
+  "visual_seeds": "Deferred until enrichment/image planning. Do not generate image prompts here.",
+  "themes": "Deferred until enrichment/script.",
+  "psychological_angles": "Deferred until script stage.",
+  "narrative_arc_suggestion": "Deferred until script stage.",
+  "title_options": "Deferred until script/SEO stage.",
+  "thumbnail_concepts": "Deferred until thumbnail stage."
+}}
+"""
 
 RESEARCH_PROMPT_TEMPLATE = """\
 Research the following topic in depth:
@@ -698,7 +785,8 @@ def _build_research_prompt(
     if context:
         context_section = f"Additional context:\n{context}"
 
-    return RESEARCH_PROMPT_TEMPLATE.format(
+    template = ROSTER_DISCOVERY_PROMPT_TEMPLATE if _is_complete_roster_topic(topic) else RESEARCH_PROMPT_TEMPLATE
+    return template.format(
         TOPIC=topic,
         SEED_URLS_SECTION=seed_section,
         CONTEXT_SECTION=context_section,
