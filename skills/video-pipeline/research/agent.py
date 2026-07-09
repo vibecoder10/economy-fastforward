@@ -676,15 +676,23 @@ Research the following topic as a ROSTER DISCOVERY pass only:
 {CONTEXT_SECTION}
 
 This is NOT the script pass and NOT the full documentary brief pass.
-Your job is to discover the broad machine/unit candidate universe promised by the
-title, organize it into reusable DVsU machine buckets, then recommend the best
-final documentary roster for the title. This runs in autonomous production mode:
-Anton is not operating the research step, so you must make defensible default
-boundary decisions yourself and document them.
+Your job is to discover the broad machine/unit candidate universe implied by the
+video title, organize it into reusable machine buckets, then recommend the best
+final documentary roster/selection for that title. This must work for any vehicle
+or machine category: aircraft, ships, submarines, tanks, armored vehicles,
+trucks, off-road vehicles, missiles, artillery, spacecraft, weapons platforms,
+industrial machines, or any other title-implied machine family. It runs in
+autonomous production mode: the customer is not operating the research step, so
+you must make defensible default boundary decisions yourself and document them.
 
 Rules:
+- First classify the title as one of: complete_roster, ranked_top_n,
+  category_explainer, comparison, or other. For top-N/ranked titles, do NOT stop
+  at N candidates: build a wider candidate pool, then rank/select. For complete
+  titles, prioritize completeness over narrative neatness.
 - Search wide first. Return every plausible candidate category even when the
-  final recommendation excludes some items.
+  final recommendation excludes some items. Treat examples in the title/context
+  as seeds only, never as the complete boundary.
 - After the first roster draft, run a second adversarial gap hunt. Assume the
   first draft missed machines. Search by designation sequence, role synonyms,
   prototype/cancelled language, converted/special variants, and program-family
@@ -693,16 +701,20 @@ Rules:
 - Do not hard-code one benchmark roster or overfit one customer script. Benchmarks
   are validation checks, not the product path.
 - Do not write narration, hooks, act breaks, thumbnail ideas, or final script prose.
-- Actively search edge cases: production machines, built/flown prototypes,
-  experimental designations, cancelled-but-built programs, secret/black programs,
-  converted variants, escort/special-purpose versions, interim models, renamed
-  programs, and role-boundary disputes.
-- For bomber/aircraft roster titles specifically, the gap hunt must include
-  prefix/role searches beyond the obvious B/XB/YB production line: FB or
-  fighter-bomber strategic variants, escort-bomber or mission-converted bomber
-  variants, and aircraft whose role changed between tactical/medium/strategic.
-  Do not let these disappear just because they are variants; include, bucket,
-  or source-backed exclude them explicitly.
+- Actively search edge cases: production machines, built/flown/built-and-tested
+  prototypes, experimental designations, cancelled-but-built programs,
+  secret/black programs, converted variants, escort/support/special-purpose
+  versions, interim models, renamed/reclassified programs, predecessor/successor
+  families, foreign-built/license-built/locally modified machines used by the
+  title-implied country or force, civilian machines militarized in conflict, and
+  role-boundary disputes.
+- Your gap hunt must explicitly test generic omission classes, not title-specific
+  memorized examples: designation/number sequence gaps, prefix/classification
+  variants, role synonyms, mission-converted platforms, special-purpose support
+  variants, export/license/local-modification variants, predecessor/successor
+  names, manufacturer program-family neighbors, and common false positives.
+  Do not let any class disappear just because it is a variant; include, bucket,
+  or source-backed exclude it explicitly.
 - For each candidate, decide: core include, edge-case include, operator decision,
   exclude, or unresolved.
 - `unit_roster` must be the recommended final documentary roster: one section per
@@ -731,6 +743,9 @@ Respond ONLY as raw JSON in this format:
 
 {{
   "research_phase": "roster_discovery",
+  "title_classification": "complete_roster/ranked_top_n/category_explainer/comparison/other",
+  "title_classification_reason": "Why this title implies that research mode",
+  "inferred_inclusion_boundary": "Plain-English boundary inferred from the title before candidate filtering",
   "headline": "{TOPIC}",
   "thesis": "Roster discovery only — final thesis is deferred until enrichment/script.",
   "executive_hook": "Deferred until script stage.",
@@ -754,7 +769,9 @@ Respond ONLY as raw JSON in this format:
     "boundary_disputes": [{{"name": "Candidate with real boundary ambiguity", "decision_needed": "operator/customer call", "source": "Source tag"}}]
   }},
   "recommended_final_roster": ["Ordered list of names/designations from unit_roster"],
+  "ranking_logic": "For ranked/top-N titles: how final selections were chosen from the wider pool. For complete roster titles: 'not applicable — completeness prioritized'.",
   "gap_hunt_matrix": [{{"candidate": "Plausible missed machine/program", "discovery_path": "designation sequence / role synonym / prototype search / variant search / program-family neighbor / source cross-check", "final_placement": "unit_roster / machine_discovery_buckets.<bucket> / operator_decision_points / excluded_candidates", "reason": "why it landed there"}}],
+  "edge_case_matrix": [{{"edge_case_class": "designation gap / prefix variant / converted variant / special-purpose variant / foreign-built-used-by-target / license-built / renamed-reclassified / predecessor-successor / false-positive", "candidates_checked": ["machine/program"], "coverage_result": "included/bucketed/excluded/unresolved", "reason": "how this class was resolved"}}],
   "operator_decision_points": [{{"question": "Boundary/taste decision documented for audit", "default_recommendation": "include/exclude", "applied_decision": "include/exclude", "options": ["include", "exclude"], "reason": "why this was the autonomous default"}}],
   "roster_contract": "CONFIRMED or INCOMPLETE. State the inclusion boundary and whether the recommended final roster is defensible. In autonomous mode, do not use REVIEW_READY as a stopping state when you can apply defensible default decisions.",
   "roster_audit": {{

@@ -150,9 +150,11 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
     bucket_total = sum(bucket_counts.values())
     recommended = payload.get("recommended_final_roster") if isinstance(payload, dict) else None
     gap_hunt = payload.get("gap_hunt_matrix") if isinstance(payload, dict) else None
+    edge_case_matrix = payload.get("edge_case_matrix") if isinstance(payload, dict) else None
     operator_points = payload.get("operator_decision_points") if isinstance(payload, dict) else None
     has_recommendation = isinstance(recommended, list) and len(recommended) > 0
     has_gap_hunt = isinstance(gap_hunt, list) and len(gap_hunt) > 0
+    has_edge_case_matrix = isinstance(edge_case_matrix, list) and len(edge_case_matrix) > 0
     is_review_ready = "review_ready" in lower
     is_incomplete = "incomplete" in lower and not is_review_ready
 
@@ -171,15 +173,26 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
             warnings.append("Broad machine-roster research is missing recommended_final_roster.")
         if not has_gap_hunt:
             warnings.append("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.")
-        blob_upper = _payload_blob(payload or {}).upper()
-        title_lower = str(title or "").lower()
-        if "bomber" in title_lower and "strategic" in title_lower:
-            if "FB-" not in blob_upper and "FIGHTER-BOMBER" not in blob_upper:
-                warnings.append("Strategic bomber roster did not explicitly resolve FB/fighter-bomber strategic variants.")
-                gaps.append("FB-prefix strategic variants")
-            if "ESCORT BOMBER" not in blob_upper and "ESCORT-BOMBER" not in blob_upper:
-                warnings.append("Strategic bomber roster did not explicitly resolve escort-bomber/mission-converted bomber variants.")
-                gaps.append("escort-bomber converted variants")
+        if not has_edge_case_matrix:
+            warnings.append("Broad machine-roster research is missing edge_case_matrix showing generic omission classes checked.")
+        blob_lower = _payload_blob(payload or {}).lower()
+        generic_edge_classes = {
+            "designation/number sequence gaps": ("designation", "sequence", "number"),
+            "prefix/classification variants": ("prefix", "classification", "class"),
+            "mission-converted/special-purpose variants": ("converted", "special-purpose", "special purpose", "support"),
+            "renamed/reclassified/predecessor-successor programs": ("renamed", "reclassified", "predecessor", "successor"),
+            "foreign-built/license/local-modification candidates": ("foreign-built", "license", "locally modified", "local modification", "export"),
+            "common false positives/exclusions": ("false positive", "excluded", "exclusion"),
+        }
+        covered_classes = [
+            label for label, needles in generic_edge_classes.items()
+            if any(needle in blob_lower for needle in needles)
+        ]
+        if len(covered_classes) < 4:
+            warnings.append("Broad machine-roster research did not explicitly resolve enough generic edge-case classes.")
+            for label in generic_edge_classes:
+                if label not in covered_classes and label not in gaps:
+                    gaps.append(label)
     if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
     if complete_title:
@@ -1296,7 +1309,7 @@ class PipelineExecutor:
                     + "\n- ".join(str(w) for w in roster_check.get("warnings", []))
                     + "\nLikely gaps/designations named by validation:\n- "
                     + "\n- ".join(str(g) for g in roster_check.get("gaps", []))
-                    + "\nRequired fixes: include a non-empty gap_hunt_matrix, at least 6 search_queries_used, "
+                    + "\nRequired fixes: include a non-empty gap_hunt_matrix and edge_case_matrix, at least 6 search_queries_used, "
                     + "at least 3 source_families_crosschecked, a recommended_final_roster, and a final "
                     + "roster_contract of CONFIRMED unless the roster is genuinely impossible to bound. "
                     + "Every disputed candidate must land in unit_roster, a discovery bucket with an "
