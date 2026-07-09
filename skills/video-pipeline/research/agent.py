@@ -604,24 +604,39 @@ If the topic/title promises a complete set — for example "Every...", "All...",
 instruction overrides any channel preference for curation, shortlists, or
 story-first selection.
 
-For these titles, the roster is the product. Build and cross-check the full
-roster first, before thesis or story selection. Do not return a curated
+For these titles, the candidate universe is the product. Build and cross-check
+wide first, before thesis or story selection. Do not return a narrow curated
 shortlist. Do not exclude a machine because its story is weaker if it belongs to
-the title boundary. Include production aircraft, prototypes, converted variants,
-cancelled-but-built programs, interim models, renamed programs, special-purpose
-versions, and disputed edge cases unless the inclusion boundary explicitly and
-defensibly excludes them.
+the title boundary. Include production machines, built/flown prototypes,
+converted variants, special-purpose versions, cancelled-but-built programs,
+secret/black programs that were built or credibly fielded, interim models,
+renamed programs, and disputed edge cases unless the inclusion boundary explicitly
+and defensibly excludes them.
 
-For machine/program topics, search designation families and edge-case language:
-XB/YB/B/FB designations, prototype, experimental, cancelled, converted, escort,
-interim, variant, strategic, heavy, very heavy, bomber, program, built, flown,
-entered service, and manufacturer names. Cross-check against official/service
-history, manufacturer/program history, museum/encyclopedia lists, and designation
-indexes.
+For machine/program topics, search by designation families, program names, role
+words, and edge-case language. Aircraft examples: XB/YB/B/FB designations,
+prototype, experimental, cancelled, converted, escort, interim, variant,
+strategic, heavy, very heavy, bomber, program, built, flown, entered service, and
+manufacturer names. Ship examples: hull/class names, laid down, commissioned,
+converted, cancelled after construction started, treaty battleship,
+battlecruiser, fast battleship, dreadnought. Tanks/vehicles: prototype,
+production, conversion, assault gun/tank-destroyer boundary, captured conversion,
+secret program. Cross-check against official/service history, manufacturer or
+program history, museum/encyclopedia lists, designation/index lists, and
+credible specialist references.
 
-If you cannot resolve the complete roster, mark roster_contract INCOMPLETE and
-list each unresolved/missing candidate. Never silently narrow a complete-title
-video into a curated list.
+For broad DvsU-style machine videos, separate discovery from recommendation:
+1) gather the widest defensible candidate universe in buckets;
+2) recommend the best final documentary roster for the title;
+3) surface operator decision points instead of pretending boundary calls do not
+exist. Benchmarks/customer scripts are validation targets, not hard-coded product
+boundaries.
+
+If you cannot recommend a defensible final roster, mark roster_contract
+INCOMPLETE and list each unresolved/missing candidate. If you can recommend a
+final roster but some boundary choices need human taste, mark roster_contract
+REVIEW_READY, include the recommended_final_roster, and list operator decision
+points. Never silently narrow a complete-title video into a hidden shortlist.
 
 For complete-roster titles, keep this pass research-only. Do not write script
 prose, hooks, act breaks, thumbnail copy, or production-ready narration. The
@@ -652,17 +667,30 @@ Research the following topic as a ROSTER DISCOVERY pass only:
 {CONTEXT_SECTION}
 
 This is NOT the script pass and NOT the full documentary brief pass.
-Your job is to find the complete machine/unit roster promised by the title.
+Your job is to discover the broad machine/unit candidate universe promised by the
+title, organize it into reusable DVsU machine buckets, then recommend the best
+final documentary roster for the title.
 
 Rules:
-- Return every machine that fits the title boundary, even if its story is weaker.
-- Do not curate by story strength.
+- Search wide first. Return every plausible candidate category even when the
+  final recommendation excludes some items.
+- Do not hard-code one benchmark roster or overfit one customer script. Benchmarks
+  are validation checks, not the product path.
 - Do not write narration, hooks, act breaks, thumbnail ideas, or final script prose.
-- Actively search edge cases: prototypes, experimental designations,
-  cancelled-but-built aircraft, converted variants, escort/special-purpose
-  versions, interim models, renamed programs, and role-boundary disputes.
-- For each candidate, decide: include, exclude, or unresolved.
-- If unresolved items remain, mark roster_contract INCOMPLETE.
+- Actively search edge cases: production machines, built/flown prototypes,
+  experimental designations, cancelled-but-built programs, secret/black programs,
+  converted variants, escort/special-purpose versions, interim models, renamed
+  programs, and role-boundary disputes.
+- For each candidate, decide: core include, edge-case include, operator decision,
+  exclude, or unresolved.
+- `unit_roster` must be the recommended final documentary roster: one section per
+  audience-facing machine/program, not every subvariant unless the subvariant is
+  itself the machine viewers expect to see.
+- Also return the wider candidate universe in `machine_discovery_buckets` so the
+  operator can see what was found and why boundary calls were made.
+- If you can recommend a strong final roster but boundary taste calls remain, mark
+  roster_contract REVIEW_READY and list operator_decision_points. Only mark
+  INCOMPLETE when you cannot make a defensible recommendation.
 - Keep per-machine notes compact: enough for verification, not a 95-120 word
   script paragraph. Script expansion happens later.
 
@@ -675,16 +703,26 @@ Respond ONLY as raw JSON in this format:
   "executive_hook": "Deferred until script stage.",
   "unit_roster": [
     {{
-      "name": "Exact machine name",
-      "designation": "Short code/designation",
+      "name": "Exact machine/program name for the RECOMMENDED final documentary roster",
+      "designation": "Short code/designation/hull number/class if applicable",
       "role": "Why it belongs under the title boundary",
-      "status": "production/prototype/cancelled-built/converted/variant/disputed/planned",
+      "status": "production/built-prototype/cancelled-built/converted/special-purpose/secret-or-black-program/edge-case",
+      "bucket": "core_roster/built_prototypes/converted_or_special_variants/secret_cancelled_or_black_programs/boundary_disputes",
       "built_count": "Exact count or best verified range, with source tag",
-      "years": "first flight/service/planned years if verified, with source tag",
+      "years": "first flight/service/planned/commissioned years if verified, with source tag",
       "source": "Strongest source tag"
     }}
   ],
-  "roster_contract": "CONFIRMED or INCOMPLETE. State the inclusion boundary and whether the roster is complete. If incomplete, list missing categories/items.",
+  "machine_discovery_buckets": {{
+    "core_roster": [{{"name": "Obvious title-fit machine", "why": "why it cleanly belongs", "source": "Source tag"}}],
+    "built_prototypes": [{{"name": "Built/flown prototype or prototype ship/vehicle", "why": "why it may deserve a section", "source": "Source tag"}}],
+    "converted_or_special_variants": [{{"name": "Converted/special-purpose variant", "why": "why it matters", "source": "Source tag"}}],
+    "secret_cancelled_or_black_programs": [{{"name": "Secret/cancelled/black/cancelled-but-built program", "why": "what is verified and why it matters", "source": "Source tag or [unverified]"}}],
+    "boundary_disputes": [{{"name": "Candidate with real boundary ambiguity", "decision_needed": "operator/customer call", "source": "Source tag"}}]
+  }},
+  "recommended_final_roster": ["Ordered list of names/designations from unit_roster"],
+  "operator_decision_points": [{{"question": "Boundary/taste decision for the operator", "default_recommendation": "include/exclude", "options": ["include", "exclude"], "reason": "why this is not purely mechanical"}}],
+  "roster_contract": "CONFIRMED, REVIEW_READY, or INCOMPLETE. State the inclusion boundary and whether the recommended final roster is defensible. REVIEW_READY is acceptable when the final roster is usable but operator taste/boundary calls are surfaced.",
   "roster_audit": {{
     "is_complete_title": true,
     "inclusion_boundary": "Strict inclusion/exclusion rule",

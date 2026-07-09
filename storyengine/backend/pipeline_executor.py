@@ -105,6 +105,26 @@ def _payload_blob(payload: Any) -> str:
         return str(payload or "")
 
 
+def _list_len(value: Any) -> int:
+    """Count list-like discovery fields defensively."""
+    return len(value) if isinstance(value, list) else 0
+
+
+def _machine_bucket_summary(payload: dict) -> dict:
+    """Return counts for broad DVsU machine-discovery buckets."""
+    buckets = payload.get("machine_discovery_buckets") if isinstance(payload, dict) else None
+    if not isinstance(buckets, dict):
+        buckets = {}
+    keys = (
+        "core_roster",
+        "built_prototypes",
+        "converted_or_special_variants",
+        "secret_cancelled_or_black_programs",
+        "boundary_disputes",
+    )
+    return {key: _list_len(buckets.get(key)) for key in keys}
+
+
 def _roster_validation(title: str, payload: dict, script_units: Optional[list[str]] = None) -> dict:
     """Validate the research/script roster contract without adding DB columns.
 
@@ -126,6 +146,14 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
     warnings: list[str] = []
     gaps: list[str] = []
     lower = f"{contract}\n{counter}".lower()
+    bucket_counts = _machine_bucket_summary(payload or {})
+    bucket_total = sum(bucket_counts.values())
+    recommended = payload.get("recommended_final_roster") if isinstance(payload, dict) else None
+    operator_points = payload.get("operator_decision_points") if isinstance(payload, dict) else None
+    has_recommendation = isinstance(recommended, list) and len(recommended) > 0
+    is_review_ready = "review_ready" in lower
+    is_incomplete = "incomplete" in lower and not is_review_ready
+
     if complete_title and not roster:
         warnings.append("This title promises a complete roster, but research_payload.unit_roster is missing.")
     if complete_title and len(roster) < 3:
@@ -134,7 +162,12 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         warnings.append(
             f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise."
         )
-    if any(term in lower for term in ("incomplete", "not included", "isn't included", "missing", "misleading", "should either be narrowed", "research expanded")):
+    if _title_is_broad_machine_roster(title):
+        if bucket_total == 0:
+            warnings.append("Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.")
+        if not has_recommendation:
+            warnings.append("Broad machine-roster research is missing recommended_final_roster.")
+    if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
     if complete_title:
         queries = audit.get("search_queries_used") or []
@@ -147,10 +180,10 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
             warnings.append("Complete-roster research used fewer than 6 distinct roster-discovery searches.")
         if audit and len(families) < 3:
             warnings.append("Complete-roster research cross-checked fewer than 3 source families.")
-        if audit and unresolved:
+        if audit and unresolved and not (is_review_ready and has_recommendation):
             warnings.append(f"Complete-roster research still has {len(unresolved)} unresolved candidate(s).")
-        if audit and confidence and confidence != "high":
-            warnings.append(f"Complete-roster audit confidence is {confidence}, not high.")
+        if audit and confidence and confidence not in ("high", "medium"):
+            warnings.append(f"Complete-roster audit confidence is {confidence}, not high/medium.")
         if isinstance(unresolved, list):
             for item in unresolved:
                 name = _unit_display_name(item)
@@ -189,6 +222,11 @@ def _roster_validation(title: str, payload: dict, script_units: Optional[list[st
         "gaps": gaps,
         "script_missing": script_missing,
         "script_extra": script_extra,
+        "machine_bucket_counts": bucket_counts,
+        "candidate_universe_count": bucket_total,
+        "has_recommended_final_roster": has_recommendation,
+        "operator_decision_count": len(operator_points) if isinstance(operator_points, list) else 0,
+        "review_ready": is_review_ready,
     }
 
 

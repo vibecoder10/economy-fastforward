@@ -228,6 +228,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       psychological_angles: payload.psychological_angles || null,
       source_bibliography: payload.source_bibliography || null,
       unit_roster: Array.isArray(payload.unit_roster) ? payload.unit_roster : [],
+      machine_discovery_buckets: payload.machine_discovery_buckets || null,
+      recommended_final_roster: Array.isArray(payload.recommended_final_roster) ? payload.recommended_final_roster : [],
+      operator_decision_points: Array.isArray(payload.operator_decision_points) ? payload.operator_decision_points : [],
       roster_contract: payload.roster_contract || null,
       roster_audit: payload.roster_audit || null,
       unit_roster_validation: payload.unit_roster_validation || null,
@@ -322,8 +325,36 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   <div>Source families: {research.roster_audit.source_families_crosschecked?.length || 0}</div>
                   <div>Unresolved candidates: {research.roster_audit.unresolved_candidates?.length || 0}</div>
                   {research.roster_audit.confidence && <div>Confidence: {research.roster_audit.confidence}</div>}
+                  {research.unit_roster_validation?.candidate_universe_count !== undefined && <div>Candidate universe: {research.unit_roster_validation.candidate_universe_count}</div>}
                 </div>
               </div>
+              {research.machine_discovery_buckets && (
+                <div className="lg:col-span-2 rounded-lg p-3" style={{ background: "rgba(255,255,255,.04)" }}>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Machine discovery buckets</div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {Object.entries(research.machine_discovery_buckets).map(([bucket, items]: [string, any]) => (
+                      <div key={bucket} className="rounded-md px-2 py-2" style={{ background: "rgba(255,255,255,.04)" }}>
+                        <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>{bucket.replace(/_/g, " ")}</div>
+                        <div className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>{Array.isArray(items) ? items.length : 0}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {research.operator_decision_points?.length > 0 && (
+                <div className="lg:col-span-2 rounded-lg p-3" style={{ background: "rgba(255,120,73,.08)", border: "1px solid rgba(255,120,73,.18)" }}>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--orange)" }}>Operator decision points</div>
+                  <div className="space-y-2">
+                    {research.operator_decision_points.map((point: any, i: number) => (
+                      <div key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                        <span style={{ color: "var(--text-primary)" }}>{point.question || point.name || `Decision ${i + 1}`}</span>
+                        {point.default_recommendation && <span> — default: {point.default_recommendation}</span>}
+                        {point.reason && <div style={{ color: "var(--text-tertiary)" }}>{point.reason}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {research.roster_audit.search_queries_used?.length > 0 && (
                 <div className="lg:col-span-2 rounded-lg p-3" style={{ background: "rgba(255,255,255,.04)" }}>
                   <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Roster-discovery searches</div>
