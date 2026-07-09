@@ -727,12 +727,22 @@ Rules:
   not the target. Do not pad with weak fits; instead, search harder, then
   document why a smaller verified universe is closed if applicable.
 - For historical role terms, include the era-equivalent machines a knowledgeable
-  viewer would expect. Example class of reasoning: a "strategic bomber" roster
-  may include pre-modern-designation heavy/long-range bombers, built prototypes,
-  escort or converted strategic-bombing variants, and role-shifted fighter-bomber
-  programs when sources tie them to the title's strategic-bombing promise. Do not
-  start the roster at the first famous postwar model just because official role
-  labels changed later.
+  viewer would expect, but do not turn a formal machine category into "anything
+  ever used against strategic targets." Example class of reasoning: a
+  "strategic bomber" roster may include pre-modern-designation heavy/long-range
+  bombers, built prototypes, escort or converted strategic-bombing variants, and
+  role-shifted fighter-bomber programs when sources tie the aircraft/program to
+  the title's strategic-bombing category. It should NOT include ordinary
+  tactical/medium machines merely because they once bombed an important target;
+  those belong in excluded_candidates unless a source classifies or redesignates
+  them under the title category. Do not start the roster at the first famous
+  postwar model just because official role labels changed later.
+- Do not pad final rosters with minor subvariants, export versions, mission kits,
+  block upgrades, or trim variants of a machine already included. `unit_roster`
+  is one audience-facing section per machine/program. A subvariant gets its own
+  row only when it has a distinct title-relevant designation/program identity
+  that a knowledgeable viewer would expect as a separate section; otherwise
+  mention it under the parent machine later in script/enrichment.
 - Your gap hunt must explicitly test generic omission classes, not title-specific
   memorized examples: designation/number sequence gaps, prefix/classification
   variants, role synonyms, mission-converted platforms, special-purpose support

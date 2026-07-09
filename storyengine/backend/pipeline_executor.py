@@ -267,6 +267,31 @@ def _roster_validation(
             for label in generic_edge_classes:
                 if label not in covered_classes and label not in gaps:
                     gaps.append(label)
+
+        # Catch count-padding with minor subvariants when the parent machine is
+        # already in the final roster. Complete-title machine videos need one
+        # audience-facing section per machine/program, not B-29 plus B-29B /
+        # B-36 plus B-36J just to hit the runtime target. Distinct programs with
+        # no plain parent row (for example A/B program variants) are left alone.
+        import re as _roster_re
+        family_entries: dict[str, list[str]] = {}
+        for item in roster:
+            code = _unit_code(item)
+            match = _roster_re.search(r"\b(B|FB)-(\d{1,3})([A-Z]?)\b", code)
+            if not match:
+                continue
+            family = f"{match.group(1)}-{match.group(2)}"
+            family_entries.setdefault(family, []).append(code)
+        padded_families = [
+            family for family, codes in family_entries.items()
+            if family in codes and any(code != family for code in codes)
+        ]
+        if padded_families and not any(term in str(title or "").lower() for term in ("variant", "variants", "class", "classes")):
+            warnings.append(
+                "Final roster appears padded with minor subvariants while the parent machine is already included: "
+                + ", ".join(padded_families)
+                + ". Combine minor variants under the parent unless the title asks for variants/classes or the subvariant is a distinct audience-facing program."
+            )
     if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
     if complete_title:
