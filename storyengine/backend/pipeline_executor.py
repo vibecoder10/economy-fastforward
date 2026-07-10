@@ -278,6 +278,11 @@ def _roster_validation(
             warnings.append("Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.")
         if not has_recommendation:
             warnings.append("Broad machine-roster research is missing recommended_final_roster.")
+        elif isinstance(recommended, list) and len(recommended) != len(roster):
+            warnings.append(
+                f"recommended_final_roster count ({len(recommended)}) does not match unit_roster count ({len(roster)}); "
+                "the locked machine list is internally inconsistent."
+            )
         if not has_gap_hunt:
             warnings.append("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.")
         if not has_edge_case_matrix:
@@ -324,6 +329,29 @@ def _roster_validation(
                 "Final roster appears padded with minor subvariants while the parent machine is already included: "
                 + ", ".join(padded_families)
                 + ". Combine minor variants under the parent unless the title asks for variants/classes or the subvariant is a distinct audience-facing program."
+            )
+
+        excluded_codes: dict[str, str] = {}
+        for item in audit_excluded:
+            name = _unit_display_name(item)
+            code = _unit_code(name)
+            if code:
+                excluded_codes[code] = name
+        overlap = [name for name, code in zip(roster, roster_codes) if code in excluded_codes]
+        if overlap:
+            warnings.append(
+                "Roster is internally inconsistent: candidate appears in both unit_roster and excluded_candidates: "
+                + ", ".join(overlap)
+            )
+
+        title_lower = str(title or "").lower()
+        if "ever built" in title_lower and any(
+            term in _payload_blob(audit_excluded).lower()
+            for term in ("not operationally delivered", "not yet operational", "not operationally deployed")
+        ):
+            warnings.append(
+                "Ever-built title is excluding a candidate for not being operational/delivered. "
+                "For 'ever built', physical build/flight is the boundary; operational status alone is not a valid exclusion."
             )
     if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
         warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
