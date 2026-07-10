@@ -1692,6 +1692,55 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_unit_research(self, video_id: str) -> dict:
+        """Continue the locked-roster machine research hold without rediscovering the roster."""
+        await self._ensure_initialized()
+        bot_name = "Machine Research Agent"
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            payload = video.get("research_payload") or {}
+            if isinstance(payload, str):
+                import json as _json
+                payload = _json.loads(payload)
+            if not isinstance(payload, dict):
+                return {"status": "failed", "error": "Research payload is missing or invalid"}
+
+            roster_gate = payload.get("unit_roster_validation") or {}
+            if not roster_gate.get("passed"):
+                return {"status": "failed", "error": "Lock and approve the machine roster before running machine research"}
+
+            roster = _machine_documentary_hold_roster(video)
+            if not roster:
+                return {"status": "failed", "error": "No locked machine roster found"}
+
+            title = video.get("video_title") or video.get("headline") or "Untitled documentary"
+            await self._log_activity(bot_name, video_id, "started", f"Researching {len(roster)} locked machines")
+            payload = await self._run_unit_research_hold(video_id, title, payload, roster)
+            validation = payload.get("unit_research_hold_validation") or {}
+            passed = bool(validation.get("passed"))
+            next_status = "ready_for_scripting" if passed else (video.get("status") or "idea_logged")
+
+            import json as _json
+            await execute(
+                "UPDATE videos SET research_payload = $1, status = $2, updated_at = now() WHERE id = $3",
+                _json.dumps(payload), next_status, video_id,
+            )
+            completed = len(payload.get("unit_research_cards") or [])
+            if passed:
+                await self._log_activity(bot_name, video_id, "completed", f"Machine research complete: {completed}/{len(roster)}")
+                return {"status": next_status, "video_id": video_id, "message": f"Machine research complete: {completed}/{len(roster)}"}
+
+            warning = "; ".join(str(w) for w in validation.get("warnings", [])) or "Machine research validation failed"
+            await self._log_activity(bot_name, video_id, "failed", warning[:800])
+            return {"status": "failed", "video_id": video_id, "error": warning}
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
     async def _inject_learnings_into_writer_guidance(self, video_id: str):
         """Inject learned patterns into writer_guidance before script generation.
 
@@ -1910,7 +1959,7 @@ class PipelineExecutor:
                 "- Return ONLY valid JSON. No markdown.\n\n"
                 "Required JSON keys: unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, "
                 "design_problem, engineering_response, tradeoff, actual_outcome, surprising_fact, human_detail, "
-                "visual_identity, high_risk_claims, script_beats, source_notes, validation.\n\n"
+                "visual_identity, high_risk_claims (array), script_beats (array), source_notes (array of source strings), validation.\n\n"
                 f"VIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
             )
             raw = await anthropic_client.generate(
@@ -1935,7 +1984,7 @@ class PipelineExecutor:
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
-                    "Return ONLY valid JSON with the required keys. Do not reopen the roster.\n\n"
+                    "Return ONLY valid JSON with all required keys. source_notes, high_risk_claims, and script_beats MUST be JSON arrays. Do not reopen the roster.\n\n"
                     f"BAD/RAW CARD:\n{raw}\n\nVIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
                 )
                 raw = await anthropic_client.generate(

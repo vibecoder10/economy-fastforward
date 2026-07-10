@@ -584,6 +584,45 @@ async def run_script(
     return PipelineResponse(video_id=video_id, status="running", message="Script generation started")
 
 
+@router.post("/machine-research/{video_id}", response_model=PipelineResponse)
+async def run_machine_research(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Research the existing locked machine roster without rerunning roster discovery."""
+    video = await fetch_one(
+        "SELECT id, research_payload FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if _is_task_active(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running for this video")
+
+    _set_task_status(video_id, "running", "Researching locked machines", tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_unit_research(video_id)
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            logger.exception("[machine-research] task failed video=%s: %s", video_id, e)
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return PipelineResponse(video_id=video_id, status="running", message="Machine research started")
+
+
 @router.post("/voice/{video_id}", response_model=PipelineResponse)
 async def run_voice(
     video_id: str,

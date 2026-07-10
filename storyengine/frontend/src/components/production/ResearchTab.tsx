@@ -134,6 +134,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [taskRunning, setTaskRunning] = useState(false);
+  const [taskMode, setTaskMode] = useState<"research" | "machines">("research");
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -154,6 +155,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   });
 
   const handleReResearch = useCallback(async () => {
+    setTaskMode("research");
     setIsResearching(true);
     try {
       await runPipelineStage(video.id, "research");
@@ -175,6 +177,18 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setIsResearching(false);
     }
   }, [video.id]);
+
+  const handleMachineResearch = useCallback(async () => {
+    setTaskMode("machines");
+    setIsResearching(true);
+    try {
+      await runPipelineStage(video.id, "machine-research");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      toast.error(`Machine research failed: ${(err as Error).message || "Unknown error"}`);
+      setIsResearching(false);
+    }
+  }, [video.id, toast]);
 
   const handleApproveResearch = useCallback(async () => {
     let rosterGate: any = null;
@@ -235,6 +249,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       roster_contract: payload.roster_contract || null,
       roster_audit: payload.roster_audit || null,
       unit_roster_validation: payload.unit_roster_validation || null,
+      unit_research_cards: Array.isArray(payload.unit_research_cards) ? payload.unit_research_cards : [],
+      unit_research_hold_validation: payload.unit_research_hold_validation || null,
     };
   }, [video]);
 
@@ -395,6 +411,74 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               </div>
             </div>
           )}
+        </GlassCard>
+      )}
+
+      {research.unit_roster.length > 0 && research.unit_roster_validation?.passed && (
+        <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: research.unit_research_hold_validation?.passed ? "var(--green)" : "var(--turquoise)" }}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <FileText size={15} style={{ color: "var(--turquoise)" }} />
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Step 2 · Machine research cards</h3>
+              </div>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                {research.unit_research_cards.length}/{research.unit_roster.length} machines researched. Each completed card is saved before the next machine begins.
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
+                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (research.unit_research_cards.length / research.unit_roster.length) * 100)}%`, background: research.unit_research_hold_validation?.passed ? "var(--green)" : "var(--turquoise)" }} />
+              </div>
+            </div>
+            <ActionButton
+              variant="filled"
+              icon={isResearching || taskRunning ? Loader2 : research.unit_research_hold_validation?.passed ? Check : RefreshCw}
+              onClick={handleMachineResearch}
+              disabled={isResearching || taskRunning || research.unit_research_hold_validation?.passed}
+            >
+              {taskRunning && taskMode === "machines"
+                ? (taskMessage || "Researching machines...")
+                : research.unit_research_hold_validation?.passed
+                  ? "Research complete"
+                  : research.unit_research_cards.length > 0
+                    ? "Continue machine research"
+                    : "Start machine research"}
+            </ActionButton>
+          </div>
+
+          {research.unit_research_hold_validation?.warnings?.length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {research.unit_research_hold_validation.warnings.map((warning: string, i: number) => (
+                <li key={i} className="text-xs" style={{ color: "var(--orange)" }}>• {warning}</li>
+              ))}
+            </ul>
+          )}
+
+          <div className="mt-4 space-y-2">
+            {research.unit_roster.map((item: any, index: number) => {
+              const label = typeof item === "string" ? item : [item.designation, item.name].filter(Boolean).join(" — ");
+              const card = research.unit_research_cards.find((candidate: any) => (candidate?.machine_name || "").toLowerCase() === label.toLowerCase()) || research.unit_research_cards[index];
+              return (
+                <details key={`${label}-${index}`} className="rounded-lg" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.06)" }}>
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">
+                    <span style={{ color: card ? "var(--text-primary)" : "var(--text-tertiary)" }}>{index + 1}. {label}</span>
+                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider" style={{ color: card ? "var(--green)" : "var(--text-tertiary)" }}>{card ? "Researched" : "Waiting"}</span>
+                  </summary>
+                  {card && (
+                    <div className="space-y-3 border-t px-3 py-3" style={{ borderColor: "rgba(255,255,255,.06)" }}>
+                      {card.engineering_thesis && <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>{card.engineering_thesis}</p>}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {card.why_this_unit_deserves_a_paragraph && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Why it matters</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.why_this_unit_deserves_a_paragraph}</p></div>}
+                        {card.actual_outcome && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>What happened</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.actual_outcome}</p></div>}
+                        {card.design_problem && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Engineering problem</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.design_problem}</p></div>}
+                        {card.tradeoff && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Design tradeoff</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.tradeoff}</p></div>}
+                      </div>
+                      {Array.isArray(card.source_notes) && card.source_notes.length > 0 && <div className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>Sources: {card.source_notes.join(" · ")}</div>}
+                    </div>
+                  )}
+                </details>
+              );
+            })}
+          </div>
         </GlassCard>
       )}
 
