@@ -49,6 +49,9 @@ _logger = logging.getLogger(__name__)
 def _unit_display_name(item: Any) -> str:
     """Normalize a research unit_roster entry into a human-readable name."""
     if isinstance(item, dict):
+        nested = item.get("unit") or item.get("machine")
+        if nested and not (item.get("name") or item.get("title") or item.get("designation") or item.get("code")):
+            return _unit_display_name(nested)
         name = str(item.get("name") or item.get("title") or "").strip()
         designation = str(item.get("designation") or item.get("code") or "").strip()
         if name and designation and designation.lower() not in name.lower():
@@ -71,6 +74,12 @@ def _unit_code(text: str) -> str:
             return m.group(0).replace(" ", "")
     words = re.findall(r"[A-Z0-9]+", s)
     return " ".join(words[:4])
+
+
+def _normalized_unit_code(text: str) -> str:
+    """Canonical designation equality (B-52 == B52; B-2 != B-21)."""
+    import re
+    return re.sub(r"[^A-Z0-9]", "", _unit_code(text).upper())
 
 
 def _title_needs_complete_roster(title: str) -> bool:
@@ -103,6 +112,107 @@ def _payload_blob(payload: Any) -> str:
         return json.dumps(payload, ensure_ascii=False)
     except Exception:
         return str(payload or "")
+
+
+def _spoken_word_count(text: str) -> int:
+    """Deterministic voiceover word count.
+
+    Never trust the model to self-report counts. Count in code, treating
+    designations such as B-52 and contractions/hyphenations as one spoken token.
+    """
+    import re
+    return len(re.findall(r"\b[\w]+(?:[-'][\w]+)*\b", str(text or "")))
+
+
+def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
+    """Return the one-machine research card matching a locked roster item.
+
+    Supports the planned `unit_research_cards[]` shape plus a few obvious
+    aliases so older proof payloads don't break. Matching is deliberately
+    conservative: exact normalized display/code match first, containment second.
+    """
+    if not isinstance(payload, dict):
+        return None
+    cards = payload.get("unit_research_cards") or payload.get("machine_research_cards") or payload.get("research_cards")
+    if not isinstance(cards, list):
+        return None
+    target_name = _unit_display_name(machine).strip().lower()
+    target_code = _normalized_unit_code(machine)
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        raw_unit = (
+            card.get("unit")
+            or card.get("machine")
+            or card.get("name")
+            or card.get("designation")
+            or card.get("title")
+            or ""
+        )
+        card_name = _unit_display_name(raw_unit).strip().lower()
+        card_code = _normalized_unit_code(_unit_display_name(raw_unit))
+        if target_name and card_name == target_name:
+            return card
+        if target_code and card_code == target_code:
+            return card
+        # Common card shape: {"unit": {"name": "Boeing XB-15", ...}}
+        if isinstance(raw_unit, dict):
+            nested_name = _unit_display_name(raw_unit).strip().lower()
+            nested_code = _normalized_unit_code(_unit_display_name(raw_unit))
+            if (target_name and nested_name == target_name) or (target_code and nested_code == target_code):
+                return card
+        # No substring fallback: B-2/B-21 and B-1/B-10 must never collide.
+    return None
+
+
+def _research_source_for_machine(payload: dict, machine: str) -> tuple[str, str]:
+    """Prefer one-machine card context; fall back to legacy video-level research."""
+    import json
+    card = _research_card_for_machine(payload, machine)
+    if card:
+        return json.dumps(card, ensure_ascii=False, indent=2)[:9000], "unit_research_card"
+    source = "\n\n".join(
+        str(payload.get(k) or "")
+        for k in ("fact_sheet", "source_bibliography", "framework_analysis", "historical_parallels")
+        if payload.get(k)
+    )[:14000]
+    return source, "legacy_research_blob"
+
+
+def _machine_documentary_hold_roster(video: dict) -> list[str]:
+    """Return the locked machine roster only for the siloed static-docu path.
+
+    Animation, narrative, dialogue, modeled, and clip-based videos remain on the
+    global whole-video writer even if a roster-shaped field appears in research.
+    No fact-sheet/LLM inference is allowed here: the roster must already be an
+    explicit persisted list.
+    """
+    import json as _json_mh
+
+    if not isinstance(video, dict) or (video.get("render_mode") or "") != "static_docu":
+        return []
+    payload = video.get("research_payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = _json_mh.loads(payload)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(payload, dict):
+        return []
+    marker = str(payload.get("documentary_style") or payload.get("pipeline_style") or "").strip().lower()
+    has_machine_marker = (
+        marker in {"machine_documentary", "designed_vs_used", "dvsu"}
+        or isinstance(payload.get("machine_discovery_buckets"), dict)
+        or isinstance(payload.get("unit_research_hold_validation"), dict)
+    )
+    if not has_machine_marker:
+        return []
+    roster = payload.get("unit_roster")
+    if not isinstance(roster, list):
+        return []
+    names = [_unit_display_name(item) for item in roster]
+    names = [name for name in names if name]
+    return names if 3 <= len(names) <= 40 else []
 
 
 def _list_len(value: Any) -> int:
@@ -1531,7 +1641,17 @@ class PipelineExecutor:
             # repair; that is exactly how a bad paid pass leaks downstream.
             import json
             passed_roster_gate = bool(roster_check.get("passed"))
-            next_status = "ready_for_scripting" if passed_roster_gate else (current_status or "idea_logged")
+            passed_unit_research_hold = True
+            hold_video = dict(video)
+            hold_video["research_payload"] = payload
+            roster_names = _machine_documentary_hold_roster(hold_video)
+            if passed_roster_gate and roster_names:
+                payload = await self._run_unit_research_hold(video_id, topic, payload, roster_names)
+                hold_validation = payload.get("unit_research_hold_validation") if isinstance(payload, dict) else None
+                passed_unit_research_hold = bool(
+                    isinstance(hold_validation, dict) and hold_validation.get("passed")
+                )
+            next_status = "ready_for_scripting" if (passed_roster_gate and passed_unit_research_hold) else (current_status or "idea_logged")
             await execute(
                 """UPDATE videos SET
                    research_payload = $1,
@@ -1547,13 +1667,14 @@ class PipelineExecutor:
                 video_id,
             )
 
-            if not passed_roster_gate:
-                await self._log_transition(video_id, current_status or "unknown", next_status, "api", error_message="Roster validation failed")
-                await self._log_activity(bot_name, video_id, "failed", "Research roster gate failed; not advancing to scripting")
+            if not (passed_roster_gate and passed_unit_research_hold):
+                gate_error = "Roster validation failed" if not passed_roster_gate else "Unit research-hold failed"
+                await self._log_transition(video_id, current_status or "unknown", next_status, "api", error_message=gate_error)
+                await self._log_activity(bot_name, video_id, "failed", f"Research gate failed; not advancing to scripting: {gate_error}")
                 return {
                     "status": "failed",
                     "video_id": video_id,
-                    "error": "Research roster gate failed; not advancing to scripting",
+                    "error": f"Research gate failed; not advancing to scripting: {gate_error}",
                     "headline": payload.get("headline"),
                 }
 
@@ -1703,30 +1824,187 @@ class PipelineExecutor:
             _logger.warning("[unit-roster] extraction failed: %s", str(e)[:150])
             return []
 
-    @staticmethod
-    def _locked_research_unit_roster(video: dict) -> list[str]:
-        """Structured locked roster only — no LLM/fact-sheet fallback.
+    async def _run_unit_research_hold(self, video_id: str, title: str, payload: dict, roster: list[str]) -> dict:
+        """DVsU/static-docu research path: enrich one locked machine at a time.
 
-        Script-hold has intentionally narrow blast radius: it only runs when
-        research has already persisted an explicit unit_roster. Legacy static
-        docs without that lock keep the old full-script path.
+        This runs after roster validation passes. It does not reopen the roster;
+        it creates/updates `unit_research_cards[]` so script-hold can consume a
+        small card for the current machine instead of the full video fact blob.
         """
-        import json as _json_lr
+        import json as _json_uh
 
-        rp = (video or {}).get("research_payload") or {}
-        if isinstance(rp, str):
+        bot_name = "Research Agent"
+        if not isinstance(payload, dict) or not roster:
+            return payload
+
+        # Exact serialized snapshot, not merely a count/name projection. Every
+        # card pass must leave the structured locked roster byte-for-byte equal.
+        locked_roster_snapshot = _json_uh.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False)
+
+        def _card_warnings(machine: str, card: Any) -> list[str]:
+            warnings: list[str] = []
+            if not isinstance(card, dict):
+                return ["research card was not an object"]
+            card_unit = _unit_display_name(
+                card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+            )
+            if not card_unit or _normalized_unit_code(card_unit) != _normalized_unit_code(machine):
+                warnings.append(f"card unit does not match locked machine {machine}")
+            if len(str(card.get("engineering_thesis") or "").strip()) < 20:
+                warnings.append("missing/weak engineering_thesis")
+            if not str(card.get("surprising_fact") or "").strip():
+                warnings.append("missing surprising_fact")
+            source_notes = card.get("source_notes")
+            if not isinstance(source_notes, list) or not source_notes:
+                warnings.append("missing source_notes")
+            return warnings
+
+        anthropic_client = getattr(self._pipeline, "anthropic", None)
+        if anthropic_client is None:
+            msg = "Unit research-hold requires an Anthropic client, but none is configured."
+            payload["unit_research_hold_validation"] = {"passed": False, "units": [], "warnings": [msg]}
+            await self._log_activity(bot_name, video_id, "failed", msg)
+            return payload
+
+        existing_cards_raw = payload.get("unit_research_cards")
+        existing_cards = existing_cards_raw if isinstance(existing_cards_raw, list) else []
+        cards_by_code: dict[str, dict] = {}
+        for card in existing_cards:
+            if not isinstance(card, dict):
+                continue
+            raw_unit = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+            code = _unit_code(_unit_display_name(raw_unit) or str(raw_unit))
+            if code:
+                cards_by_code[code] = card
+
+        legacy_source = "\n\n".join(
+            str(payload.get(k) or "")
+            for k in ("fact_sheet", "source_bibliography", "framework_analysis", "historical_parallels", "roster_contract")
+            if payload.get(k)
+        )[:16000]
+        if not legacy_source.strip():
+            legacy_source = _payload_blob(payload)[:16000]
+
+        unit_cards: list[dict] = []
+        validation_units: list[dict] = []
+        await self._log_activity(bot_name, video_id, "running", f"Unit research-hold active: enriching {len(roster)} machine card(s) one at a time")
+
+        for i, machine in enumerate(roster, start=1):
+            code = _unit_code(machine)
+            if code and code in cards_by_code:
+                card = cards_by_code[code]
+                warnings = _card_warnings(machine, card)
+                if not warnings:
+                    unit_cards.append(card)
+                    validation_units.append({"machine": machine, "passed": True, "reused_existing": True, "warnings": []})
+                    continue
+
+            prompt = (
+                "Create ONE Designed vs Used machine research card.\n\n"
+                f"VIDEO TITLE: {title}\n"
+                f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n\n"
+                "HARD CONTRACT:\n"
+                "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
+                "- Research/enrich only THIS machine enough to support one 95-120 word DVsU paragraph and one image brief.\n"
+                "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
+                "- Return ONLY valid JSON. No markdown.\n\n"
+                "Required JSON keys: unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, "
+                "design_problem, engineering_response, tradeoff, actual_outcome, surprising_fact, human_detail, "
+                "visual_identity, high_risk_claims, script_beats, source_notes, validation.\n\n"
+                f"VIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
+            )
+            raw = await anthropic_client.generate(
+                prompt=prompt,
+                system_prompt="You produce source-grounded JSON research cards for one locked DVsU machine. Output only valid JSON.",
+                max_tokens=1600,
+                temperature=0.15,
+            )
+            card: dict = {}
+            warnings: list[str] = []
             try:
-                rp = _json_lr.loads(rp)
-            except Exception:
-                rp = {}
-        if not isinstance(rp, dict):
-            return []
-        roster = rp.get("unit_roster")
-        if not isinstance(roster, list):
-            return []
-        names = [_unit_display_name(m) for m in roster]
-        names = [n for n in names if n]
-        return names if 3 <= len(names) <= 40 else []
+                text = str(raw or "").strip()
+                if text.startswith("```"):
+                    import re as _re_uh
+                    text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
+                card = _json_uh.loads(text)
+                warnings = _card_warnings(machine, card)
+            except Exception as e:
+                warnings = [f"invalid JSON research card: {str(e)[:120]}"]
+
+            if warnings:
+                repair_prompt = (
+                    f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
+                    f"Warnings: {'; '.join(warnings)}\n"
+                    "Return ONLY valid JSON with the required keys. Do not reopen the roster.\n\n"
+                    f"BAD/RAW CARD:\n{raw}\n\nVIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
+                )
+                raw = await anthropic_client.generate(
+                    prompt=repair_prompt,
+                    system_prompt="You repair one JSON research card. Output only valid JSON.",
+                    max_tokens=1600,
+                    temperature=0.05,
+                )
+                try:
+                    text = str(raw or "").strip()
+                    if text.startswith("```"):
+                        import re as _re_uh2
+                        text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
+                    card = _json_uh.loads(text)
+                    warnings = _card_warnings(machine, card)
+                except Exception as e:
+                    card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
+                    warnings = [f"invalid JSON after repair: {str(e)[:120]}"]
+
+            # Canonical identity/index come from the immutable roster, never the
+            # model. This does not permit the card pass to alter roster contents.
+            if not isinstance(card, dict):
+                card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
+                warnings = warnings or ["research card was not an object after repair"]
+            card["unit"] = machine
+            card["include"] = True
+            card["locked_roster_index"] = i
+            unit_cards.append(card)
+            validation_units.append({"machine": machine, "passed": not warnings, "warnings": warnings})
+
+            if _json_uh.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False) != locked_roster_snapshot:
+                warnings = ["locked unit_roster changed during per-machine research"]
+                validation_units[-1] = {"machine": machine, "passed": False, "warnings": warnings}
+
+            # Durable checkpoint after each machine. A crash or later-machine
+            # failure cannot discard research cards already completed.
+            payload["unit_research_cards"] = unit_cards
+            payload["unit_research_hold_validation"] = {
+                "passed": not warnings and i == len(roster),
+                "in_progress": not warnings and i < len(roster),
+                "units": validation_units,
+            }
+            checkpoint_result = await execute(
+                """UPDATE videos
+                   SET research_payload = $1, updated_at = now()
+                   WHERE id = $2 AND tenant_id = $3
+                     AND (
+                         research_payload->'unit_roster' IS NULL
+                         OR research_payload->'unit_roster' = $4::jsonb
+                     )""",
+                _json_uh.dumps(payload), video_id, self.tenant_id, locked_roster_snapshot,
+            )
+            if isinstance(checkpoint_result, str) and checkpoint_result.strip().upper() == "UPDATE 0":
+                conflict = "persisted unit_roster changed concurrently; stale research checkpoint refused"
+                validation_units[-1] = {"machine": machine, "passed": False, "warnings": [conflict]}
+                payload["unit_research_hold_validation"] = {
+                    "passed": False,
+                    "in_progress": False,
+                    "units": validation_units,
+                }
+                await self._log_activity(bot_name, video_id, "failed", conflict)
+                return payload
+            if warnings:
+                await self._log_activity(bot_name, video_id, "failed", f"Unit research-hold stopped at {machine}: " + "; ".join(warnings))
+                return payload
+
+        payload["unit_research_hold_validation"] = {"passed": True, "in_progress": False, "units": validation_units}
+        await self._log_activity(bot_name, video_id, "running", f"Unit research-hold complete: {len(unit_cards)} machine card(s)")
+        return payload
 
     async def _resplit_static_scenes(self, video_id: str) -> None:
         """Static documentaries: one scene per UNIT PARAGRAPH, not per act.
@@ -1827,23 +2105,28 @@ class PipelineExecutor:
         paragraph = re.sub(r"\s*```$", "", paragraph).strip()
         paragraph = re.sub(r"^(?:scene|paragraph|machine)\s*\d*\s*[:\-]\s*", "", paragraph, flags=re.I).strip()
         paragraph = re.sub(r"^#+\s*.+\n+", "", paragraph).strip()
-        return " ".join(paragraph.split())
+        # Preserve paragraph boundaries until deterministic validation runs.
+        return paragraph.strip()
 
     @staticmethod
     def _validate_static_unit_paragraph(machine: str, paragraph: str) -> list[str]:
         """Deterministic per-machine gate for static-docu script-hold output."""
+        import re
+
         warnings: list[str] = []
         text = str(paragraph or "").strip()
-        words = text.split()
-        wc = len(words)
-        machine_code = _unit_code(machine)
+        wc = _spoken_word_count(text)
+        machine_code = _normalized_unit_code(machine)
         if not text:
             warnings.append("empty paragraph")
         if "\n" in text:
             warnings.append("must be exactly one paragraph")
-        if wc < 90 or wc > 135:
-            warnings.append(f"word count {wc} outside 90-135 script-hold range")
-        if machine_code and machine_code not in text.upper():
+        # Anton/DVsU hard production range. Code is authoritative; model
+        # self-counts are ignored, and a 90-word result must repair upward.
+        if wc < 95 or wc > 120:
+            warnings.append(f"word count {wc} outside 95-120 script-hold range")
+        normalized_text = re.sub(r"[^A-Z0-9]", "", text.upper())
+        if machine_code and machine_code not in normalized_text:
             warnings.append(f"missing locked machine designation {machine_code}")
         lower = text.lower()
         if any(term in lower for term in ("as an ai", "i can't", "cannot verify", "here is", "markdown")):
@@ -1869,30 +2152,37 @@ class PipelineExecutor:
         if not isinstance(rp, dict):
             rp = {}
 
-        research_source = "\n\n".join(
-            str(rp.get(k) or "")
-            for k in ("fact_sheet", "source_bibliography", "framework_analysis", "historical_parallels")
-            if rp.get(k)
-        )[:14000]
         await self._log_activity(
             bot_name, video_id, "started",
             f"Script-hold active: generating {len(roster)} static-docu machine paragraph(s) one at a time",
         )
 
-        rows = await fetch_all("SELECT voice_id FROM scripts WHERE video_id = $1 LIMIT 1", video_id)
-        voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
-        await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, self.tenant_id)
-
-        paragraphs: list[str] = []
-        validation_units: list[dict] = []
         anthropic_client = getattr(self._pipeline, "anthropic", None)
         if anthropic_client is None:
             msg = "Script-hold requires an Anthropic client, but none is configured."
             await self._log_activity(bot_name, video_id, "failed", msg)
             return {"status": "failed", "error": msg, "video_id": video_id}
+
+        # The machine writer is not allowed to fall back to the global fact
+        # sheet. Research and script are separate artifacts, and every locked
+        # machine must have its own persisted card before any script rows change.
+        missing_cards = [machine for machine in roster if _research_card_for_machine(rp, machine) is None]
+        if missing_cards:
+            msg = "Script-hold requires a saved research card for every locked machine; missing: " + ", ".join(missing_cards)
+            await self._log_activity(bot_name, video_id, "failed", msg[:900])
+            return {"status": "failed", "error": msg, "video_id": video_id}
+
+        rows = await fetch_all("SELECT voice_id FROM scripts WHERE video_id = $1 LIMIT 1", video_id)
+        voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
+
+        # Stage every replacement paragraph in memory. Existing script rows remain
+        # untouched unless the complete roster validates successfully.
+        paragraphs: list[str] = []
+        validation_units: list[dict] = []
         for i, machine in enumerate(roster, start=1):
             prev_machine = roster[i - 2] if i > 1 else "None"
             next_machine = roster[i] if i < len(roster) else "None"
+            research_source, research_source_kind = _research_source_for_machine(rp, machine)
             prompt = (
                 "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
                 f"VIDEO TITLE: {title}\n"
@@ -1900,14 +2190,14 @@ class PipelineExecutor:
                 f"PREVIOUS MACHINE: {prev_machine}\n"
                 f"NEXT MACHINE: {next_machine}\n\n"
                 "HARD CONTRACT:\n"
-                "- Return exactly ONE paragraph, 95-120 words preferred; never below 90 or above 135.\n"
+                "- Return exactly ONE paragraph, 95-120 words inclusive. A 90-word result must be expanded.\n"
                 "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, or JSON.\n"
                 "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
-                "- Use only facts supported by the research source below. If a detail is not supported, omit it.\n"
+                f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
                 "- Include the locked machine designation/name naturally.\n"
                 "- Anton/DVsU tone: compact, specific, historically grounded, mildly dramatic, no hype filler.\n"
                 "- End cleanly so the next paragraph can move to the next machine.\n\n"
-                f"RESEARCH SOURCE:\n{research_source}"
+                f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
             )
             paragraph = await anthropic_client.generate(
                 prompt=prompt,
@@ -1922,8 +2212,9 @@ class PipelineExecutor:
                 repair_prompt = (
                     f"Repair this static documentary paragraph for LOCKED MACHINE: {machine}.\n"
                     f"Validation warnings: {'; '.join(warnings)}\n\n"
-                    "Return exactly ONE spoken paragraph, 95-120 words preferred, no markdown/labels, "
-                    "include the locked designation/name, and use only the research source.\n\n"
+                    "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
+                    "No markdown/labels. Include the locked designation/name. Use only the same research source. "
+                    "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
                     f"BAD PARAGRAPH:\n{paragraph}\n\n"
                     f"RESEARCH SOURCE:\n{research_source}"
                 )
@@ -1939,26 +2230,23 @@ class PipelineExecutor:
             validation_units.append({
                 "scene": i,
                 "machine": machine,
-                "word_count": len(paragraph.split()),
+                "word_count": _spoken_word_count(paragraph),
+                "research_source": research_source_kind,
                 "passed": not warnings,
                 "warnings": warnings,
             })
             if warnings:
                 validation = {"script_hold": {"passed": False, "units": validation_units}}
                 await execute(
-                    "UPDATE videos SET script_validation = $1, script = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
-                    _json_sh.dumps(validation), "\n\n".join(paragraphs), video_id, self.tenant_id,
+                    "UPDATE videos SET script_validation = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                    _json_sh.dumps(validation), video_id, self.tenant_id,
                 )
                 msg = f"Script-hold stopped at machine {i}/{len(roster)} ({machine}): " + "; ".join(warnings)
                 await self._log_activity(bot_name, video_id, "failed", msg[:900])
                 return {"status": "failed", "error": msg, "video_id": video_id}
 
+            paragraph = " ".join(paragraph.split())
             paragraphs.append(paragraph)
-            await execute(
-                """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
-                   VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
-                self.tenant_id, video_id, i, paragraph, title, voice_id,
-            )
             await self._log_activity(bot_name, video_id, "started", f"Script-hold paragraph {i}/{len(roster)} passed: {machine}")
 
         full_script = "\n\n".join(paragraphs)
@@ -1970,9 +2258,32 @@ class PipelineExecutor:
         if not isinstance(validation, dict):
             validation = {}
         validation["script_hold"] = {"passed": True, "units": validation_units}
+        staged_rows = [
+            {"scene": i, "scene_text": paragraph}
+            for i, paragraph in enumerate(paragraphs, start=1)
+        ]
+        # One PostgreSQL statement means delete + insert + video mirror update
+        # either all commit or all roll back. A failed rerun cannot erase the
+        # previously valid documentary script.
         await execute(
-            "UPDATE videos SET script = $1, script_validation = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
-            full_script, _json_sh.dumps(validation), video_id, self.tenant_id,
+            """WITH deleted AS (
+                   DELETE FROM scripts WHERE video_id = $2 AND tenant_id = $1 RETURNING 1
+               ), inserted AS (
+                   INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                   SELECT $1, $2, staged.scene, staged.scene_text, $4, 'Create', $5
+                   FROM jsonb_to_recordset($3::jsonb) AS staged(scene int, scene_text text)
+                   RETURNING 1
+               )
+               UPDATE videos
+               SET script = $6, script_validation = $7, updated_at = now()
+               WHERE id = $2 AND tenant_id = $1""",
+            self.tenant_id,
+            video_id,
+            _json_sh.dumps(staged_rows),
+            title,
+            voice_id,
+            full_script,
+            _json_sh.dumps(validation),
         )
 
         roster_check = await self._validate_static_script_roster(video_id)
@@ -2468,13 +2779,12 @@ separate scenes."""
             # documentary videos (DVsU-style render_mode='static_docu') that
             # already have a locked machine roster. Every other StoryEngine
             # script path keeps the existing full-script generator untouched.
-            if (video.get("render_mode") or "") == "static_docu":
-                roster = self._locked_research_unit_roster(video)
-                if roster:
-                    return await self._run_static_script_hold(video_id, video, roster)
+            roster = _machine_documentary_hold_roster(video)
+            if roster:
+                return await self._run_static_script_hold(video_id, video, roster)
 
-            # Run normal script generation for all non-static-docu videos, and
-            # for static docs without a reliable locked unit roster.
+            # Run normal global script generation for animation/narrative videos,
+            # and for static docs without an explicit locked machine roster.
             result = await self._pipeline.run_brief_translator()
 
             if result.get("error"):

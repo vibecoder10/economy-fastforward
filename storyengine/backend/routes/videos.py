@@ -29,6 +29,86 @@ def _strip_md(s: Optional[str]) -> Optional[str]:
     return re.sub(r"[*_`#]", "", s).strip() or None
 
 
+def _spoken_word_count(text: str) -> int:
+    """Deterministic voiceover word count; never trust model self-counts."""
+    return len(re.findall(r"\b[\w]+(?:[-'][\w]+)*\b", str(text or "")))
+
+
+def _unit_display_name(item: Any) -> str:
+    if isinstance(item, dict):
+        nested = item.get("unit") or item.get("machine")
+        if nested and not (item.get("name") or item.get("title") or item.get("designation") or item.get("code")):
+            return _unit_display_name(nested)
+        name = str(item.get("name") or item.get("title") or "").strip()
+        designation = str(item.get("designation") or item.get("code") or "").strip()
+        if name and designation and designation.lower() not in name.lower():
+            return f"{designation} {name}".strip()
+        return name or designation
+    return str(item or "").strip()
+
+
+def _unit_code(text: str) -> str:
+    s = str(text or "").upper().replace("–", "-").replace("—", "-")
+    for pat in (r"\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b", r"\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b"):
+        m = re.search(pat, s)
+        if m:
+            return m.group(0).replace(" ", "")
+    words = re.findall(r"[A-Z0-9]+", s)
+    return " ".join(words[:4])
+
+
+def _normalized_unit_code(text: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", _unit_code(text).upper())
+
+
+def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
+    if not isinstance(payload, dict):
+        return None
+    cards = payload.get("unit_research_cards") or payload.get("machine_research_cards") or payload.get("research_cards")
+    if not isinstance(cards, list):
+        return None
+    target_name = _unit_display_name(machine).strip().lower()
+    target_code = _normalized_unit_code(machine)
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        raw_unit = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or card.get("title") or ""
+        card_name = _unit_display_name(raw_unit).strip().lower()
+        card_code = _normalized_unit_code(_unit_display_name(raw_unit))
+        if (target_name and card_name == target_name) or (target_code and card_code == target_code):
+            return card
+        if isinstance(raw_unit, dict):
+            nested_name = _unit_display_name(raw_unit).strip().lower()
+            nested_code = _normalized_unit_code(_unit_display_name(raw_unit))
+            if (target_name and nested_name == target_name) or (target_code and nested_code == target_code):
+                return card
+        # No substring fallback: B-2 must never match B-21.
+    return None
+
+
+def _research_source_for_machine(payload: dict, machine: str) -> tuple[str, str]:
+    card = _research_card_for_machine(payload, machine)
+    if card:
+        return json.dumps(card, ensure_ascii=False, indent=2)[:9000], "unit_research_card"
+    if not isinstance(payload, dict):
+        payload = {}
+    source = "\n\n".join(
+        str(payload.get(k) or "")
+        for k in ("fact_sheet", "source_bibliography", "framework_analysis", "historical_parallels")
+        if payload.get(k)
+    )[:6000]
+    return source, "legacy_research_blob"
+
+
+def _locked_machine_for_scene(payload: dict, scene: int, fallback_text: str = "") -> str:
+    roster = payload.get("unit_roster") if isinstance(payload, dict) else None
+    if isinstance(roster, list) and 1 <= scene <= len(roster):
+        name = _unit_display_name(roster[scene - 1])
+        if name:
+            return name
+    return fallback_text[:120]
+
+
 def _parse_script_validation(val: Any) -> Optional[str]:
     """Parse script_validation, converting plain-text format to JSON if needed.
 
@@ -1639,7 +1719,7 @@ async def rewrite_scene_text(
     from prompt_defaults import SCRIPT_SYSTEM_PROMPT
 
     video = await fetch_one(
-        "SELECT id, video_title, research_payload FROM videos "
+        "SELECT id, video_title, render_mode, research_payload FROM videos "
         "WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL", video_id, tenant_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -1662,36 +1742,119 @@ async def rewrite_scene_text(
             rp = _json.loads(rp)
         except (ValueError, TypeError):
             rp = {}
-    fact_sheet = (rp or {}).get("fact_sheet") or ""
-    if not isinstance(fact_sheet, str):
-        fact_sheet = _json.dumps(fact_sheet)
+    if not isinstance(rp, dict):
+        rp = {}
 
-    task = (
-        f'Video: "{video.get("video_title", "")}"\n\n'
-        "Rewrite the following SINGLE unit paragraph — one machine, one paragraph. "
-        "Keep it a self-contained unit of 95 to 120 words obeying every channel law "
-        "in your instructions. Use ONLY facts about this machine from the research "
-        "fact sheet below; hedge anything uncertain; never speak source names aloud. "
-        "Output ONLY the rewritten paragraph, nothing else.\n\n"
-        f"CURRENT PARAGRAPH:\n{row['scene_text']}\n\n"
-        f"RESEARCH FACT SHEET (verified material):\n{fact_sheet[:6000]}"
+    roster = rp.get("unit_roster")
+    marker = str(rp.get("documentary_style") or rp.get("pipeline_style") or "").strip().lower()
+    has_machine_marker = (
+        marker in {"machine_documentary", "designed_vs_used", "dvsu"}
+        or isinstance(rp.get("machine_discovery_buckets"), dict)
+        or isinstance(rp.get("unit_research_hold_validation"), dict)
     )
-    try:
+    machine_documentary = (
+        (video.get("render_mode") or "") == "static_docu"
+        and has_machine_marker
+        and isinstance(roster, list)
+        and 3 <= len(roster) <= 40
+    )
+    locked_machine = _locked_machine_for_scene(rp, scene, row.get("scene_text") or "")
+    if machine_documentary:
+        card = _research_card_for_machine(rp, locked_machine)
+        if card is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Machine rewrite requires the saved research card for {locked_machine}",
+            )
+        research_source = _json.dumps(card, ensure_ascii=False, indent=2)[:9000]
+        research_source_kind = "unit_research_card"
+    else:
+        # Preserve the pre-existing generic scene-rewrite behavior outside the
+        # machine-documentary silo. Animation/narrative stays fact-sheet/global.
+        fact_sheet = rp.get("fact_sheet") or ""
+        research_source = fact_sheet if isinstance(fact_sheet, str) else _json.dumps(fact_sheet)
+        research_source = research_source[:6000]
+        research_source_kind = "fact_sheet"
+
+    def _clean_response(text: str) -> str:
+        cleaned = str(text or "").strip()
+        cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned).strip()
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+        cleaned = re.sub(r"^(?:scene|paragraph|machine)\s*\d*\s*[:\-]\s*", "", cleaned, flags=re.I).strip()
+        # Preserve newlines until the one-paragraph gate has run.
+        return cleaned.strip()
+
+    def _validation_warnings(text: str) -> list[str]:
+        warnings: list[str] = []
+        wc = _spoken_word_count(text)
+        if not text.strip():
+            warnings.append("empty paragraph")
+        if "\n" in text:
+            warnings.append("must be exactly one paragraph")
+        if wc < 95 or wc > 120:
+            warnings.append(f"word count {wc} outside 95-120 rewrite range")
+        code = _normalized_unit_code(locked_machine)
+        normalized_text = re.sub(r"[^A-Z0-9]", "", text.upper())
+        if code and code not in normalized_text:
+            warnings.append(f"missing locked machine designation {code}")
+        return warnings
+
+    async def _claude_paragraph(prompt: str, max_tokens: int = 450, temperature: float = 0.25) -> str:
         async with _httpx.AsyncClient(timeout=90.0) as client:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
                          "content-type": "application/json"},
-                json={"model": "claude-sonnet-4-6", "max_tokens": 600,
+                json={"model": "claude-sonnet-4-6", "max_tokens": max_tokens,
+                      "temperature": temperature,
                       "system": system_prompt,
-                      "messages": [{"role": "user", "content": task}]})
+                      "messages": [{"role": "user", "content": prompt}]})
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=humanize_error(
                 f"Claude {resp.status_code}", context="Couldn't rewrite this scene"))
-        new_text = resp.json()["content"][0]["text"].strip()
+        return _clean_response(resp.json()["content"][0]["text"])
+
+    machine_contract = (
+        f"LOCKED MACHINE FOR THIS SCENE: {locked_machine}\n"
+        "Use 95-120 words inclusive. A 90-word result must be expanded. "
+        if machine_documentary
+        else "Keep it a self-contained unit of 95 to 120 words. "
+    )
+    task = (
+        f'Video: "{video.get("video_title", "")}"\n\n'
+        + machine_contract
+        + "Rewrite the following SINGLE unit paragraph — one machine, one paragraph. "
+        "Obey every channel law in your instructions. Use ONLY supported facts from the research source below; "
+        "hedge anything uncertain; never speak source names aloud. "
+        "Output ONLY the rewritten paragraph, nothing else.\n\n"
+        f"CURRENT PARAGRAPH:\n{row['scene_text']}\n\n"
+        f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
+    )
+    try:
+        new_text = await _claude_paragraph(
+            task,
+            max_tokens=450 if machine_documentary else 600,
+            temperature=0.35 if machine_documentary else 0.25,
+        )
+        warnings = _validation_warnings(new_text) if machine_documentary else []
+        if machine_documentary and warnings:
+            repair_task = (
+                f"Repair this SINGLE DVsU machine paragraph for LOCKED MACHINE: {locked_machine}.\n"
+                f"Validation warnings: {'; '.join(warnings)}\n\n"
+                "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
+                "No markdown, labels, bullets, or citations. Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal. "
+                "Cut secondary specs and timeline filler. Use only the research source.\n\n"
+                f"BAD PARAGRAPH:\n{new_text}\n\n"
+                f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
+            )
+            new_text = await _claude_paragraph(repair_task, max_tokens=380, temperature=0.15)
+            warnings = _validation_warnings(new_text)
+        if warnings:
+            raise HTTPException(status_code=502, detail="Rewrite failed validation after repair: " + "; ".join(warnings))
+        new_text = " ".join(new_text.split())
     except _httpx.HTTPError:
         raise HTTPException(status_code=502, detail="Failed to reach Claude API")
-    if not new_text or len(new_text.split()) < 40:
+    if not new_text or _spoken_word_count(new_text) < 40:
         raise HTTPException(status_code=502, detail="Rewrite came back too short — try again")
 
     # Save the paragraph; clear this scene's voice so only it re-records.
@@ -1708,7 +1871,7 @@ async def rewrite_scene_text(
         "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id, "\n\n".join(r["scene_text"] for r in scenes_rows))
 
-    return {"scene": scene, "text": new_text, "word_count": len(new_text.split())}
+    return {"scene": scene, "text": new_text, "word_count": _spoken_word_count(new_text)}
 
 
 async def _channel_default_prompt(tenant_id, prompt_key: str, fallback: str) -> str:
