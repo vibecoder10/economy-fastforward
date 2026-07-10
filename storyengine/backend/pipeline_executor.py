@@ -1703,6 +1703,31 @@ class PipelineExecutor:
             _logger.warning("[unit-roster] extraction failed: %s", str(e)[:150])
             return []
 
+    @staticmethod
+    def _locked_research_unit_roster(video: dict) -> list[str]:
+        """Structured locked roster only — no LLM/fact-sheet fallback.
+
+        Script-hold has intentionally narrow blast radius: it only runs when
+        research has already persisted an explicit unit_roster. Legacy static
+        docs without that lock keep the old full-script path.
+        """
+        import json as _json_lr
+
+        rp = (video or {}).get("research_payload") or {}
+        if isinstance(rp, str):
+            try:
+                rp = _json_lr.loads(rp)
+            except Exception:
+                rp = {}
+        if not isinstance(rp, dict):
+            return []
+        roster = rp.get("unit_roster")
+        if not isinstance(roster, list):
+            return []
+        names = [_unit_display_name(m) for m in roster]
+        names = [n for n in names if n]
+        return names if 3 <= len(names) <= 40 else []
+
     async def _resplit_static_scenes(self, video_id: str) -> None:
         """Static documentaries: one scene per UNIT PARAGRAPH, not per act.
 
@@ -1791,6 +1816,180 @@ class PipelineExecutor:
                 "Script roster gate failed: " + "; ".join(check.get("warnings", []))[:800],
             )
         return check
+
+    @staticmethod
+    def _clean_static_unit_paragraph(text: str) -> str:
+        """Normalize a one-machine script-hold response into spoken narration."""
+        import re
+
+        paragraph = str(text or "").strip()
+        paragraph = re.sub(r"^```[a-zA-Z]*\s*", "", paragraph).strip()
+        paragraph = re.sub(r"\s*```$", "", paragraph).strip()
+        paragraph = re.sub(r"^(?:scene|paragraph|machine)\s*\d*\s*[:\-]\s*", "", paragraph, flags=re.I).strip()
+        paragraph = re.sub(r"^#+\s*.+\n+", "", paragraph).strip()
+        return " ".join(paragraph.split())
+
+    @staticmethod
+    def _validate_static_unit_paragraph(machine: str, paragraph: str) -> list[str]:
+        """Deterministic per-machine gate for static-docu script-hold output."""
+        warnings: list[str] = []
+        text = str(paragraph or "").strip()
+        words = text.split()
+        wc = len(words)
+        machine_code = _unit_code(machine)
+        if not text:
+            warnings.append("empty paragraph")
+        if "\n" in text:
+            warnings.append("must be exactly one paragraph")
+        if wc < 90 or wc > 135:
+            warnings.append(f"word count {wc} outside 90-135 script-hold range")
+        if machine_code and machine_code not in text.upper():
+            warnings.append(f"missing locked machine designation {machine_code}")
+        lower = text.lower()
+        if any(term in lower for term in ("as an ai", "i can't", "cannot verify", "here is", "markdown")):
+            warnings.append("contains meta/commentary instead of narration")
+        return warnings
+
+    async def _run_static_script_hold(self, video_id: str, video: dict, roster: list[str]) -> dict:
+        """DVsU/static-docu script path: one locked machine paragraph at a time.
+
+        Scoped by the caller to videos.render_mode == 'static_docu'. Normal
+        StoryEngine videos keep the existing full-script brief-translator flow.
+        """
+        import json as _json_sh
+
+        bot_name = "Script Bot"
+        title = video.get("video_title") or video.get("headline") or ""
+        rp = video.get("research_payload") or {}
+        if isinstance(rp, str):
+            try:
+                rp = _json_sh.loads(rp)
+            except Exception:
+                rp = {}
+        if not isinstance(rp, dict):
+            rp = {}
+
+        research_source = "\n\n".join(
+            str(rp.get(k) or "")
+            for k in ("fact_sheet", "source_bibliography", "framework_analysis", "historical_parallels")
+            if rp.get(k)
+        )[:14000]
+        await self._log_activity(
+            bot_name, video_id, "started",
+            f"Script-hold active: generating {len(roster)} static-docu machine paragraph(s) one at a time",
+        )
+
+        rows = await fetch_all("SELECT voice_id FROM scripts WHERE video_id = $1 LIMIT 1", video_id)
+        voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
+        await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, self.tenant_id)
+
+        paragraphs: list[str] = []
+        validation_units: list[dict] = []
+        anthropic_client = getattr(self._pipeline, "anthropic", None)
+        if anthropic_client is None:
+            msg = "Script-hold requires an Anthropic client, but none is configured."
+            await self._log_activity(bot_name, video_id, "failed", msg)
+            return {"status": "failed", "error": msg, "video_id": video_id}
+        for i, machine in enumerate(roster, start=1):
+            prev_machine = roster[i - 2] if i > 1 else "None"
+            next_machine = roster[i] if i < len(roster) else "None"
+            prompt = (
+                "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
+                f"VIDEO TITLE: {title}\n"
+                f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
+                f"PREVIOUS MACHINE: {prev_machine}\n"
+                f"NEXT MACHINE: {next_machine}\n\n"
+                "HARD CONTRACT:\n"
+                "- Return exactly ONE paragraph, 95-120 words preferred; never below 90 or above 135.\n"
+                "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, or JSON.\n"
+                "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
+                "- Use only facts supported by the research source below. If a detail is not supported, omit it.\n"
+                "- Include the locked machine designation/name naturally.\n"
+                "- Anton/DVsU tone: compact, specific, historically grounded, mildly dramatic, no hype filler.\n"
+                "- End cleanly so the next paragraph can move to the next machine.\n\n"
+                f"RESEARCH SOURCE:\n{research_source}"
+            )
+            paragraph = await anthropic_client.generate(
+                prompt=prompt,
+                system_prompt="You write precise military-history documentary voiceover. Output only the requested spoken paragraph.",
+                max_tokens=450,
+                temperature=0.45,
+            )
+            paragraph = self._clean_static_unit_paragraph(paragraph)
+            warnings = self._validate_static_unit_paragraph(machine, paragraph)
+
+            if warnings:
+                repair_prompt = (
+                    f"Repair this static documentary paragraph for LOCKED MACHINE: {machine}.\n"
+                    f"Validation warnings: {'; '.join(warnings)}\n\n"
+                    "Return exactly ONE spoken paragraph, 95-120 words preferred, no markdown/labels, "
+                    "include the locked designation/name, and use only the research source.\n\n"
+                    f"BAD PARAGRAPH:\n{paragraph}\n\n"
+                    f"RESEARCH SOURCE:\n{research_source}"
+                )
+                paragraph = await anthropic_client.generate(
+                    prompt=repair_prompt,
+                    system_prompt="You repair one paragraph. Output only the final spoken paragraph.",
+                    max_tokens=450,
+                    temperature=0.25,
+                )
+                paragraph = self._clean_static_unit_paragraph(paragraph)
+                warnings = self._validate_static_unit_paragraph(machine, paragraph)
+
+            validation_units.append({
+                "scene": i,
+                "machine": machine,
+                "word_count": len(paragraph.split()),
+                "passed": not warnings,
+                "warnings": warnings,
+            })
+            if warnings:
+                validation = {"script_hold": {"passed": False, "units": validation_units}}
+                await execute(
+                    "UPDATE videos SET script_validation = $1, script = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
+                    _json_sh.dumps(validation), "\n\n".join(paragraphs), video_id, self.tenant_id,
+                )
+                msg = f"Script-hold stopped at machine {i}/{len(roster)} ({machine}): " + "; ".join(warnings)
+                await self._log_activity(bot_name, video_id, "failed", msg[:900])
+                return {"status": "failed", "error": msg, "video_id": video_id}
+
+            paragraphs.append(paragraph)
+            await execute(
+                """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                   VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
+                self.tenant_id, video_id, i, paragraph, title, voice_id,
+            )
+            await self._log_activity(bot_name, video_id, "started", f"Script-hold paragraph {i}/{len(roster)} passed: {machine}")
+
+        full_script = "\n\n".join(paragraphs)
+        existing = video.get("script_validation")
+        try:
+            validation = _json_sh.loads(existing) if isinstance(existing, str) and existing.strip() else (existing or {})
+        except Exception:
+            validation = {}
+        if not isinstance(validation, dict):
+            validation = {}
+        validation["script_hold"] = {"passed": True, "units": validation_units}
+        await execute(
+            "UPDATE videos SET script = $1, script_validation = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
+            full_script, _json_sh.dumps(validation), video_id, self.tenant_id,
+        )
+
+        roster_check = await self._validate_static_script_roster(video_id)
+        if roster_check.get("complete_title") and not roster_check.get("passed"):
+            msg = "Script roster gate failed after script-hold: " + "; ".join(roster_check.get("warnings", []))
+            await self._log_activity(bot_name, video_id, "failed", msg[:900])
+            return {"status": "failed", "error": msg, "video_id": video_id}
+
+        current_status = str(video.get("status") or "ready_for_scripting")
+        eff_status = self._skip_disabled_next(video, "ready_for_voice")
+        await self._update_video_status(video_id, eff_status)
+        await self._log_transition(video_id, current_status, eff_status, "api")
+        await self._log_activity(
+            bot_name, video_id, "completed",
+            f"Script-hold complete ({len(paragraphs)} machine paragraphs, {len(full_script.split())} words)",
+        )
+        return {"status": eff_status, "video_id": video_id, "new_status": eff_status}
 
     async def _factual_gate_static(self, video_id: str) -> None:
         """Factual gate for static documentaries: verify every claim in the
@@ -2265,30 +2464,17 @@ separate scenes."""
                 self._pipeline.script_allowed_speakers = None
                 self._pipeline.script_format_contract = None
 
-            # Static documentaries: the research already SELECTED the machines
-            # (curated shortlist). Hand the writer that roster as a locked
-            # contract - one 95-120 word paragraph per machine, in order - so
-            # the script can never skip, merge, or substitute units. The
-            # contract seam is appended LAST in generate_script, which is what
-            # makes it stick against the topic brief.
+            # Blast-radius guardrail: script-hold is ONLY for static-image
+            # documentary videos (DVsU-style render_mode='static_docu') that
+            # already have a locked machine roster. Every other StoryEngine
+            # script path keeps the existing full-script generator untouched.
             if (video.get("render_mode") or "") == "static_docu":
-                roster = await self._static_unit_roster(video)
+                roster = self._locked_research_unit_roster(video)
                 if roster:
-                    roster_lines = "\n".join(f"{i}. {m}" for i, m in enumerate(roster, 1))
-                    self._pipeline.script_format_contract = (
-                        ((self._pipeline.script_format_contract or "") + "\n\n").lstrip()
-                        + "=== UNIT ROSTER - NON-NEGOTIABLE (static documentary) ===\n"
-                        f"The research selected exactly these {len(roster)} machines. Write EXACTLY ONE "
-                        "self-contained unit paragraph of 95-120 words for EACH machine below, in THIS "
-                        "order, grouped into your acts. One machine = one paragraph.\n"
-                        f"{roster_lines}\n"
-                        "Do not skip, merge, add, or substitute machines. Every machine on this list "
-                        "appears exactly once; no machine not on this list appears at all."
-                    )
-                    await self._log_activity(bot_name, video_id, "started",
-                                             f"Unit roster locked: {len(roster)} machines from research")
+                    return await self._run_static_script_hold(video_id, video, roster)
 
-            # Run script generation
+            # Run normal script generation for all non-static-docu videos, and
+            # for static docs without a reliable locked unit roster.
             result = await self._pipeline.run_brief_translator()
 
             if result.get("error"):
