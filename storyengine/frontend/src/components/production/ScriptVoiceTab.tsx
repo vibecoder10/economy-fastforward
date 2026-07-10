@@ -1208,13 +1208,29 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       return payload?.unit_roster_validation || null;
     } catch { return null; }
   })();
+  const machineResearchGate = (() => {
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload) : video.research_payload;
+      const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+      if (roster.length === 0) return null;
+      const validation = payload?.unit_research_hold_validation;
+      return validation?.passed
+        ? validation
+        : {
+            passed: false,
+            complete_title: true,
+            roster_count: roster.length,
+            warnings: validation?.warnings || [`Machine research is incomplete: ${payload?.unit_research_cards?.length || 0}/${roster.length} cards finished.`],
+          };
+    } catch { return null; }
+  })();
   const scriptRosterGate = (() => {
     try {
       const validation = typeof video.script_validation === "string" ? JSON.parse(video.script_validation) : video.script_validation;
       return validation?.unit_roster || null;
     } catch { return null; }
   })();
-  const activeRosterGate = scriptRosterGate || researchRosterGate;
+  const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
 
   // ---------------------------------------------------------------------------
   // Loading state

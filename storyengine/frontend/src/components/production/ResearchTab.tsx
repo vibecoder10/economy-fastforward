@@ -195,6 +195,12 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     try {
       const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload) : video.research_payload;
       rosterGate = payload?.unit_roster_validation;
+      const lockedRoster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+      const machineResearchGate = payload?.unit_research_hold_validation;
+      if (lockedRoster.length > 0 && !machineResearchGate?.passed) {
+        setApproveError(`Machine research is incomplete: ${payload?.unit_research_cards?.length || 0}/${lockedRoster.length} cards finished.`);
+        return;
+      }
     } catch { /* ignore malformed payload */ }
     if (rosterGate?.complete_title && rosterGate?.passed === false) {
       setApproveError(`Roster gate failed: ${(rosterGate.warnings || []).join("; ") || "research roster is incomplete"}`);
