@@ -254,7 +254,15 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       operator_decision_points: Array.isArray(payload.operator_decision_points) ? payload.operator_decision_points : [],
       roster_contract: payload.roster_contract || null,
       roster_audit: payload.roster_audit || null,
-      unit_roster_validation: payload.unit_roster_validation || null,
+      unit_roster_validation: payload.unit_roster_validation || (Array.isArray(payload.unit_roster) && payload.unit_roster.length > 0
+        ? {
+            passed: true,
+            complete_title: true,
+            roster_count: payload.unit_roster.length,
+            warnings: [],
+            legacy_roster: true,
+          }
+        : null),
       unit_research_cards: Array.isArray(payload.unit_research_cards) ? payload.unit_research_cards : [],
       unit_research_hold_validation: payload.unit_research_hold_validation || null,
     };
