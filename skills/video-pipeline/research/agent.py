@@ -676,9 +676,11 @@ Research the following topic as a ROSTER DISCOVERY pass only:
 {CONTEXT_SECTION}
 
 This is NOT the script pass and NOT the full documentary brief pass.
-Your job is to discover the broad machine/unit candidate universe implied by the
-video title, organize it into reusable machine buckets, then recommend the best
-final documentary roster/selection for that title. This must work for any vehicle
+Your job is to turn the video title plus target length into a locked, script-ready
+roster of audience-facing machines. Do not try to create a self-determined list
+of every possible machine in the world. Research enough candidates to confidently
+fill the runtime-derived machine count, resolve obvious edge cases, lock the
+final roster, then hand execution to scripting. This must work for any vehicle
 or machine category: aircraft, ships, submarines, tanks, armored vehicles,
 trucks, off-road vehicles, missiles, artillery, spacecraft, weapons platforms,
 industrial machines, or any other title-implied machine family. It runs in
@@ -690,9 +692,11 @@ Rules:
   category_explainer, comparison, or other. For top-N/ranked titles, do NOT stop
   at N candidates: build a wider candidate pool, then rank/select. For complete
   titles, prioritize completeness over narrative neatness.
-- Search wide first. Return every plausible candidate category even when the
-  final recommendation excludes some items. Treat examples in the title/context
-  as seeds only, never as the complete boundary.
+- Search deliberately, not endlessly. Build a candidate slate large enough to
+  support the target roster count plus a small reserve for exclusions and swaps.
+  Treat examples in the title/context as seeds only, never as the complete
+  boundary, but do not chase every remote machine once the target roster is
+  source-backed and edge cases are resolved.
 - After the first roster draft, run a second adversarial gap hunt. Assume the
   first draft missed machines. Search by designation sequence, role synonyms,
   prototype/cancelled language, converted/special variants, and program-family
@@ -716,16 +720,15 @@ Rules:
   discard older, wartime, interim, converted, or doctrinally-adjacent machines
   merely because their official category name was narrower.
 - For national or force-level complete titles using words like every/all/ever
-  built/complete, use any VIDEO LENGTH / ROSTER PACING PRESSURE context as a
-  completeness-pressure heuristic. Anton/DVsU machine-roster benchmarks average
-  about 95-120 words per audience-facing machine but about 60 seconds of final
-  screen time per machine once VO pacing, pauses, transitions, and visuals are
-  included. If the requested length implies about N machines, your candidate
-  universe should exceed N by the stated good-measure buffer before final
-  filtering, and your final roster should land near N unless sources prove the
-  category is genuinely smaller. The minimum acceptable count is a failure floor,
-  not the target. Do not pad with weak fits; instead, search harder, then
-  document why a smaller verified universe is closed if applicable.
+  built/complete, use any VIDEO LENGTH / ROSTER PACING PRESSURE context as the
+  production target. Anton/DVsU machine-roster benchmarks average about 95-120
+  words per audience-facing machine but about 60 seconds of final screen time per
+  machine once VO pacing, pauses, transitions, and visuals are included. If the
+  requested length implies N machines, lock roughly N audience-facing machines
+  for scripting. Keep a small researched reserve for exclusions/swaps, but do not
+  optimize for a giant universe. The minimum acceptable count is a failure floor,
+  not the target. Do not pad with weak fits; choose the strongest source-backed
+  roster that fits the requested runtime.
 - For historical role terms, include the era-equivalent machines a knowledgeable
   viewer would expect, but do not turn a formal machine category into "anything
   ever used against strategic targets." Example class of reasoning: a
@@ -765,8 +768,9 @@ Rules:
 - `unit_roster` must be the recommended final documentary roster: one section per
   audience-facing machine/program, not every subvariant unless the subvariant is
   itself the machine viewers expect to see.
-- Also return the wider candidate universe in `machine_discovery_buckets` so the
-  operator can see what was found and why boundary calls were made.
+- Also return `machine_discovery_buckets` as an audit trail for the candidates
+  actually researched while locking the target roster; it is not a mandate to
+  enumerate every possible machine outside the video scope.
 - Return `gap_hunt_matrix` showing the follow-up omission hunt: candidate name,
   discovery path/query family, final placement, and reason. This is how the
   operator verifies that edge cases were actively chased instead of missed.

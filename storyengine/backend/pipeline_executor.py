@@ -138,7 +138,7 @@ def _roster_pacing_targets(video_length_minutes: Any) -> Optional[dict]:
 
     target_final = max(1, round((minutes * 60) / 60))
     minimum_final = max(1, math.floor(target_final * 0.85))
-    good_measure = max(3, math.ceil(target_final * 0.17))
+    good_measure = max(2, math.ceil(target_final * 0.10))
     candidate_target = target_final + good_measure
     return {
         "video_length_minutes": minutes,
@@ -149,7 +149,7 @@ def _roster_pacing_targets(video_length_minutes: Any) -> Optional[dict]:
         "minimum_final_roster": minimum_final,
         "candidate_universe_target": candidate_target,
         "extra_good_measure": good_measure,
-        "heuristic_note": "Pressure target only; do not pad with weak candidates if sources prove the universe is smaller.",
+        "heuristic_note": "Runtime target for the locked final roster; research a small reserve for exclusions/swaps, not an endless universe.",
     }
 
 
@@ -257,21 +257,21 @@ def _roster_validation(
         warnings.append(
             "Broad complete-roster title is below the Anton-paced final roster target: "
             f"{len(roster)} final items vs expected around {pacing_targets['expected_final_roster']} "
-            f"for a {pacing_targets['video_length_minutes']:g}-minute video. Search harder or "
+            f"for a {pacing_targets['video_length_minutes']:g}-minute video. Lock enough source-backed machines to fit the runtime or "
             "prove with sources that the category is genuinely smaller."
         )
     if (
         _title_is_broad_machine_roster(title)
         and complete_title
         and pacing_targets
-        and candidate_universe_count > 0
-        and candidate_universe_count < pacing_targets["candidate_universe_target"]
+        and len(roster) > pacing_targets["candidate_universe_target"]
         and not small_category_proof
     ):
         warnings.append(
-            "Broad complete-roster research candidate universe is below the "
-            f"Anton-paced target of {pacing_targets['candidate_universe_target']} "
-            f"candidates for a {pacing_targets['video_length_minutes']:g}-minute video."
+            "Broad complete-roster final roster is larger than the runtime target plus reserve: "
+            f"{len(roster)} final items vs target around {pacing_targets['expected_final_roster']} "
+            f"for a {pacing_targets['video_length_minutes']:g}-minute video. Tighten the roster to fit the requested runtime, "
+            "or prove that the title requires the larger count."
         )
     if _title_is_broad_machine_roster(title):
         if bucket_total == 0:
@@ -1425,10 +1425,9 @@ class PipelineExecutor:
                     "95-120 script words per machine. "
                     f"Expected final roster: around {pacing_targets['expected_final_roster']} machines. "
                     f"Minimum acceptable final roster before proving a small closed category: {pacing_targets['minimum_final_roster']}. "
-                    f"Candidate universe target before final filtering: at least {pacing_targets['candidate_universe_target']} candidates "
-                    f"({pacing_targets['extra_good_measure']} extra for good measure). "
-                    "This is a completeness-pressure heuristic, not permission to pad weak fits; "
-                    "if verified sources prove the universe is smaller, state that proof explicitly."
+                    f"Research reserve before final filtering: about {pacing_targets['candidate_universe_target']} total candidates "
+                    f"({pacing_targets['extra_good_measure']} extra for exclusions/swaps). "
+                    "Lock the strongest runtime-fit roster; do not optimize for an endless universe or pad weak fits."
                 )
                 research_context = (research_context + "\n\n" if research_context else "") + pacing_context
 
@@ -1456,8 +1455,8 @@ class PipelineExecutor:
                         "\nAnton/DVsU pacing gate to satisfy unless sources prove a small closed category:\n"
                         f"- Expected final roster: around {pacing.get('expected_final_roster')} audience-facing machines.\n"
                         f"- Minimum failure floor: {pacing.get('minimum_final_roster')} machines. Do not treat this as the target.\n"
-                        f"- Candidate universe target before filtering: at least {pacing.get('candidate_universe_target')} candidates.\n"
-                        "If your final roster is below the expected target, explicitly show the source-backed closure proof; otherwise expand the roster.\n"
+                        f"- Research reserve before filtering: about {pacing.get('candidate_universe_target')} total candidates for exclusions/swaps, not an endless universe.\n"
+                        "If your final roster is below the expected target, explicitly show the source-backed closure proof; otherwise lock the strongest runtime-fit roster.\n"
                     )
                 repair_context = (
                     (research_context or "")
