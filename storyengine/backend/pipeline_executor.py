@@ -1956,6 +1956,7 @@ class PipelineExecutor:
                 "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
                 "- Research/enrich only THIS machine enough to support one 95-120 word DVsU paragraph and one image brief.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
+                "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
                 "Required JSON keys: unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, "
                 "design_problem, engineering_response, tradeoff, actual_outcome, surprising_fact, human_detail, "
@@ -1965,7 +1966,7 @@ class PipelineExecutor:
             raw = await anthropic_client.generate(
                 prompt=prompt,
                 system_prompt="You produce source-grounded JSON research cards for one locked DVsU machine. Output only valid JSON.",
-                max_tokens=1600,
+                max_tokens=2400,
                 temperature=0.15,
             )
             card: dict = {}
@@ -1984,13 +1985,13 @@ class PipelineExecutor:
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
-                    "Return ONLY valid JSON with all required keys. source_notes, high_risk_claims, and script_beats MUST be JSON arrays. Do not reopen the roster.\n\n"
+                    "Return ONLY valid JSON with all required keys. source_notes, high_risk_claims, and script_beats MUST be JSON arrays. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
                     f"BAD/RAW CARD:\n{raw}\n\nVIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
                 )
                 raw = await anthropic_client.generate(
                     prompt=repair_prompt,
                     system_prompt="You repair one JSON research card. Output only valid JSON.",
-                    max_tokens=1600,
+                    max_tokens=2400,
                     temperature=0.05,
                 )
                 try:
