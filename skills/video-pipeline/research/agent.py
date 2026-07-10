@@ -725,10 +725,13 @@ Rules:
   words per audience-facing machine but about 60 seconds of final screen time per
   machine once VO pacing, pauses, transitions, and visuals are included. If the
   requested length implies N machines, lock roughly N audience-facing machines
-  for scripting. Keep a small researched reserve for exclusions/swaps, but do not
-  optimize for a giant universe. The minimum acceptable count is a failure floor,
-  not the target. Do not pad with weak fits; choose the strongest source-backed
-  roster that fits the requested runtime.
+  for scripting. For normal machine-roster videos, “roughly N” means N or N-1/N+1
+  when source quality demands it; do not call N-2 or smaller “fit” when your own
+  research found a large reserve of plausible candidates. Keep a small researched
+  reserve for exclusions/swaps, but do not optimize for a giant universe. The
+  minimum acceptable count is a failure floor, not the target. Do not pad with
+  weak fits; choose the strongest source-backed roster that fits the requested
+  runtime.
 - For historical role terms, include the era-equivalent machines a knowledgeable
   viewer would expect, but do not turn a formal machine category into "anything
   ever used against strategic targets." Example class of reasoning: a
