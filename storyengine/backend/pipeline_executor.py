@@ -2296,6 +2296,26 @@ class PipelineExecutor:
 
             paragraph = " ".join(paragraph.split())
             paragraphs.append(paragraph)
+            # Persist only hold/progress metadata after each machine. Script rows
+            # remain atomic and are replaced only after every paragraph passes.
+            # The UI can therefore show real machine-level progress without a
+            # failed run ever exposing or replacing a partial documentary script.
+            progress_hold = {
+                "passed": False,
+                "in_progress": True,
+                "completed_count": len(paragraphs),
+                "total_count": len(roster),
+                "units": validation_units,
+            }
+            await execute(
+                """UPDATE videos
+                   SET script_validation = jsonb_set(
+                       COALESCE(script_validation::jsonb, '{}'::jsonb),
+                       '{script_hold}', $1::jsonb, true
+                   ), updated_at = now()
+                   WHERE id = $2 AND tenant_id = $3""",
+                _json_sh.dumps(progress_hold), video_id, self.tenant_id,
+            )
             await self._log_activity(bot_name, video_id, "started", f"Script-hold paragraph {i}/{len(roster)} passed: {machine}")
 
         full_script = "\n\n".join(paragraphs)

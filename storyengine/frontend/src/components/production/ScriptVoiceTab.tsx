@@ -1202,34 +1202,34 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     }
   }, [video.id, invalidateAll, onAdvanced]);
 
-  const researchRosterGate = (() => {
+  const researchPayload = (() => {
     try {
-      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload) : video.research_payload;
-      return payload?.unit_roster_validation || null;
-    } catch { return null; }
+      return typeof video.research_payload === "string" ? JSON.parse(video.research_payload) : (video.research_payload || {});
+    } catch { return {}; }
   })();
+  const parsedScriptValidation = (() => {
+    try {
+      return typeof video.script_validation === "string" ? JSON.parse(video.script_validation) : (video.script_validation || {});
+    } catch { return {}; }
+  })();
+  const machineRoster = Array.isArray(researchPayload?.unit_roster) ? researchPayload.unit_roster : [];
+  const isMachineDocumentary = video.render_mode === "static_docu" && machineRoster.length > 0;
+  const scriptHold = parsedScriptValidation?.script_hold || null;
+  const researchRosterGate = researchPayload?.unit_roster_validation || null;
   const machineResearchGate = (() => {
-    try {
-      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload) : video.research_payload;
-      const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
-      if (roster.length === 0) return null;
-      const validation = payload?.unit_research_hold_validation;
-      return validation?.passed
-        ? validation
-        : {
-            passed: false,
-            complete_title: true,
-            roster_count: roster.length,
-            warnings: validation?.warnings || [`Machine research is incomplete: ${payload?.unit_research_cards?.length || 0}/${roster.length} cards finished.`],
-          };
-    } catch { return null; }
+    const roster = machineRoster;
+    if (roster.length === 0) return null;
+    const validation = researchPayload?.unit_research_hold_validation;
+    return validation?.passed
+      ? validation
+      : {
+          passed: false,
+          complete_title: true,
+          roster_count: roster.length,
+          warnings: validation?.warnings || [`Machine research is incomplete: ${researchPayload?.unit_research_cards?.length || 0}/${roster.length} cards finished.`],
+        };
   })();
-  const scriptRosterGate = (() => {
-    try {
-      const validation = typeof video.script_validation === "string" ? JSON.parse(video.script_validation) : video.script_validation;
-      return validation?.unit_roster || null;
-    } catch { return null; }
-  })();
+  const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
 
   // ---------------------------------------------------------------------------
@@ -1308,6 +1308,23 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
 
   return (
     <div className="space-y-6 pb-24">
+      {isMachineDocumentary && (
+        <GlassCard className="p-5">
+          <div className="flex items-center gap-3">
+            <ShieldCheck size={18} style={{ color: scriptHold?.passed ? "var(--green)" : "var(--orange)" }} />
+            <div>
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Machine Script Hold</h3>
+              <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>One locked machine, one researched paragraph, one scene.</p>
+            </div>
+            <span className="ml-auto text-xs font-mono font-semibold" style={{ color: scriptHold?.passed ? "var(--green)" : "var(--orange)" }}>
+              {scriptHold?.units?.filter((unit: any) => unit?.passed).length || 0}/{machineRoster.length} machines scripted
+            </span>
+          </div>
+          <div className="mt-3 h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,.08)" }}>
+            <div className="h-full rounded-full transition-all" style={{ width: `${machineRoster.length ? Math.round(((scriptHold?.units?.filter((unit: any) => unit?.passed).length || 0) / machineRoster.length) * 100) : 0}%`, background: scriptHold?.passed ? "var(--green)" : "var(--orange)" }} />
+          </div>
+        </GlassCard>
+      )}
       {/* Top action bar */}
       <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1529,6 +1546,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       // until the voice runs long.
                       const wordCount = scene.narrationText.split(/\s+/).filter(Boolean).length;
                       const overCap = wordCount > 120;
+                      const rosterEntry = machineRoster[scene.sceneNumber - 1];
+                      const holdUnit = scriptHold?.units?.find((unit: any) => Number(unit?.scene) === scene.sceneNumber);
+                      const machineName = holdUnit?.machine
+                        || (typeof rosterEntry === "string" ? rosterEntry : rosterEntry?.machine || rosterEntry?.unit || rosterEntry?.title)
+                        || null;
 
                       return (
                         <GlassCard
@@ -1549,6 +1571,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               label={`S-${String(scene.sceneNumber).padStart(2, "0")}`}
                               color={scene.imageGenerated ? undefined : "var(--orange)"}
                             />
+                            {isMachineDocumentary && machineName && (
+                              <span className="text-sm font-semibold truncate max-w-[340px]" style={{ color: "var(--text-primary)" }} title={machineName}>
+                                {machineName}
+                              </span>
+                            )}
 
                             {/* Status badges */}
                             <ScriptStatusBadge status={scene.scriptStatus} />
@@ -1604,22 +1631,26 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               <span className="font-mono">{scene.sentences.length}</span>
                             </button>
 
-                            <button
-                              onClick={() => mergeSceneUp(scene.sceneNumber)}
-                              title="Merge into scene above"
-                              className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
-                              style={{ color: "var(--text-tertiary)" }}
-                            >
-                              <Merge size={12} />
-                            </button>
-                            <button
-                              onClick={() => addSceneAfter(scene.sceneNumber)}
-                              title="Add scene below"
-                              className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
-                              style={{ color: "var(--text-tertiary)" }}
-                            >
-                              <Plus size={12} />
-                            </button>
+                            {!isMachineDocumentary && (
+                              <>
+                                <button
+                                  onClick={() => mergeSceneUp(scene.sceneNumber)}
+                                  title="Merge into scene above"
+                                  className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
+                                  style={{ color: "var(--text-tertiary)" }}
+                                >
+                                  <Merge size={12} />
+                                </button>
+                                <button
+                                  onClick={() => addSceneAfter(scene.sceneNumber)}
+                                  title="Add scene below"
+                                  className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
+                                  style={{ color: "var(--text-tertiary)" }}
+                                >
+                                  <Plus size={12} />
+                                </button>
+                              </>
+                            )}
                             <button
                               onClick={() => handleRewriteScene(scene.sceneNumber)}
                               disabled={rewritingScene !== null}
@@ -1633,25 +1664,27 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                                 <Wand2 size={12} />
                               )}
                             </button>
-                            <button
-                              onClick={() => handleDeleteScene(scene.sceneNumber)}
-                              disabled={deletingScene === scene.sceneNumber}
-                              title="Delete scene"
-                              className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
-                              style={{ color: "var(--text-tertiary)" }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = "var(--orange)";
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = "var(--text-tertiary)";
-                              }}
-                            >
-                              {deletingScene === scene.sceneNumber ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <Trash2 size={12} />
-                              )}
-                            </button>
+                            {!isMachineDocumentary && (
+                              <button
+                                onClick={() => handleDeleteScene(scene.sceneNumber)}
+                                disabled={deletingScene === scene.sceneNumber}
+                                title="Delete scene"
+                                className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
+                                style={{ color: "var(--text-tertiary)" }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = "var(--orange)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = "var(--text-tertiary)";
+                                }}
+                              >
+                                {deletingScene === scene.sceneNumber ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <Trash2 size={12} />
+                                )}
+                              </button>
+                            )}
                           </div>
 
                           {/* ---- COLLAPSED: Unified text view ---- */}
