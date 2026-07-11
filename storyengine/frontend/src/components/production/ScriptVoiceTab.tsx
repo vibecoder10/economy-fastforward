@@ -16,7 +16,7 @@ import {
   getDefaultScriptPrompt, rewriteSceneText,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
   setApiKey, getApiKeyStatus, getDialogueMap, getAudioToken,
-  getPipelineTaskStatus,
+  getPipelineTaskStatus, runMachineScriptPreview,
 } from "@/lib/api";
 import { API_URL } from "@/lib/env";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
@@ -502,6 +502,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const [revisionNotes, setRevisionNotes] = useState("");
   const [revisionScope, setRevisionScope] = useState("Minor tweaks");
   const [approved, setApproved] = useState(false);
+  const [previewMachine, setPreviewMachine] = useState("");
+  const [previewGenerating, setPreviewGenerating] = useState(false);
+  const [machinePreview, setMachinePreview] = useState<any>(null);
 
   // Voice actions
   const [generatingVoiceAll, setGeneratingVoiceAll] = useState(false);
@@ -1232,6 +1235,22 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
 
+  const handleMachinePreview = async () => {
+    const machine = previewMachine || machineRoster[0];
+    if (!machine) return;
+    setPreviewGenerating(true);
+    try {
+      const result = await runMachineScriptPreview(video.id, machine);
+      setMachinePreview(result.preview);
+      setPreviewMachine(machine);
+      toast.success(`${machine} preview generated. Production script unchanged.`);
+    } catch (err) {
+      toast.error(`Preview failed: ${(err as Error).message}`);
+    } finally {
+      setPreviewGenerating(false);
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // Loading state
   // ---------------------------------------------------------------------------
@@ -1273,6 +1292,44 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 <li key={i} className="text-sm" style={{ color: "var(--text-secondary)" }}>• {w}</li>
               ))}
             </ul>
+          </div>
+        )}
+        {isMachineDocumentary && machineResearchGate?.passed && (
+          <div className="mx-auto mb-6 max-w-2xl rounded-xl p-4 text-left" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.1)" }}>
+            <div className="flex items-center gap-2 mb-1">
+              <Wand2 size={16} style={{ color: "var(--turquoise)" }} />
+              <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Single-machine test pass</span>
+            </div>
+            <p className="text-xs mb-3" style={{ color: "var(--text-tertiary)" }}>Generate one isolated paragraph for calibration. This does not create scenes, advance the video, or touch the full script.</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                value={previewMachine || machineRoster[0] || ""}
+                onChange={(e) => { setPreviewMachine(e.target.value); setMachinePreview(researchPayload?.machine_script_previews?.[e.target.value] || null); }}
+                className="flex-1 rounded-lg px-3 py-2 text-sm"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                {machineRoster.map((machine: string, i: number) => <option key={machine} value={machine}>{i + 1}. {machine}</option>)}
+              </select>
+              <button
+                onClick={handleMachinePreview}
+                disabled={previewGenerating}
+                className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+              >
+                {previewGenerating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                {previewGenerating ? "Generating one..." : machinePreview ? "Retry this machine" : "Generate one machine"}
+              </button>
+            </div>
+            {machinePreview && (
+              <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreview.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{machinePreview.machine}</span>
+                  <span className="text-xs font-mono" style={{ color: machinePreview.passed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreview.passed ? "Passed" : "Needs review"}</span>
+                </div>
+                <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machinePreview.paragraph}</p>
+                {!!machinePreview.warnings?.length && <p className="mt-2 text-xs" style={{ color: "var(--orange)" }}>{machinePreview.warnings.join(" · ")}</p>}
+              </div>
+            )}
           </div>
         )}
         <button

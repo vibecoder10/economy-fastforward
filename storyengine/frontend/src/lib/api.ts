@@ -665,6 +665,12 @@ export const runPipelineStage = (videoId: string, stage: string, params?: Record
   return fetchApi<PipelineResponse>(`/api/pipeline/${stage}/${videoId}${queryString}`, { method: "POST" });
 };
 
+export const runMachineScriptPreview = (videoId: string, machine: string) =>
+  fetchApi<{ status: string; preview: { machine: string; scene: number; paragraph: string; word_count: number; passed: boolean; warnings: string[] } }>(
+    `/api/pipeline/machine-script-preview/${videoId}`,
+    { method: "POST", body: JSON.stringify({ machine }) },
+  );
+
 export const runNextStep = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });
 

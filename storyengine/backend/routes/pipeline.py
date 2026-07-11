@@ -46,6 +46,10 @@ class PipelineResponse(BaseModel):
     error: Optional[str] = None
 
 
+class MachineScriptPreviewRequest(BaseModel):
+    machine: str
+
+
 class PipelineStatus(BaseModel):
     """Current pipeline status for a video."""
     video_id: str
@@ -582,6 +586,23 @@ async def run_script(
     await _enqueue_or_fallback(request, background_tasks, "script", video_id, tenant_id, _run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Script generation started")
+
+
+@router.post("/machine-script-preview/{video_id}")
+async def run_machine_script_preview(
+    video_id: str,
+    body: MachineScriptPreviewRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate one isolated machine paragraph; never mutates production script rows or video status."""
+    machine = body.machine.strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required")
+    executor = PipelineExecutor(tenant_id)
+    result = await executor.run_machine_script_preview(video_id, machine)
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Preview generation failed")
+    return result
 
 
 @router.post("/machine-research/{video_id}", response_model=PipelineResponse)

@@ -2188,7 +2188,9 @@ class PipelineExecutor:
             warnings.append("contains forbidden Anton/DVsU hype or list-transition language")
         return warnings
 
-    async def _run_static_script_hold(self, video_id: str, video: dict, roster: list[str]) -> dict:
+    async def _run_static_script_hold(
+        self, video_id: str, video: dict, roster: list[str], target_machine: Optional[str] = None
+    ) -> dict:
         """DVsU/static-docu script path: one locked machine paragraph at a time.
 
         Scoped by the caller to videos.render_mode == 'static_docu'. Normal
@@ -2235,7 +2237,13 @@ class PipelineExecutor:
         # The machine writer is not allowed to fall back to the global fact
         # sheet. Research and script are separate artifacts, and every locked
         # machine must have its own persisted card before any script rows change.
-        missing_cards = [machine for machine in roster if _research_card_for_machine(rp, machine) is None]
+        if target_machine and target_machine not in roster:
+            return {"status": "failed", "error": f"Machine is not in the locked roster: {target_machine}"}
+        selected_units = (
+            [(roster.index(target_machine) + 1, target_machine)]
+            if target_machine else list(enumerate(roster, start=1))
+        )
+        missing_cards = [machine for _, machine in selected_units if _research_card_for_machine(rp, machine) is None]
         if missing_cards:
             msg = "Script-hold requires a saved research card for every locked machine; missing: " + ", ".join(missing_cards)
             await self._log_activity(bot_name, video_id, "failed", msg[:900])
@@ -2248,7 +2256,7 @@ class PipelineExecutor:
         # untouched unless the complete roster validates successfully.
         paragraphs: list[str] = []
         validation_units: list[dict] = []
-        for i, machine in enumerate(roster, start=1):
+        for i, machine in selected_units:
             prev_machine = roster[i - 2] if i > 1 else "None"
             next_machine = roster[i] if i < len(roster) else "None"
             research_source, research_source_kind = _research_source_for_machine(rp, machine)
@@ -2324,6 +2332,29 @@ class PipelineExecutor:
                 "passed": not warnings,
                 "warnings": warnings,
             })
+            if target_machine:
+                preview = {
+                    "machine": machine,
+                    "scene": i,
+                    "paragraph": " ".join(paragraph.split()),
+                    "word_count": _spoken_word_count(paragraph),
+                    "passed": not warnings,
+                    "warnings": warnings,
+                    "research_source": research_source_kind,
+                }
+                await execute(
+                    """UPDATE videos SET research_payload = jsonb_set(
+                           COALESCE(research_payload::jsonb, '{}'::jsonb),
+                           ARRAY['machine_script_previews', $1], $2::jsonb, true
+                       ), updated_at = now()
+                       WHERE id = $3 AND tenant_id = $4""",
+                    machine, _json_sh.dumps(preview), video_id, self.tenant_id,
+                )
+                await self._log_activity(
+                    bot_name, video_id, "completed" if not warnings else "failed",
+                    f"Single-machine script preview {'passed' if not warnings else 'needs review'}: {machine}",
+                )
+                return {"status": "completed", "video_id": video_id, "preview": preview}
             if warnings:
                 validation = {"script_hold": {"passed": False, "units": validation_units}}
                 await execute(
@@ -2761,6 +2792,22 @@ separate scenes."""
         await self._log_activity(bot_name, video_id, "completed",
                                  f"Modeled-style script complete ({len(scenes)} scenes, {len(full_script.split())} words)")
         return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}
+
+    async def run_machine_script_preview(self, video_id: str, machine: str) -> dict:
+        """Generate one isolated machine paragraph without touching production script rows or status."""
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        await self._load_prompt_overrides(video)
+        rp = video.get("research_payload") or {}
+        if isinstance(rp, str):
+            import json as _json_preview
+            rp = _json_preview.loads(rp)
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"status": "failed", "error": "No locked machine roster found"}
+        return await self._run_static_script_hold(video_id, video, roster, target_machine=machine)
 
     async def run_script(self, video_id: str) -> dict:
         """Generate script for a video.
