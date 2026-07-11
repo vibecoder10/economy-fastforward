@@ -140,6 +140,32 @@ def test_script_source_is_exactly_one_saved_card_not_global_research():
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in source
 
 
+def test_inventory_story_brief_hides_exhaustive_card_fields():
+    payload = {
+        "unit_research_cards": [{
+            "unit": "Boeing XB-15",
+            "engineering_thesis": "The central size-versus-power tension.",
+            "actual_outcome": "It missed combat requirements. It later hauled cargo. A third sentence must be hidden.",
+            "why_this_unit_deserves_a_paragraph": "It taught Boeing what the next generation required. Extra legacy detail must be hidden.",
+            "surprising_fact": "SECRET SPEC-DUMP BAIT",
+            "engineering_response": "DIMENSIONS ENGINES PAYLOAD SPEED RANGE",
+            "source_notes": ["EXHAUSTIVE SOURCE NOTES"],
+            "script_beats": ["FIVE PREWRITTEN BEATS"],
+        }],
+    }
+
+    brief = pe._inventory_story_brief(payload, "Boeing XB-15")
+    serialized = json.dumps(brief)
+
+    assert brief["core_tension"] == "The central size-versus-power tension."
+    assert brief["actual_outcome"] == "It missed combat requirements. It later hauled cargo."
+    assert brief["historical_significance"] == "It taught Boeing what the next generation required."
+    assert "SECRET SPEC-DUMP BAIT" not in serialized
+    assert "DIMENSIONS ENGINES" not in serialized
+    assert "EXHAUSTIVE SOURCE NOTES" not in serialized
+    assert "FIVE PREWRITTEN BEATS" not in serialized
+
+
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
@@ -207,7 +233,8 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert result["status"] == "ready_for_voice"
     assert len(fake_anthropic.prompts) == 2, "90 words must trigger one-machine repair"
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
-    assert "machine-card-source" in fake_anthropic.prompts[0]
+    assert "machine-card-source" not in fake_anthropic.prompts[0]
+    assert "A deliberately isolated machine-level thesis." in fake_anthropic.prompts[0]
     assert "VIDEO THESIS / ARC" in fake_anthropic.prompts[0]
     assert "FORMAT MODE: COMPLETE INVENTORY" in fake_anthropic.prompts[0]
     assert "TARGET 105-110 words" in fake_anthropic.prompts[0]
@@ -218,6 +245,9 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
     assert "Omission is a feature" in fake_anthropic.system_prompts[0]
+    assert "compact_editorial_brief" in fake_anthropic.prompts[0]
+    assert "BAD PARAGRAPH" not in fake_anthropic.prompts[1]
+    assert "rejected draft is deliberately hidden" in fake_anthropic.prompts[1]
 
     atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
     assert len(atomic_replacements) == 1

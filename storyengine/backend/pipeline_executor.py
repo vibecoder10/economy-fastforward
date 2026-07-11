@@ -180,6 +180,39 @@ def _research_source_for_machine(payload: dict, machine: str) -> tuple[str, str]
     return source, "legacy_research_blob"
 
 
+def _inventory_story_brief(payload: dict, machine: str) -> dict:
+    """Hide exhaustive card fields from the complete-inventory writer."""
+    import re
+
+    card = _research_card_for_machine(payload, machine) or {}
+
+    def sentences(value, limit: int) -> str:
+        text = " ".join(str(value or "").split())
+        if not text:
+            return ""
+        parts = re.split(r"(?<=[.!?])\s+", text)
+        return " ".join(parts[:limit]).strip()
+
+    return {
+        "machine": machine,
+        "core_tension": sentences(
+            card.get("engineering_thesis") or card.get("tradeoff") or card.get("design_problem"), 1
+        ),
+        "actual_outcome": sentences(
+            card.get("actual_outcome") or card.get("operational_reality") or card.get("result"), 2
+        ),
+        "historical_significance": sentences(
+            card.get("why_this_unit_deserves_a_paragraph")
+            or card.get("legacy")
+            or card.get("historical_significance"),
+            1,
+        ),
+        "editorial_rule": (
+            "These are candidate ingredients, not a checklist. Build one micro-story and omit any ingredient or detail that crowds it."
+        ),
+    }
+
+
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
     """Return the locked machine roster only for the siloed static-docu path.
 
@@ -2280,6 +2313,20 @@ class PipelineExecutor:
                 re.search(r"\b(every|all)\b|complete (history|list|roster)", title, re.IGNORECASE)
             )
             if complete_inventory_mode:
+                story_brief = _inventory_story_brief(rp, machine)
+                research_source = _json_sh.dumps(story_brief, ensure_ascii=False, indent=2)
+                research_source_kind = "compact_editorial_brief"
+                await execute(
+                    """UPDATE videos SET research_payload = jsonb_set(
+                           COALESCE(research_payload::jsonb, '{}'::jsonb),
+                           '{machine_script_briefs}',
+                           COALESCE(research_payload::jsonb->'machine_script_briefs', '{}'::jsonb)
+                             || jsonb_build_object($1::text, $2::jsonb),
+                           true
+                       ), updated_at = now()
+                       WHERE id = $3 AND tenant_id = $4""",
+                    machine, _json_sh.dumps(story_brief), video_id, self.tenant_id,
+                )
                 structure_brief = (
                     "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
                     "- TARGET 105-110 words, while remaining inside the absolute 95-120 validator.\n"
@@ -2344,13 +2391,13 @@ class PipelineExecutor:
                     "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler."
                 )
                 repair_prompt = (
-                    f"Repair this static documentary paragraph for LOCKED MACHINE: {machine}.\n"
+                    f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
                     f"Validation warnings: {'; '.join(warnings)}\n\n"
                     "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
                     "No markdown/labels. Include the locked designation/name. Use only the same research source. "
                     f"{repair_style}\n\n"
-                    f"BAD PARAGRAPH:\n{paragraph}\n\n"
-                    f"RESEARCH SOURCE:\n{research_source}"
+                    "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this compact brief.\n\n"
+                    f"COMPACT EDITORIAL BRIEF:\n{research_source}"
                 )
                 paragraph = await anthropic_client.generate(
                     prompt=repair_prompt,
