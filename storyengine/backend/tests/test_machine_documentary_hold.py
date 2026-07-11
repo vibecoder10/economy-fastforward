@@ -161,16 +161,21 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     class FakeAnthropic:
         def __init__(self):
             self.prompts = []
+            self.system_prompts = []
             self.outputs = [_words("XB-15", 90), _words("XB-15", 95)]
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
+            self.system_prompts.append(kwargs["system_prompt"])
             return self.outputs.pop(0)
 
     fake_anthropic = FakeAnthropic()
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
-    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": fake_anthropic})()
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": fake_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
 
     writes = []
 
@@ -203,6 +208,10 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert len(fake_anthropic.prompts) == 2, "90 words must trigger one-machine repair"
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
     assert "machine-card-source" in fake_anthropic.prompts[0]
+    assert "VIDEO THESIS / ARC" in fake_anthropic.prompts[0]
+    assert "Anton/DVsU movement" in fake_anthropic.prompts[0]
+    assert fake_anthropic.system_prompts[0] == "ANTON TENANT SCRIPT CONTRACT"
+    assert fake_anthropic.system_prompts[1].startswith("ANTON TENANT SCRIPT CONTRACT")
 
     atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
     assert len(atomic_replacements) == 1

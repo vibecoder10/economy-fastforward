@@ -2181,6 +2181,11 @@ class PipelineExecutor:
         lower = text.lower()
         if any(term in lower for term in ("as an ai", "i can't", "cannot verify", "here is", "markdown")):
             warnings.append("contains meta/commentary instead of narration")
+        if any(term in lower for term in (
+            "one of the greatest", "one of the most incredible", "arguably the greatest",
+            "iconic", "legendary", "game-changing", "moving on to", "next is",
+        )):
+            warnings.append("contains forbidden Anton/DVsU hype or list-transition language")
         return warnings
 
     async def _run_static_script_hold(self, video_id: str, video: dict, roster: list[str]) -> dict:
@@ -2201,6 +2206,14 @@ class PipelineExecutor:
                 rp = {}
         if not isinstance(rp, dict):
             rp = {}
+        video_thesis = (
+            rp.get("thesis")
+            or rp.get("narrative_arc_suggestion")
+            or rp.get("narrative_arc")
+            or "Trace how each locked machine changed the engineering answer to the title's central problem."
+        )
+        if isinstance(video_thesis, (dict, list)):
+            video_thesis = _json_sh.dumps(video_thesis, ensure_ascii=False)
 
         await self._log_activity(
             bot_name, video_id, "started",
@@ -2212,6 +2225,12 @@ class PipelineExecutor:
             msg = "Script-hold requires an Anthropic client, but none is configured."
             await self._log_activity(bot_name, video_id, "failed", msg)
             return {"status": "failed", "error": msg, "video_id": video_id}
+        # Unit-by-unit generation must inherit the same resolved per-video/tenant
+        # script contract as the global writer. For DVsU this is Anton's full
+        # saved channel prompt, not a generic military-history instruction.
+        script_system_prompt = getattr(self._pipeline, "script_system_prompt", None) or (
+            "You write precise military-history documentary voiceover. Output only the requested spoken paragraph."
+        )
 
         # The machine writer is not allowed to fall back to the global fact
         # sheet. Research and script are separate artifacts, and every locked
@@ -2233,9 +2252,25 @@ class PipelineExecutor:
             prev_machine = roster[i - 2] if i > 1 else "None"
             next_machine = roster[i] if i < len(roster) else "None"
             research_source, research_source_kind = _research_source_for_machine(rp, machine)
+            # Anton allows only 4-5 name-openers across a full video. Assign them
+            # deterministically so independent calls cannot all default to the
+            # easiest Wikipedia-style opening.
+            name_opener_slots = {1, 6, 11, 16, 21}
+            if i in name_opener_slots:
+                opening_brief = "A machine-name opening is allowed here, but only if it immediately states why the machine mattered."
+            else:
+                opening_modes = (
+                    "a problem or operational need",
+                    "a paradox or contradiction",
+                    "a consequence or institutional decision",
+                    "a date/event or sourced human detail",
+                    "a contrast with the previous machine",
+                )
+                opening_brief = f"Do NOT open with the machine name. Open with {opening_modes[(i - 1) % len(opening_modes)]}."
             prompt = (
                 "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
                 f"VIDEO TITLE: {title}\n"
+                f"VIDEO THESIS / ARC: {video_thesis}\n"
                 f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
                 f"PREVIOUS MACHINE: {prev_machine}\n"
                 f"NEXT MACHINE: {next_machine}\n\n"
@@ -2245,13 +2280,17 @@ class PipelineExecutor:
                 "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
                 f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
                 "- Include the locked machine designation/name naturally.\n"
-                "- Anton/DVsU tone: compact, specific, historically grounded, mildly dramatic, no hype filler.\n"
-                "- End cleanly so the next paragraph can move to the next machine.\n\n"
+                f"- OPENING ASSIGNMENT: {opening_brief}\n"
+                "- Anton/DVsU movement: establish the engineering problem or decision, show the response and meaningful trade-off, then reveal the real outcome. Do not write a chronological biography.\n"
+                "- Use one surprising supported fact as evidence for the engineering idea, never as an orphan spec.\n"
+                "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
+                "- End with a short verdict, paradox, irony, or reversal that lands. Never end on a retirement date or generic summary.\n"
+                "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
                 f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
             )
             paragraph = await anthropic_client.generate(
                 prompt=prompt,
-                system_prompt="You write precise military-history documentary voiceover. Output only the requested spoken paragraph.",
+                system_prompt=script_system_prompt,
                 max_tokens=450,
                 temperature=0.45,
             )
@@ -2270,7 +2309,7 @@ class PipelineExecutor:
                 )
                 paragraph = await anthropic_client.generate(
                     prompt=repair_prompt,
-                    system_prompt="You repair one paragraph. Output only the final spoken paragraph.",
+                    system_prompt=script_system_prompt + "\n\nRepair only the supplied paragraph. Output only final spoken narration.",
                     max_tokens=450,
                     temperature=0.25,
                 )
