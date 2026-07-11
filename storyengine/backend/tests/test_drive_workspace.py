@@ -87,7 +87,12 @@ async def test_sync_is_idempotent_and_refreshes_documents(monkeypatch):
     client = FakeGoogleClient()
     video = {
         "id": "video-1", "tenant_id": "tenant-1", "video_title": "Flying Machines",
-        "research_payload": {"unit_roster": ["B-2 Spirit"], "fact_sheet": "First facts"},
+        "research_payload": {
+            "unit_roster": ["B-2 Spirit"],
+            "unit_research_cards": [
+                {"unit": "B-2 Spirit", "engineering_thesis": "First facts"}
+            ],
+        },
         "script": "", "final_video_url": None, "drive_folder_id": None,
     }
     scenes = [{"scene": 1, "scene_text": "Opening narration."}]
@@ -115,7 +120,7 @@ async def test_sync_is_idempotent_and_refreshes_documents(monkeypatch):
     assert "Opening narration." in client.bodies[first["docs"]["script"]]
     assert client.formats[first["docs"]["research"]]
 
-    video["research_payload"]["fact_sheet"] = "Refreshed facts"
+    video["research_payload"]["unit_research_cards"][0]["engineering_thesis"] = "Refreshed facts"
     scenes[0]["scene_text"] = "Revised narration."
     second = await workspace.sync_video_workspace("video-1", "tenant-1", client_factory=lambda: client)
 
@@ -141,6 +146,40 @@ def test_seed_documents_have_clean_placeholders():
     assert "will appear here" in workspace._machine_roster_text("Title", {})
     assert "will appear here" in workspace._research_text("Title", {})
     assert "will appear here" in workspace._script_text("Title", "", [])
+
+
+def test_research_document_exports_only_readable_machine_cards():
+    payload = {
+        "unit_research_cards": [
+            {
+                "unit": "Boeing XB-15",
+                "engineering_thesis": "Range ambitions exceeded available engine power.",
+                "script_beats": [
+                    "One prototype flew in 1937.",
+                    "It later served as a transport.",
+                ],
+                "source_notes": ["National Museum fact sheet"],
+                "validation": {"json_valid": True},
+            },
+            {
+                "unit": "Douglas XB-19",
+                "design_problem": "Build a larger long-range bomber.",
+            },
+        ],
+        "machine_script_previews": [{"unit": "Wrong internal data"}],
+        "framework_analysis": {"raw": "pipeline metadata"},
+    }
+
+    text = workspace._research_text("Bombers", payload)
+
+    assert "Machine 1: Boeing XB-15" in text
+    assert "Machine 2: Douglas XB-19" in text
+    assert "Engineering Thesis\nRange ambitions exceeded available engine power." in text
+    assert "• One prototype flew in 1937." in text
+    assert "validation" not in text.lower()
+    assert "Wrong internal data" not in text
+    assert "pipeline metadata" not in text
+    assert "{" not in text and "}" not in text
 
 
 def test_duplicate_titles_still_get_unique_workspace_names():

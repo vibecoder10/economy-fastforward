@@ -55,14 +55,41 @@ def _machine_roster_text(title: str, research: dict) -> str:
 
 def _research_text(title: str, research: dict) -> str:
     lines = ["Research", title, ""]
-    if not research:
+    cards = research.get("unit_research_cards") or []
+    if not isinstance(cards, list) or not cards:
         lines.append("Research will appear here after the research stage is complete.")
     else:
-        for key, value in research.items():
-            if value in (None, "", [], {}):
+        field_labels = (
+            ("engineering_thesis", "Engineering Thesis"),
+            ("design_problem", "Design Problem"),
+            ("engineering_response", "Engineering Response"),
+            ("tradeoff", "Tradeoff"),
+            ("actual_outcome", "Actual Outcome"),
+            ("why_this_unit_deserves_a_paragraph", "Why It Matters"),
+            ("surprising_fact", "Surprising Fact"),
+            ("human_detail", "Human Detail"),
+            ("visual_identity", "Visual Identity"),
+        )
+        list_labels = (
+            ("script_beats", "Script Beats"),
+            ("source_notes", "Sources and Research Notes"),
+            ("high_risk_claims", "Claims to Verify"),
+        )
+        for index, card in enumerate(cards, 1):
+            if not isinstance(card, dict):
                 continue
-            heading = str(key).replace("_", " ").title()
-            lines.extend([heading, json.dumps(value, ensure_ascii=False, indent=2) if isinstance(value, (dict, list)) else str(value), ""])
+            machine = _display(card.get("unit") or card.get("machine")) or f"Machine {index}"
+            lines.extend([f"Machine {index}: {machine}", ""])
+            for key, label in field_labels:
+                value = card.get(key)
+                if isinstance(value, str) and value.strip():
+                    lines.extend([label, value.strip(), ""])
+            for key, label in list_labels:
+                values = card.get(key)
+                if isinstance(values, list) and values:
+                    readable = [str(item).strip() for item in values if str(item).strip()]
+                    if readable:
+                        lines.extend([label, *(f"• {item}" for item in readable), ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
