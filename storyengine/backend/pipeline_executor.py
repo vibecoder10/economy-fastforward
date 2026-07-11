@@ -2281,12 +2281,14 @@ class PipelineExecutor:
             )
             if complete_inventory_mode:
                 structure_brief = (
-                    "FORMAT MODE: COMPLETE INVENTORY. The roster fulfills the title; do not force this machine to carry the whole video thesis.\n"
-                    "- TARGET 100-112 words, while remaining inside the absolute 95-120 validator. Leave counting margin.\n"
-                    "- Use 4-5 sentences: identity/ambition; defining capability with at most 3 numerical facts; operational reality or trade-off; consequence/legacy; optional short verdict.\n"
-                    "- Maximum one sentence over 22 words. Include at most one unusual detail. Do not stack accommodations, dimensions, engines, speed, range, chronology, and legacy.\n"
-                    "- Sound like an informed aviation historian. Clarity beats cleverness. A paradoxical punchline and surprising fact are optional, never forced.\n"
-                    "- Preserve the engineering decision, but express it through a clean historical sequence rather than a compressed argument.\n"
+                    "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
+                    "- TARGET 105-110 words, while remaining inside the absolute 95-120 validator.\n"
+                    "- Before writing, silently rank the research. Keep only the few details needed to explain: what it attempted, what defined it, what actually happened, and why it belongs in the story. Omit everything else.\n"
+                    "- Use 4-5 sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
+                    "- Use at most 2 numerical details total. A number earns its place only when it makes the machine's scale, capability, or failure understandable.\n"
+                    "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural micro-hook, not a manufactured twist.\n"
+                    "- Do not inventory dimensions, engines, payload, speed, range, dates, crew features, and legacy. Never summarize every field in the research card.\n"
+                    "- Prefer clean spoken history over technical completeness. A surprising detail, engineering thesis, or punchline is optional and must be cut if it crowds the story.\n"
                 )
             else:
                 structure_brief = (
@@ -2300,9 +2302,12 @@ class PipelineExecutor:
                 inventory_system_override = (
                     "\n\nSCOPED OVERRIDE — COMPLETE INVENTORY MODE:\n"
                     "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
-                    "The surprising fact is optional. A paradoxical or ironic landing is optional. The paragraph does not need to prove the entire video thesis. "
-                    "Target 100-108 words so the deterministic 95-120 validator has margin. Use 4-5 sentences, no more than two numerical fact clusters, and one clear historical verdict. "
-                    "Count the finished paragraph before returning it. If it exceeds 112 words, cut secondary specifications rather than adding context."
+                    "Write a short micro-story, not a compressed fact sheet and not a miniature engineering essay. "
+                    "Silently cherry-pick only the details needed for one clear narrative: attempt, defining trait, reality, consequence. Omission is a feature. "
+                    "Target 105-110 words and 4-5 sentences. Use no more than five factual story beats and two numerical details total. Never list research-card fields. "
+                    "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
+                    "A surprising fact, thesis connection, technical explanation, paradox, irony, and punchline are all optional. They never outrank brevity, clarity, or natural spoken rhythm. "
+                    "Count the finished paragraph before returning it. If it exceeds 110 words, remove the least important fact rather than compressing more facts into longer sentences."
                 )
             prompt = (
                 "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
@@ -2334,7 +2339,7 @@ class PipelineExecutor:
 
             if warnings:
                 repair_style = (
-                    "Preserve the clean identity/capability/reality/consequence sequence. Target 100-112 words, 4-5 sentences, at most three numerical facts, and a plain historical verdict. Cut secondary specs and clever phrasing."
+                    "Rebuild it as a clean micro-story, not a shortened spec list. Target 105-110 words and 4-5 sentences. Keep no more than five factual story beats and two numerical details total. Remove the least important facts; do not compress them into longer sentences. Preserve one natural hook and a clear reason the machine mattered."
                     if complete_inventory_mode else
                     "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler."
                 )

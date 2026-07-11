@@ -210,12 +210,14 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "machine-card-source" in fake_anthropic.prompts[0]
     assert "VIDEO THESIS / ARC" in fake_anthropic.prompts[0]
     assert "FORMAT MODE: COMPLETE INVENTORY" in fake_anthropic.prompts[0]
-    assert "TARGET 100-112 words" in fake_anthropic.prompts[0]
-    assert "at most 3 numerical facts" in fake_anthropic.prompts[0]
-    assert "plain historical verdict" in fake_anthropic.prompts[1]
+    assert "TARGET 105-110 words" in fake_anthropic.prompts[0]
+    assert "no more than 5 factual story beats" in fake_anthropic.prompts[0]
+    assert "at most 2 numerical details total" in fake_anthropic.prompts[0]
+    assert "Remove the least important facts" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("ANTON TENANT SCRIPT CONTRACT")
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
+    assert "Omission is a feature" in fake_anthropic.system_prompts[0]
 
     atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
     assert len(atomic_replacements) == 1
