@@ -425,6 +425,11 @@ async def create_video(
 
     await increment_usage(tenant_id, "videos_created")
 
+    # Seed the app-owned Drive workspace out of band. Missing credentials or a
+    # Drive outage must never roll back an otherwise valid video creation.
+    from drive_workspace import sync_video_workspace_fail_soft
+    background_tasks.add_task(sync_video_workspace_fail_soft, str(row["id"]), tenant_id)
+
     # House script format: prepend the saved template (if any) so every script
     # pathway writes in the channel's format. Fail-soft, never blocks creation.
     try:
@@ -2212,6 +2217,19 @@ async def _clear_scene_downstream(video_id: str, scene: int, tenant_id: str):
         "WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
         video_id, scene, tenant_id,
     )
+
+
+@router.post("/{video_id}/drive-workspace/sync")
+async def sync_drive_workspace(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Manually create/refresh the app-owned Drive workspace for this video."""
+    from drive_workspace import sync_video_workspace
+    try:
+        return await sync_video_workspace(video_id, tenant_id)
+    except LookupError:
+        raise HTTPException(404, "Video not found")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("workspace sync failed for %s: %s", video_id, str(e)[:200])
+        raise HTTPException(502, humanize_error(e, context="We couldn't sync the Drive workspace"))
 
 
 @router.post("/{video_id}/script/push-to-drive")

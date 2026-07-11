@@ -1700,6 +1700,8 @@ class PipelineExecutor:
                 next_status,
                 video_id,
             )
+            from drive_workspace import sync_video_workspace_fail_soft
+            await sync_video_workspace_fail_soft(video_id, self.tenant_id)
 
             if not (passed_roster_gate and passed_unit_research_hold):
                 gate_error = "Roster validation failed" if not passed_roster_gate else "Unit research-hold failed"
@@ -1762,6 +1764,8 @@ class PipelineExecutor:
                 "UPDATE videos SET research_payload = $1, status = $2, updated_at = now() WHERE id = $3",
                 _json.dumps(payload), next_status, video_id,
             )
+            from drive_workspace import sync_video_workspace_fail_soft
+            await sync_video_workspace_fail_soft(video_id, self.tenant_id)
             completed = len(payload.get("unit_research_cards") or [])
             if passed:
                 await self._log_activity(bot_name, video_id, "completed", f"Machine research complete: {completed}/{len(roster)}")
@@ -2512,6 +2516,8 @@ class PipelineExecutor:
             full_script,
             _json_sh.dumps(validation),
         )
+        from drive_workspace import sync_video_workspace_fail_soft
+        await sync_video_workspace_fail_soft(video_id, self.tenant_id)
 
         roster_check = await self._validate_static_script_roster(video_id)
         if roster_check.get("complete_title") and not roster_check.get("passed"):
@@ -2876,6 +2882,8 @@ separate scenes."""
         except Exception as e:
             _logger.warning("[dialogue] tagging failed for %s: %s", video_id, str(e)[:200])
 
+        from drive_workspace import sync_video_workspace_fail_soft
+        await sync_video_workspace_fail_soft(video_id, self.tenant_id)
         await self._log_activity(bot_name, video_id, "completed",
                                  f"Modeled-style script complete ({len(scenes)} scenes, {len(full_script.split())} words)")
         return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}
@@ -6059,6 +6067,8 @@ separate scenes."""
             "UPDATE videos SET final_video_url = $1 WHERE id = $2",
             final_url, video_id,
         )
+        from drive_workspace import sync_video_workspace_fail_soft
+        await sync_video_workspace_fail_soft(video_id, self.tenant_id)
         await self._update_video_status(video_id, to_supabase("rendered"))
         await self._log_transition(video_id, current_status, to_supabase("rendered"), "api")
 
@@ -6114,6 +6124,8 @@ separate scenes."""
             "UPDATE videos SET final_video_url = $1 WHERE id = $2",
             final_url, video_id,
         )
+        from drive_workspace import sync_video_workspace_fail_soft
+        await sync_video_workspace_fail_soft(video_id, self.tenant_id)
         await self._update_video_status(video_id, to_supabase("rendered"))
         await self._log_transition(video_id, current_status, to_supabase("rendered"), "api")
 
@@ -6169,6 +6181,8 @@ separate scenes."""
             "UPDATE videos SET final_video_url = $1 WHERE id = $2",
             final_url, video_id,
         )
+        from drive_workspace import sync_video_workspace_fail_soft
+        await sync_video_workspace_fail_soft(video_id, self.tenant_id)
         await self._update_video_status(video_id, to_supabase("rendered"))
         await self._log_transition(video_id, current_status, to_supabase("rendered"), "api")
 

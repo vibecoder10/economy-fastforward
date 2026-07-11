@@ -51,11 +51,12 @@ def _get_google_client():
         if _google_client is not None:
             return _google_client
         from shared.clients.google_client import GoogleClient
-        client = GoogleClient()
-        root = client.get_or_create_folder("StoryEngine Assets")
-        _root_folder_id = root["id"]
-        logger.info("Google Drive root folder: StoryEngine Assets (%s)", _root_folder_id)
+        client = GoogleClient.from_env()
+        _root_folder_id = client.get_or_create_folder("StoryEngine Assets")["id"]
+        # Keep workspaces and legacy media beneath one visible app-owned root.
+        client.workspace_root_folder_id = _root_folder_id
         _google_client = client
+        logger.info("Google Drive root folder: StoryEngine Assets (%s)", _root_folder_id)
     return _google_client
 
 
@@ -143,17 +144,27 @@ async def _resolve_video_drive_folder(video_id: str) -> str:
         return _folder_cache[cache_key]
 
     title = None
+    persisted_folder_id = None
     try:
         from database import fetch_one
-        row = await fetch_one("SELECT video_title FROM videos WHERE id = $1", video_id)
+        row = await fetch_one(
+            "SELECT video_title, drive_folder_id FROM videos WHERE id = $1", video_id
+        )
         title = ((row or {}).get("video_title") or "").strip() or None
+        persisted_folder_id = (row or {}).get("drive_folder_id") or None
     except Exception:
         title = None
 
     def _sync_resolve() -> str:
         client = _get_google_client()
+        if persisted_folder_id:
+            return persisted_folder_id
         if title:
-            return client.get_or_create_folder(title)["id"]
+            return client.get_or_create_folder(
+                title,
+                parent_id=(getattr(client, "workspace_root_folder_id", None)
+                           or client.parent_folder_id),
+            )["id"]
         return _get_video_folder(video_id)
 
     folder_id = await asyncio.to_thread(_sync_resolve)
@@ -172,7 +183,14 @@ def _sync_upload_drive_into(data: bytes, filename: str, content_type: str,
                             folder_id: str, subfolder: Optional[str]) -> str:
     """Upload into a specific Drive folder (optionally a named subfolder)."""
     client = _get_google_client()
-    target = _get_or_create_child_folder(client, folder_id, subfolder) if subfolder else folder_id
+    # Canonical workspace labels are user-facing; normalize the pipeline's
+    # lower-case storage path segments into those folders.
+    workspace_subfolder = (
+        {"images": "Images", "final": "Final Video"}.get(subfolder, subfolder)
+        if subfolder else None
+    )
+    target = (_get_or_create_child_folder(client, folder_id, workspace_subfolder)
+              if workspace_subfolder else folder_id)
 
     result = client.upload_file(
         data, filename, target, mime_type=content_type
