@@ -51,7 +51,7 @@ def _get_google_client():
         if _google_client is not None:
             return _google_client
         from shared.clients.google_client import GoogleClient
-        client = GoogleClient.from_env()
+        client = GoogleClient()
         _root_folder_id = client.get_or_create_folder("StoryEngine Assets")["id"]
         # Keep workspaces and legacy media beneath one visible app-owned root.
         client.workspace_root_folder_id = _root_folder_id
