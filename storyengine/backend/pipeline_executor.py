@@ -2345,7 +2345,10 @@ class PipelineExecutor:
                 await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
                            COALESCE(research_payload::jsonb, '{}'::jsonb),
-                           ARRAY['machine_script_previews', $1], $2::jsonb, true
+                           '{machine_script_previews}',
+                           COALESCE(research_payload::jsonb->'machine_script_previews', '{}'::jsonb)
+                             || jsonb_build_object($1::text, $2::jsonb),
+                           true
                        ), updated_at = now()
                        WHERE id = $3 AND tenant_id = $4""",
                     machine, _json_sh.dumps(preview), video_id, self.tenant_id,
