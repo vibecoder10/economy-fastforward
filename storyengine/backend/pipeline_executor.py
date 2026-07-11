@@ -15,6 +15,7 @@ import os
 import sys
 import asyncio
 import uuid
+import re
 from datetime import datetime, timezone
 from typing import Optional, Any
 from pathlib import Path
@@ -2275,6 +2276,25 @@ class PipelineExecutor:
                     "a contrast with the previous machine",
                 )
                 opening_brief = f"Do NOT open with the machine name. Open with {opening_modes[(i - 1) % len(opening_modes)]}."
+            complete_inventory_mode = bool(
+                re.search(r"\b(every|all)\b|complete (history|list|roster)", title, re.IGNORECASE)
+            )
+            if complete_inventory_mode:
+                structure_brief = (
+                    "FORMAT MODE: COMPLETE INVENTORY. The roster fulfills the title; do not force this machine to carry the whole video thesis.\n"
+                    "- TARGET 100-112 words, while remaining inside the absolute 95-120 validator. Leave counting margin.\n"
+                    "- Use 4-5 sentences: identity/ambition; defining capability with at most 3 numerical facts; operational reality or trade-off; consequence/legacy; optional short verdict.\n"
+                    "- Maximum one sentence over 22 words. Include at most one unusual detail. Do not stack accommodations, dimensions, engines, speed, range, chronology, and legacy.\n"
+                    "- Sound like an informed aviation historian. Clarity beats cleverness. A paradoxical punchline and surprising fact are optional, never forced.\n"
+                    "- Preserve the engineering decision, but express it through a clean historical sequence rather than a compressed argument.\n"
+                )
+            else:
+                structure_brief = (
+                    "FORMAT MODE: ENGINEERING ARGUMENT.\n"
+                    "- Anton/DVsU movement: establish the engineering problem or decision, show the response and meaningful trade-off, then reveal the real outcome. Do not write a chronological biography.\n"
+                    "- Use one surprising supported fact as evidence for the engineering idea, never as an orphan spec.\n"
+                    "- End with a short verdict, paradox, irony, or reversal that lands. Never end on a retirement date or generic summary.\n"
+                )
             prompt = (
                 "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
                 f"VIDEO TITLE: {title}\n"
@@ -2289,10 +2309,8 @@ class PipelineExecutor:
                 f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
                 "- Include the locked machine designation/name naturally.\n"
                 f"- OPENING ASSIGNMENT: {opening_brief}\n"
-                "- Anton/DVsU movement: establish the engineering problem or decision, show the response and meaningful trade-off, then reveal the real outcome. Do not write a chronological biography.\n"
-                "- Use one surprising supported fact as evidence for the engineering idea, never as an orphan spec.\n"
+                f"{structure_brief}"
                 "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
-                "- End with a short verdict, paradox, irony, or reversal that lands. Never end on a retirement date or generic summary.\n"
                 "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
                 f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
             )
@@ -2306,12 +2324,17 @@ class PipelineExecutor:
             warnings = self._validate_static_unit_paragraph(machine, paragraph)
 
             if warnings:
+                repair_style = (
+                    "Preserve the clean identity/capability/reality/consequence sequence. Target 100-112 words, 4-5 sentences, at most three numerical facts, and a plain historical verdict. Cut secondary specs and clever phrasing."
+                    if complete_inventory_mode else
+                    "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler."
+                )
                 repair_prompt = (
                     f"Repair this static documentary paragraph for LOCKED MACHINE: {machine}.\n"
                     f"Validation warnings: {'; '.join(warnings)}\n\n"
                     "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
                     "No markdown/labels. Include the locked designation/name. Use only the same research source. "
-                    "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
+                    f"{repair_style}\n\n"
                     f"BAD PARAGRAPH:\n{paragraph}\n\n"
                     f"RESEARCH SOURCE:\n{research_source}"
                 )

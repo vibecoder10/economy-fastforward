@@ -149,7 +149,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
         "source_notes": ["machine-card-source"],
     }
     video = {
-        "video_title": "Designed vs Used: Bombers",
+        "video_title": "Every US Strategic Bomber Ever Built",
         "render_mode": "static_docu",
         "research_payload": {
             "fact_sheet": "GLOBAL FACT SHEET MUST NOT LEAK",
@@ -209,7 +209,10 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
     assert "machine-card-source" in fake_anthropic.prompts[0]
     assert "VIDEO THESIS / ARC" in fake_anthropic.prompts[0]
-    assert "Anton/DVsU movement" in fake_anthropic.prompts[0]
+    assert "FORMAT MODE: COMPLETE INVENTORY" in fake_anthropic.prompts[0]
+    assert "TARGET 100-112 words" in fake_anthropic.prompts[0]
+    assert "at most 3 numerical facts" in fake_anthropic.prompts[0]
+    assert "plain historical verdict" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0] == "ANTON TENANT SCRIPT CONTRACT"
     assert fake_anthropic.system_prompts[1].startswith("ANTON TENANT SCRIPT CONTRACT")
 
