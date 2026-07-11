@@ -2295,6 +2295,15 @@ class PipelineExecutor:
                     "- Use one surprising supported fact as evidence for the engineering idea, never as an orphan spec.\n"
                     "- End with a short verdict, paradox, irony, or reversal that lands. Never end on a retirement date or generic summary.\n"
                 )
+            inventory_system_override = ""
+            if complete_inventory_mode:
+                inventory_system_override = (
+                    "\n\nSCOPED OVERRIDE — COMPLETE INVENTORY MODE:\n"
+                    "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
+                    "The surprising fact is optional. A paradoxical or ironic landing is optional. The paragraph does not need to prove the entire video thesis. "
+                    "Target 100-108 words so the deterministic 95-120 validator has margin. Use 4-5 sentences, no more than two numerical fact clusters, and one clear historical verdict. "
+                    "Count the finished paragraph before returning it. If it exceeds 112 words, cut secondary specifications rather than adding context."
+                )
             prompt = (
                 "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
                 f"VIDEO TITLE: {title}\n"
@@ -2316,7 +2325,7 @@ class PipelineExecutor:
             )
             paragraph = await anthropic_client.generate(
                 prompt=prompt,
-                system_prompt=script_system_prompt,
+                system_prompt=script_system_prompt + inventory_system_override,
                 max_tokens=450,
                 temperature=0.45,
             )
@@ -2340,7 +2349,7 @@ class PipelineExecutor:
                 )
                 paragraph = await anthropic_client.generate(
                     prompt=repair_prompt,
-                    system_prompt=script_system_prompt + "\n\nRepair only the supplied paragraph. Output only final spoken narration.",
+                    system_prompt=script_system_prompt + inventory_system_override + "\n\nRepair only the supplied paragraph. Output only final spoken narration.",
                     max_tokens=450,
                     temperature=0.25,
                 )

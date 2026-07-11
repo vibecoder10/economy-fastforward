@@ -213,8 +213,9 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "TARGET 100-112 words" in fake_anthropic.prompts[0]
     assert "at most 3 numerical facts" in fake_anthropic.prompts[0]
     assert "plain historical verdict" in fake_anthropic.prompts[1]
-    assert fake_anthropic.system_prompts[0] == "ANTON TENANT SCRIPT CONTRACT"
-    assert fake_anthropic.system_prompts[1].startswith("ANTON TENANT SCRIPT CONTRACT")
+    assert fake_anthropic.system_prompts[0].startswith("ANTON TENANT SCRIPT CONTRACT")
+    assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
+    assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
 
     atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
     assert len(atomic_replacements) == 1
