@@ -2281,7 +2281,28 @@ class PipelineExecutor:
         # card pass must leave the structured locked roster byte-for-byte equal.
         locked_roster_snapshot = _json_uh.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False)
 
-        def _card_warnings(machine: str, card: Any) -> list[str]:
+        def _hydrate_compatibility_fields(card: dict) -> dict:
+            """Derive legacy UI fields from schema-v2 evidence without asking the model to repeat itself."""
+            if not isinstance(card, dict):
+                return card
+            segments = card.get("evidence_segments") or []
+            by_kind = {
+                str(segment.get("kind") or "").strip().lower(): str(segment.get("claim") or "").strip()
+                for segment in segments if isinstance(segment, dict)
+            }
+            card.setdefault("design_problem", by_kind.get("design_problem") or by_kind.get("design_intent") or "")
+            card.setdefault("engineering_response", by_kind.get("engineering_response") or "")
+            card.setdefault("tradeoff", by_kind.get("tradeoff") or "")
+            card.setdefault("actual_outcome", by_kind.get("operational_reality") or by_kind.get("test_result") or "")
+            card.setdefault("surprising_fact", card.get("actual_outcome") or card.get("tradeoff") or "")
+            card.setdefault("source_notes", list(dict.fromkeys(
+                str(segment.get("source_url") or segment.get("locator") or "").strip()
+                for segment in segments if isinstance(segment, dict) and (segment.get("source_url") or segment.get("locator"))
+            )))
+            card.setdefault("high_risk_claims", [])
+            return card
+
+        def _card_warnings(machine: str, card: dict) -> list[str]:
             warnings: list[str] = []
             if not isinstance(card, dict):
                 return ["research card was not an object"]
@@ -2369,11 +2390,11 @@ class PipelineExecutor:
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
-                "Required JSON keys: schema_version (2), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, "
-                "design_problem, engineering_response, tradeoff, actual_outcome, surprising_fact, human_detail, "
-                "visual_identity, high_risk_claims (array), source_notes (array of source strings), evidence_segments (array), validation.\n\n"
+                "Required JSON keys: schema_version (2), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
+                "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
-                "- Return at least five atomic evidence segments covering these kinds: design_problem, engineering_response, tradeoff, operational_reality, consequence.\n"
+                "- Return exactly five atomic evidence segments covering these kinds once each: design_problem, engineering_response, tradeoff, operational_reality, consequence.\n"
+                "- Each claim and source_excerpt must be one concise sentence, maximum 35 words.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one factual proposition, never a paragraph or specification bundle.\n"
                 "- source_excerpt must be the passage supporting that claim; source_url or locator must identify where it came from.\n"
@@ -2394,7 +2415,7 @@ class PipelineExecutor:
                 if text.startswith("```"):
                     import re as _re_uh
                     text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
-                card = _json_uh.loads(text)
+                card = _hydrate_compatibility_fields(_json_uh.loads(text))
                 warnings = _card_warnings(machine, card)
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
@@ -2403,7 +2424,8 @@ class PipelineExecutor:
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
-                    "Return ONLY valid schema_version 2 JSON with all required keys. source_notes, high_risk_claims, and evidence_segments MUST be JSON arrays. "
+                    "Return ONLY valid schema_version 2 JSON with the minimal required keys and evidence_segments array. "
+                    "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
                     "Do not create script_beats. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
                     f"BAD/RAW CARD:\n{raw}\n\nVIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
@@ -2419,7 +2441,7 @@ class PipelineExecutor:
                     if text.startswith("```"):
                         import re as _re_uh2
                         text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
-                    card = _json_uh.loads(text)
+                    card = _hydrate_compatibility_fields(_json_uh.loads(text))
                     warnings = _card_warnings(machine, card)
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
