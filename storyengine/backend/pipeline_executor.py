@@ -3342,6 +3342,10 @@ class PipelineExecutor:
                     "A surprising fact, thesis connection, technical explanation, paradox, irony, and punchline are all optional. They never outrank brevity, clarity, or natural spoken rhythm. "
                     "Count the finished paragraph before returning it. If it exceeds 110 words, remove the least important fact rather than compressing more facts into longer sentences."
                 )
+            story_distiller_system_prompt = (
+                "You are a deterministic source-grounded JSON compiler for a DVsU machine documentary. "
+                "Output only valid JSON matching the requested schema. Do not write prose outside JSON, markdown, citations, or alternate keys."
+            )
             story_plan = None
             bundle = None
             if complete_inventory_mode:
@@ -3399,7 +3403,7 @@ class PipelineExecutor:
                 )
                 raw_story = await anthropic_client.generate(
                     prompt=prompt,
-                    system_prompt=script_system_prompt + inventory_system_override,
+                    system_prompt=story_distiller_system_prompt + inventory_system_override,
                     max_tokens=650,
                     temperature=0.25,
                 )
@@ -3453,7 +3457,7 @@ class PipelineExecutor:
                     )
                     raw_story = await anthropic_client.generate(
                         prompt=repair_prompt,
-                        system_prompt=script_system_prompt + inventory_system_override,
+                        system_prompt=story_distiller_system_prompt + inventory_system_override,
                         max_tokens=650,
                         temperature=0.15,
                     )

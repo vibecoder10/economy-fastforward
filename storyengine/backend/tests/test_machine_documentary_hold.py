@@ -518,7 +518,8 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE" in fake_anthropic.prompts[1]
     assert "Delete or replace every word named in the validation warnings" in fake_anthropic.prompts[1]
     assert "copy essential numerals/units exactly" in fake_anthropic.prompts[1]
-    assert fake_anthropic.system_prompts[0].startswith("ANTON TENANT SCRIPT CONTRACT")
+    assert fake_anthropic.system_prompts[0].startswith("You are a deterministic source-grounded JSON compiler")
+    assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
     assert "Omission is a feature" in fake_anthropic.system_prompts[0]
