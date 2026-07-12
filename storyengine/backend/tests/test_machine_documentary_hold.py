@@ -39,7 +39,7 @@ def _evidence_segments() -> list[dict]:
             "evidence_id": f"E-{beat.upper()}",
             "kind": kind,
             "claim": f"Atomic {beat} claim grounded in the supplied source.",
-            "source_excerpt": f"Source passage supporting the {beat} claim.",
+            "source_excerpt": f"Atomic {beat} claim grounded in the supplied source.",
             "source_url": f"https://example.test/{beat}",
             "source_title": "Test source",
             "locator": "",
@@ -253,6 +253,14 @@ def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
 
     assert any("schema-v2" in error for error in plan["evidence_errors"])
     assert all(not beat["evidence_ids"] for beat in plan["beats"])
+
+
+def test_story_plan_refuses_claims_that_add_facts_absent_from_source_excerpt():
+    evidence = _evidence_segments()
+    evidence[0]["claim"] = "Aliens conquered Europe with miraculous nuclear rockets."
+    plan = pe._machine_story_plan({"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}, "B-52")
+
+    assert any("claim adds words absent from source_excerpt" in error for error in plan["evidence_errors"])
 
 
 def test_story_sentence_validator_blocks_reordering_and_unsupported_numbers():

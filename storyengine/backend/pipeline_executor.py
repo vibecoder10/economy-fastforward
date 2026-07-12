@@ -246,7 +246,46 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             errors.append(f"evidence segment {evidence_id or index} missing source_url/locator")
         numbers = raw.get("numeric_tokens")
         if not isinstance(numbers, list):
-            numbers = re.findall(r"\d+(?:\.\d+)?s?", claim.lower())
+            numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", claim.lower())
+        normalized_numbers = [str(token).strip().lower() for token in numbers if str(token).strip()]
+
+        grounding_stopwords = {
+            "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by", "could", "did", "do",
+            "for", "from", "had", "has", "have", "in", "into", "is", "it", "its", "made", "more", "not", "of",
+            "on", "only", "or", "than", "that", "the", "their", "then", "through", "to", "was", "were", "which",
+            "while", "with", "without", "would", "yet",
+        }
+
+        def _evidence_stem(token: str) -> str:
+            for suffix in ("ingly", "edly", "ing", "ed", "es", "s"):
+                if token.endswith(suffix) and len(token) > len(suffix) + 3:
+                    return token[:-len(suffix)]
+            return token
+
+        excerpt_vocab = {_evidence_stem(token) for token in re.findall(r"[a-z]+", excerpt.lower())}
+        machine_vocab = {_evidence_stem(token) for token in re.findall(r"[a-z]+", machine.lower())}
+        ungrounded_words = sorted({
+            stem
+            for raw_token in re.findall(r"[a-z]+", claim.lower())
+            for stem in [_evidence_stem(raw_token)]
+            if raw_token not in grounding_stopwords and stem not in excerpt_vocab and stem not in machine_vocab
+        })
+        if ungrounded_words:
+            errors.append(
+                f"evidence segment {evidence_id or index} claim adds words absent from source_excerpt: {', '.join(ungrounded_words[:8])}"
+            )
+        claim_numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", claim.lower())
+        excerpt_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", excerpt.lower()))
+        missing_number_support = [token for token in claim_numbers if token not in excerpt_numbers]
+        undeclared_numbers = [token for token in claim_numbers if token not in normalized_numbers]
+        invented_numeric_tokens = [token for token in normalized_numbers if token not in set(claim_numbers) | excerpt_numbers]
+        if missing_number_support:
+            errors.append(f"evidence segment {evidence_id or index} claim numbers absent from source_excerpt: {', '.join(missing_number_support)}")
+        if undeclared_numbers:
+            errors.append(f"evidence segment {evidence_id or index} claim numbers missing from numeric_tokens: {', '.join(undeclared_numbers)}")
+        if invented_numeric_tokens:
+            errors.append(f"evidence segment {evidence_id or index} numeric_tokens absent from claim/excerpt: {', '.join(invented_numeric_tokens)}")
+
         normalized.append({
             "evidence_id": evidence_id,
             "kind": kind,
@@ -255,7 +294,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             "source_url": source_url,
             "source_title": str(raw.get("source_title") or "").strip(),
             "locator": locator,
-            "numeric_tokens": [str(token).strip().lower() for token in numbers if str(token).strip()],
+            "numeric_tokens": normalized_numbers,
             "confidence": str(raw.get("confidence") or "").strip().lower() or "unknown",
         })
     return normalized, list(dict.fromkeys(errors))
@@ -2397,6 +2436,8 @@ class PipelineExecutor:
                 "- Each claim and source_excerpt must be one concise sentence, maximum 35 words.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one factual proposition, never a paragraph or specification bundle.\n"
+                "- claim must be a concise restatement of source_excerpt using no factual noun, verb, adjective, or number absent from that excerpt.\n"
+                "- numeric_tokens must list every number used by claim and may contain only numbers present in claim or source_excerpt.\n"
                 "- source_excerpt must be the passage supporting that claim; source_url or locator must identify where it came from.\n"
                 "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied sources cannot support a required beat, make that absence explicit in validation rather than guessing.\n"
                 "- Do not write script_beats or prewritten narration. Research remains evidence, not prose composition.\n\n"
