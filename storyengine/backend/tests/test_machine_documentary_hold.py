@@ -512,7 +512,10 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert '"conclusion":{"sentence":"..."}' in fake_anthropic.prompts[0]
     assert "conclusion has no used_evidence_ids" in fake_anthropic.prompts[0]
     assert "at most two numerical details" in fake_anthropic.prompts[0]
+    assert "Prefer copying claim/source words literally" in fake_anthropic.prompts[0]
+    assert "Include the exact locked machine name" in fake_anthropic.prompts[0]
     assert "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE" in fake_anthropic.prompts[1]
+    assert "Delete or replace every word named in the validation warnings" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("ANTON TENANT SCRIPT CONTRACT")
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
