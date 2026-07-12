@@ -603,6 +603,12 @@ def _parse_machine_story_sentences(raw: str) -> dict:
             for beat in ("problem", "decision", "tradeoff", "outcome")
             if evidence.get(beat)
         ]
+    if not isinstance(parsed.get("sentences"), list):
+        parsed["sentences"] = [
+            {"beat": beat, "sentence": str(parsed.get(beat) or ""), "used_evidence_ids": []}
+            for beat in ("problem", "decision", "tradeoff", "outcome")
+            if parsed.get(beat)
+        ]
     conclusion = parsed.get("conclusion")
     if isinstance(conclusion, dict) and not conclusion.get("sentence") and conclusion.get("paragraph_derived_sentence"):
         parsed["conclusion"] = {"sentence": conclusion.get("paragraph_derived_sentence")}

@@ -403,6 +403,21 @@ def test_story_sentence_parser_canonicalizes_evidence_object_shape():
     assert pe._spoken_word_count(paragraph) == 95
 
 
+def test_story_sentence_parser_canonicalizes_top_level_beat_shape():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    canonical = json.loads(_story_bundle("B-52", 19))
+    loose = {row["beat"]: row["sentence"] for row in canonical["sentences"]}
+    loose["conclusion"] = {"sentence": canonical["conclusion"]["sentence"]}
+
+    bundle = pe._parse_machine_story_sentences(json.dumps(loose))
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert warnings == []
+    assert [row["beat"] for row in bundle["sentences"]] == ["problem", "decision", "tradeoff", "outcome"]
+    assert pe._spoken_word_count(paragraph) == 95
+
+
 def test_story_sentence_validator_blocks_conclusion_new_evidence_or_numbers():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
