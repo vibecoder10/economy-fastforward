@@ -213,6 +213,163 @@ def _inventory_story_brief(payload: dict, machine: str) -> dict:
     }
 
 
+def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], list[str]]:
+    """Validate atomic, source-addressable evidence for one locked machine."""
+    import re
+
+    raw_segments = card.get("evidence_segments") if isinstance(card, dict) else None
+    if not isinstance(raw_segments, list) or not raw_segments:
+        return [], ["missing evidence_segments; schema-v2 source-addressable research is required"]
+    normalized: list[dict] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(raw_segments, start=1):
+        if not isinstance(raw, dict):
+            errors.append(f"evidence segment {index} is not an object")
+            continue
+        evidence_id = str(raw.get("evidence_id") or "").strip()
+        kind = str(raw.get("kind") or "").strip().lower()
+        claim = " ".join(str(raw.get("claim") or "").split())
+        excerpt = " ".join(str(raw.get("source_excerpt") or "").split())
+        source_url = str(raw.get("source_url") or "").strip()
+        locator = str(raw.get("locator") or "").strip()
+        if not evidence_id:
+            errors.append(f"evidence segment {index} missing evidence_id")
+        elif evidence_id in seen:
+            errors.append(f"duplicate evidence_id {evidence_id}")
+        seen.add(evidence_id)
+        if not kind or not claim:
+            errors.append(f"evidence segment {evidence_id or index} missing kind or atomic claim")
+        if not excerpt:
+            errors.append(f"evidence segment {evidence_id or index} missing source_excerpt")
+        if not source_url and not locator:
+            errors.append(f"evidence segment {evidence_id or index} missing source_url/locator")
+        numbers = raw.get("numeric_tokens")
+        if not isinstance(numbers, list):
+            numbers = re.findall(r"\d+(?:\.\d+)?s?", claim.lower())
+        normalized.append({
+            "evidence_id": evidence_id,
+            "kind": kind,
+            "claim": claim,
+            "source_excerpt": excerpt,
+            "source_url": source_url,
+            "source_title": str(raw.get("source_title") or "").strip(),
+            "locator": locator,
+            "numeric_tokens": [str(token).strip().lower() for token in numbers if str(token).strip()],
+            "confidence": str(raw.get("confidence") or "").strip().lower() or "unknown",
+        })
+    return normalized, list(dict.fromkeys(errors))
+
+
+def _machine_story_plan(payload: dict, machine: str) -> dict:
+    """Compile source-addressable evidence into five locked sentence jobs."""
+    card = _research_card_for_machine(payload, machine) or {}
+    evidence, evidence_errors = _normalize_machine_evidence(card, machine)
+    beat_specs = (
+        ("problem", ("design_problem", "design_intent"), "Establish the concrete pressure that made this machine necessary."),
+        ("decision", ("engineering_response",), "Explain the defining design decision as a response to that problem."),
+        ("tradeoff", ("tradeoff",), "State what the decision sacrificed, limited, or made harder."),
+        ("outcome", ("operational_reality", "actual_outcome", "test_result"), "Show what happened in service, testing, production, or institutional reality."),
+        ("meaning", ("consequence", "legacy"), "Land why the machine mattered by connecting outcome back to the decision."),
+    )
+    beats = []
+    for role, accepted_kinds, job in beat_specs:
+        segment = next((item for item in evidence if item["kind"] in accepted_kinds), None)
+        beats.append({
+            "beat": role,
+            "evidence_ids": [segment["evidence_id"]] if segment else [],
+            "evidence_segments": [segment] if segment else [],
+            "sentence_job": job,
+        })
+    return {
+        "schema_version": 2,
+        "machine": machine,
+        "evidence_errors": evidence_errors,
+        "beats": beats,
+        "assembly_order": [beat["beat"] for beat in beats],
+        "contract": {
+            "sentences": 5,
+            "words_per_sentence": "19-24",
+            "paragraph_words": "95-120",
+            "maximum_numerical_details": 2,
+        },
+    }
+
+
+def _parse_machine_story_sentences(raw: str) -> dict:
+    """Parse the constrained sentence bundle returned by the story distiller."""
+    import json
+    import re
+
+    text = str(raw or "").strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I).strip()
+    text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
+    """Assemble ordered sentence jobs and enforce structural/grounding budgets."""
+    import re
+
+    warnings: list[str] = []
+    expected = [beat["beat"] for beat in plan.get("beats", [])]
+    rows = bundle.get("sentences") if isinstance(bundle, dict) else None
+    if not isinstance(rows, list):
+        return "", ["story distiller must return a sentences array"]
+    actual = [str(row.get("beat") or "") for row in rows if isinstance(row, dict)]
+    if actual != expected:
+        warnings.append(f"sentence beats must be exactly ordered as {expected}")
+
+    evidence_by_beat = {
+        beat["beat"]: {segment["evidence_id"]: segment for segment in beat.get("evidence_segments", [])}
+        for beat in plan.get("beats", [])
+    }
+    sentences: list[str] = []
+    all_number_tokens: list[str] = []
+    machine_number_tokens = set(re.findall(r"\d+(?:\.\d+)?s?", machine.lower()))
+    for row in rows:
+        if not isinstance(row, dict):
+            warnings.append("every sentence row must be an object")
+            continue
+        beat = str(row.get("beat") or "")
+        sentence = " ".join(str(row.get("sentence") or "").split())
+        used_ids = row.get("used_evidence_ids")
+        allowed = evidence_by_beat.get(beat, {})
+        if not isinstance(used_ids, list) or not used_ids:
+            warnings.append(f"{beat} must declare non-empty used_evidence_ids")
+            used_ids = []
+        unknown_ids = [str(item) for item in used_ids if str(item) not in allowed]
+        if unknown_ids:
+            warnings.append(f"{beat} used evidence outside its locked beat: {', '.join(unknown_ids)}")
+        sentences.append(sentence)
+        wc = _spoken_word_count(sentence)
+        if wc < 19 or wc > 24:
+            warnings.append(f"{beat} sentence word count {wc} outside 19-24")
+        sentence_parts = [part for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", sentence) if part.strip()]
+        if len(sentence_parts) != 1 or not re.search(r"[.!?]$", sentence):
+            warnings.append(f"{beat} must be exactly one complete sentence")
+        allowed_numbers = {
+            token
+            for evidence_id in used_ids
+            for token in allowed.get(str(evidence_id), {}).get("numeric_tokens", [])
+        }
+        sentence_numbers = re.findall(r"\d+(?:\.\d+)?s?", sentence.lower())
+        unsupported = [token for token in sentence_numbers if token not in allowed_numbers and token not in machine_number_tokens]
+        if unsupported:
+            warnings.append(f"{beat} introduced unsupported numerical detail(s): {', '.join(unsupported)}")
+        all_number_tokens.extend(token for token in sentence_numbers if token not in machine_number_tokens)
+
+    if len(all_number_tokens) > 2:
+        warnings.append(f"paragraph contains {len(all_number_tokens)} numerical details; maximum is 2")
+    paragraph = " ".join(sentences)
+    warnings.extend(PipelineExecutor._validate_static_unit_paragraph(machine, paragraph))
+    return paragraph, list(dict.fromkeys(warnings))
+
+
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
     """Return the locked machine roster only for the siloed static-docu path.
 
@@ -2046,7 +2203,14 @@ class PipelineExecutor:
             source_notes = card.get("source_notes")
             if not isinstance(source_notes, list) or not source_notes:
                 warnings.append("missing source_notes")
-            return warnings
+            _, evidence_errors = _normalize_machine_evidence(card, machine)
+            warnings.extend(evidence_errors)
+            if not evidence_errors:
+                plan = _machine_story_plan({"unit_research_cards": [card]}, machine)
+                missing_beats = [beat["beat"] for beat in plan["beats"] if not beat["evidence_ids"]]
+                if missing_beats:
+                    warnings.append("evidence_segments missing required story kinds for: " + ", ".join(missing_beats))
+            return list(dict.fromkeys(warnings))
 
         anthropic_client = getattr(self._pipeline, "anthropic", None)
         if anthropic_client is None:
@@ -2101,9 +2265,16 @@ class PipelineExecutor:
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
-                "Required JSON keys: unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, "
+                "Required JSON keys: schema_version (2), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, "
                 "design_problem, engineering_response, tradeoff, actual_outcome, surprising_fact, human_detail, "
-                "visual_identity, high_risk_claims (array), script_beats (array), source_notes (array of source strings), validation.\n\n"
+                "visual_identity, high_risk_claims (array), source_notes (array of source strings), evidence_segments (array), validation.\n\n"
+                "EVIDENCE SEGMENT CONTRACT:\n"
+                "- Return at least five atomic evidence segments covering these kinds: design_problem, engineering_response, tradeoff, operational_reality, consequence.\n"
+                "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
+                "- One segment = one factual proposition, never a paragraph or specification bundle.\n"
+                "- source_excerpt must be the passage supporting that claim; source_url or locator must identify where it came from.\n"
+                "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied sources cannot support a required beat, make that absence explicit in validation rather than guessing.\n"
+                "- Do not write script_beats or prewritten narration. Research remains evidence, not prose composition.\n\n"
                 f"VIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
             )
             raw = await anthropic_client.generate(
@@ -2128,7 +2299,9 @@ class PipelineExecutor:
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
-                    "Return ONLY valid JSON with all required keys. source_notes, high_risk_claims, and script_beats MUST be JSON arrays. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
+                    "Return ONLY valid schema_version 2 JSON with all required keys. source_notes, high_risk_claims, and evidence_segments MUST be JSON arrays. "
+                    "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
+                    "Do not create script_beats. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
                     f"BAD/RAW CARD:\n{raw}\n\nVIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
                 )
                 raw = await anthropic_client.generate(
@@ -2471,57 +2644,127 @@ class PipelineExecutor:
                     "A surprising fact, thesis connection, technical explanation, paradox, irony, and punchline are all optional. They never outrank brevity, clarity, or natural spoken rhythm. "
                     "Count the finished paragraph before returning it. If it exceeds 110 words, remove the least important fact rather than compressing more facts into longer sentences."
                 )
-            prompt = (
-                "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
-                f"VIDEO TITLE: {title}\n"
-                f"VIDEO THESIS / ARC: {video_thesis}\n"
-                f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
-                f"PREVIOUS MACHINE: {prev_machine}\n"
-                f"NEXT MACHINE: {next_machine}\n\n"
-                "HARD CONTRACT:\n"
-                "- Return exactly ONE paragraph, 95-120 words inclusive. A 90-word result must be expanded.\n"
-                "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, or JSON.\n"
-                "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
-                f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
-                "- Include the locked machine designation/name naturally.\n"
-                f"- OPENING ASSIGNMENT: {opening_brief}\n"
-                f"{structure_brief}"
-                "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
-                "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
-                f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
-            )
-            paragraph = await anthropic_client.generate(
-                prompt=prompt,
-                system_prompt=script_system_prompt + inventory_system_override,
-                max_tokens=450,
-                temperature=0.45,
-            )
-            paragraph = self._clean_static_unit_paragraph(paragraph)
-            warnings = self._validate_static_unit_paragraph(machine, paragraph)
-
-            if warnings:
-                repair_style = (
-                    "Rebuild it as a clean micro-story, not a shortened spec list. Target 105-110 words and 4-5 sentences. Keep no more than five factual story beats and two numerical details total. Remove the least important facts; do not compress them into longer sentences. Preserve one natural hook and a clear reason the machine mattered."
-                    if complete_inventory_mode else
-                    "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler."
+            story_plan = None
+            bundle = None
+            if complete_inventory_mode:
+                story_plan = _machine_story_plan(rp, machine)
+                plan_errors = list(story_plan.get("evidence_errors") or [])
+                missing_beats = [beat["beat"] for beat in story_plan["beats"] if not beat["evidence_ids"]]
+                if missing_beats:
+                    plan_errors.append(f"missing source-addressable evidence for beats: {', '.join(missing_beats)}")
+                if plan_errors:
+                    msg = "Story compiler evidence gate failed: " + "; ".join(plan_errors)
+                    await self._log_activity(bot_name, video_id, "failed", msg)
+                    return {"status": "failed", "error": msg, "video_id": video_id}
+                await execute(
+                    """UPDATE videos SET research_payload = jsonb_set(
+                           COALESCE(research_payload::jsonb, '{}'::jsonb),
+                           '{machine_story_plans}',
+                           COALESCE(research_payload::jsonb->'machine_story_plans', '{}'::jsonb)
+                             || jsonb_build_object($1::text, $2::jsonb),
+                           true
+                       ), updated_at = now()
+                       WHERE id = $3 AND tenant_id = $4""",
+                    machine, _json_sh.dumps(story_plan), video_id, self.tenant_id,
                 )
-                repair_prompt = (
-                    f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
-                    f"Validation warnings: {'; '.join(warnings)}\n\n"
-                    "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
-                    "No markdown/labels. Include the locked designation/name. Use only the same research source. "
-                    f"{repair_style}\n\n"
-                    "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this compact brief.\n\n"
-                    f"COMPACT EDITORIAL BRIEF:\n{research_source}"
+                prompt = (
+                    "DISTILL FIVE LOCKED RESEARCH BEATS INTO FIVE SPOKEN SENTENCES.\n\n"
+                    f"VIDEO TITLE: {title}\n"
+                    f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
+                    f"PREVIOUS MACHINE: {prev_machine}\n"
+                    f"NEXT MACHINE: {next_machine}\n\n"
+                    "You are not selecting facts and you are not writing a paragraph from memory. "
+                    "Each sentence has one locked job and may use ONLY its own evidence field.\n\n"
+                    "HARD CONTRACT:\n"
+                    "- Return only valid JSON with this exact shape: "
+                    '{"sentences":[{"beat":"problem","sentence":"...","used_evidence_ids":["..."]},'
+                    '{"beat":"decision","sentence":"...","used_evidence_ids":["..."]},'
+                    '{"beat":"tradeoff","sentence":"...","used_evidence_ids":["..."]},'
+                    '{"beat":"outcome","sentence":"...","used_evidence_ids":["..."]},'
+                    '{"beat":"meaning","sentence":"...","used_evidence_ids":["..."]}]}\n'
+                    "- Preserve that exact beat order and copy only evidence IDs supplied inside that beat.\n"
+                    "- Write exactly one complete spoken sentence per beat, 19-24 words each.\n"
+                    "- Distill; do not inventory. One sentence may express only the central idea of its evidence.\n"
+                    "- Do not add dates, numbers, names, programs, specifications, causes, or claims absent from that beat's evidence.\n"
+                    "- Across all five sentences, use at most two numerical details, and only when essential.\n"
+                    "- Include the machine designation/name naturally somewhere in the five sentences.\n"
+                    "- No transitions that announce a list, no citations, no headings, no commentary, and no facts from general knowledge.\n\n"
+                    f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
+                )
+                raw_story = await anthropic_client.generate(
+                    prompt=prompt,
+                    system_prompt=script_system_prompt + inventory_system_override,
+                    max_tokens=650,
+                    temperature=0.25,
+                )
+                bundle = _parse_machine_story_sentences(raw_story)
+                paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                research_source_kind = "structured_story_plan"
+            else:
+                prompt = (
+                    "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
+                    f"VIDEO TITLE: {title}\n"
+                    f"VIDEO THESIS / ARC: {video_thesis}\n"
+                    f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
+                    f"PREVIOUS MACHINE: {prev_machine}\n"
+                    f"NEXT MACHINE: {next_machine}\n\n"
+                    "HARD CONTRACT:\n"
+                    "- Return exactly ONE paragraph, 95-120 words inclusive. A 90-word result must be expanded.\n"
+                    "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, or JSON.\n"
+                    "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
+                    f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
+                    "- Include the locked machine designation/name naturally.\n"
+                    f"- OPENING ASSIGNMENT: {opening_brief}\n"
+                    f"{structure_brief}"
+                    "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
+                    "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
+                    f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
                 )
                 paragraph = await anthropic_client.generate(
-                    prompt=repair_prompt,
-                    system_prompt=script_system_prompt + inventory_system_override + "\n\nRepair only the supplied paragraph. Output only final spoken narration.",
+                    prompt=prompt,
+                    system_prompt=script_system_prompt + inventory_system_override,
                     max_tokens=450,
-                    temperature=0.25,
+                    temperature=0.45,
                 )
                 paragraph = self._clean_static_unit_paragraph(paragraph)
                 warnings = self._validate_static_unit_paragraph(machine, paragraph)
+
+            if warnings:
+                if complete_inventory_mode:
+                    repair_prompt = (
+                        "REBUILD THE FIVE-SENTENCE JSON BUNDLE FROM THE SAME LOCKED STORY PLAN.\n\n"
+                        f"Validation warnings: {'; '.join(warnings)}\n\n"
+                        "Return only the exact JSON sentences shape. Preserve problem, decision, tradeoff, outcome, meaning order. "
+                        "Write one 19-24 word sentence per beat. Use only that beat's evidence. Introduce no new claims or numerical details. "
+                        "Use no more than two numerical details across the bundle. The rejected draft is hidden; start fresh.\n\n"
+                        f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
+                    )
+                    raw_story = await anthropic_client.generate(
+                        prompt=repair_prompt,
+                        system_prompt=script_system_prompt + inventory_system_override,
+                        max_tokens=650,
+                        temperature=0.15,
+                    )
+                    bundle = _parse_machine_story_sentences(raw_story)
+                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                else:
+                    repair_prompt = (
+                        f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
+                        f"Validation warnings: {'; '.join(warnings)}\n\n"
+                        "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
+                        "No markdown/labels. Include the locked designation/name. Use only the same research source. "
+                        "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
+                        "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this research source.\n\n"
+                        f"RESEARCH SOURCE:\n{research_source}"
+                    )
+                    paragraph = await anthropic_client.generate(
+                        prompt=repair_prompt,
+                        system_prompt=script_system_prompt + "\n\nRepair only the supplied paragraph. Output only final spoken narration.",
+                        max_tokens=450,
+                        temperature=0.25,
+                    )
+                    paragraph = self._clean_static_unit_paragraph(paragraph)
+                    warnings = self._validate_static_unit_paragraph(machine, paragraph)
 
             validation_units.append({
                 "scene": i,
@@ -2540,6 +2783,8 @@ class PipelineExecutor:
                     "passed": not warnings,
                     "warnings": warnings,
                     "research_source": research_source_kind,
+                    "story_plan": story_plan,
+                    "sentence_bundle": bundle,
                 }
                 await execute(
                     """UPDATE videos SET research_payload = jsonb_set(

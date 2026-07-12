@@ -17,6 +17,39 @@ def _words(machine: str, count: int) -> str:
     return " ".join(tokens)
 
 
+def _story_bundle(machine: str, words_per_sentence: int) -> str:
+    rows = []
+    for index, beat in enumerate(("problem", "decision", "tradeoff", "outcome", "meaning")):
+        first = machine if index == 0 else beat.capitalize()
+        sentence = " ".join([first] + ["clear"] * (words_per_sentence - 1)) + "."
+        rows.append({"beat": beat, "sentence": sentence, "used_evidence_ids": [f"E-{beat.upper()}"]})
+    return json.dumps({"sentences": rows})
+
+
+def _evidence_segments() -> list[dict]:
+    kinds = {
+        "problem": "design_problem",
+        "decision": "engineering_response",
+        "tradeoff": "tradeoff",
+        "outcome": "operational_reality",
+        "meaning": "consequence",
+    }
+    return [
+        {
+            "evidence_id": f"E-{beat.upper()}",
+            "kind": kind,
+            "claim": f"Atomic {beat} claim grounded in the supplied source.",
+            "source_excerpt": f"Source passage supporting the {beat} claim.",
+            "source_url": f"https://example.test/{beat}",
+            "source_title": "Test source",
+            "locator": "",
+            "numeric_tokens": [],
+            "confidence": "high",
+        }
+        for beat, kind in kinds.items()
+    ]
+
+
 def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
     payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17", "Convair B-36"]}
     machine_payload = {**payload, "documentary_style": "machine_documentary"}
@@ -190,13 +223,90 @@ def test_inventory_story_brief_hides_exhaustive_card_fields():
     assert "FIVE PREWRITTEN BEATS" not in serialized
 
 
+def test_story_plan_locks_research_into_ordered_sentence_jobs():
+    payload = {"unit_research_cards": [{
+        "unit": "B-52",
+        "design_problem": "problem evidence",
+        "engineering_response": "decision evidence",
+        "tradeoff": "tradeoff evidence",
+        "actual_outcome": "outcome evidence",
+        "engineering_thesis": "meaning evidence",
+        "surprising_fact": "must not enter the plan",
+        "evidence_segments": _evidence_segments(),
+    }]}
+
+    plan = pe._machine_story_plan(payload, "B-52")
+
+    assert [beat["beat"] for beat in plan["beats"]] == ["problem", "decision", "tradeoff", "outcome", "meaning"]
+    assert [beat["evidence_ids"] for beat in plan["beats"]] == [
+        ["E-PROBLEM"], ["E-DECISION"], ["E-TRADEOFF"], ["E-OUTCOME"], ["E-MEANING"]
+    ]
+    assert "must not enter the plan" not in json.dumps(plan)
+    assert plan["contract"]["maximum_numerical_details"] == 2
+
+
+def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
+    plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "B-52", "engineering_thesis": "Untraceable prose."}]},
+        "B-52",
+    )
+
+    assert any("schema-v2" in error for error in plan["evidence_errors"])
+    assert all(not beat["evidence_ids"] for beat in plan["beats"])
+
+
+def test_story_sentence_validator_blocks_reordering_and_unsupported_numbers():
+    payload = {"unit_research_cards": [{
+        "unit": "B-52",
+        "design_problem": "A long-range mission created a difficult fuel problem.",
+        "engineering_response": "Designers favored efficient subsonic flight instead of maximum speed.",
+        "tradeoff": "The bomber could not escape modern interceptors through speed alone.",
+        "actual_outcome": "Its adaptable structure kept accepting new weapons and electronics.",
+        "engineering_thesis": "Range and adaptability ultimately mattered more than outright speed.",
+        "evidence_segments": _evidence_segments(),
+    }]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    rows = json.loads(_story_bundle("B-52", 19))["sentences"]
+    rows[0]["beat"], rows[1]["beat"] = rows[1]["beat"], rows[0]["beat"]
+    rows[2]["sentence"] = rows[2]["sentence"].replace("clear.", "clear 1967.")
+
+    _, warnings = pe._validate_machine_story_sentences("B-52", plan, {"sentences": rows})
+
+    assert any("exactly ordered" in warning for warning in warnings)
+    assert any("unsupported numerical detail" in warning for warning in warnings)
+
+
+def test_story_sentence_validator_assembles_five_valid_jobs():
+    payload = {"unit_research_cards": [{
+        "unit": "B-52",
+        "design_problem": "problem evidence",
+        "engineering_response": "decision evidence",
+        "tradeoff": "tradeoff evidence",
+        "actual_outcome": "outcome evidence",
+        "engineering_thesis": "meaning evidence",
+        "evidence_segments": _evidence_segments(),
+    }]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert warnings == []
+    assert pe._spoken_word_count(paragraph) == 95
+    assert paragraph.count(".") == 5
+
+
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
         "unit": "Boeing XB-15",
-        "engineering_thesis": "A deliberately isolated machine-level thesis.",
-        "surprising_fact": "The isolated fact used for this machine only.",
+        "design_problem": "A large bomber needed useful range despite limited engine power.",
+        "engineering_response": "Boeing used an unusually large wing to create lift and carry fuel.",
+        "tradeoff": "The aircraft gained range but remained too slow and underpowered for combat.",
+        "actual_outcome": "It missed combat requirements and later proved useful hauling cargo.",
+        "engineering_thesis": "The failed bomber taught Boeing how size, lift, and power had to balance.",
         "source_notes": ["machine-card-source"],
+        "evidence_segments": _evidence_segments(),
     }
     video = {
         "video_title": "Every US Strategic Bomber Ever Built",
@@ -212,7 +322,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
         def __init__(self):
             self.prompts = []
             self.system_prompts = []
-            self.outputs = [_words("XB-15", 90), _words("XB-15", 95)]
+            self.outputs = [_story_bundle("XB-15", 18), _story_bundle("XB-15", 19)]
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
@@ -255,23 +365,21 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
 
     assert result["status"] == "ready_for_voice"
-    assert len(fake_anthropic.prompts) == 2, "90 words must trigger one-machine repair"
+    assert len(fake_anthropic.prompts) == 2, "under-length sentence jobs must trigger one fresh bundle repair"
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
     assert "machine-card-source" not in fake_anthropic.prompts[0]
-    assert "A deliberately isolated machine-level thesis." in fake_anthropic.prompts[0]
-    assert "VIDEO THESIS / ARC" in fake_anthropic.prompts[0]
-    assert "FORMAT MODE: COMPLETE INVENTORY" in fake_anthropic.prompts[0]
-    assert "TARGET 105-110 words" in fake_anthropic.prompts[0]
-    assert "no more than 5 factual story beats" in fake_anthropic.prompts[0]
-    assert "at most 2 numerical details total" in fake_anthropic.prompts[0]
-    assert "Remove the least important facts" in fake_anthropic.prompts[1]
+    assert "Atomic problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
+    assert "DISTILL FIVE LOCKED RESEARCH BEATS" in fake_anthropic.prompts[0]
+    assert '"beat": "problem"' in fake_anthropic.prompts[0]
+    assert "one complete spoken sentence per beat, 19-24 words each" in fake_anthropic.prompts[0]
+    assert "at most two numerical details" in fake_anthropic.prompts[0]
+    assert "REBUILD THE FIVE-SENTENCE JSON BUNDLE" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("ANTON TENANT SCRIPT CONTRACT")
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
     assert "Omission is a feature" in fake_anthropic.system_prompts[0]
-    assert "compact_editorial_brief" in fake_anthropic.prompts[0]
-    assert "BAD PARAGRAPH" not in fake_anthropic.prompts[1]
-    assert "rejected draft is deliberately hidden" in fake_anthropic.prompts[1]
+    assert "LOCKED STORY PLAN" in fake_anthropic.prompts[0]
+    assert "rejected draft is hidden" in fake_anthropic.prompts[1]
 
     atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
     assert len(atomic_replacements) == 1
@@ -371,6 +479,7 @@ def test_research_hold_processes_and_checkpoints_one_locked_machine_at_a_time(mo
             "engineering_thesis": f"{machine} demonstrates one specific engineering tradeoff.",
             "surprising_fact": f"A surprising isolated fact about {machine}.",
             "source_notes": [f"source for {machine}"],
+            "evidence_segments": _evidence_segments(),
         }
         for machine in roster_names
     ]
@@ -504,8 +613,8 @@ def test_compact_read_excludes_stale_mismatch_and_invalid_override(monkeypatch):
 
 def test_compact_write_unavailable_reuses_legacy_without_generation(monkeypatch):
     roster = ["B-52"]
-    card = {"unit": "B-52", "engineering_thesis": "A sufficiently detailed legacy engineering thesis.",
-            "surprising_fact": "A fact", "source_notes": ["source"]}
+    card = {"unit": "B-52", "engineering_thesis": "A sufficiently detailed source-grounded engineering thesis.",
+            "surprising_fact": "A fact", "source_notes": ["source"], "evidence_segments": _evidence_segments()}
     payload = {"unit_roster": roster, "unit_research_cards": [card]}
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-a"
