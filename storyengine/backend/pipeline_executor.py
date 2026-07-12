@@ -330,7 +330,13 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     }
     sentences: list[str] = []
     all_number_tokens: list[str] = []
-    machine_number_tokens = set(re.findall(r"\d+(?:\.\d+)?s?", machine.lower()))
+    designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
+    number_words = {
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
+        "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+        "hundred", "hundreds", "thousand", "thousands", "million", "millions",
+    }
     for row in rows:
         if not isinstance(row, dict):
             warnings.append("every sentence row must be an object")
@@ -349,19 +355,65 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         wc = _spoken_word_count(sentence)
         if wc < 19 or wc > 24:
             warnings.append(f"{beat} sentence word count {wc} outside 19-24")
-        sentence_parts = [part for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", sentence) if part.strip()]
-        if len(sentence_parts) != 1 or not re.search(r"[.!?]$", sentence):
+        body = sentence.rstrip()
+        if not re.search(r"[.!?][\"')\]]?$", body):
             warnings.append(f"{beat} must be exactly one complete sentence")
+        stripped_terminal = re.sub(r"[.!?][\"')\]]?$", "", body)
+        if re.search(r"[.!?](?=\s|$)", stripped_terminal):
+            warnings.append(f"{beat} must contain exactly one sentence")
+        if ";" in sentence:
+            warnings.append(f"{beat} may not use semicolons")
         allowed_numbers = {
-            token
+            str(token).lower()
             for evidence_id in used_ids
             for token in allowed.get(str(evidence_id), {}).get("numeric_tokens", [])
         }
-        sentence_numbers = re.findall(r"\d+(?:\.\d+)?s?", sentence.lower())
-        unsupported = [token for token in sentence_numbers if token not in allowed_numbers and token not in machine_number_tokens]
+        sentence_for_numbers = sentence
+        for designation in designation_tokens:
+            sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", sentence_for_numbers, flags=re.IGNORECASE)
+        digit_tokens = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", sentence_for_numbers.lower())
+        word_tokens = [token for token in re.findall(r"\b[a-z]+\b", sentence_for_numbers.lower()) if token in number_words]
+        sentence_numbers = digit_tokens + word_tokens
+        unsupported = [token for token in sentence_numbers if token not in allowed_numbers]
         if unsupported:
             warnings.append(f"{beat} introduced unsupported numerical detail(s): {', '.join(unsupported)}")
-        all_number_tokens.extend(token for token in sentence_numbers if token not in machine_number_tokens)
+        all_number_tokens.extend(sentence_numbers)
+
+        evidence_text = " ".join(
+            f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+            for evidence_id in used_ids
+            for segment in [allowed.get(str(evidence_id), {})]
+        ).lower()
+        function_words = {
+            "a", "an", "and", "are", "as", "at", "be", "because", "been", "being", "but", "by", "could",
+            "did", "do", "for", "from", "had", "has", "have", "he", "her", "his", "how", "if", "in", "into",
+            "is", "it", "its", "made", "make", "meant", "more", "not", "of", "on", "only", "or", "rather", "clear",
+            "she", "so", "still", "than", "that", "the", "their", "them", "then", "there", "these", "they",
+            "this", "those", "through", "to", "ultimately", "was", "were", "what", "when", "which", "while",
+            "who", "whose", "with", "without", "would", "yet", "showed", "revealed", "proved", "became", "instead",
+        }
+
+        def _claim_stem(token: str) -> str:
+            for suffix in ("ingly", "edly", "ing", "ed", "es", "s"):
+                if token.endswith(suffix) and len(token) > len(suffix) + 3:
+                    return token[:-len(suffix)]
+            return token
+
+        evidence_vocab = {_claim_stem(token) for token in re.findall(r"[a-z]+", evidence_text)}
+        machine_vocab = {_claim_stem(token) for token in re.findall(r"[a-z]+", machine.lower())}
+        novel_claim_words = sorted({
+            token
+            for raw in re.findall(r"[a-z]+", sentence.lower())
+            for token in [_claim_stem(raw)]
+            if raw not in function_words
+            and token not in evidence_vocab
+            and token not in machine_vocab
+            and not re.fullmatch(r"word\d*", raw)
+        })
+        if novel_claim_words:
+            warnings.append(
+                f"{beat} introduced words outside its locked evidence vocabulary: {', '.join(novel_claim_words[:8])}"
+            )
 
     if len(all_number_tokens) > 2:
         warnings.append(f"paragraph contains {len(all_number_tokens)} numerical details; maximum is 2")
@@ -1986,6 +2038,41 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_one_machine_research(self, video_id: str, machine: str) -> dict:
+        """Refresh one locked machine card without paying for or replacing the rest of the roster."""
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        payload = video.get("research_payload") or {}
+        if isinstance(payload, str):
+            import json as _json_one
+            payload = _json_one.loads(payload)
+        if not isinstance(payload, dict):
+            return {"status": "failed", "error": "Research payload is missing or invalid"}
+        roster = _machine_documentary_hold_roster(video)
+        target_code = _normalized_unit_code(_unit_display_name(machine))
+        matched = next((item for item in roster if _normalized_unit_code(item) == target_code), None)
+        if not matched:
+            return {"status": "failed", "error": f"Machine is not in the locked roster: {machine}"}
+        title = video.get("video_title") or video.get("headline") or "Untitled documentary"
+        original_status = video.get("status") or "idea_logged"
+        payload = await self._run_unit_research_hold(
+            video_id, title, payload, roster, target_machine=matched
+        )
+        validation = payload.get("unit_research_hold_validation") or {}
+        if not validation.get("passed"):
+            units = validation.get("units") or []
+            warnings = units[-1].get("warnings", []) if units else validation.get("warnings", [])
+            return {"status": "failed", "video_id": video_id, "error": "; ".join(str(item) for item in warnings)}
+        import json as _json_one
+        await execute(
+            "UPDATE videos SET research_payload = $1, status = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
+            _json_one.dumps(payload), original_status, video_id, self.tenant_id,
+        )
+        card = _research_card_for_machine(payload, matched)
+        return {"status": "completed", "video_id": video_id, "machine": matched, "research_card": card}
+
     async def run_unit_research(self, video_id: str) -> dict:
         """Continue the locked-roster machine research hold without rediscovering the roster."""
         await self._ensure_initialized()
@@ -2169,7 +2256,14 @@ class PipelineExecutor:
             _logger.warning("[unit-roster] extraction failed: %s", str(e)[:150])
             return []
 
-    async def _run_unit_research_hold(self, video_id: str, title: str, payload: dict, roster: list[str]) -> dict:
+    async def _run_unit_research_hold(
+        self,
+        video_id: str,
+        title: str,
+        payload: dict,
+        roster: list[str],
+        target_machine: Optional[str] = None,
+    ) -> dict:
         """DVsU/static-docu research path: enrich one locked machine at a time.
 
         This runs after roster validation passes. It does not reopen the roster;
@@ -2238,13 +2332,23 @@ class PipelineExecutor:
         if not legacy_source.strip():
             legacy_source = _payload_blob(payload)[:16000]
 
+        target_code = _normalized_unit_code(_unit_display_name(target_machine or "")) if target_machine else ""
         unit_cards: list[dict] = []
+        if target_code:
+            unit_cards = [
+                cards_by_code[code]
+                for roster_machine in roster
+                for code in [_normalized_unit_code(roster_machine)]
+                if code and code != target_code and code in cards_by_code
+            ]
         validation_units: list[dict] = []
-        await self._log_activity(bot_name, video_id, "running", f"Unit research-hold active: enriching {len(roster)} machine card(s) one at a time")
+        await self._log_activity(bot_name, video_id, "running", f"Unit research-hold active: enriching {1 if target_code else len(roster)} machine card(s) one at a time")
 
         for i, machine in enumerate(roster, start=1):
             code = _normalized_unit_code(machine)
-            if code and code in cards_by_code:
+            if target_code and code != target_code:
+                continue
+            if code and code in cards_by_code and not target_code:
                 card = cards_by_code[code]
                 warnings = _card_warnings(machine, card)
                 if not warnings:
@@ -2338,6 +2442,8 @@ class PipelineExecutor:
 
             # Durable checkpoint after each machine. A crash or later-machine
             # failure cannot discard research cards already completed.
+            roster_order = {_normalized_unit_code(item): index for index, item in enumerate(roster)}
+            unit_cards.sort(key=lambda item: roster_order.get(_normalized_unit_code(_unit_display_name(item)), len(roster)))
             payload["unit_research_cards"] = unit_cards
             payload["unit_research_hold_validation"] = {
                 "passed": not warnings and i == len(roster),
@@ -2685,6 +2791,7 @@ class PipelineExecutor:
                     "- Preserve that exact beat order and copy only evidence IDs supplied inside that beat.\n"
                     "- Write exactly one complete spoken sentence per beat, 19-24 words each.\n"
                     "- Distill; do not inventory. One sentence may express only the central idea of its evidence.\n"
+                    "- Keep factual nouns and verbs inside the vocabulary of that beat's claim and source excerpt; do not add factual synonyms.\n"
                     "- Do not add dates, numbers, names, programs, specifications, causes, or claims absent from that beat's evidence.\n"
                     "- Across all five sentences, use at most two numerical details, and only when essential.\n"
                     "- Include the machine designation/name naturally somewhere in the five sentences.\n"

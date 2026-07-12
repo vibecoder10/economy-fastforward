@@ -276,6 +276,18 @@ def test_story_sentence_validator_blocks_reordering_and_unsupported_numbers():
     assert any("unsupported numerical detail" in warning for warning in warnings)
 
 
+def test_story_sentence_validator_blocks_lowercase_second_sentence_and_fabricated_claims():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    rows = json.loads(_story_bundle("B-52", 19))["sentences"]
+    rows[0]["sentence"] = "B-52 word word word word word word word word. then aliens conquered Europe with miraculous rockets word word word word."
+
+    _, warnings = pe._validate_machine_story_sentences("B-52", plan, {"sentences": rows})
+
+    assert any("exactly one sentence" in warning for warning in warnings)
+    assert any("outside its locked evidence vocabulary" in warning for warning in warnings)
+
+
 def test_story_sentence_validator_assembles_five_valid_jobs():
     payload = {"unit_research_cards": [{
         "unit": "B-52",
