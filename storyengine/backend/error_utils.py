@@ -102,6 +102,19 @@ def humanize_error(
                 "can't run. Add or update it in Settings → API Keys.")
 
     if (
+        "anthropic" in lowered
+        and (
+            "credit balance is too low" in lowered
+            or "purchase credits" in lowered
+            or "plans & billing" in lowered
+            or "insufficient credit" in lowered
+            or "insufficient balance" in lowered
+        )
+    ):
+        return ("Your Anthropic/Claude key is out of credits, so script generation "
+                "can't run. Add credits or update the key in Settings → API Keys.")
+
+    if (
         "connection refused" in lowered
         or "connection reset" in lowered
         or "name resolution" in lowered

@@ -66,6 +66,17 @@ def test_rate_limit_pattern_mapped():
     print("✅ test_rate_limit_pattern_mapped")
 
 
+def test_anthropic_credit_balance_pattern_mapped():
+    out = humanize_error(
+        "anthropic.BadRequestError: Error code: 400 - {'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}"
+    )
+    assert "anthropic" in out.lower() or "claude" in out.lower()
+    assert "credit" in out.lower()
+    assert "settings" in out.lower() or "billing" in out.lower()
+    assert "badrequesterror" not in out.lower()
+    print("✅ test_anthropic_credit_balance_pattern_mapped")
+
+
 def test_unknown_error_uses_fallback():
     out = humanize_error("some totally unknown error string xyz")
     assert "something went wrong" in out.lower() or "try again" in out.lower()

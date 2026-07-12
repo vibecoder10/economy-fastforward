@@ -603,7 +603,10 @@ async def run_machine_script_preview(
     if not machine:
         raise HTTPException(status_code=400, detail="machine is required")
     executor = PipelineExecutor(tenant_id)
-    result = await executor.run_machine_script_preview(video_id, machine)
+    try:
+        result = await executor.run_machine_script_preview(video_id, machine)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=humanize_error(e)) from e
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Preview generation failed")
     return result
