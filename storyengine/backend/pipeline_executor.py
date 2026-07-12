@@ -590,7 +590,23 @@ def _parse_machine_story_sentences(raw: str) -> dict:
         parsed = json.loads(text)
     except (TypeError, ValueError):
         return {}
-    return parsed if isinstance(parsed, dict) else {}
+    if not isinstance(parsed, dict):
+        return {}
+
+    # Some Claude replies follow the intended logic but use a looser
+    # {"evidence": {"problem": "..."}} shape. Canonicalize it, then let the
+    # strict validator decide whether the sentences actually pass.
+    if not isinstance(parsed.get("sentences"), list) and isinstance(parsed.get("evidence"), dict):
+        evidence = parsed.get("evidence") or {}
+        parsed["sentences"] = [
+            {"beat": beat, "sentence": str(evidence.get(beat) or ""), "used_evidence_ids": []}
+            for beat in ("problem", "decision", "tradeoff", "outcome")
+            if evidence.get(beat)
+        ]
+    conclusion = parsed.get("conclusion")
+    if isinstance(conclusion, dict) and not conclusion.get("sentence") and conclusion.get("paragraph_derived_sentence"):
+        parsed["conclusion"] = {"sentence": conclusion.get("paragraph_derived_sentence")}
+    return parsed
 
 
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
@@ -628,8 +644,11 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         used_ids = row.get("used_evidence_ids")
         allowed = evidence_by_beat.get(beat, {})
         if not isinstance(used_ids, list) or not used_ids:
-            warnings.append(f"{beat} must declare non-empty used_evidence_ids")
-            used_ids = []
+            if len(allowed) == 1:
+                used_ids = [next(iter(allowed.keys()))]
+            else:
+                warnings.append(f"{beat} must declare non-empty used_evidence_ids")
+                used_ids = []
         unknown_ids = [str(item) for item in used_ids if str(item) not in allowed]
         if unknown_ids:
             warnings.append(f"{beat} used evidence outside its locked beat: {', '.join(unknown_ids)}")
@@ -3356,6 +3375,7 @@ class PipelineExecutor:
                     '{"beat":"tradeoff","sentence":"...","used_evidence_ids":["..."]},'
                     '{"beat":"outcome","sentence":"...","used_evidence_ids":["..."]}],'
                     '"conclusion":{"sentence":"..."}}\n'
+                    "- Do not return a machine key, evidence object, paragraph_derived_sentence key, or any alternate schema.\n"
                     "- Preserve that exact beat order and copy only evidence IDs supplied inside that beat.\n"
                     "- Write exactly one complete spoken sentence per evidence beat, 19-24 words each.\n"
                     "- Distill; do not inventory. One sentence may express only the central idea of its evidence.\n"
@@ -3413,6 +3433,7 @@ class PipelineExecutor:
                         "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE PLUS PARAGRAPH-DERIVED CONCLUSION FROM THE SAME LOCKED STORY PLAN.\n\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         "Return only the exact JSON shape with four ordered evidence sentences and one conclusion object. "
+                        "Do not return a machine key, evidence object, paragraph_derived_sentence key, or any alternate schema. "
                         "Preserve problem, decision, tradeoff, outcome order. Write one 19-24 word sentence per evidence beat. "
                         "Use only that beat's evidence. Introduce no new claims or numerical details. "
                         "Write the conclusion only from the assembled four evidence sentences; no evidence IDs, no new facts, no new numbers. "

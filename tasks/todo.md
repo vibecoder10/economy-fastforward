@@ -9,6 +9,7 @@ Current DVsU bomber proof state:
 - UI/backend path exists: Research tab `Research selected` → `/api/pipeline/machine-research-one/{video_id}`. Bulk missing-card generation is disabled for hallucination safety.
 - The next gate is one-machine script preview via `/api/pipeline/machine-script-preview/{video_id}`. First live attempt reached Anthropic but failed with "credit balance is too low"; this is a provider billing/key blocker, not a research or script-plan validation failure.
 - Hotfix added: machine script preview exceptions now humanize Anthropic/Claude out-of-credit errors instead of surfacing a generic 500.
+- Follow-up hotfix added: the script-preview parser canonicalizes Claude's alternate `evidence` / `paragraph_derived_sentence` JSON shape before strict validation, and the route returns a 400 when a preview saves as failed instead of returning `200 completed` with an empty paragraph.
 
 Next safe action: add credits/update the tenant Anthropic key in StoryEngine Settings, then rerun only the `Boeing XB-15` machine script preview. Do not run the full roster script until that preview passes Ryan's quality bar.
 
