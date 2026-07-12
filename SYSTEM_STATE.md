@@ -436,6 +436,7 @@ Vectorization pipeline that distills raw data (transcripts, research) into struc
 | `storyengine/backend/routes/intelligence.py` | API: `/api/intelligence/*` (search, backfill, stats, insights) |
 | `storyengine/backend/migrations/036_enable_pgvector.sql` | Enable pgvector extension |
 | `storyengine/backend/migrations/037_content_intelligence.sql` | content_intelligence table + indexes |
+| `storyengine/backend/migrations/081_machine_research_cards.sql` | Tenant/video/machine-keyed compact research checkpoints; dual-written with legacy `videos.research_payload.unit_research_cards` |
 
 ### New Table: `content_intelligence`
 | Column | Type | Purpose |

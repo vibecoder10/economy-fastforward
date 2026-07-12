@@ -371,10 +371,14 @@ def test_research_hold_processes_and_checkpoints_one_locked_machine_at_a_time(mo
         writes.append((query, args))
         return None
 
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
     async def fake_log(*_args, **_kwargs):
         return None
 
     monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
     monkeypatch.setattr(executor, "_log_activity", fake_log)
 
     result = asyncio.run(
@@ -388,6 +392,10 @@ def test_research_hold_processes_and_checkpoints_one_locked_machine_at_a_time(mo
 
     checkpoints = [(query, args) for query, args in writes if "SET research_payload" in query]
     assert len(checkpoints) == 3
+    compact_checkpoints = [(query, args) for query, args in writes if "INSERT INTO machine_research_cards" in query]
+    assert len(compact_checkpoints) == 3
+    assert all(args[:2] == ("tenant-test", "video-test") for _query, args in compact_checkpoints)
+    assert [args[4] for _query, args in compact_checkpoints] == [1, 2, 3]
     assert [len(json.loads(args[0])["unit_research_cards"]) for _query, args in checkpoints] == [1, 2, 3]
     assert all(json.loads(args[0])["unit_roster"] == original_roster for _query, args in checkpoints)
     assert result["unit_roster"] == original_roster
@@ -401,3 +409,116 @@ def test_research_hold_contract_persists_each_card_and_never_reopens_roster():
     assert "The roster is locked. Do not add, remove, replace, or relitigate machines." in hold
     assert "SET research_payload" in hold
     assert "locked_roster_snapshot" in hold
+
+
+def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+    calls = []
+
+    async def fake_fetch_all(query, *args):
+        calls.append((query, args))
+        return [{
+            "machine_key": "A", "machine_name": "A", "roster_index": 1,
+            "card": {"unit": "A", "engineering_thesis": "compact A"},
+            "validation": {"passed": True},
+        }]
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    legacy_cards = [{"unit": "C", "engineering_thesis": "legacy C"},
+                    {"unit": "A", "engineering_thesis": "legacy A"},
+                    {"unit": "B", "engineering_thesis": "legacy B"}]
+    legacy = {"fact_sheet": "preserved", "unit_roster": ["A", "B", "C"],
+              "unit_research_cards": legacy_cards}
+    result = asyncio.run(executor._load_machine_research_cards("video-a", legacy))
+
+    assert calls[0][1] == ("tenant-a", "video-a")
+    assert "tenant_id = $1 AND video_id = $2" in calls[0][0]
+    assert result["fact_sheet"] == "preserved"
+    assert [card["unit"] for card in result["unit_research_cards"]] == ["A", "B", "C"]
+    assert result["unit_research_cards"][0]["engineering_thesis"] == "compact A"
+    assert result["unit_research_cards"][1:] == [legacy_cards[2], legacy_cards[0]]
+    assert legacy["unit_research_cards"] == legacy_cards
+
+
+def test_compact_card_read_falls_back_to_legacy_payload(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+
+    async def missing_table(*_args):
+        raise RuntimeError("undefined table")
+
+    monkeypatch.setattr(pe, "fetch_all", missing_table)
+    legacy = {"unit_roster": ["legacy"], "unit_research_cards": [{"unit": "legacy"}]}
+    assert asyncio.run(executor._load_machine_research_cards("video-a", legacy)) is legacy
+
+
+def test_compact_read_excludes_stale_mismatch_and_invalid_override(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+
+    async def fake_fetch_all(*_args):
+        return [
+            {"machine_key": "STALE", "machine_name": "STALE", "roster_index": 9,
+             "card": {"unit": "STALE"}, "validation": {"passed": True}},
+            {"machine_key": "A", "machine_name": "A", "roster_index": 1,
+             "card": {"unit": "B", "engineering_thesis": "identity mismatch"},
+             "validation": {"passed": True}},
+            {"machine_key": "B", "machine_name": "B", "roster_index": 2,
+             "card": {"unit": "B", "engineering_thesis": "invalid compact"},
+             "validation": {"passed": False}},
+        ]
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    legacy = {"unit_roster": ["A", "B"], "unit_research_cards": [
+        {"unit": "A", "engineering_thesis": "valid legacy A"},
+        {"unit": "B", "engineering_thesis": "valid legacy B"},
+    ]}
+    result = asyncio.run(executor._load_machine_research_cards("video-a", legacy))
+    assert result["unit_research_cards"] == legacy["unit_research_cards"]
+
+
+def test_compact_write_unavailable_reuses_legacy_without_generation(monkeypatch):
+    roster = ["B-52"]
+    card = {"unit": "B-52", "engineering_thesis": "A sufficiently detailed legacy engineering thesis.",
+            "surprising_fact": "A fact", "source_notes": ["source"]}
+    payload = {"unit_roster": roster, "unit_research_cards": [card]}
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("valid legacy card must not trigger paid regeneration")
+
+    executor.__dict__["_pipeline"] = type("Pipeline", (), {"anthropic": ForbiddenAnthropic()})()
+    writes = []
+
+    async def no_compact_rows(*_args):
+        return []
+
+    async def fake_execute(query, *_args):
+        writes.append(query)
+        if "INSERT INTO machine_research_cards" in query:
+            raise RuntimeError("undefined table machine_research_cards")
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "fetch_all", no_compact_rows)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+    result = asyncio.run(executor._run_unit_research_hold("video-a", "Title", payload, roster))
+    assert result["unit_research_cards"] == [card]
+    assert result["unit_research_hold_validation"]["passed"] is True
+    assert sum("INSERT INTO machine_research_cards" in query for query in writes) == 1
+
+
+def test_compact_write_rejects_empty_canonical_key():
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+    try:
+        asyncio.run(executor._upsert_machine_research_card("video-a", "---", 1, {}, {}))
+    except ValueError as exc:
+        assert "non-empty machine key" in str(exc)
+    else:
+        raise AssertionError("empty canonical key was accepted")

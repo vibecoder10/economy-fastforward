@@ -1016,6 +1016,107 @@ class PipelineExecutor:
             video_id, self.tenant_id,
         )
 
+    async def _load_machine_research_cards(
+        self, video_id: str, payload: dict, roster: Optional[list[str]] = None
+    ) -> dict:
+        """Merge trustworthy compact rows into legacy cards in locked-roster order."""
+        if not isinstance(payload, dict):
+            payload = {}
+        roster = roster or [
+            _unit_display_name(item) for item in (payload.get("unit_roster") or [])
+            if _unit_display_name(item)
+        ]
+        roster_by_key = {
+            _normalized_unit_code(machine): machine for machine in roster
+            if _normalized_unit_code(machine)
+        }
+        roster_index_by_key = {
+            _normalized_unit_code(machine): index for index, machine in enumerate(roster, start=1)
+            if _normalized_unit_code(machine)
+        }
+        if not roster_by_key:
+            return payload
+        try:
+            rows = await fetch_all(
+                """SELECT machine_key, machine_name, roster_index, card, validation
+                   FROM machine_research_cards
+                   WHERE tenant_id = $1 AND video_id = $2
+                   ORDER BY roster_index, machine_key""",
+                self.tenant_id, video_id,
+            )
+        except Exception as exc:  # migration-safe compatibility fallback
+            _logger.warning("[machine-research] compact read unavailable: %s", str(exc)[:150])
+            return payload
+        cards_by_key: dict[str, dict] = {}
+        for card in payload.get("unit_research_cards") or []:
+            if not isinstance(card, dict):
+                continue
+            identity = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+            key = _normalized_unit_code(_unit_display_name(identity))
+            if key and key in roster_by_key:
+                cards_by_key[key] = card
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("card"), dict):
+                continue
+            metadata_key = _normalized_unit_code(str(row.get("machine_key") or ""))
+            name_key = _normalized_unit_code(str(row.get("machine_name") or ""))
+            card = row["card"]
+            identity = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+            card_key = _normalized_unit_code(_unit_display_name(identity))
+            validation = row.get("validation") or {}
+            if (
+                not metadata_key or metadata_key not in roster_by_key
+                or metadata_key != name_key or metadata_key != card_key
+                or row.get("roster_index") != roster_index_by_key[metadata_key]
+                or (isinstance(validation, dict) and validation.get("passed") is False)
+            ):
+                continue
+            cards_by_key[metadata_key] = card
+        cards = [cards_by_key[key] for key in roster_by_key if key in cards_by_key]
+        hydrated = dict(payload)
+        hydrated["unit_research_cards"] = cards
+        return hydrated
+
+    @staticmethod
+    def _compact_store_unavailable(exc: Exception) -> bool:
+        """True only for rollout compatibility or database availability errors."""
+        sqlstate = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+        if sqlstate in {"42P01", "42703", "57P01", "57P02", "57P03", "08000", "08001", "08003", "08004", "08006"}:
+            return True
+        message = str(exc).lower()
+        return any(token in message for token in (
+            "undefined table", "does not exist", "connection refused", "connection closed",
+            "connection reset", "database is unavailable",
+        ))
+
+    async def _upsert_machine_research_card(
+        self, video_id: str, machine: str, roster_index: int, card: dict, validation: dict
+    ) -> None:
+        """Checkpoint one compact card under exact tenant/video/machine identity."""
+        import json
+        machine_key = _normalized_unit_code(machine)
+        if not machine_key:
+            raise ValueError("compact machine research card requires a non-empty machine key")
+        try:
+            await execute(
+                """INSERT INTO machine_research_cards
+                 (tenant_id, video_id, machine_key, machine_name, roster_index, card, validation)
+               SELECT $1, v.id, $3, $4, $5, $6::jsonb, $7::jsonb
+               FROM videos v WHERE v.id = $2 AND v.tenant_id = $1
+               ON CONFLICT (tenant_id, video_id, machine_key) DO UPDATE SET
+                 machine_name = EXCLUDED.machine_name,
+                 roster_index = EXCLUDED.roster_index,
+                 card = EXCLUDED.card,
+                 validation = EXCLUDED.validation,
+                 updated_at = now()""",
+                self.tenant_id, video_id, machine_key, machine,
+                roster_index, json.dumps(card), json.dumps(validation),
+            )
+        except Exception as exc:
+            if not self._compact_store_unavailable(exc):
+                raise
+            _logger.warning("[machine-research] compact write unavailable; legacy checkpoint retained: %s", str(exc)[:150])
+
     @staticmethod
     def _enabled_stages(video: Optional[dict]) -> Optional[list]:
         """The video's per-video stage plan (list of enabled stage keys), or
@@ -1923,6 +2024,7 @@ class PipelineExecutor:
         bot_name = "Research Agent"
         if not isinstance(payload, dict) or not roster:
             return payload
+        payload = await self._load_machine_research_cards(video_id, payload, roster)
 
         # Exact serialized snapshot, not merely a count/name projection. Every
         # card pass must leave the structured locked roster byte-for-byte equal.
@@ -1960,7 +2062,7 @@ class PipelineExecutor:
             if not isinstance(card, dict):
                 continue
             raw_unit = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
-            code = _unit_code(_unit_display_name(raw_unit) or str(raw_unit))
+            code = _normalized_unit_code(_unit_display_name(raw_unit) or str(raw_unit))
             if code:
                 cards_by_code[code] = card
 
@@ -1977,13 +2079,16 @@ class PipelineExecutor:
         await self._log_activity(bot_name, video_id, "running", f"Unit research-hold active: enriching {len(roster)} machine card(s) one at a time")
 
         for i, machine in enumerate(roster, start=1):
-            code = _unit_code(machine)
+            code = _normalized_unit_code(machine)
             if code and code in cards_by_code:
                 card = cards_by_code[code]
                 warnings = _card_warnings(machine, card)
                 if not warnings:
                     unit_cards.append(card)
-                    validation_units.append({"machine": machine, "passed": True, "reused_existing": True, "warnings": []})
+                    reused_validation = {"machine": machine, "passed": True, "reused_existing": True, "warnings": []}
+                    validation_units.append(reused_validation)
+                    # Opportunistically backfill legacy JSONB-only cards.
+                    await self._upsert_machine_research_card(video_id, machine, i, card, reused_validation)
                     continue
 
             prompt = (
@@ -2086,6 +2191,7 @@ class PipelineExecutor:
                 }
                 await self._log_activity(bot_name, video_id, "failed", conflict)
                 return payload
+            await self._upsert_machine_research_card(video_id, machine, i, card, validation_units[-1])
             if warnings:
                 await self._log_activity(bot_name, video_id, "failed", f"Unit research-hold stopped at {machine}: " + "; ".join(warnings))
                 return payload
@@ -2246,6 +2352,7 @@ class PipelineExecutor:
                 rp = {}
         if not isinstance(rp, dict):
             rp = {}
+        rp = await self._load_machine_research_cards(video_id, rp, roster)
         video_thesis = (
             rp.get("thesis")
             or rp.get("narrative_arc_suggestion")
