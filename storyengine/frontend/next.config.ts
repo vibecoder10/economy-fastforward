@@ -20,6 +20,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: process.cwd(),
+  },
   // Removed "output: export" to support dynamic routes like /pipeline/[videoId]/storyboards
   // For production deployment, use a Node.js server or edge runtime
   images: {

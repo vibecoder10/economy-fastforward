@@ -671,6 +671,12 @@ export const runMachineScriptPreview = (videoId: string, machine: string) =>
     { method: "POST", body: JSON.stringify({ machine }) },
   );
 
+export const runOneMachineResearch = (videoId: string, machine: string) =>
+  fetchApi<{ status: string; video_id: string; machine: string; research_card: Record<string, unknown> }>(
+    `/api/pipeline/machine-research-one/${videoId}`,
+    { method: "POST", body: JSON.stringify({ machine }) },
+  );
+
 export const runNextStep = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });
 

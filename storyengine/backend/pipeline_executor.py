@@ -16,6 +16,7 @@ import sys
 import asyncio
 import uuid
 import re
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional, Any
 from pathlib import Path
@@ -180,6 +181,181 @@ def _research_source_for_machine(payload: dict, machine: str) -> tuple[str, str]
     return source, "legacy_research_blob"
 
 
+def _target_machine_research_source(payload: dict, machine: str) -> str:
+    """Return only source snippets that mention the locked target machine."""
+    import re
+
+    if not isinstance(payload, dict):
+        payload = {}
+    target_code = _normalized_unit_code(_unit_display_name(machine))
+    target_name = _unit_display_name(machine).strip().lower()
+    source_keys = (
+        "fact_sheet",
+        "source_bibliography",
+        "framework_analysis",
+        "historical_parallels",
+        "roster_contract",
+    )
+    parts: list[str] = []
+    for key in source_keys:
+        text = str(payload.get(key) or "")
+        if not text.strip():
+            continue
+        snippets: list[str] = []
+        for chunk in re.split(r"(?<=[.!?])\s+|\n+", text):
+            chunk = " ".join(str(chunk or "").split())
+            if not chunk:
+                continue
+            chunk_code = _normalized_unit_code(chunk)
+            chunk_lower = chunk.lower()
+            if (target_code and target_code in chunk_code) or (target_name and target_name in chunk_lower):
+                snippets.append(chunk)
+            if len("\n".join(snippets)) >= 3500:
+                break
+        if snippets:
+            parts.append(f"{key} target snippets:\n" + "\n".join(snippets))
+    if parts:
+        return "\n\n".join(parts)[:16000]
+    return (
+        f"No preloaded source excerpts are supplied for {machine}. "
+        "Collect or select raw excerpts only for this locked machine; do not use other roster cards."
+    )
+
+
+def _source_text_fingerprint(text: str) -> str:
+    return hashlib.sha256(" ".join(str(text or "").split()).encode("utf-8")).hexdigest()
+
+
+def _verified_source_cache_key(machine: str) -> str:
+    return _normalized_unit_code(_unit_display_name(machine))
+
+
+def _normalized_source_text(text: str) -> str:
+    return " ".join(str(text or "").split()).lower()
+
+
+def _html_to_visible_text(raw_html: str) -> str:
+    """Lightweight HTML text extraction without adding another dependency."""
+    import html as _html
+    import re as _re
+
+    text = _re.sub(r"(?is)<(script|style|noscript|svg|header|footer|nav).*?</\1>", " ", raw_html or "")
+    text = _re.sub(r"(?is)<br\s*/?>", "\n", text)
+    text = _re.sub(r"(?is)</(p|div|section|article|li|tr|h[1-6])>", "\n", text)
+    text = _re.sub(r"(?is)<[^>]+>", " ", text)
+    return " ".join(_html.unescape(text).split())
+
+
+def _machine_mention_terms(machine: str) -> set[str]:
+    import re as _re
+
+    machine_text = _unit_display_name(machine)
+    terms = {machine_text.lower()}
+    code = _unit_code(machine_text)
+    if code:
+        terms.add(code.lower())
+        terms.add(code.replace("-", "").lower())
+    for word in _re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", machine_text):
+        if word.lower() not in {"boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin"}:
+            terms.add(word.lower())
+    return {term for term in terms if term and len(term) >= 3}
+
+
+def _mentions_machine(text: str, machine: str) -> bool:
+    normalized = _normalized_source_text(text)
+    compact = re.sub(r"[^a-z0-9]", "", normalized)
+    for term in _machine_mention_terms(machine):
+        if term in normalized or re.sub(r"[^a-z0-9]", "", term) in compact:
+            return True
+    return False
+
+
+def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -> list[str]:
+    import re as _re
+
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return []
+    raw_sentences = _re.split(r"(?<=[.!?])\s+", cleaned)
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for sentence in raw_sentences:
+        sentence = " ".join(sentence.split()).strip()
+        if len(sentence) < 45 or len(sentence) > 420:
+            continue
+        if not _mentions_machine(sentence, machine):
+            continue
+        key = _normalized_source_text(sentence)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(sentence)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def _verified_machine_source_package_ready(package: Any) -> bool:
+    if not isinstance(package, dict) or package.get("passed") is False:
+        return False
+    excerpts = package.get("candidate_excerpts")
+    return isinstance(excerpts, list) and len(excerpts) >= 4
+
+
+def _format_verified_machine_source_package(package: dict) -> str:
+    lines = [
+        "Verified source package. The model may use ONLY these fetched excerpts.",
+        "Every returned source_excerpt must be copied from one candidate below.",
+    ]
+    for item in (package.get("candidate_excerpts") or [])[:36]:
+        if not isinstance(item, dict):
+            continue
+        lines.extend([
+            "",
+            f"EXCERPT_ID: {item.get('excerpt_id')}",
+            f"SOURCE_TITLE: {item.get('source_title')}",
+            f"SOURCE_URL: {item.get('source_url')}",
+            f"LOCATOR: {item.get('locator')}",
+            f"EXACT_TEXT: {item.get('text')}",
+        ])
+    return "\n".join(lines)[:24000]
+
+
+def _validate_card_against_verified_sources(card: dict, package: Optional[dict]) -> list[str]:
+    """Require each evidence source excerpt to be text fetched before the LLM call."""
+    if not _verified_machine_source_package_ready(package):
+        return ["missing verified raw internet source package"]
+    candidates = [
+        item for item in (package or {}).get("candidate_excerpts", [])
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    warnings: list[str] = []
+    for segment in (card.get("evidence_segments") if isinstance(card, dict) else []) or []:
+        if not isinstance(segment, dict):
+            continue
+        evidence_id = str(segment.get("evidence_id") or "?").strip()
+        excerpt = _normalized_source_text(segment.get("source_excerpt") or "")
+        source_url = str(segment.get("source_url") or "").strip()
+        if not excerpt:
+            continue
+        if not source_url:
+            warnings.append(f"evidence segment {evidence_id} missing verified source_url")
+            continue
+        matched = False
+        for candidate in candidates:
+            candidate_text = _normalized_source_text(candidate.get("text") or "")
+            candidate_url = str(candidate.get("source_url") or "").strip()
+            url_matches = candidate_url == source_url
+            if url_matches and excerpt in candidate_text:
+                matched = True
+                break
+        if not matched:
+            warnings.append(
+                f"evidence segment {evidence_id} source_excerpt was not found in verified fetched source text"
+            )
+    return warnings
+
+
 def _inventory_story_brief(payload: dict, machine: str) -> dict:
     """Hide exhaustive card fields from the complete-inventory writer."""
     import re
@@ -264,18 +440,33 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
 
         excerpt_vocab = {_evidence_stem(token) for token in re.findall(r"[a-z]+", excerpt.lower())}
         machine_vocab = {_evidence_stem(token) for token in re.findall(r"[a-z]+", machine.lower())}
+
+        def _grounded_word(stem: str) -> bool:
+            if stem in excerpt_vocab or stem in machine_vocab:
+                return True
+            return len(stem) >= 5 and any(
+                len(candidate) >= 5 and (candidate.startswith(stem) or stem.startswith(candidate))
+                for candidate in excerpt_vocab
+            )
+
         ungrounded_words = sorted({
             stem
             for raw_token in re.findall(r"[a-z]+", claim.lower())
             for stem in [_evidence_stem(raw_token)]
-            if raw_token not in grounding_stopwords and stem not in excerpt_vocab and stem not in machine_vocab
+            if raw_token not in grounding_stopwords and not _grounded_word(stem)
         })
         if ungrounded_words:
             errors.append(
                 f"evidence segment {evidence_id or index} claim adds words absent from source_excerpt: {', '.join(ungrounded_words[:8])}"
             )
-        claim_numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", claim.lower())
-        excerpt_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", excerpt.lower()))
+        designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
+        numeric_claim = claim
+        numeric_excerpt = excerpt
+        for designation in designation_tokens:
+            numeric_claim = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", numeric_claim, flags=re.IGNORECASE)
+            numeric_excerpt = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", numeric_excerpt, flags=re.IGNORECASE)
+        claim_numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", numeric_claim.lower())
+        excerpt_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", numeric_excerpt.lower()))
         missing_number_support = [token for token in claim_numbers if token not in excerpt_numbers]
         undeclared_numbers = [token for token in claim_numbers if token not in normalized_numbers]
         invented_numeric_tokens = [token for token in normalized_numbers if token not in set(claim_numbers) | excerpt_numbers]
@@ -301,7 +492,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
 
 
 def _machine_story_plan(payload: dict, machine: str) -> dict:
-    """Compile source-addressable evidence into five locked sentence jobs."""
+    """Compile source-addressable evidence into four locked sentence jobs."""
     card = _research_card_for_machine(payload, machine) or {}
     evidence, evidence_errors = _normalize_machine_evidence(card, machine)
     beat_specs = (
@@ -309,7 +500,6 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         ("decision", ("engineering_response",), "Explain the defining design decision as a response to that problem."),
         ("tradeoff", ("tradeoff",), "State what the decision sacrificed, limited, or made harder."),
         ("outcome", ("operational_reality", "actual_outcome", "test_result"), "Show what happened in service, testing, production, or institutional reality."),
-        ("meaning", ("consequence", "legacy"), "Land why the machine mattered by connecting outcome back to the decision."),
     )
     beats = []
     for role, accepted_kinds, job in beat_specs:
@@ -327,7 +517,8 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "beats": beats,
         "assembly_order": [beat["beat"] for beat in beats],
         "contract": {
-            "sentences": 5,
+            "evidence_sentences": 4,
+            "conclusion": "one paragraph-derived sentence after reading the four assembled evidence sentences",
             "words_per_sentence": "19-24",
             "paragraph_words": "95-120",
             "maximum_numerical_details": 2,
@@ -454,9 +645,58 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 f"{beat} introduced words outside its locked evidence vocabulary: {', '.join(novel_claim_words[:8])}"
             )
 
+    conclusion = bundle.get("conclusion") if isinstance(bundle, dict) else None
+    conclusion_sentence = ""
+    if not isinstance(conclusion, dict):
+        warnings.append("conclusion must be an object with one paragraph-derived sentence")
+    else:
+        conclusion_sentence = " ".join(str(conclusion.get("sentence") or "").split())
+        if conclusion.get("used_evidence_ids"):
+            warnings.append("conclusion must not declare used_evidence_ids; it derives only from the assembled paragraph")
+        wc = _spoken_word_count(conclusion_sentence)
+        if wc < 19 or wc > 24:
+            warnings.append(f"conclusion sentence word count {wc} outside 19-24")
+        body = conclusion_sentence.rstrip()
+        if not re.search(r"[.!?][\"')\]]?$", body):
+            warnings.append("conclusion must be exactly one complete sentence")
+        stripped_terminal = re.sub(r"[.!?][\"')\]]?$", "", body)
+        if re.search(r"[.!?](?=\s|$)", stripped_terminal):
+            warnings.append("conclusion must contain exactly one sentence")
+        if ";" in conclusion_sentence:
+            warnings.append("conclusion may not use semicolons")
+
+        assembled_evidence = " ".join(sentences)
+        conclusion_for_numbers = conclusion_sentence
+        evidence_for_numbers = assembled_evidence
+        for designation in designation_tokens:
+            conclusion_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", conclusion_for_numbers, flags=re.IGNORECASE)
+            evidence_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", evidence_for_numbers, flags=re.IGNORECASE)
+        evidence_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", evidence_for_numbers.lower()))
+        evidence_numbers.update(token for token in re.findall(r"\b[a-z]+\b", evidence_for_numbers.lower()) if token in number_words)
+        conclusion_numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", conclusion_for_numbers.lower())
+        conclusion_numbers += [token for token in re.findall(r"\b[a-z]+\b", conclusion_for_numbers.lower()) if token in number_words]
+        unsupported_conclusion_numbers = [token for token in conclusion_numbers if token not in evidence_numbers]
+        if unsupported_conclusion_numbers:
+            warnings.append(
+                "conclusion introduced unsupported numerical detail(s): "
+                + ", ".join(unsupported_conclusion_numbers)
+            )
+
+        allowed_designations = {_normalized_unit_code(machine)}
+        conclusion_designations = {
+            _normalized_unit_code(token)
+            for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", conclusion_sentence.upper())
+        }
+        unsupported_designations = sorted(token for token in conclusion_designations if token and token not in allowed_designations)
+        if unsupported_designations:
+            warnings.append(
+                "conclusion introduced unsupported designation(s): "
+                + ", ".join(unsupported_designations)
+            )
+
     if len(all_number_tokens) > 2:
         warnings.append(f"paragraph contains {len(all_number_tokens)} numerical details; maximum is 2")
-    paragraph = " ".join(sentences)
+    paragraph = " ".join(sentences + ([conclusion_sentence] if conclusion_sentence else []))
     warnings.extend(PipelineExecutor._validate_static_unit_paragraph(machine, paragraph))
     return paragraph, list(dict.fromkeys(warnings))
 
@@ -1264,8 +1504,150 @@ class PipelineExecutor:
             video_id, self.tenant_id,
         )
 
+    async def _fetch_source_text(self, client: Any, url: str) -> str:
+        """Fetch one search result and extract visible text for excerpt verification."""
+        if not url:
+            return ""
+        try:
+            response = await client.get(url)
+            if response.status_code >= 400:
+                return ""
+            content_type = str(response.headers.get("content-type") or "").lower()
+            if "pdf" in content_type or url.lower().split("?")[0].endswith(".pdf"):
+                import io
+                from pypdf import PdfReader
+
+                reader = PdfReader(io.BytesIO(response.content))
+                return " ".join((page.extract_text() or "") for page in reader.pages[:8])
+            return _html_to_visible_text(response.text)
+        except Exception as exc:  # noqa: BLE001 - source fetch failures are represented in validation.
+            _logger.info("[machine-source] fetch failed for %s: %s", url[:140], str(exc)[:120])
+            return ""
+
+    async def _gather_verified_machine_source_package(self, title: str, machine: str, payload: dict) -> dict:
+        """Search the live internet, fetch pages, and save exact excerpt candidates for one machine.
+
+        This is deliberately pre-LLM. Claude may summarize or select after this,
+        but it may not invent source text because card validation checks against
+        this package.
+        """
+        cache_key = _verified_source_cache_key(machine)
+        cached = ((payload or {}).get("machine_raw_source_packages") or {}).get(cache_key)
+        if _verified_machine_source_package_ready(cached):
+            return cached
+
+        tavily_key = await get_secret("tavily_api_key", self.tenant_id)
+        if not tavily_key:
+            return {
+                "passed": False,
+                "machine": machine,
+                "machine_key": cache_key,
+                "errors": ["Tavily API key is required for verified one-machine internet research."],
+                "candidate_excerpts": [],
+                "sources": [],
+            }
+
+        manufacturer = " ".join(_unit_display_name(machine).split()[:1]).strip()
+        queries = list(dict.fromkeys([
+            f'"{machine}" official history',
+            f'"{machine}" USAF fact sheet',
+            f'"{machine}" National Museum of the United States Air Force',
+            f'"{machine}" {manufacturer} development operational history'.strip(),
+            f'"{machine}" design development tradeoff operational history',
+        ]))[:5]
+
+        import httpx as _httpx
+
+        search_results: list[dict] = []
+        errors: list[str] = []
+        headers = {"User-Agent": "StoryEngine/1.0 (verified source research)"}
+        async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
+            for query in queries:
+                try:
+                    response = await client.post(
+                        "https://api.tavily.com/search",
+                        json={
+                            "api_key": tavily_key,
+                            "query": query,
+                            "search_depth": "advanced",
+                            "include_answer": False,
+                            "include_raw_content": True,
+                            "max_results": 4,
+                        },
+                    )
+                    if response.status_code >= 400:
+                        errors.append(f"Tavily search failed for {query}: HTTP {response.status_code}")
+                        continue
+                    for item in (response.json().get("results") or []):
+                        if isinstance(item, dict) and item.get("url"):
+                            item = dict(item)
+                            item["_query"] = query
+                            search_results.append(item)
+                except Exception as exc:  # noqa: BLE001 - keep gathering from remaining queries.
+                    errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
+
+            sources: list[dict] = []
+            candidate_excerpts: list[dict] = []
+            seen_urls: set[str] = set()
+            for item in search_results:
+                url = str(item.get("url") or "").strip()
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                title_text = str(item.get("title") or url).strip()
+                fetched_text = await self._fetch_source_text(client, url)
+                source_text = fetched_text or str(item.get("raw_content") or item.get("content") or "")
+                if not source_text or not _mentions_machine(source_text, machine):
+                    continue
+                source_id = f"S{len(sources) + 1}"
+                source_hash = _source_text_fingerprint(source_text)
+                sources.append({
+                    "source_id": source_id,
+                    "title": title_text,
+                    "url": url,
+                    "query": item.get("_query"),
+                    "text_hash": source_hash,
+                    "text_chars": len(source_text),
+                })
+                for excerpt in _sentence_candidates_from_source(source_text, machine, limit=8):
+                    excerpt_id = f"{source_id}-E{len([e for e in candidate_excerpts if e.get('source_id') == source_id]) + 1}"
+                    candidate_excerpts.append({
+                        "excerpt_id": excerpt_id,
+                        "source_id": source_id,
+                        "source_title": title_text,
+                        "source_url": url,
+                        "locator": f"{excerpt_id}; query={item.get('_query')}",
+                        "text": excerpt,
+                        "text_hash": _source_text_fingerprint(excerpt),
+                    })
+                    if len(candidate_excerpts) >= 36:
+                        break
+                if len(candidate_excerpts) >= 36:
+                    break
+
+        package = {
+            "passed": len(candidate_excerpts) >= 4,
+            "schema_version": 1,
+            "machine": machine,
+            "machine_key": cache_key,
+            "search_queries": queries,
+            "sources": sources,
+            "candidate_excerpts": candidate_excerpts,
+            "errors": errors,
+            "gathered_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if not package["passed"] and not errors:
+            package["errors"] = [
+                "Verified source gathering found fewer than four exact machine-matching excerpts."
+            ]
+        return package
+
     async def _load_machine_research_cards(
-        self, video_id: str, payload: dict, roster: Optional[list[str]] = None
+        self,
+        video_id: str,
+        payload: dict,
+        roster: Optional[list[str]] = None,
+        target_machine: Optional[str] = None,
     ) -> dict:
         """Merge trustworthy compact rows into legacy cards in locked-roster order."""
         if not isinstance(payload, dict):
@@ -1274,6 +1656,7 @@ class PipelineExecutor:
             _unit_display_name(item) for item in (payload.get("unit_roster") or [])
             if _unit_display_name(item)
         ]
+        target_key = _normalized_unit_code(_unit_display_name(target_machine or "")) if target_machine else ""
         roster_by_key = {
             _normalized_unit_code(machine): machine for machine in roster
             if _normalized_unit_code(machine)
@@ -1285,13 +1668,22 @@ class PipelineExecutor:
         if not roster_by_key:
             return payload
         try:
-            rows = await fetch_all(
-                """SELECT machine_key, machine_name, roster_index, card, validation
-                   FROM machine_research_cards
-                   WHERE tenant_id = $1 AND video_id = $2
-                   ORDER BY roster_index, machine_key""",
-                self.tenant_id, video_id,
-            )
+            if target_key:
+                rows = await fetch_all(
+                    """SELECT machine_key, machine_name, roster_index, card, validation
+                       FROM machine_research_cards
+                       WHERE tenant_id = $1 AND video_id = $2 AND machine_key = $3
+                       ORDER BY roster_index, machine_key""",
+                    self.tenant_id, video_id, target_key,
+                )
+            else:
+                rows = await fetch_all(
+                    """SELECT machine_key, machine_name, roster_index, card, validation
+                       FROM machine_research_cards
+                       WHERE tenant_id = $1 AND video_id = $2
+                       ORDER BY roster_index, machine_key""",
+                    self.tenant_id, video_id,
+                )
         except Exception as exc:  # migration-safe compatibility fallback
             _logger.warning("[machine-research] compact read unavailable: %s", str(exc)[:150])
             return payload
@@ -2314,11 +2706,15 @@ class PipelineExecutor:
         bot_name = "Research Agent"
         if not isinstance(payload, dict) or not roster:
             return payload
-        payload = await self._load_machine_research_cards(video_id, payload, roster)
+        target_code = _normalized_unit_code(_unit_display_name(target_machine or "")) if target_machine else ""
+        payload = await self._load_machine_research_cards(
+            video_id, payload, roster, target_machine=target_machine if target_code else None
+        )
 
         # Exact serialized snapshot, not merely a count/name projection. Every
         # card pass must leave the structured locked roster byte-for-byte equal.
         locked_roster_snapshot = _json_uh.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False)
+        verified_source_package: Optional[dict] = None
 
         def _hydrate_compatibility_fields(card: dict) -> dict:
             """Derive legacy UI fields from schema-v2 evidence without asking the model to repeat itself."""
@@ -2359,6 +2755,8 @@ class PipelineExecutor:
                 warnings.append("missing source_notes")
             _, evidence_errors = _normalize_machine_evidence(card, machine)
             warnings.extend(evidence_errors)
+            if verified_source_package is not None:
+                warnings.extend(_validate_card_against_verified_sources(card, verified_source_package))
             if not evidence_errors:
                 plan = _machine_story_plan({"unit_research_cards": [card]}, machine)
                 missing_beats = [beat["beat"] for beat in plan["beats"] if not beat["evidence_ids"]]
@@ -2384,15 +2782,59 @@ class PipelineExecutor:
             if code:
                 cards_by_code[code] = card
 
-        legacy_source = "\n\n".join(
-            str(payload.get(k) or "")
-            for k in ("fact_sheet", "source_bibliography", "framework_analysis", "historical_parallels", "roster_contract")
-            if payload.get(k)
-        )[:16000]
-        if not legacy_source.strip():
-            legacy_source = _payload_blob(payload)[:16000]
+        if not target_code:
+            validation_units = []
+            invalid_or_missing = []
+            for i, machine in enumerate(roster, start=1):
+                code = _normalized_unit_code(machine)
+                card = cards_by_code.get(code)
+                warnings = _card_warnings(machine, card) if card else ["missing saved one-machine research card"]
+                validation_units.append({"machine": machine, "passed": not warnings, "warnings": warnings})
+                if warnings:
+                    invalid_or_missing.append(machine)
+            if invalid_or_missing:
+                msg = (
+                    "Bulk DVsU machine-card generation is disabled for hallucination safety. "
+                    "Run verified one-machine research for a single locked machine first: "
+                    + ", ".join(invalid_or_missing[:6])
+                )
+                payload["unit_research_hold_validation"] = {
+                    "passed": False,
+                    "in_progress": False,
+                    "units": validation_units,
+                    "warnings": [msg],
+                }
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                return payload
 
-        target_code = _normalized_unit_code(_unit_display_name(target_machine or "")) if target_machine else ""
+        if target_code:
+            verified_source_package = await self._gather_verified_machine_source_package(
+                title, target_machine or "", payload
+            )
+            payload.setdefault("machine_raw_source_packages", {})[target_code] = verified_source_package
+            if not _verified_machine_source_package_ready(verified_source_package):
+                msg = "; ".join(str(item) for item in (verified_source_package.get("errors") or []))
+                msg = msg or "Verified one-machine internet research did not return enough exact source excerpts."
+                payload["unit_research_hold_validation"] = {
+                    "passed": False,
+                    "in_progress": False,
+                    "target_machine": target_machine,
+                    "units": [{"machine": target_machine, "passed": False, "warnings": [msg]}],
+                    "warnings": [msg],
+                }
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                return payload
+            legacy_source = _format_verified_machine_source_package(verified_source_package)
+            source_label = "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE"
+        else:
+            legacy_source = "\n\n".join(
+                str(payload.get(k) or "")
+                for k in ("fact_sheet", "source_bibliography", "framework_analysis", "historical_parallels", "roster_contract")
+                if payload.get(k)
+            )[:16000]
+            if not legacy_source.strip():
+                legacy_source = _payload_blob(payload)[:16000]
+            source_label = "VIDEO-LEVEL RESEARCH / SOURCES"
         unit_cards: list[dict] = []
         if target_code:
             unit_cards = [
@@ -2425,23 +2867,24 @@ class PipelineExecutor:
                 f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n\n"
                 "HARD CONTRACT:\n"
                 "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
-                "- Research/enrich only THIS machine enough to support one 95-120 word DVsU paragraph and one image brief.\n"
+                "- Research/enrich only THIS machine enough to support four evidence-backed DVsU sentences and one image brief.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
                 "Required JSON keys: schema_version (2), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
-                "- Return exactly five atomic evidence segments covering these kinds once each: design_problem, engineering_response, tradeoff, operational_reality, consequence.\n"
+                "- Return exactly four atomic evidence segments covering these kinds once each: design_problem, engineering_response, tradeoff, operational_reality.\n"
                 "- Each claim and source_excerpt must be one concise sentence, maximum 35 words.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one factual proposition, never a paragraph or specification bundle.\n"
                 "- claim must be a concise restatement of source_excerpt using no factual noun, verb, adjective, or number absent from that excerpt.\n"
                 "- numeric_tokens must list every number used by claim and may contain only numbers present in claim or source_excerpt.\n"
-                "- source_excerpt must be the passage supporting that claim; source_url or locator must identify where it came from.\n"
-                "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied sources cannot support a required beat, make that absence explicit in validation rather than guessing.\n"
-                "- Do not write script_beats or prewritten narration. Research remains evidence, not prose composition.\n\n"
-                f"VIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
+                "- source_excerpt must be copied from EXACT_TEXT in the verified excerpt package; source_url and locator must match that excerpt.\n"
+                "- Do not use memory, training data, general knowledge, or unsupplied web facts.\n"
+                "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied excerpts cannot support a required beat, make that absence explicit in validation rather than guessing.\n"
+                "- Do not return consequence, legacy, meaning, script_beats, or prewritten narration. Research remains evidence, not prose composition.\n\n"
+                f"{source_label}:\n{legacy_source}"
             )
             raw = await anthropic_client.generate(
                 prompt=prompt,
@@ -2467,9 +2910,12 @@ class PipelineExecutor:
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 2 JSON with the minimal required keys and evidence_segments array. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
+                    "Return exactly four evidence segments: design_problem, engineering_response, tradeoff, operational_reality. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
-                    "Do not create script_beats. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
-                    f"BAD/RAW CARD:\n{raw}\n\nVIDEO-LEVEL RESEARCH / SOURCES:\n{legacy_source}"
+                    "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below. "
+                    "Do not use memory, training data, general knowledge, or unsupplied web facts. "
+                    "Do not create consequence, legacy, meaning, or script_beats. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
+                    f"BAD/RAW CARD:\n{raw}\n\n{source_label}:\n{legacy_source}"
                 )
                 raw = await anthropic_client.generate(
                     prompt=repair_prompt,
@@ -2496,6 +2942,8 @@ class PipelineExecutor:
             card["unit"] = machine
             card["include"] = True
             card["locked_roster_index"] = i
+            if target_code:
+                card["source_package_key"] = target_code
             unit_cards.append(card)
             validation_units.append({"machine": machine, "passed": not warnings, "warnings": warnings})
 
@@ -2509,10 +2957,12 @@ class PipelineExecutor:
             unit_cards.sort(key=lambda item: roster_order.get(_normalized_unit_code(_unit_display_name(item)), len(roster)))
             payload["unit_research_cards"] = unit_cards
             payload["unit_research_hold_validation"] = {
-                "passed": not warnings and i == len(roster),
-                "in_progress": not warnings and i < len(roster),
+                "passed": not warnings if target_code else not warnings and i == len(roster),
+                "in_progress": False if target_code else not warnings and i < len(roster),
                 "units": validation_units,
             }
+            if target_code:
+                payload["unit_research_hold_validation"]["target_machine"] = machine
             checkpoint_result = await execute(
                 """UPDATE videos
                    SET research_payload = $1, updated_at = now()
@@ -2539,6 +2989,8 @@ class PipelineExecutor:
                 return payload
 
         payload["unit_research_hold_validation"] = {"passed": True, "in_progress": False, "units": validation_units}
+        if target_code and validation_units:
+            payload["unit_research_hold_validation"]["target_machine"] = validation_units[-1].get("machine")
         await self._log_activity(bot_name, video_id, "running", f"Unit research-hold complete: {len(unit_cards)} machine card(s)")
         return payload
 
@@ -2837,27 +3289,31 @@ class PipelineExecutor:
                     machine, _json_sh.dumps(story_plan), video_id, self.tenant_id,
                 )
                 prompt = (
-                    "DISTILL FIVE LOCKED RESEARCH BEATS INTO FIVE SPOKEN SENTENCES.\n\n"
+                    "DISTILL FOUR LOCKED RESEARCH BEATS, THEN WRITE ONE PARAGRAPH-DERIVED CONCLUSION.\n\n"
                     f"VIDEO TITLE: {title}\n"
                     f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n\n"
                     "You are not selecting facts and you are not writing a paragraph from memory. "
-                    "Each sentence has one locked job and may use ONLY its own evidence field.\n\n"
+                    "Each of the first four sentences has one locked job and may use ONLY its own evidence field. "
+                    "The final conclusion is written only after reading those four assembled sentences.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
                     '{"sentences":[{"beat":"problem","sentence":"...","used_evidence_ids":["..."]},'
                     '{"beat":"decision","sentence":"...","used_evidence_ids":["..."]},'
                     '{"beat":"tradeoff","sentence":"...","used_evidence_ids":["..."]},'
-                    '{"beat":"outcome","sentence":"...","used_evidence_ids":["..."]},'
-                    '{"beat":"meaning","sentence":"...","used_evidence_ids":["..."]}]}\n'
+                    '{"beat":"outcome","sentence":"...","used_evidence_ids":["..."]}],'
+                    '"conclusion":{"sentence":"..."}}\n'
                     "- Preserve that exact beat order and copy only evidence IDs supplied inside that beat.\n"
-                    "- Write exactly one complete spoken sentence per beat, 19-24 words each.\n"
+                    "- Write exactly one complete spoken sentence per evidence beat, 19-24 words each.\n"
                     "- Distill; do not inventory. One sentence may express only the central idea of its evidence.\n"
                     "- Keep factual nouns and verbs inside the vocabulary of that beat's claim and source excerpt; do not add factual synonyms.\n"
                     "- Do not add dates, numbers, names, programs, specifications, causes, or claims absent from that beat's evidence.\n"
-                    "- Across all five sentences, use at most two numerical details, and only when essential.\n"
-                    "- Include the machine designation/name naturally somewhere in the five sentences.\n"
+                    "- Across the four evidence sentences, use at most two numerical details, and only when essential.\n"
+                    "- The conclusion has no used_evidence_ids. It may state only what the assembled four-sentence paragraph demonstrates.\n"
+                    "- The conclusion must not introduce new facts, numbers, dates, names, programs, specifications, causes, events, or external knowledge.\n"
+                    "- Write the conclusion as exactly one complete spoken sentence, 19-24 words.\n"
+                    "- Include the machine designation/name naturally somewhere in the assembled paragraph.\n"
                     "- No transitions that announce a list, no citations, no headings, no commentary, and no facts from general knowledge.\n\n"
                     f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                 )
@@ -2902,11 +3358,13 @@ class PipelineExecutor:
             if warnings:
                 if complete_inventory_mode:
                     repair_prompt = (
-                        "REBUILD THE FIVE-SENTENCE JSON BUNDLE FROM THE SAME LOCKED STORY PLAN.\n\n"
+                        "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE PLUS PARAGRAPH-DERIVED CONCLUSION FROM THE SAME LOCKED STORY PLAN.\n\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
-                        "Return only the exact JSON sentences shape. Preserve problem, decision, tradeoff, outcome, meaning order. "
-                        "Write one 19-24 word sentence per beat. Use only that beat's evidence. Introduce no new claims or numerical details. "
-                        "Use no more than two numerical details across the bundle. The rejected draft is hidden; start fresh.\n\n"
+                        "Return only the exact JSON shape with four ordered evidence sentences and one conclusion object. "
+                        "Preserve problem, decision, tradeoff, outcome order. Write one 19-24 word sentence per evidence beat. "
+                        "Use only that beat's evidence. Introduce no new claims or numerical details. "
+                        "Write the conclusion only from the assembled four evidence sentences; no evidence IDs, no new facts, no new numbers. "
+                        "Use no more than two numerical details across the evidence bundle. The rejected draft is hidden; start fresh.\n\n"
                         f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                     )
                     raw_story = await anthropic_client.generate(

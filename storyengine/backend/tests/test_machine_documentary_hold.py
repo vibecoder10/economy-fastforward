@@ -19,11 +19,12 @@ def _words(machine: str, count: int) -> str:
 
 def _story_bundle(machine: str, words_per_sentence: int) -> str:
     rows = []
-    for index, beat in enumerate(("problem", "decision", "tradeoff", "outcome", "meaning")):
+    for index, beat in enumerate(("problem", "decision", "tradeoff", "outcome")):
         first = machine if index == 0 else beat.capitalize()
         sentence = " ".join([first] + ["clear"] * (words_per_sentence - 1)) + "."
         rows.append({"beat": beat, "sentence": sentence, "used_evidence_ids": [f"E-{beat.upper()}"]})
-    return json.dumps({"sentences": rows})
+    conclusion = " ".join(["Conclusion"] + ["clear"] * (words_per_sentence - 1)) + "."
+    return json.dumps({"sentences": rows, "conclusion": {"sentence": conclusion}})
 
 
 def _evidence_segments() -> list[dict]:
@@ -32,7 +33,6 @@ def _evidence_segments() -> list[dict]:
         "decision": "engineering_response",
         "tradeoff": "tradeoff",
         "outcome": "operational_reality",
-        "meaning": "consequence",
     }
     return [
         {
@@ -48,6 +48,37 @@ def _evidence_segments() -> list[dict]:
         }
         for beat, kind in kinds.items()
     ]
+
+
+def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
+    return {
+        "passed": True,
+        "machine": machine,
+        "machine_key": pe._normalized_unit_code(machine),
+        "search_queries": [f'"{machine}" verified source'],
+        "sources": [
+            {
+                "source_id": f"S{index}",
+                "title": segment["source_title"],
+                "url": segment["source_url"],
+                "text_hash": "test",
+                "text_chars": len(segment["source_excerpt"]),
+            }
+            for index, segment in enumerate(segments, start=1)
+        ],
+        "candidate_excerpts": [
+            {
+                "excerpt_id": f"S{index}-E1",
+                "source_id": f"S{index}",
+                "source_title": segment["source_title"],
+                "source_url": segment["source_url"],
+                "locator": f"S{index}-E1",
+                "text": segment["source_excerpt"],
+                "text_hash": "test",
+            }
+            for index, segment in enumerate(segments, start=1)
+        ],
+    }
 
 
 def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
@@ -230,19 +261,22 @@ def test_story_plan_locks_research_into_ordered_sentence_jobs():
         "engineering_response": "decision evidence",
         "tradeoff": "tradeoff evidence",
         "actual_outcome": "outcome evidence",
-        "engineering_thesis": "meaning evidence",
+        "engineering_thesis": "meaning evidence must not become a beat",
         "surprising_fact": "must not enter the plan",
         "evidence_segments": _evidence_segments(),
     }]}
 
     plan = pe._machine_story_plan(payload, "B-52")
 
-    assert [beat["beat"] for beat in plan["beats"]] == ["problem", "decision", "tradeoff", "outcome", "meaning"]
+    assert [beat["beat"] for beat in plan["beats"]] == ["problem", "decision", "tradeoff", "outcome"]
     assert [beat["evidence_ids"] for beat in plan["beats"]] == [
-        ["E-PROBLEM"], ["E-DECISION"], ["E-TRADEOFF"], ["E-OUTCOME"], ["E-MEANING"]
+        ["E-PROBLEM"], ["E-DECISION"], ["E-TRADEOFF"], ["E-OUTCOME"]
     ]
     assert "must not enter the plan" not in json.dumps(plan)
+    assert "meaning evidence must not become a beat" not in json.dumps(plan)
     assert plan["contract"]["maximum_numerical_details"] == 2
+    assert plan["contract"]["evidence_sentences"] == 4
+    assert "paragraph-derived" in plan["contract"]["conclusion"]
 
 
 def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
@@ -296,7 +330,7 @@ def test_story_sentence_validator_blocks_lowercase_second_sentence_and_fabricate
     assert any("outside its locked evidence vocabulary" in warning for warning in warnings)
 
 
-def test_story_sentence_validator_assembles_five_valid_jobs():
+def test_story_sentence_validator_assembles_four_evidence_jobs_plus_conclusion():
     payload = {"unit_research_cards": [{
         "unit": "B-52",
         "design_problem": "problem evidence",
@@ -314,6 +348,21 @@ def test_story_sentence_validator_assembles_five_valid_jobs():
     assert warnings == []
     assert pe._spoken_word_count(paragraph) == 95
     assert paragraph.count(".") == 5
+
+
+def test_story_sentence_validator_blocks_conclusion_new_evidence_or_numbers():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["conclusion"] = {
+        "sentence": "Conclusion clear clear clear clear clear clear clear clear clear clear clear clear clear clear clear clear clear 1967.",
+        "used_evidence_ids": ["E-OUTCOME"],
+    }
+
+    _, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("conclusion must not declare used_evidence_ids" in warning for warning in warnings)
+    assert any("conclusion introduced unsupported numerical detail" in warning for warning in warnings)
 
 
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
@@ -389,11 +438,13 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
     assert "machine-card-source" not in fake_anthropic.prompts[0]
     assert "Atomic problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
-    assert "DISTILL FIVE LOCKED RESEARCH BEATS" in fake_anthropic.prompts[0]
+    assert "DISTILL FOUR LOCKED RESEARCH BEATS" in fake_anthropic.prompts[0]
     assert '"beat": "problem"' in fake_anthropic.prompts[0]
-    assert "one complete spoken sentence per beat, 19-24 words each" in fake_anthropic.prompts[0]
+    assert "one complete spoken sentence per evidence beat, 19-24 words each" in fake_anthropic.prompts[0]
+    assert '"conclusion":{"sentence":"..."}' in fake_anthropic.prompts[0]
+    assert "conclusion has no used_evidence_ids" in fake_anthropic.prompts[0]
     assert "at most two numerical details" in fake_anthropic.prompts[0]
-    assert "REBUILD THE FIVE-SENTENCE JSON BUNDLE" in fake_anthropic.prompts[1]
+    assert "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("ANTON TENANT SCRIPT CONTRACT")
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
@@ -479,7 +530,7 @@ def test_script_generation_exception_preserves_existing_script_rows(monkeypatch)
     assert writes == [], "provider failure must leave the prior script untouched"
 
 
-def test_research_hold_processes_and_checkpoints_one_locked_machine_at_a_time(monkeypatch):
+def test_research_hold_refuses_bulk_generation_for_missing_machine_cards(monkeypatch):
     structured_roster = [
         {"unit": "Boeing XB-15", "include": True},
         {"unit": "Boeing B-17", "include": True},
@@ -492,26 +543,13 @@ def test_research_hold_processes_and_checkpoints_one_locked_machine_at_a_time(mo
     }
     original_roster = copy.deepcopy(payload["unit_roster"])
 
-    cards = [
-        {
-            "unit": machine,
-            "include": True,
-            "engineering_thesis": f"{machine} demonstrates one specific engineering tradeoff.",
-            "surprising_fact": f"A surprising isolated fact about {machine}.",
-            "source_notes": [f"source for {machine}"],
-            "evidence_segments": _evidence_segments(),
-        }
-        for machine in roster_names
-    ]
-
     class FakeAnthropic:
         def __init__(self):
             self.prompts = []
-            self.outputs = [json.dumps(card) for card in cards]
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
-            return self.outputs.pop(0)
+            raise AssertionError("bulk missing-card research must not spend an LLM call")
 
     fake_anthropic = FakeAnthropic()
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
@@ -538,21 +576,137 @@ def test_research_hold_processes_and_checkpoints_one_locked_machine_at_a_time(mo
         executor._run_unit_research_hold("video-test", "Designed vs Used", payload, roster_names)
     )
 
-    assert len(fake_anthropic.prompts) == 3
-    for index, (prompt, machine) in enumerate(zip(fake_anthropic.prompts, roster_names), start=1):
-        assert f"LOCKED MACHINE {index} OF 3: {machine}" in prompt
-        assert "The roster is locked. Do not add, remove, replace, or relitigate machines." in prompt
-
-    checkpoints = [(query, args) for query, args in writes if "SET research_payload" in query]
-    assert len(checkpoints) == 3
-    compact_checkpoints = [(query, args) for query, args in writes if "INSERT INTO machine_research_cards" in query]
-    assert len(compact_checkpoints) == 3
-    assert all(args[:2] == ("tenant-test", "video-test") for _query, args in compact_checkpoints)
-    assert [args[4] for _query, args in compact_checkpoints] == [1, 2, 3]
-    assert [len(json.loads(args[0])["unit_research_cards"]) for _query, args in checkpoints] == [1, 2, 3]
-    assert all(json.loads(args[0])["unit_roster"] == original_roster for _query, args in checkpoints)
+    assert fake_anthropic.prompts == []
+    assert writes == []
     assert result["unit_roster"] == original_roster
+    assert result["unit_research_hold_validation"]["passed"] is False
+    assert "Bulk DVsU machine-card generation is disabled" in result["unit_research_hold_validation"]["warnings"][0]
+
+
+def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-52 Stratofortress", "Convair B-36"]
+    payload = {
+        "unit_roster": roster_names,
+        "fact_sheet": (
+            "Boeing XB-15 leak should never enter the B-52 proof. "
+            "The B-52 target source sentence says the Stratofortress was adapted around range and payload. "
+            "Convair B-36 leak should never enter the B-52 proof."
+        ),
+        "unit_research_cards": [
+            {"unit": "Boeing XB-15", "engineering_thesis": "XB-15 stale legacy card leak."},
+            {"unit": "Convair B-36", "engineering_thesis": "B-36 stale legacy card leak."},
+        ],
+    }
+    b52_segments = _evidence_segments()
+    b52_card = {
+        "unit": "Boeing B-52 Stratofortress",
+        "include": True,
+        "engineering_thesis": "B-52 demonstrates one specific source-grounded engineering tradeoff.",
+        "evidence_segments": b52_segments,
+    }
+
+    class FakeAnthropic:
+        def __init__(self):
+            self.prompts = []
+
+        async def generate(self, **kwargs):
+            self.prompts.append(kwargs["prompt"])
+            return json.dumps(b52_card)
+
+    fake_anthropic = FakeAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": fake_anthropic})()
+    fetch_calls = []
+
+    async def fake_execute(*_args, **_kwargs):
+        return None
+
+    async def fake_fetch_all(*args, **_kwargs):
+        fetch_calls.append(args)
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_gather(_title, machine, _payload):
+        return _verified_package_for_segments(machine, b52_segments)
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_gather_verified_machine_source_package", fake_gather)
+
+    result = asyncio.run(
+        executor._run_unit_research_hold(
+            "video-test",
+            "Designed vs Used",
+            payload,
+            roster_names,
+            target_machine="Boeing B-52 Stratofortress",
+        )
+    )
+
+    assert fetch_calls[0][1:] == ("tenant-test", "video-test", "B52")
+    assert len(fake_anthropic.prompts) == 1
+    prompt = fake_anthropic.prompts[0]
+    assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
+    assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
+    assert "EXACT_TEXT: Atomic problem claim grounded in the supplied source." in prompt
+    assert "XB-15 leak" not in prompt
+    assert "B-36 leak" not in prompt
     assert result["unit_research_hold_validation"]["passed"] is True
+    assert result["unit_research_hold_validation"]["target_machine"] == "Boeing B-52 Stratofortress"
+
+
+def test_target_machine_research_requires_verified_source_package_before_llm(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-52 Stratofortress", "Convair B-36"]
+    payload = {"unit_roster": roster_names}
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("missing verified source package must stop before Claude")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": ForbiddenAnthropic()})()
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_execute(*_args, **_kwargs):
+        raise AssertionError("failed source gathering should not checkpoint a card")
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_gather(_title, machine, _payload):
+        return {
+            "passed": False,
+            "machine": machine,
+            "machine_key": pe._normalized_unit_code(machine),
+            "errors": ["no verified excerpts"],
+            "candidate_excerpts": [],
+            "sources": [],
+        }
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_gather_verified_machine_source_package", fake_gather)
+
+    result = asyncio.run(
+        executor._run_unit_research_hold(
+            "video-test",
+            "Designed vs Used",
+            payload,
+            roster_names,
+            target_machine="Boeing B-52 Stratofortress",
+        )
+    )
+
+    assert result["unit_research_hold_validation"]["passed"] is False
+    assert result["unit_research_hold_validation"]["warnings"] == ["no verified excerpts"]
 
 
 def test_research_hold_contract_persists_each_card_and_never_reopens_roster():

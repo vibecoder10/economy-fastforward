@@ -5,13 +5,22 @@ import { RefreshCw, FileText, Search, Loader2, Check, ChevronDown, ChevronRight 
 import { useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage, advanceVideo, updateVideo, resetPipeline, clearStaleTask } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideo, resetPipeline, clearStaleTask, runOneMachineResearch } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 
 interface ResearchTabProps {
   video: any;
   onApproved?: () => void;
+}
+
+function machineLabel(item: any): string {
+  if (typeof item === "string") return item;
+  return [item?.designation, item?.name || item?.unit || item?.machine].filter(Boolean).join(" — ");
+}
+
+function cardLabel(card: any): string {
+  return [card?.machine_name, card?.unit, card?.machine, card?.name, card?.designation].filter(Boolean)[0] || "";
 }
 
 function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
@@ -135,6 +144,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [taskRunning, setTaskRunning] = useState(false);
   const [taskMode, setTaskMode] = useState<"research" | "machines">("research");
+  const [selectedMachine, setSelectedMachine] = useState("");
+  const [singleMachineRunning, setSingleMachineRunning] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -189,6 +200,25 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setIsResearching(false);
     }
   }, [video.id, toast]);
+
+  const handleOneMachineResearch = useCallback(async () => {
+    setSingleMachineRunning(true);
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
+      const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+      const machine = selectedMachine || machineLabel(roster[0]);
+      if (!machine) {
+        throw new Error("No locked machine selected.");
+      }
+      await runOneMachineResearch(video.id, machine);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      toast.success("Machine research saved.");
+    } catch (err: unknown) {
+      toast.error(`Machine research failed: ${(err as Error).message || "Unknown error"}`);
+    } finally {
+      setSingleMachineRunning(false);
+    }
+  }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
 
   const handleApproveResearch = useCallback(async () => {
     let rosterGate: any = null;
@@ -419,7 +449,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Locked roster</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-56 overflow-auto pr-1">
                 {research.unit_roster.map((item: any, i: number) => {
-                  const label = typeof item === "string" ? item : [item.designation, item.name].filter(Boolean).join(" — ");
+                  const label = machineLabel(item);
                   return <div key={i} className="text-xs px-2 py-1.5 rounded-md" style={{ background: "rgba(255,255,255,.04)", color: "var(--text-secondary)" }}>{i + 1}. {label}</div>;
                 })}
               </div>
@@ -441,6 +471,27 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               </p>
               <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
                 <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (research.unit_research_cards.length / research.unit_roster.length) * 100)}%`, background: research.unit_research_hold_validation?.passed ? "var(--green)" : "var(--turquoise)" }} />
+              </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <select
+                  value={selectedMachine || machineLabel(research.unit_roster[0]) || ""}
+                  onChange={(e) => setSelectedMachine(e.target.value)}
+                  className="flex-1 rounded-lg px-3 py-2 text-sm"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
+                >
+                  {research.unit_roster.map((item: any, i: number) => {
+                    const label = machineLabel(item);
+                    return <option key={`${label}-${i}`} value={label}>{i + 1}. {label}</option>;
+                  })}
+                </select>
+                <ActionButton
+                  variant="outline"
+                  icon={singleMachineRunning ? Loader2 : RefreshCw}
+                  onClick={handleOneMachineResearch}
+                  disabled={singleMachineRunning || isResearching || taskRunning}
+                >
+                  {singleMachineRunning ? "Researching..." : "Research selected"}
+                </ActionButton>
               </div>
             </div>
             <ActionButton
@@ -469,8 +520,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
 
           <div className="mt-4 space-y-2">
             {research.unit_roster.map((item: any, index: number) => {
-              const label = typeof item === "string" ? item : [item.designation, item.name].filter(Boolean).join(" — ");
-              const card = research.unit_research_cards.find((candidate: any) => (candidate?.machine_name || "").toLowerCase() === label.toLowerCase()) || research.unit_research_cards[index];
+              const label = machineLabel(item);
+              const card = research.unit_research_cards.find((candidate: any) => cardLabel(candidate).toLowerCase() === label.toLowerCase());
               return (
                 <details key={`${label}-${index}`} className="rounded-lg" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.06)" }}>
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">

@@ -50,6 +50,10 @@ class MachineScriptPreviewRequest(BaseModel):
     machine: str
 
 
+class MachineResearchRequest(BaseModel):
+    machine: str
+
+
 class PipelineStatus(BaseModel):
     """Current pipeline status for a video."""
     video_id: str
@@ -602,6 +606,23 @@ async def run_machine_script_preview(
     result = await executor.run_machine_script_preview(video_id, machine)
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Preview generation failed")
+    return result
+
+
+@router.post("/machine-research-one/{video_id}")
+async def run_one_machine_research(
+    video_id: str,
+    body: MachineResearchRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Research one locked machine and save its compact card without advancing the full queue."""
+    machine = body.machine.strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required")
+    executor = PipelineExecutor(tenant_id)
+    result = await executor.run_one_machine_research(video_id, machine)
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Machine research failed")
     return result
 
 
