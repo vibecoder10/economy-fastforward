@@ -117,6 +117,30 @@ def test_hard_word_bounds_are_95_through_120_inclusive():
     assert validate("B52", _words("B-52", 95)) == []
 
 
+def test_meta_validator_does_not_match_as_an_ai_inside_was_an_aircraft():
+    paragraph = (
+        "The Air Force ordered Boeing to design a jet bomber in 1946 that could reach Moscow from American bases "
+        "and return without refueling. Boeing's answer was an aircraft that traded speed for range. The B-52 "
+        "Stratofortress first flew on April 15, 1952, powered by eight Pratt and Whitney J57 turbojets that burned "
+        "fuel slowly enough to stay airborne for sixteen hours. It was subsonic by design. The Air Force had wanted "
+        "a replacement by 1980. Instead, the B-52H models built between 1960 and 1962 are still flying combat missions "
+        "today, now scheduled to remain in service until the 2050s. No strategic bomber has ever served longer. The "
+        "aircraft outlasted its replacement because range mattered more than speed."
+    )
+
+    assert pe.PipelineExecutor._validate_static_unit_paragraph(
+        "Boeing B-52 Stratofortress", paragraph
+    ) == []
+
+
+def test_meta_validator_still_rejects_actual_ai_commentary():
+    paragraph = "As an AI, " + " ".join(["B-52"] + ["word"] * 96)
+
+    assert "contains meta/commentary instead of narration" in (
+        pe.PipelineExecutor._validate_static_unit_paragraph("Boeing B-52 Stratofortress", paragraph)
+    )
+
+
 def test_card_matching_never_confuses_prefix_designations():
     payload = {"unit_research_cards": [{"unit": "B-21", "engineering_thesis": "wrong machine"}]}
     assert pe._research_card_for_machine(payload, "B-2") is None

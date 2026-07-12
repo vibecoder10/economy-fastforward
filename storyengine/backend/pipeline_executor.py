@@ -2323,7 +2323,11 @@ class PipelineExecutor:
         if machine_code and machine_code not in normalized_text:
             warnings.append(f"missing locked machine designation {machine_code}")
         lower = text.lower()
-        if any(term in lower for term in ("as an ai", "i can't", "cannot verify", "here is", "markdown")):
+        meta_patterns = (
+            r"\bas an ai\b", r"\bi can't\b", r"\bcannot verify\b",
+            r"\bhere is\b", r"\bmarkdown\b",
+        )
+        if any(re.search(pattern, lower) for pattern in meta_patterns):
             warnings.append("contains meta/commentary instead of narration")
         if any(term in lower for term in (
             "one of the greatest", "one of the most incredible", "arguably the greatest",
