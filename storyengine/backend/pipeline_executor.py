@@ -389,6 +389,51 @@ def _inventory_story_brief(payload: dict, machine: str) -> dict:
     }
 
 
+_NUMBER_TOKEN_WORDS = {
+    "zero": "0",
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "eleven": "11",
+    "twelve": "12",
+    "thirteen": "13",
+    "fourteen": "14",
+    "fifteen": "15",
+    "sixteen": "16",
+    "seventeen": "17",
+    "eighteen": "18",
+    "nineteen": "19",
+    "twenty": "20",
+}
+
+
+def _numeric_token_key(token: Any) -> str:
+    """Canonicalize equivalent numeric spellings without weakening support checks."""
+    raw = str(token or "").strip().lower()
+    if raw in _NUMBER_TOKEN_WORDS:
+        return _NUMBER_TOKEN_WORDS[raw]
+    cleaned = raw.replace(",", "")
+    cleaned = re.sub(r"(?<=\d)(?:st|nd|rd|th)$", "", cleaned)
+    return cleaned
+
+
+def _numeric_tokens_from_text(text: str) -> list[str]:
+    digit_tokens = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", str(text or "").lower())
+    word_tokens = [
+        token
+        for token in re.findall(r"\b[a-z]+\b", str(text or "").lower())
+        if token in _NUMBER_TOKEN_WORDS
+    ]
+    return digit_tokens + word_tokens
+
+
 def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], list[str]]:
     """Validate atomic, source-addressable evidence for one locked machine."""
     import re
@@ -465,11 +510,18 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         for designation in designation_tokens:
             numeric_claim = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", numeric_claim, flags=re.IGNORECASE)
             numeric_excerpt = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", numeric_excerpt, flags=re.IGNORECASE)
-        claim_numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", numeric_claim.lower())
-        excerpt_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", numeric_excerpt.lower()))
-        missing_number_support = [token for token in claim_numbers if token not in excerpt_numbers]
-        undeclared_numbers = [token for token in claim_numbers if token not in normalized_numbers]
-        invented_numeric_tokens = [token for token in normalized_numbers if token not in set(claim_numbers) | excerpt_numbers]
+        claim_numbers = _numeric_tokens_from_text(numeric_claim)
+        excerpt_numbers = _numeric_tokens_from_text(numeric_excerpt)
+        excerpt_number_keys = {_numeric_token_key(token) for token in excerpt_numbers}
+        claim_number_keys = {_numeric_token_key(token) for token in claim_numbers}
+        normalized_number_keys = {_numeric_token_key(token) for token in normalized_numbers}
+        missing_number_support = [token for token in claim_numbers if _numeric_token_key(token) not in excerpt_number_keys]
+        undeclared_numbers = [token for token in claim_numbers if _numeric_token_key(token) not in normalized_number_keys]
+        invented_numeric_tokens = [
+            token
+            for token in normalized_numbers
+            if _numeric_token_key(token) not in (claim_number_keys | excerpt_number_keys)
+        ]
         if missing_number_support:
             errors.append(f"evidence segment {evidence_id or index} claim numbers absent from source_excerpt: {', '.join(missing_number_support)}")
         if undeclared_numbers:

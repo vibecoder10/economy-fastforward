@@ -81,6 +81,40 @@ def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
     }
 
 
+def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
+    card = {
+        "unit": "Boeing XB-15",
+        "evidence_segments": [
+            {
+                "evidence_id": "XB15-DP-01",
+                "kind": "design_problem",
+                "claim": "Boeing XB-15 requirements grew from 5,000 pounds to 8,000 pounds.",
+                "source_excerpt": "Boeing XB-15 requirements grew from 5,000 pounds to 8,000 pounds.",
+                "source_url": "https://example.test/xb-15",
+                "source_title": "Test source",
+                "locator": "S1-E1",
+                "numeric_tokens": ["5000", "8000"],
+                "confidence": "high",
+            },
+            {
+                "evidence_id": "XB15-ER-01",
+                "kind": "engineering_response",
+                "claim": "Boeing XB-15 used 2 engines in this test sentence.",
+                "source_excerpt": "Boeing XB-15 used two engines in this test sentence.",
+                "source_url": "https://example.test/xb-15",
+                "source_title": "Test source",
+                "locator": "S1-E2",
+                "numeric_tokens": ["2"],
+                "confidence": "high",
+            },
+        ],
+    }
+
+    _evidence, errors = pe._normalize_machine_evidence(card, "Boeing XB-15")
+
+    assert errors == []
+
+
 def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
     payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17", "Convair B-36"]}
     machine_payload = {**payload, "documentary_style": "machine_documentary"}
