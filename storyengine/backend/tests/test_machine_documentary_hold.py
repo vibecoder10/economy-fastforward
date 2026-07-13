@@ -57,6 +57,25 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
     })
 
 
+def _claim_bundle_from_sentences(machine: str, sentences: list[str]) -> dict:
+    roles_and_ids = [
+        ("original_problem", ["E-PROBLEM"]),
+        ("engineering_decision", ["E-DECISION"]),
+        ("tradeoff", ["E-TRADEOFF"]),
+        ("reality", ["E-REALITY"]),
+    ]
+    return {
+        "editorial_thesis": f"{machine} mattered because its design promise had to survive real operating limits.",
+        "formula_sentences": sentences,
+        "paragraph": " ".join(sentences),
+        "claim_map": [
+            {"slot": role, "span": sentence, "used_evidence_ids": evidence_ids}
+            for sentence, (role, evidence_ids) in zip(sentences[:4], roles_and_ids)
+        ],
+        "onscreen_label": "",
+    }
+
+
 def _passing_quality_audit() -> dict:
     return {
         "passed": True,
@@ -2482,7 +2501,10 @@ def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
     production_only_audit = pe._anton_preview_quality_audit(
         "Boeing XB-15",
         plan,
-        {},
+        _claim_bundle_from_sentences(
+            "Boeing XB-15",
+            _formula_sentences_from_paragraph(production_only_paragraph),
+        ),
         production_only_paragraph,
         [],
     )
@@ -2501,10 +2523,21 @@ def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
         "In World War II, the aircraft found reality as a Pacific transport instead of a bomber. "
         "The XB-15 proved the concept without becoming the weapon."
     )
-    fact_rhythm_audit = pe._anton_preview_quality_audit(
+    fact_rhythm_sentences = _formula_sentences_from_paragraph(fact_rhythm_paragraph)
+    unmapped_fact_rhythm_audit = pe._anton_preview_quality_audit(
         "Boeing XB-15",
         plan,
         {},
+        fact_rhythm_paragraph,
+        [],
+    )
+    unmapped_fact_rhythm_check = next(
+        check for check in unmapped_fact_rhythm_audit["checks"] if check["name"] == "benchmark_cadence"
+    )
+    fact_rhythm_audit = pe._anton_preview_quality_audit(
+        "Boeing XB-15",
+        plan,
+        _claim_bundle_from_sentences("Boeing XB-15", fact_rhythm_sentences),
         fact_rhythm_paragraph,
         [],
     )
@@ -2512,7 +2545,12 @@ def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
         check for check in fact_rhythm_audit["checks"] if check["name"] == "benchmark_cadence"
     )
 
+    assert unmapped_fact_rhythm_check["passed"] is False
+    assert "0 claim-mapped numerical details" in unmapped_fact_rhythm_check["detail"]
+    assert "scale/capability missing" in unmapped_fact_rhythm_check["detail"]
+    assert "production/service reality missing" in unmapped_fact_rhythm_check["detail"]
     assert fact_rhythm_check["passed"] is True
+    assert "5 claim-mapped numerical details" in fact_rhythm_check["detail"]
     assert "scale/capability present" in fact_rhythm_check["detail"]
     assert "production/service reality present" in fact_rhythm_check["detail"]
 
@@ -2523,10 +2561,11 @@ def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
         "In World War II, the aircraft found reality as a Pacific transport instead of a bomber. "
         "The XB-15 proved the concept without becoming the weapon."
     )
+    spoken_number_sentences = _formula_sentences_from_paragraph(spoken_number_paragraph)
     spoken_number_audit = pe._anton_preview_quality_audit(
         "Boeing XB-15",
         plan,
-        {},
+        _claim_bundle_from_sentences("Boeing XB-15", spoken_number_sentences),
         spoken_number_paragraph,
         [],
     )
@@ -2562,10 +2601,17 @@ def test_anton_preview_quality_audit_applies_benchmark_cadence_to_first_three_bo
             {"unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()}]},
             machine,
         )
-        audit = pe._anton_preview_quality_audit(machine, plan, {}, paragraph, [])
+        audit = pe._anton_preview_quality_audit(
+            machine,
+            plan,
+            _claim_bundle_from_sentences(machine, _formula_sentences_from_paragraph(paragraph)),
+            paragraph,
+            [],
+        )
         cadence_check = next(check for check in audit["checks"] if check["name"] == "benchmark_cadence")
 
         assert cadence_check["passed"] is True
+        assert "claim-mapped numerical details" in cadence_check["detail"]
         assert "scale/capability present" in cadence_check["detail"]
         assert "production/service reality present" in cadence_check["detail"]
 

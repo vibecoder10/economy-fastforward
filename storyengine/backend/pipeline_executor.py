@@ -2739,6 +2739,19 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             role_by_id[evidence_id] = role
     covered_roles = {role_by_id[evidence_id] for evidence_id in used_ids if evidence_id in role_by_id}
     missing_roles = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
+    claim_text_by_role: dict[str, list[str]] = {}
+    for row in claim_rows:
+        if not isinstance(row, dict):
+            continue
+        span = " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split())
+        if not span:
+            continue
+        row_ids = row.get("used_evidence_ids") if isinstance(row.get("used_evidence_ids"), list) else row.get("evidence_ids")
+        row_ids = row_ids if isinstance(row_ids, list) else []
+        for evidence_id in row_ids:
+            role = role_by_id.get(str(evidence_id))
+            if role:
+                claim_text_by_role.setdefault(role, []).append(span)
     memorable_ids = slot_ids.get("memorable_fact") or []
     memorable_used = [evidence_id for evidence_id in memorable_ids if evidence_id in used_ids]
     final_line_warnings = [
@@ -2876,7 +2889,12 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         isinstance(reference_benchmark, dict)
         and str(reference_benchmark.get("source_video") or "") == "Every US Strategic Bomber Ever Built"
     ):
-        paragraph_for_numbers = paragraph
+        claim_mapped_text = " ".join(
+            span
+            for spans in claim_text_by_role.values()
+            for span in spans
+        )
+        paragraph_for_numbers = claim_mapped_text
         for designation in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", str(machine or "").upper()):
             paragraph_for_numbers = re.sub(
                 rf"\b{re.escape(designation)}(?:s)?\b",
@@ -2889,14 +2907,15 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             for mention in _numeric_mentions_from_text(paragraph_for_numbers)
             if mention.get("key")
         }
-        lower_paragraph = paragraph.lower()
+        decision_text = " ".join(claim_text_by_role.get("engineering_decision") or []).lower()
+        reality_text = " ".join(claim_text_by_role.get("reality") or []).lower()
         has_scale_or_capability = bool(re.search(
             r"\b(wingspan|engine|engines|horsepower|payload|bombs?|pounds?|miles?|range|speed|mph|mach|feet|foot|altitude|ceiling|fuel|carry|carried|load|loads)\b",
-            lower_paragraph,
+            decision_text,
         ))
         has_production_or_service = bool(re.search(
             r"\b(built|produced|production|served|service|combat|transport|campaign|theater|theatre|lost|losses|flew|prototype|prototypes|wartime|world war)\b",
-            lower_paragraph,
+            reality_text,
         ))
         benchmark_cadence_passed = len(numeric_keys) >= 2 and has_scale_or_capability and has_production_or_service
         checks.append(check(
@@ -2904,7 +2923,7 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "Benchmark cadence",
             benchmark_cadence_passed,
             (
-                f"{len(numeric_keys)} numerical details; "
+                f"{len(numeric_keys)} claim-mapped numerical details; "
                 f"scale/capability {'present' if has_scale_or_capability else 'missing'}; "
                 f"production/service reality {'present' if has_production_or_service else 'missing'}"
             ),

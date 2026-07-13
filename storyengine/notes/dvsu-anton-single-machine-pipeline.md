@@ -218,6 +218,8 @@ Validation requires:
 
 The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, five formula sentences, exact sentence assembly, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, opening assignment, narrative weight, and no catalog/spec-dump pattern. The audit also carries a hard `validator_warnings` row whenever any backend validator warning remains, so the UI cannot show a passing Anton audit for a paragraph the backend rejected. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
 
+For Strategic Bomber benchmark rows, `benchmark_cadence` is hard-gated from the claim map, not loose paragraph text. Scale or capability facts must appear in the claim-mapped `engineering_decision` sentence, and production or service reality must appear in the claim-mapped `reality` sentence, so a paragraph that sounds inventory-shaped cannot pass unless those facts are tied to selected evidence.
+
 ## Isolation Rule
 
 For the current proof, only the selected first machine is researched or previewed. Existing legacy cards for other roster machines remain untouched and are not loaded into the proof path.

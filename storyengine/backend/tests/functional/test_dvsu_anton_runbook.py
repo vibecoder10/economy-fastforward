@@ -23,6 +23,8 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     assert "run one-machine research for `Boeing XB-15` only" in text
     assert "no-spend readiness preflight for `Boeing XB-15`" in text
     assert "Run only the single-machine script preview for `Boeing XB-15` after readiness passes" in text
+    assert "`benchmark_cadence` is hard-gated from the claim map" in text
+    assert "claim-mapped `engineering_decision` sentence" in text
 
 
 def test_dvsu_anton_runbook_keeps_failed_preview_as_review_artifact():
