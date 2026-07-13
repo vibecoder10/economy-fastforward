@@ -142,7 +142,7 @@ When a selected evidence segment validates against a fetched raw candidate, the 
 
 After a selected-machine research or preview run, the API returns the updated `research_payload`, the UI patches the selected video cache immediately, and then the UI invalidates the saved video state. This lets the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` be reviewed without relying on a manual browser refresh.
 
-The Research and Script/Voice single-machine preview panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence, including the raw source slot hints that explain which Anton beat the fetched excerpt was meant to support; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
+The Research and Script/Voice single-machine preview panels both read persisted `machine_script_previews` for the active machine, falling back to local state only for a just-returned preview. This means the proof preview remains visible after refreshes and tab switches. Both panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence, including the raw source slot hints that explain which Anton beat the fetched excerpt was meant to support; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
 
 ## Script Contract
 

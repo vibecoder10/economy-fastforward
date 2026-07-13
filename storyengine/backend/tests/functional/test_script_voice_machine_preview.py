@@ -23,6 +23,9 @@ def test_script_voice_preview_uses_normalized_machine_labels():
     assert "const machineRosterLabels" in text
     assert "machineRosterLabels.map" in text
     assert "previewForMachine(researchPayload?.machine_script_previews, e.target.value)" in text
+    assert "const activeMachinePreview = useMemo" in text
+    assert "previewForMachine(researchPayload?.machine_script_previews, activePreviewMachine)" in text
+    assert "previewMatchesMachine(machinePreview, activePreviewMachine)" in text
     assert "queryClient.setQueryData([\"video\", video.id]" in text
     assert "{ ...current, research_payload: result.research_payload }" in text
 
@@ -148,6 +151,8 @@ def test_script_voice_preview_visible_after_one_verified_machine():
     assert "isMachineDocumentary && verifiedMachineResearchCount > 0" in text
     assert "isMachineDocumentary && machineResearchGate?.passed" not in text
     assert "Generate one machine" in text
+    assert "{activeMachinePreview && (" in text
+    assert 'activeMachinePreview ? "Retry this machine" : "Generate one machine"' in text
 
 
 def test_script_voice_full_script_generation_waits_for_full_machine_research_gate():
@@ -195,7 +200,7 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "previewFormulaSentences" in text
     assert "previewFormulaRows" in text
     assert "machinePreviewPassesAntonGate(result.preview)" in text
-    assert "const machinePreviewPassed = machinePreviewPassesAntonGate(machinePreview)" in text
+    assert "const machinePreviewPassed = machinePreviewPassesAntonGate(activeMachinePreview)" in text
     assert "Legacy preview missing Anton audit" in text
     assert "const spanMatchesSentence = span && (span === sentence || sentence.includes(span));" in text
     assert "return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));" in text
@@ -203,9 +208,9 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "Sentence assembly" in text
     assert '["problem", "decision", "tradeoff", "reality"][index] : "conclusion"' in text
     assert "Editorial thesis" in text
-    assert "machinePreview.claim_bundle?.editorial_thesis" in text
+    assert "activeMachinePreview.claim_bundle?.editorial_thesis" in text
     assert "Anton quality audit" in text
-    assert "machinePreview.quality_audit?.checks" in text
+    assert "activeMachinePreview.quality_audit?.checks" in text
     assert 'check.advisory ? " · advisory" : ""' in text
     assert "source_excerpt: String(segment?.source_excerpt" in text
     assert "evidenceRows.map" in text

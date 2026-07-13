@@ -1885,13 +1885,17 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const activePreviewStatusMessage = activePreviewResearchCardStatus.ready
     ? activePreviewSourcePackageStatus.message
     : activePreviewResearchCardStatus.message;
-  const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
-    ? machinePreview.claim_bundle.claim_map
+  const activeMachinePreview = useMemo(() => {
+    if (machinePreview && previewMatchesMachine(machinePreview, activePreviewMachine)) return machinePreview;
+    return previewForMachine(researchPayload?.machine_script_previews, activePreviewMachine);
+  }, [machinePreview, researchPayload?.machine_script_previews, activePreviewMachine]);
+  const previewClaimMap = Array.isArray(activeMachinePreview?.claim_bundle?.claim_map)
+    ? activeMachinePreview.claim_bundle.claim_map
     : [];
-  const previewFormulaSentences = Array.isArray(machinePreview?.claim_bundle?.formula_sentences)
-    ? machinePreview.claim_bundle.formula_sentences
+  const previewFormulaSentences = Array.isArray(activeMachinePreview?.claim_bundle?.formula_sentences)
+    ? activeMachinePreview.claim_bundle.formula_sentences
     : [];
-  const machinePreviewPassed = machinePreviewPassesAntonGate(machinePreview);
+  const machinePreviewPassed = machinePreviewPassesAntonGate(activeMachinePreview);
   const previewEvidenceById = (() => {
     const rows: Record<string, {
       slot?: string;
@@ -1906,8 +1910,8 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       source_capture_method?: string;
       source_slot_hints?: string[];
     }> = {};
-    const slots = Array.isArray((machinePreview?.story_plan as any)?.slots)
-      ? (machinePreview?.story_plan as any).slots
+    const slots = Array.isArray((activeMachinePreview?.story_plan as any)?.slots)
+      ? (activeMachinePreview?.story_plan as any).slots
       : [];
     for (const slot of slots) {
       const slotName = String(slot?.slot || "");
@@ -2062,7 +2066,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
               >
                 {previewGenerating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-                {previewGenerating ? "Generating one..." : machinePreview ? "Retry this machine" : "Generate one machine"}
+                {previewGenerating ? "Generating one..." : activeMachinePreview ? "Retry this machine" : "Generate one machine"}
               </button>
             </div>
             <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: activePreviewReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: activePreviewReady ? "var(--green)" : "var(--orange)", border: `1px solid ${activePreviewReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
@@ -2090,28 +2094,28 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 ))}
               </div>
             )}
-            {machinePreview && (
+            {activeMachinePreview && (
               <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreviewPassed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{machinePreview.machine}</span>
-                  <span className="text-xs font-mono" style={{ color: machinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreviewPassed ? "Passed" : "Needs review"}</span>
+                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{activeMachinePreview.machine}</span>
+                  <span className="text-xs font-mono" style={{ color: machinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{activeMachinePreview.word_count} words · {machinePreviewPassed ? "Passed" : "Needs review"}</span>
                 </div>
-                {machinePreview.claim_bundle?.editorial_thesis && (
+                {activeMachinePreview.claim_bundle?.editorial_thesis && (
                   <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
                     <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>Editorial thesis</div>
                     <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
-                      {machinePreview.claim_bundle.editorial_thesis}
+                      {activeMachinePreview.claim_bundle.editorial_thesis}
                     </p>
                   </div>
                 )}
-                {machinePreview.paragraph ? (
-                  <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machinePreview.paragraph}</p>
+                {activeMachinePreview.paragraph ? (
+                  <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{activeMachinePreview.paragraph}</p>
                 ) : (
                   <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     Preview stopped before a paragraph was generated.
                   </div>
                 )}
-                {!machinePreview.quality_audit?.checks?.length && (
+                {!activeMachinePreview.quality_audit?.checks?.length && (
                   <div className="mt-3 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     Legacy preview missing Anton audit. Regenerate this machine before accepting it.
                   </div>
@@ -2144,14 +2148,14 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     ))}
                   </div>
                 )}
-                {!!machinePreview.quality_audit?.checks?.length && (
+                {!!activeMachinePreview.quality_audit?.checks?.length && (
                   <div className="mt-4 space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: machinePreview.quality_audit.passed ? "var(--green)" : "var(--orange)" }}>
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: activeMachinePreview.quality_audit.passed ? "var(--green)" : "var(--orange)" }}>
                       <ShieldCheck size={13} />
                       Anton quality audit
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {machinePreview.quality_audit.checks.map((check, index) => (
+                      {activeMachinePreview.quality_audit.checks.map((check, index) => (
                         <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: check.passed ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${check.passed ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
                           <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: check.passed ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}{check.advisory ? " · advisory" : ""}</div>
                           {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
@@ -2198,7 +2202,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     })}
                   </div>
                 )}
-                {!!machinePreview.warnings?.length && <p className="mt-2 text-xs" style={{ color: "var(--orange)" }}>{machinePreview.warnings.join(" · ")}</p>}
+                {!!activeMachinePreview.warnings?.length && <p className="mt-2 text-xs" style={{ color: "var(--orange)" }}>{activeMachinePreview.warnings.join(" · ")}</p>}
               </div>
             )}
           </div>
