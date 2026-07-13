@@ -571,19 +571,6 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   if (!sourcePackage || excerpts.length < 6) {
     return { ready: false, message: "Raw source package missing · preview blocked" };
   }
-  const allowedCaptureMethods = new Set(["fetched_page", "tavily_raw_content"]);
-  const missingCaptureMethodCount = excerpts.filter((candidate: any) => !String(candidate?.source_capture_method || "").trim()).length;
-  const unsupportedCaptureMethods = new Set(
-    excerpts
-      .map((candidate: any) => String(candidate?.source_capture_method || "").trim())
-      .filter((method: string) => method && !allowedCaptureMethods.has(method))
-  );
-  if (missingCaptureMethodCount > 0) {
-    return { ready: false, message: `Raw source package missing capture method · ${missingCaptureMethodCount} excerpt · preview blocked` };
-  }
-  if (unsupportedCaptureMethods.size > 0) {
-    return { ready: false, message: `Raw source package unsupported capture · ${Array.from(unsupportedCaptureMethods).join(", ")} · preview blocked` };
-  }
   const targetCode = normalizedUnitCode(machine);
   const packageKey = normalizedUnitCode(String(sourcePackage?.machine_key || ""));
   const packageMachine = normalizedUnitCode(String(sourcePackage?.machine || ""));
@@ -593,6 +580,19 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   const targetExcerpts = machine ? excerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : excerpts;
   if (machine && targetExcerpts.length < 6) {
     return { ready: false, message: `Raw source package target-thin · ${targetExcerpts.length}/${excerpts.length} matching excerpts · preview blocked` };
+  }
+  const allowedCaptureMethods = new Set(["fetched_page", "tavily_raw_content"]);
+  const missingCaptureMethodCount = targetExcerpts.filter((candidate: any) => !String(candidate?.source_capture_method || "").trim()).length;
+  const unsupportedCaptureMethods = new Set(
+    targetExcerpts
+      .map((candidate: any) => String(candidate?.source_capture_method || "").trim())
+      .filter((method: string) => method && !allowedCaptureMethods.has(method))
+  );
+  if (missingCaptureMethodCount > 0) {
+    return { ready: false, message: `Raw source package missing capture method · ${missingCaptureMethodCount} excerpt · preview blocked` };
+  }
+  if (unsupportedCaptureMethods.size > 0) {
+    return { ready: false, message: `Raw source package unsupported capture · ${Array.from(unsupportedCaptureMethods).join(", ")} · preview blocked` };
   }
   if (machine) {
     const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable);

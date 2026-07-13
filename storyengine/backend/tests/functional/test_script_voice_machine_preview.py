@@ -30,6 +30,17 @@ def test_script_voice_preview_uses_normalized_machine_labels():
     assert "{ ...current, research_payload: result.research_payload }" in text
 
 
+def test_script_voice_source_capture_gate_uses_locked_machine_excerpts():
+    text = _script_voice_tab().read_text()
+    helper = text[text.index("function sourcePackageStatus"):text.index("function sourcePackageReady")]
+
+    assert "const targetExcerpts = machine ? excerpts.filter" in helper
+    assert "const missingCaptureMethodCount = targetExcerpts.filter" in helper
+    assert "targetExcerpts\n      .map((candidate: any) => String(candidate?.source_capture_method || \"\").trim())" in helper
+    assert "excerpts.filter((candidate: any) => !String(candidate?.source_capture_method || \"\").trim())" not in helper
+    assert helper.index("const targetExcerpts = machine ? excerpts.filter") < helper.index("const missingCaptureMethodCount = targetExcerpts.filter")
+
+
 def test_script_voice_preview_blocks_without_ready_raw_package():
     text = _script_voice_tab().read_text()
 
