@@ -3503,7 +3503,19 @@ class PipelineExecutor:
                 rp = {}
         if not isinstance(rp, dict):
             rp = {}
-        rp = await self._load_machine_research_cards(video_id, rp, roster)
+        rp = await self._load_machine_research_cards(
+            video_id, rp, roster, target_machine=target_machine if target_machine else None
+        )
+        if target_machine:
+            target_key = _normalized_unit_code(target_machine)
+            rp = dict(rp)
+            rp["unit_research_cards"] = [
+                card for card in (rp.get("unit_research_cards") or [])
+                if isinstance(card, dict)
+                and _normalized_unit_code(_unit_display_name(
+                    card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+                )) == target_key
+            ]
         video_thesis = (
             rp.get("thesis")
             or rp.get("narrative_arc_suggestion")
@@ -3668,6 +3680,8 @@ class PipelineExecutor:
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
                     "- Numbers may be numerals or spelled words, but every number must map to numeric_tokens/source_excerpt in the selected evidence.\n"
                     "- Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
+                    "- Prefer fewer than 6 numerical details when optional slots add clutter; keep origin/range, one scale proof, one performance/service reality, and one meaning proof.\n"
+                    "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
                     "- End with a short verdict, paradox, irony, or reversal grounded in historical_meaning evidence. The final sentence must be 28 words or fewer.\n"
@@ -3722,6 +3736,9 @@ class PipelineExecutor:
                         "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, and historical_meaning. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
+                        "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
+                        "If validation says there are too many numerical details, rewrite around fewer concepts: origin/range, one scale proof, one performance or service reality, and one meaning proof. "
+                        "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
                         "Delete every unsupported high-risk term named in the validation warnings unless that exact word appears in the selected source evidence. "
                         "End with a grounded Anton-style verdict of 28 words or fewer, not a generic summary. The rejected draft is hidden; start fresh.\n\n"
