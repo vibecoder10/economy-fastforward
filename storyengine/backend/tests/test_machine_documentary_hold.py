@@ -57,6 +57,19 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
     })
 
 
+def _passing_quality_audit() -> dict:
+    return {
+        "passed": True,
+        "checks": [{
+            "name": "validator_warnings",
+            "label": "Validator warnings",
+            "passed": True,
+            "detail": "clean",
+        }],
+        "summary": "Anton quality audit passed",
+    }
+
+
 def _problem_opening_story_bundle(machine: str, words_per_sentence: int = 19) -> str:
     bundle = json.loads(_story_bundle(machine, words_per_sentence))
     old_span = bundle["claim_map"][0]["span"]
@@ -2801,7 +2814,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
         return {"passed": True}
 
     def passed_quality_audit(*_args, **_kwargs):
-        return {"passed": True, "checks": [], "summary": "Anton quality audit passed"}
+        return _passing_quality_audit()
 
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
@@ -2941,7 +2954,7 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
         return {"passed": True}
 
     def passed_quality_audit(*_args, **_kwargs):
-        return {"passed": True, "checks": [], "summary": "Anton quality audit passed"}
+        return _passing_quality_audit()
 
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
@@ -3016,7 +3029,7 @@ def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save
         raise AssertionError("zero-row final script save must not advance status")
 
     def passed_quality_audit(*_args, **_kwargs):
-        return {"passed": True, "checks": [], "summary": "Anton quality audit passed"}
+        return _passing_quality_audit()
 
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
@@ -3314,6 +3327,74 @@ def test_target_machine_preview_pass_state_follows_anton_quality_audit(monkeypat
     assert result["status"] == "completed"
     assert result["preview"]["warnings"] == []
     assert result["preview"]["quality_audit"]["passed"] is False
+    assert result["preview"]["passed"] is False
+    saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
+    saved_preview = json.loads(saved_preview_rows[0][1][1])
+    assert saved_preview["passed"] is False
+    assert logs[-1][0] == "failed"
+    assert "needs review" in logs[-1][1]
+
+
+def test_target_machine_preview_requires_visible_quality_audit_checks(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = _evidence_segments()
+    card = _valid_research_card("Boeing XB-15", segments)
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    class FakeAnthropic:
+        async def generate(self, **_kwargs):
+            return _story_bundle("Boeing XB-15", 19)
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": FakeAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+    logs = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(_bot_name, _video_id, status, message):
+        logs.append((status, message))
+
+    def empty_quality_audit(*_args, **_kwargs):
+        return {"passed": True, "summary": "Anton quality audit passed", "checks": []}
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "_anton_preview_quality_audit", empty_quality_audit)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    assert result["status"] == "completed"
+    assert result["preview"]["warnings"] == []
+    assert result["preview"]["quality_audit"]["passed"] is True
+    assert result["preview"]["quality_audit"]["checks"] == []
     assert result["preview"]["passed"] is False
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
     saved_preview = json.loads(saved_preview_rows[0][1][1])

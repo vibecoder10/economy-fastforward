@@ -5934,7 +5934,12 @@ class PipelineExecutor:
                 paragraph,
                 warnings,
             ) if complete_inventory_mode else {}
-            preview_passed = (not warnings) and bool((quality_audit or {}).get("passed", True))
+            audit_checks = (quality_audit or {}).get("checks") if isinstance(quality_audit, dict) else []
+            preview_passed = (not warnings) and (
+                bool((quality_audit or {}).get("passed")) and bool(audit_checks)
+                if complete_inventory_mode else
+                True
+            )
             validation_units.append({
                 "scene": i,
                 "machine": machine,
