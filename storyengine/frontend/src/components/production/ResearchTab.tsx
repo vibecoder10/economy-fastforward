@@ -421,7 +421,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           claim_bundle: { claim_map: [] },
         });
       }
-      toast.error(`Script preview failed: ${message}`);
+      toast.error(`Script preview failed: ${message}. Production script unchanged.`);
     } finally {
       setSinglePreviewRunning(false);
     }

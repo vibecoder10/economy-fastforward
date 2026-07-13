@@ -51,6 +51,8 @@ A successful selected-machine research pass sets `unit_research_hold_validation.
 
 The Script/Voice calibration panel may show the single-machine preview control once at least one machine has a verified card and ready raw source package. That does not unblock full script generation; it only lets the operator preview the selected machine paragraph before paying to continue the roster.
 
+Single-machine script preview is a review artifact path, not production script generation. It may save `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans`, but it must not delete/insert rows in `scripts`, update `script_validation`, or advance the video status.
+
 When the last locked machine is researched through the same selected-machine path, StoryEngine recomputes the full roster gate from every saved card and that card's matching raw source package. Only then does `unit_research_hold_validation.passed` become true.
 
 Single-machine preview artifacts are saved under the same normalized machine key as raw source packages, for example `XB15`, so retries from slightly different UI labels update the same preview slot instead of creating duplicate display-name keys.

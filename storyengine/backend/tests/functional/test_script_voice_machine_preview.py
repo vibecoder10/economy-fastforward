@@ -81,6 +81,7 @@ def test_script_voice_preview_keeps_failed_reason_visible():
     assert "setMachinePreview({" in handler
     assert 'research_source: "preview_error"' in handler
     assert "warnings: [message]" in handler
+    assert "Production script unchanged." in handler
     assert "Preview stopped before a paragraph was generated." in text
 
 

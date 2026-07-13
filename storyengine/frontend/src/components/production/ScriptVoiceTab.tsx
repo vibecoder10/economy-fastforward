@@ -1491,7 +1491,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         research_source: "preview_error",
         claim_bundle: { claim_map: [] },
       });
-      toast.error(`Preview failed: ${message}`);
+      toast.error(`Preview failed: ${message}. Production script unchanged.`);
     } finally {
       setPreviewGenerating(false);
     }
