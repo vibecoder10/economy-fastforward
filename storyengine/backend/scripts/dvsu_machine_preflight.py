@@ -7,6 +7,7 @@ video status.
 
 Examples:
   python3 scripts/dvsu_machine_preflight.py --video-id fc73860c-a9af-444f-95a5-7f86d60503e0 --machine "Boeing XB-15"
+  python3 scripts/dvsu_machine_preflight.py --video-id fc73860c-a9af-444f-95a5-7f86d60503e0 --source supabase-rest --machine "Boeing XB-15"
   python3 scripts/dvsu_machine_preflight.py --video-json /tmp/video.json --machine "Boeing XB-15" --json
 """
 from __future__ import annotations
@@ -15,9 +16,12 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 
 _HERE = Path(__file__).resolve().parent
 _BACKEND = _HERE.parent
@@ -160,7 +164,7 @@ def build_preflight_report(video: dict[str, Any], machine: str) -> dict[str, Any
     }
 
 
-async def _fetch_video(video_id: str, tenant_id: str | None = None) -> dict[str, Any] | None:
+async def _fetch_video_postgres(video_id: str, tenant_id: str | None = None) -> dict[str, Any] | None:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL is required unless --video-json is used")
@@ -187,6 +191,71 @@ async def _fetch_video(video_id: str, tenant_id: str | None = None) -> dict[str,
             return dict(row) if row else None
     finally:
         await conn.close()
+
+
+def _fetch_video_supabase_rest(
+    video_id: str,
+    tenant_id: str | None = None,
+    resolve_ip: str | None = None,
+) -> dict[str, Any] | None:
+    supabase_url = (os.getenv("SUPABASE_URL") or "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+    if not supabase_url or not key:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for --source supabase-rest")
+    host = urlparse(supabase_url).hostname
+    if not host:
+        raise RuntimeError("SUPABASE_URL is invalid")
+    select = "id,tenant_id,video_title,headline,status,render_mode,research_payload"
+    query = f"select={quote(select)}&id=eq.{quote(video_id)}&limit=1"
+    if tenant_id:
+        query += f"&tenant_id=eq.{quote(tenant_id)}"
+    url = f"{supabase_url}/rest/v1/videos?{query}"
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Accept": "application/json",
+    }
+    if resolve_ip:
+        raw = subprocess.check_output(
+            [
+                "curl",
+                "-sS",
+                "--fail",
+                "--max-time",
+                "25",
+                "--resolve",
+                f"{host}:443:{resolve_ip}",
+                url,
+                "-H",
+                f"apikey: {key}",
+                "-H",
+                f"Authorization: Bearer {key}",
+                "-H",
+                "Accept: application/json",
+            ],
+            stderr=subprocess.STDOUT,
+        )
+        rows = json.loads(raw.decode())
+    else:
+        request = Request(url, headers=headers)
+        with urlopen(request, timeout=25) as response:
+            rows = json.loads(response.read().decode())
+    if isinstance(rows, dict):
+        raise RuntimeError(str(rows.get("message") or rows))
+    return rows[0] if rows else None
+
+
+async def _fetch_video(
+    video_id: str,
+    tenant_id: str | None = None,
+    source: str = "postgres",
+    resolve_ip: str | None = None,
+) -> dict[str, Any] | None:
+    if source == "postgres":
+        return await _fetch_video_postgres(video_id, tenant_id)
+    if source == "supabase-rest":
+        return _fetch_video_supabase_rest(video_id, tenant_id, resolve_ip)
+    raise ValueError(f"Unsupported source: {source}")
 
 
 def _print_human(report: dict[str, Any]) -> None:
@@ -219,6 +288,8 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--video-id", help="Video UUID to read from Postgres using DATABASE_URL.")
     source.add_argument("--video-json", help="Path to an exported video JSON object.")
     parser.add_argument("--tenant-id", help="Optional tenant UUID filter for --video-id.")
+    parser.add_argument("--source", choices=["postgres", "supabase-rest"], default="postgres", help="Read source for --video-id.")
+    parser.add_argument("--supabase-resolve-ip", help="Optional IP for curl --resolve when --source supabase-rest is used without working DNS.")
     parser.add_argument("--machine", required=True, help="Locked machine name or UI label, e.g. Boeing XB-15.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--no-fail", action="store_true", help="Exit 0 even when the machine is not preview-ready.")
@@ -227,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.video_json:
         video = json.loads(Path(args.video_json).read_text())
     else:
-        video = asyncio.run(_fetch_video(args.video_id, args.tenant_id))
+        video = asyncio.run(_fetch_video(args.video_id, args.tenant_id, args.source, args.supabase_resolve_ip))
         if video is None:
             raise SystemExit(f"Video not found: {args.video_id}")
 

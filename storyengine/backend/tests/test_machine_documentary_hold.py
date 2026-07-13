@@ -6761,3 +6761,43 @@ def test_dvsu_machine_preflight_points_legacy_package_to_research_refresh():
     assert report["source_package"]["missing_source_selection_count"] == len(package["candidate_excerpts"])
     assert any("without source capture method" in warning for warning in report["warnings"])
     assert any("without source selection provenance" in warning for warning in report["warnings"])
+
+
+def test_dvsu_machine_preflight_supabase_rest_uses_read_only_resolve(monkeypatch):
+    from scripts import dvsu_machine_preflight as preflight
+
+    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
+    captured = {}
+
+    def fake_check_output(cmd, stderr=None):
+        captured["cmd"] = cmd
+        captured["stderr"] = stderr
+        return json.dumps([
+            {
+                "id": "video-test",
+                "tenant_id": "tenant-test",
+                "video_title": "Every US Strategic Bomber Ever Built",
+                "headline": "Every US Strategic Bomber Ever Built",
+                "status": "ready_for_scripting",
+                "render_mode": "static_docu",
+                "research_payload": {},
+            }
+        ]).encode()
+
+    monkeypatch.setattr(preflight.subprocess, "check_output", fake_check_output)
+
+    video = preflight._fetch_video_supabase_rest(
+        "video-test",
+        tenant_id="tenant-test",
+        resolve_ip="104.18.38.10",
+    )
+
+    assert video["id"] == "video-test"
+    assert captured["cmd"][:6] == ["curl", "-sS", "--fail", "--max-time", "25", "--resolve"]
+    assert "project.supabase.co:443:104.18.38.10" in captured["cmd"]
+    url_arg = next(item for item in captured["cmd"] if item.startswith("https://project.supabase.co/rest/v1/videos?"))
+    assert "id=eq.video-test" in url_arg
+    assert "tenant_id=eq.tenant-test" in url_arg
+    assert "-H" in captured["cmd"]
+    assert "apikey: service-key" in captured["cmd"]

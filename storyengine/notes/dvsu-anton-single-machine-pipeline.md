@@ -232,7 +232,7 @@ For the current proof, only the selected first machine is researched or previewe
 
 1. Deploy only after Ryan approves the live StoryEngine update.
 2. Current live proof row `fc73860c-a9af-444f-95a5-7f86d60503e0` needs a fresh one-machine research pass for `Boeing XB-15` before preview. The saved `XB15` raw package predates the provenance gate: it has 23 legacy excerpts without `source_capture_method` or `source_variant_selection`, and the saved card evidence does not trace back to verified fetched source text.
-3. For a repeatable no-spend operator check, run `python3 backend/scripts/dvsu_machine_preflight.py --video-id fc73860c-a9af-444f-95a5-7f86d60503e0 --machine "Boeing XB-15"` from `storyengine`; it reuses the backend evidence gates and reports whether the next action is research refresh or readiness/preview.
+3. For a repeatable no-spend operator check, run `python3 backend/scripts/dvsu_machine_preflight.py --video-id fc73860c-a9af-444f-95a5-7f86d60503e0 --machine "Boeing XB-15"` from `storyengine`; it reuses the backend evidence gates and reports whether the next action is research refresh or readiness/preview. If local Postgres/DNS is unavailable, use the same command with `--source supabase-rest` and, when needed, `--supabase-resolve-ip <ip>` for a read-only REST fetch.
 4. Let the StoryEngine UI call the no-spend readiness preflight for `Boeing XB-15`; if it shows `readiness_preflight`, fix the selected card/source package before paying for preview.
 5. Run only the single-machine script preview for `Boeing XB-15` after readiness passes.
 6. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
