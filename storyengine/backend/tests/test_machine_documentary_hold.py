@@ -1809,6 +1809,53 @@ def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(mo
     assert result["machine"] == "Boeing XB-15"
     assert result["research_card"] == card
     assert json.loads(writes[0][1][0])["unit_research_hold_validation"]["passed"] is False
+    assert "research_payload->'unit_roster' = $5::jsonb" in writes[0][0]
+    assert json.loads(writes[0][1][4]) == roster_names
+
+
+def test_run_one_machine_research_refuses_final_save_after_roster_change(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    payload = {
+        "unit_roster": roster_names,
+        "unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}],
+        "unit_research_hold_validation": {
+            "passed": False,
+            "target_machine": "Boeing XB-15",
+            "target_machine_passed": True,
+            "units": [{"machine": "Boeing XB-15", "passed": True, "warnings": []}],
+        },
+    }
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Strategic Bomber Ever Built",
+            "render_mode": "static_docu",
+            "status": "ready_for_research_review",
+            "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": roster_names},
+        }
+
+    async def fake_research_hold(_video_id, _title, _payload, _roster, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return payload
+
+    async def fake_execute(*_args):
+        return "UPDATE 0"
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_research_hold)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    result = asyncio.run(executor.run_one_machine_research("video-test", "Boeing XB-15"))
+
+    assert result["status"] == "failed"
+    assert "unit_roster changed concurrently" in result["error"]
 
 
 def test_target_machine_research_marks_full_hold_complete_after_final_verified_card(monkeypatch):

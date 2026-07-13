@@ -3371,6 +3371,8 @@ class PipelineExecutor:
         matched = _locked_roster_item_for_machine(roster, machine)
         if not matched:
             return {"status": "failed", "error": f"Machine is not in the locked roster: {machine}"}
+        import json as _json_one
+        locked_roster_snapshot = _json_one.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False)
         title = video.get("video_title") or video.get("headline") or "Untitled documentary"
         original_status = video.get("status") or "idea_logged"
         payload = await self._run_unit_research_hold(
@@ -3381,11 +3383,22 @@ class PipelineExecutor:
             units = validation.get("units") or []
             warnings = units[-1].get("warnings", []) if units else validation.get("warnings", [])
             return {"status": "failed", "video_id": video_id, "error": "; ".join(str(item) for item in warnings)}
-        import json as _json_one
-        await execute(
-            "UPDATE videos SET research_payload = $1, status = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
-            _json_one.dumps(payload), original_status, video_id, self.tenant_id,
+        final_save_result = await execute(
+            """UPDATE videos
+               SET research_payload = $1, status = $2, updated_at = now()
+               WHERE id = $3 AND tenant_id = $4
+                 AND (
+                     research_payload->'unit_roster' IS NULL
+                     OR research_payload->'unit_roster' = $5::jsonb
+                 )""",
+            _json_one.dumps(payload), original_status, video_id, self.tenant_id, locked_roster_snapshot,
         )
+        if isinstance(final_save_result, str) and final_save_result.strip().upper() == "UPDATE 0":
+            return {
+                "status": "failed",
+                "video_id": video_id,
+                "error": "persisted unit_roster changed concurrently; final one-machine research save refused",
+            }
         card = _research_card_for_machine(payload, matched)
         return {"status": "completed", "video_id": video_id, "machine": matched, "research_card": card}
 
