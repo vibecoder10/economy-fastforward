@@ -144,10 +144,15 @@ function sourceTierNumber(candidate: any): number {
   return sourceTierForUrl(candidate?.source_url || candidate?.url, candidate?.source_title || candidate?.title);
 }
 
-function sourcePackageStatus(sourcePackage: any): { ready: boolean; message: string } {
+function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
   const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
     return { ready: false, message: "Raw source package missing · preview blocked" };
+  }
+  const targetCode = normalizedUnitCode(machine);
+  const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || ""));
+  if (targetCode && (!packageCode || packageCode !== targetCode)) {
+    return { ready: false, message: "Raw source package machine mismatch · preview blocked" };
   }
   const sourceUrls = new Set(
     excerpts.map((candidate: any) => String(candidate?.source_url || "").trim()).filter(Boolean)
@@ -166,8 +171,8 @@ function sourcePackageStatus(sourcePackage: any): { ready: boolean; message: str
   return { ready: true, message: `Raw source package ready · ${excerpts.length} excerpts · ${sourceUrls.size} sources` };
 }
 
-function sourcePackageReady(sourcePackage: any): boolean {
-  return sourcePackageStatus(sourcePackage).ready;
+function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
+  return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
 function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
@@ -516,8 +521,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       return normalizedUnitCode(machine) === key || normalizedUnitCode(machineKey) === key;
     }) || null;
   }, [research, selectedMachineLabel]);
-  const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage);
-  const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage);
+  const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage, selectedMachineLabel);
+  const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage, selectedMachineLabel);
 
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map

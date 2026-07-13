@@ -43,7 +43,12 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "wikipedia.org" in text
     assert "airandspace.si.edu" in text
     assert "return host ? 3 : 0" in text
+    assert "Raw source package machine mismatch · preview blocked" in text
+    assert "const targetCode = normalizedUnitCode(machine)" in text
+    assert "const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || \"\"))" in text
     assert "selectedSourcePackageReady" in text
+    assert "sourcePackageStatus(selectedSourcePackage, selectedMachineLabel)" in text
+    assert "sourcePackageReady(selectedSourcePackage, selectedMachineLabel)" in text
     assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchCard || !selectedSourcePackageReady}" in text
     assert "Raw source package missing · preview blocked" in text
     assert "Raw source package thin ·" in text

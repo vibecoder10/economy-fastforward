@@ -37,7 +37,12 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "wikipedia.org" in text
     assert "airandspace.si.edu" in text
     assert "return host ? 3 : 0" in text
+    assert "Raw source package machine mismatch · preview blocked" in text
+    assert "const targetCode = normalizedUnitCode(machine)" in text
+    assert "const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || \"\"))" in text
     assert "activePreviewSourcePackageReady" in text
+    assert "sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine)" in text
+    assert "sourcePackageReady(activePreviewSourcePackage, activePreviewMachine)" in text
     assert "disabled={previewGenerating || !activePreviewSourcePackageReady}" in text
     assert "Raw source package missing · preview blocked" in text
     assert "Raw source package thin ·" in text

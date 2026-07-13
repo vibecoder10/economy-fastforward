@@ -216,10 +216,15 @@ function sourceTierNumber(candidate: any): number {
   return sourceTierForUrl(candidate?.source_url || candidate?.url, candidate?.source_title || candidate?.title);
 }
 
-function sourcePackageStatus(sourcePackage: any): { ready: boolean; message: string } {
+function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
   const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
     return { ready: false, message: "Raw source package missing · preview blocked" };
+  }
+  const targetCode = normalizedUnitCode(machine);
+  const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || ""));
+  if (targetCode && (!packageCode || packageCode !== targetCode)) {
+    return { ready: false, message: "Raw source package machine mismatch · preview blocked" };
   }
   const sourceUrls = new Set(
     excerpts.map((candidate: any) => String(candidate?.source_url || "").trim()).filter(Boolean)
@@ -238,8 +243,8 @@ function sourcePackageStatus(sourcePackage: any): { ready: boolean; message: str
   return { ready: true, message: `Raw source package ready · ${excerpts.length} excerpts · ${sourceUrls.size} sources` };
 }
 
-function sourcePackageReady(sourcePackage: any): boolean {
-  return sourcePackageStatus(sourcePackage).ready;
+function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
+  return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
 function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
@@ -1369,8 +1374,8 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
   const activePreviewMachine = previewMachine || machineRosterLabels[0] || "";
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
-  const activePreviewSourcePackageStatus = sourcePackageStatus(activePreviewSourcePackage);
-  const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage);
+  const activePreviewSourcePackageStatus = sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine);
+  const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage, activePreviewMachine);
   const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
     ? machinePreview.claim_bundle.claim_map
     : [];
