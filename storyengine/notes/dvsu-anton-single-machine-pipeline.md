@@ -194,6 +194,7 @@ Validation requires:
 - claim-map spans copied exactly from the paragraph, with each span contained inside exactly one formula sentence
 - required Anton evidence slots covered: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - each of the first four formula sentences may use only its assigned required Anton slot in order; optional support slots such as `memorable_fact` may be folded in, but another required beat cannot be mixed into the wrong sentence
+- every factual word, number, high-risk term, date, specification, and sourced consequence in the first four formula sentences must sit inside a claim-map span backed by that sentence's evidence IDs
 - sourced `memorable_fact` used when the story plan provides one
 - sourced `human_detail` used for the first three benchmark machines when the story plan provides one
 - final sentence is a paragraph-derived conclusion, not a researched meaning beat, is not included in `claim_map`, and lands in 18 words or fewer

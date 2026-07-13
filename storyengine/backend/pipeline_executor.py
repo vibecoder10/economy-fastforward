@@ -2327,6 +2327,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                     "roles": row_slots,
                     "number_keys": span_number_keys,
                     "risk_terms": span_risk_terms,
+                    "evidence_text": row_evidence_text,
                 })
             has_high_risk_term = bool(span_risk_terms)
             hedged = bool(re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", span_lower))
@@ -2535,6 +2536,27 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 f"sentence {sentence_index} high-risk term(s) outside claim_map span coverage: "
                 + ", ".join(uncovered_risk_terms)
             )
+        if sentence_index != final_sentence_index:
+            uncovered_text = sentence
+            for detail in sentence_claim_spans:
+                span = str(detail.get("span") or "")
+                if span:
+                    uncovered_text = uncovered_text.replace(span, " ", 1)
+            if uncovered_text.strip():
+                sentence_evidence_text = " ".join(
+                    str(detail.get("evidence_text") or "")
+                    for detail in sentence_claim_spans
+                )
+                unsupported_unmapped_words = _ungrounded_factual_words(
+                    uncovered_text,
+                    sentence_evidence_text,
+                    machine,
+                )
+                if unsupported_unmapped_words:
+                    warnings.append(
+                        f"sentence {sentence_index} unsupported factual word(s) outside claim_map span coverage: "
+                        + ", ".join(unsupported_unmapped_words[:10])
+                    )
     if sentence_parts:
         last_wc = _spoken_word_count(last_sentence)
         if last_wc > _ANTON_FINAL_SENTENCE_MAX_WORDS:
