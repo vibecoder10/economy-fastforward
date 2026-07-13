@@ -17,6 +17,8 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     assert "Raw source package" in text or "raw source package" in text
     assert "`source_variant_selection`" in text
     assert "the evaluated capture methods, selected method, coverage counts, exact-text hashes, and the tie-break rule" in text
+    assert "`source_capture_method`, and `source_variant_selection`" in text
+    assert "The story plan and preview artifact preserve that provenance" in text
     assert "compact `source_variant_selection` label beside the raw excerpt" in text
     assert "original_problem -> engineering_decision -> tradeoff -> reality" in text
     assert "Do not research or pre-write a standalone \"meaning\" beat" in text

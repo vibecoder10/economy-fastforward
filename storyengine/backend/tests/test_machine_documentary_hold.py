@@ -1170,6 +1170,19 @@ def test_verified_card_validation_backfills_raw_excerpt_identity():
         segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
     package = _verified_package_for_segments("Boeing XB-15", segments)
     package["candidate_excerpts"][0]["text_hash"] = "excerpt-hash-1"
+    package["candidate_excerpts"][0]["source_variant_selection"] = {
+        "selected_capture_method": "fetched_page",
+        "selected_variant": {
+            "source_capture_method": "fetched_page",
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+        },
+        "evaluated_variants": [
+            {"source_capture_method": "fetched_page", "covered_slot_count": 4},
+            {"source_capture_method": "tavily_raw_content", "covered_slot_count": 4},
+        ],
+        "selection_rule": "highest Anton-slot coverage; fetched_page wins exact ties",
+    }
     card = {"unit": "Boeing XB-15", "evidence_segments": segments}
 
     warnings = pe._validate_card_against_verified_sources(card, package)
@@ -1181,10 +1194,25 @@ def test_verified_card_validation_backfills_raw_excerpt_identity():
     assert segments[0]["source_tier"] == 2
     assert segments[0]["source_tier_label"] == "Tier 2 museum/authoritative secondary"
     assert segments[0]["source_capture_method"] == "fetched_page"
+    assert segments[0]["source_variant_selection"]["selected_capture_method"] == "fetched_page"
+    assert segments[0]["source_variant_selection"]["selected_variant"]["covered_slot_count"] == 4
 
 
 def test_story_plan_preserves_raw_excerpt_identity_for_script_preview():
     segments = _evidence_segments()
+    source_variant_selection = {
+        "selected_capture_method": "fetched_page",
+        "selected_variant": {
+            "source_capture_method": "fetched_page",
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+        },
+        "evaluated_variants": [
+            {"source_capture_method": "fetched_page", "covered_slot_count": 4},
+            {"source_capture_method": "tavily_raw_content", "covered_slot_count": 4},
+        ],
+        "selection_rule": "highest Anton-slot coverage; fetched_page wins exact ties",
+    }
     segments[0].update({
         "source_excerpt_id": "S1-E1",
         "source_id": "S1",
@@ -1192,6 +1220,7 @@ def test_story_plan_preserves_raw_excerpt_identity_for_script_preview():
         "source_tier": 2,
         "source_tier_label": "Tier 2 museum/authoritative secondary",
         "source_capture_method": "fetched_page",
+        "source_variant_selection": source_variant_selection,
     })
     payload = {
         "unit_research_cards": [{
@@ -1209,6 +1238,7 @@ def test_story_plan_preserves_raw_excerpt_identity_for_script_preview():
     assert segment["source_tier"] == 2
     assert segment["source_tier_label"] == "Tier 2 museum/authoritative secondary"
     assert segment["source_capture_method"] == "fetched_page"
+    assert segment["source_variant_selection"] == source_variant_selection
 
 
 def test_verified_card_validation_rejects_mismatched_raw_excerpt_id():

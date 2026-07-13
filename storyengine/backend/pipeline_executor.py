@@ -1114,6 +1114,8 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                     ).get("label")
                 if candidate.get("source_capture_method"):
                     segment["source_capture_method"] = candidate.get("source_capture_method")
+                if isinstance(candidate.get("source_variant_selection"), dict):
+                    segment["source_variant_selection"] = candidate.get("source_variant_selection")
                 matched = True
                 selected_source_tiers[evidence_id] = _source_tier_number(candidate)
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
@@ -1666,6 +1668,8 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             value = str(raw.get(source_identity_field) or "").strip()
             if value:
                 normalized_segment[source_identity_field] = value
+        if isinstance(raw.get("source_variant_selection"), dict):
+            normalized_segment["source_variant_selection"] = raw.get("source_variant_selection")
         if "source_excerpt_id" not in normalized_segment and normalized_segment.get("excerpt_id"):
             normalized_segment["source_excerpt_id"] = normalized_segment["excerpt_id"]
         try:
