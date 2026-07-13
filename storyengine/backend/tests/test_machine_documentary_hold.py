@@ -282,6 +282,29 @@ def test_meta_validator_still_rejects_actual_ai_commentary():
     )
 
 
+def test_static_validator_blocks_anton_forbidden_ai_patterns():
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    filler = " ".join(f"argument{i}" for i in range(1, 88))
+
+    wiki_opening = (
+        "The B-52 was a strategic bomber developed by Boeing in the 1950s. "
+        f"{filler}."
+    )
+    spec_dump = (
+        "The B-52 matters here because the Air Force wanted endurance more than speed. "
+        "It had eight engines. It also had long wings. It featured a tall tail. "
+        f"{filler}."
+    )
+    retirement_ending = (
+        f"The B-52 kept serving because range mattered more than speed. {filler}. "
+        "The aircraft was finally retired in 1978 after 24 years of service."
+    )
+
+    assert any("Wikipedia-style" in warning for warning in validate("B-52", wiki_opening))
+    assert any("list/spec-dump" in warning for warning in validate("B-52", spec_dump))
+    assert any("retirement/date fact" in warning for warning in validate("B-52", retirement_ending))
+
+
 def test_card_matching_never_confuses_prefix_designations():
     payload = {"unit_research_cards": [{"unit": "B-21", "engineering_thesis": "wrong machine"}]}
     assert pe._research_card_for_machine(payload, "B-2") is None

@@ -3486,9 +3486,29 @@ class PipelineExecutor:
             warnings.append("contains meta/commentary instead of narration")
         if any(term in lower for term in (
             "one of the greatest", "one of the most incredible", "arguably the greatest",
-            "iconic", "legendary", "game-changing", "moving on to", "next is",
+            "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
+            "moving on to", "next is",
         )):
             warnings.append("contains forbidden Anton/DVsU hype or list-transition language")
+        sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+        first_sentence = sentence_parts[0] if sentence_parts else ""
+        if re.search(
+            r"^\s*(?:the\s+)?[A-Z0-9][A-Za-z0-9 .'\-]{0,90}\s+was\s+(?:a|an)\s+"
+            r"[A-Za-z0-9 .'\-]{0,90}\b(?:developed|manufactured|built|powered|carried|entered service)\b",
+            first_sentence,
+            flags=re.IGNORECASE,
+        ):
+            warnings.append("opens with a Wikipedia-style existence sentence instead of significance")
+        list_starts = [
+            part for part in sentence_parts
+            if re.match(r"^(?:it|the aircraft|the machine)\s+(?:also\s+)?(?:had|featured|carried|mounted|used)\b", part, flags=re.IGNORECASE)
+        ]
+        if len(list_starts) >= 2:
+            warnings.append("contains list/spec-dump sentence pattern instead of an engineering argument")
+        if sentence_parts:
+            last_sentence = sentence_parts[-1].lower()
+            if re.search(r"\b(?:retired|retirement|decommissioned)\b", last_sentence) and re.search(r"\b(?:18|19|20)\d{2}\b|\b\d+\s+years?\b", last_sentence):
+                warnings.append("final sentence ends on a retirement/date fact instead of a landed Anton line")
         return warnings
 
     async def _run_static_script_hold(
