@@ -889,6 +889,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append("paragraph must include a non-empty claim_map")
         claim_rows = []
     used_ids: list[str] = []
+    claim_span_roles: list[tuple[str, set[str]]] = []
     for index, row in enumerate(claim_rows, start=1):
         if not isinstance(row, dict):
             warnings.append(f"claim_map row {index} must be an object")
@@ -909,6 +910,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             warnings.append(f"claim_map row {index} used evidence outside the locked Anton slots: " + ", ".join(row_unknown))
         declared_slot = str(row.get("slot") or row.get("slot_role") or "").strip()
         row_slots = {role_by_id[item] for item in row_ids if item in role_by_id}
+        if span and row_slots:
+            claim_span_roles.append((span, row_slots))
         if declared_slot and row_slots and declared_slot not in row_slots:
             warnings.append(f"claim_map row {index} declares slot {declared_slot} but uses {', '.join(sorted(row_slots))}")
         if span and row_ids:
@@ -1005,6 +1008,14 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             warnings.append(f"final sentence word count {last_wc} is too long to land cleanly")
         if re.search(r"\b(in conclusion|overall|to summarize|this shows that)\b", last_sentence.lower()):
             warnings.append("final sentence uses generic summary language instead of a landed Anton line")
+        final_roles = {
+            role
+            for span, row_slots in claim_span_roles
+            if span and (span in last_sentence or last_sentence in span)
+            for role in row_slots
+        }
+        if "historical_meaning" not in final_roles:
+            warnings.append("final sentence must be grounded in historical_meaning evidence")
     if ";" in paragraph:
         warnings.append("paragraph may not use semicolons")
 

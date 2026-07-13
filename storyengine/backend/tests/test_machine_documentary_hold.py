@@ -498,6 +498,20 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
     ]
 
 
+def test_story_paragraph_validator_requires_final_sentence_historical_meaning():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["claim_map"][0]["used_evidence_ids"] = ["E-IDENTITY", "E-MEANING"]
+    bundle["claim_map"][-1]["slot"] = "service_reality"
+    bundle["claim_map"][-1]["used_evidence_ids"] = ["E-SERVICE"]
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("final sentence must be grounded in historical_meaning" in warning for warning in warnings)
+    assert not any("paragraph missing required Anton slot evidence" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     evidence = [
         {
