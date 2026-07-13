@@ -1673,6 +1673,15 @@ def _machine_documentary_hold_roster(video: dict) -> list[str]:
     return names if 3 <= len(names) <= 40 else []
 
 
+def _anton_inventory_title_mode(title: str) -> bool:
+    """Titles promising a machine inventory need the Anton slot compiler."""
+    return bool(re.search(
+        r"\b(every|all)\b|complete (history|list|roster)|\bever built\b",
+        str(title or ""),
+        re.IGNORECASE,
+    ))
+
+
 def _list_len(value: Any) -> int:
     """Count list-like discovery fields defensively."""
     return len(value) if isinstance(value, list) else 0
@@ -4439,9 +4448,7 @@ class PipelineExecutor:
                     "a contrast with the previous machine",
                 )
                 opening_brief = f"Do NOT open with the machine name. Open with {opening_modes[(i - 1) % len(opening_modes)]}."
-            complete_inventory_mode = bool(
-                re.search(r"\b(every|all)\b|complete (history|list|roster)", title, re.IGNORECASE)
-            )
+            complete_inventory_mode = _anton_inventory_title_mode(title)
             if complete_inventory_mode:
                 story_brief = _inventory_story_brief(rp, machine)
                 research_source = _json_sh.dumps(story_brief, ensure_ascii=False, indent=2)

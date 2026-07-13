@@ -53,6 +53,8 @@ The Script/Voice calibration panel may show the single-machine preview control o
 
 Single-machine script preview is a review artifact path, not production script generation. It may save `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans`, but it must not delete/insert rows in `scripts`, update `script_validation`, or advance the video status.
 
+Inventory-style titles that use `Every`, `All`, `Complete`, or `Ever Built` route into the same Anton slot compiler. This keeps titles like "World's Most Strategic Bombers Ever Built" from falling back to the older unstructured paragraph writer simply because they do not start with "Every."
+
 When the last locked machine is researched through the same selected-machine path, StoryEngine recomputes the full roster gate from every saved card and that card's matching raw source package. Only then does `unit_research_hold_validation.passed` become true.
 
 Full static-docu script generation revalidates that same source package/card contract for every locked machine before spending a script LLM call or replacing `scripts` rows. The final production replacement updates the tenant/video row first and only then deletes/inserts `scripts` rows, so a missed video update cannot create orphan replacement scenes. The UI gate is a convenience layer; the backend remains the authority.

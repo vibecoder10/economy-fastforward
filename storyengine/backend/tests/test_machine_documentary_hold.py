@@ -499,6 +499,13 @@ def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
     ) == payload["unit_roster"]
 
 
+def test_anton_inventory_title_mode_accepts_ever_built_without_every():
+    assert pe._anton_inventory_title_mode("Every US Strategic Bomber Ever Built") is True
+    assert pe._anton_inventory_title_mode("World's Most Strategic Bombers Ever Built") is True
+    assert pe._anton_inventory_title_mode("Complete History of Strategic Bombers") is True
+    assert pe._anton_inventory_title_mode("Designed vs Used: Strategic Bomber Lessons") is False
+
+
 def test_animated_video_with_roster_shape_still_runs_global_writer(monkeypatch):
     payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17", "Convair B-36"]}
     video = {
@@ -1297,7 +1304,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
         "evidence_segments": _evidence_segments(),
     }
     video = {
-        "video_title": "Every US Strategic Bomber Ever Built",
+        "video_title": "World's Most Strategic Bombers Ever Built",
         "render_mode": "static_docu",
         "research_payload": {
             "fact_sheet": "GLOBAL FACT SHEET MUST NOT LEAK",
