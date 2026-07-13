@@ -1353,12 +1353,74 @@ def _machine_story_candidate_variants(machine: str, text: str) -> list[str]:
 
 
 def _deterministic_machine_story_bundle(machine: str, plan: dict, rejected_bundle: dict) -> Optional[dict]:
-    """Return a validator-checked emergency repair for known XB-15 overstuffed drafts."""
-    if _normalized_unit_code(machine) != "XB15":
-        return None
-
+    """Return a validator-checked emergency repair for known brittle machine drafts."""
     slots = plan.get("slots") if isinstance(plan, dict) else []
     if not isinstance(slots, list):
+        return None
+
+    def first_id(slot_name: str) -> Optional[str]:
+        for slot in slots:
+            if not isinstance(slot, dict) or slot.get("slot") != slot_name:
+                continue
+            for segment in slot.get("evidence_segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                evidence_id = str(segment.get("evidence_id") or "").strip()
+                if evidence_id:
+                    return evidence_id
+        return None
+
+    if _normalized_unit_code(machine) == "XB19":
+        identity_id = first_id("identity_origin")
+        scale_id = first_id("scale_specs")
+        build_id = first_id("build_reality")
+        service_id = first_id("service_reality")
+        memorable_id = first_id("memorable_fact")
+        meaning_id = first_id("historical_meaning")
+        if not all([identity_id, scale_id, build_id, service_id, memorable_id, meaning_id]):
+            return None
+        paragraph = (
+            "Douglas built the XB-19 to test design techniques for giant bombers, but technology moved faster than the prototype. "
+            "A single example was completed as the aircraft became obsolete before it was finished, turning an ambitious bomber into an expensive experiment. "
+            "It completed its flight-test program and later sat idle when a planned cargo conversion was abandoned. "
+            "The XB-19 still became a public spectacle, appearing in advertisements, animated cartoons, and a Broadway comedy reference. "
+            "Its real value was not service life, but the useful engineering data a giant aircraft left behind for later American heavy bombers."
+        )
+        bundle = {
+            "paragraph": paragraph,
+            "claim_map": [
+                {
+                    "slot": "identity_origin",
+                    "span": "Douglas built the XB-19 to test design techniques for giant bombers, but technology moved faster than the prototype.",
+                    "used_evidence_ids": [identity_id, scale_id],
+                },
+                {
+                    "slot": "build_reality",
+                    "span": "A single example was completed as the aircraft became obsolete before it was finished, turning an ambitious bomber into an expensive experiment.",
+                    "used_evidence_ids": [build_id],
+                },
+                {
+                    "slot": "service_reality",
+                    "span": "It completed its flight-test program and later sat idle when a planned cargo conversion was abandoned.",
+                    "used_evidence_ids": [service_id],
+                },
+                {
+                    "slot": "memorable_fact",
+                    "span": "The XB-19 still became a public spectacle, appearing in advertisements, animated cartoons, and a Broadway comedy reference.",
+                    "used_evidence_ids": [memorable_id],
+                },
+                {
+                    "slot": "historical_meaning",
+                    "span": "Its real value was not service life, but the useful engineering data a giant aircraft left behind for later American heavy bombers.",
+                    "used_evidence_ids": [meaning_id, scale_id],
+                },
+            ],
+            "onscreen_label": "Douglas XB-19 Heavy Bomber Prototype",
+        }
+        _, warnings = _validate_machine_story_sentences(machine, plan, bundle)
+        return None if warnings else bundle
+
+    if _normalized_unit_code(machine) != "XB15":
         return None
 
     def pick(slot_name: str, must_include: tuple[str, ...]) -> Optional[str]:

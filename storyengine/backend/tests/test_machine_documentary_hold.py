@@ -865,6 +865,43 @@ def test_story_bundle_trim_drops_optional_sentence_when_over_word_contract():
     assert all(row.get("slot") != "memorable_fact" for row in trimmed["claim_map"])
 
 
+def test_deterministic_xb19_story_bundle_validates_from_locked_slots():
+    evidence = [
+        ("XB19-IDENTITY", "identity_origin", "Douglas built the XB-19 to test design techniques for giant bombers."),
+        ("XB19-SCALE", "scale_specs", "The XB-19 was a giant aircraft intended to support American heavy bomber engineering."),
+        ("XB19-BUILD", "build_reality", "A single example was completed as the aircraft became obsolete before it was finished."),
+        ("XB19-SERVICE", "service_reality", "The aircraft completed its flight-test program and later sat idle when a planned cargo conversion was abandoned."),
+        ("XB19-MEMORABLE", "memorable_fact", "The XB-19 appeared in advertisements, animated cartoons, and a Broadway comedy reference."),
+        ("XB19-MEANING", "historical_meaning", "The XB-19 left useful engineering data for later American heavy bombers."),
+    ]
+    segments = [
+        {
+            "evidence_id": evidence_id,
+            "kind": kind,
+            "claim": claim,
+            "source_excerpt": claim,
+            "source_url": f"https://example.test/{evidence_id.lower()}",
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": [],
+            "confidence": "high",
+        }
+        for evidence_id, kind, claim in evidence
+    ]
+    plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": segments}]},
+        "Douglas XB-19",
+    )
+
+    bundle = pe._deterministic_machine_story_bundle("Douglas XB-19", plan, {})
+    paragraph, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
+
+    assert warnings == []
+    assert pe._spoken_word_count(paragraph) == 95
+    assert "XB-35" not in paragraph
+    assert "XB-36" not in paragraph
+
+
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
