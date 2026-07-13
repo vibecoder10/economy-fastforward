@@ -74,6 +74,19 @@ def test_script_voice_preview_visible_after_one_verified_machine():
     assert "Generate one machine" in text
 
 
+def test_script_voice_full_script_generation_waits_for_full_machine_research_gate():
+    text = _script_voice_tab().read_text()
+    handler = text[text.index("const handleRegenerateScript"):text.index("const handleSplitSentences")]
+
+    assert "const scriptRegenerationBlockedReason" in text
+    assert "Machine research is incomplete:" in text
+    assert "const scriptGenerationBlockedByRoster" in text
+    assert text.count("scriptGenerationBlockedByRoster") >= 5
+    assert "scriptRegenerationBlockedReason()" in handler
+    assert "toast.error(blockedReason)" in handler
+    assert handler.index("scriptRegenerationBlockedReason()") < handler.index('runPipelineStage(video.id, "script")')
+
+
 def test_script_voice_preview_keeps_failed_reason_visible():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]

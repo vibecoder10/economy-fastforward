@@ -1037,9 +1037,45 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     } finally {
       setRejecting(false);
     }
-  }, [video.id, revisionScope, revisionNotes, invalidateAll]);
+  }, [video.id, revisionScope, revisionNotes, invalidateAll, toast]);
+
+  const scriptRegenerationBlockedReason = useCallback(() => {
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : (video.research_payload || {});
+      const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+      if (video.render_mode === "static_docu" && roster.length > 0) {
+        const validation = payload?.unit_research_hold_validation;
+        const cards = Array.isArray(payload?.unit_research_cards) ? payload.unit_research_cards : [];
+        const packages = payload?.machine_raw_source_packages && typeof payload.machine_raw_source_packages === "object" && !Array.isArray(payload.machine_raw_source_packages)
+          ? payload.machine_raw_source_packages
+          : {};
+        const verifiedCount = roster.filter((item: any) => {
+          const label = machineLabel(item);
+          const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
+          return Boolean(card) && sourcePackageReady(sourcePackageForMachine(packages, label), label);
+        }).length;
+        if (!validation?.passed) {
+          return `Machine research is incomplete: ${verifiedCount}/${roster.length} verified cards finished.`;
+        }
+      }
+
+      const scriptValidation = typeof video.script_validation === "string" ? JSON.parse(video.script_validation || "{}") : (video.script_validation || {});
+      const scriptGate = scriptValidation?.unit_roster;
+      if (scriptGate?.complete_title && scriptGate?.passed === false) {
+        return `Script roster gate failed: ${(scriptGate.warnings || []).join("; ") || "script roster is incomplete"}`;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }, [video.render_mode, video.research_payload, video.script_validation]);
 
   const handleRegenerateScript = useCallback(async () => {
+    const blockedReason = scriptRegenerationBlockedReason();
+    if (blockedReason) {
+      toast.error(blockedReason);
+      return;
+    }
     setRegeneratingScript(true);
     try {
       await runPipelineStage(video.id, "script");
@@ -1060,7 +1096,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       }
       setRegeneratingScript(false);
     }
-  }, [video.id]);
+  }, [video.id, scriptRegenerationBlockedReason, toast]);
 
   const handleSplitSentences = useCallback(async () => {
     setSplitting(true);
@@ -1424,6 +1460,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   })();
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
+  const scriptGenerationBlockedByRoster = Boolean(activeRosterGate?.complete_title && activeRosterGate?.passed === false);
   const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
   const activePreviewMachine = previewMachine || machineRosterLabels[0] || "";
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
@@ -1652,7 +1689,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         )}
         <button
           onClick={handleRegenerateScript}
-          disabled={regeneratingScript || scriptTaskRunning || (activeRosterGate?.complete_title && activeRosterGate?.passed === false)}
+          disabled={regeneratingScript || scriptTaskRunning || scriptGenerationBlockedByRoster}
           className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
           style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
         >
@@ -1804,7 +1841,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           if (!scriptDone) return (
             <button
               onClick={handleRegenerateScript}
-              disabled={regeneratingScript || scriptTaskRunning || (activeRosterGate?.complete_title && activeRosterGate?.passed === false)}
+              disabled={regeneratingScript || scriptTaskRunning || scriptGenerationBlockedByRoster}
               className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
               style={{ background: "var(--orange)", color: "var(--bg-void)" }}
             >
@@ -1826,7 +1863,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               {/* Re-roll the script before spending on voice (prompt/profile changes). */}
               <button
                 onClick={handleRegenerateScript}
-                disabled={regeneratingScript || scriptTaskRunning || isVoiceBusy}
+                disabled={regeneratingScript || scriptTaskRunning || isVoiceBusy || scriptGenerationBlockedByRoster}
                 className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
                 style={{ background: "transparent", border: "1px solid var(--orange)", color: "var(--orange)" }}
               >
@@ -1849,7 +1886,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               {/* Go back and rewrite the script (e.g. after changing the style or scene rules). */}
               <button
                 onClick={handleRegenerateScript}
-                disabled={regeneratingScript || scriptTaskRunning}
+                disabled={regeneratingScript || scriptTaskRunning || scriptGenerationBlockedByRoster}
                 className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
                 style={{ background: "transparent", border: "1px solid var(--orange)", color: "var(--orange)" }}
               >
@@ -2704,7 +2741,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             {/* Regenerate Script */}
             <button
               onClick={handleRegenerateScript}
-              disabled={regeneratingScript || scriptTaskRunning}
+              disabled={regeneratingScript || scriptTaskRunning || scriptGenerationBlockedByRoster}
               className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 background: "rgba(255, 120, 73, 0.15)",
