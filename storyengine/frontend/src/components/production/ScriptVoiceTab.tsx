@@ -341,6 +341,14 @@ function sourceCaptureMethodForEvidence(segment: any, sourcePackage: any): strin
   return String(match?.source_capture_method || segment?.source_capture_method || "legacy_unmarked");
 }
 
+function sourceSlotHintsForEvidence(segment: any, sourcePackage: any): string[] {
+  const match = sourceCandidateForEvidence(segment, sourcePackage);
+  const rawHints = Array.isArray(match?.anton_slot_hints) ? match.anton_slot_hints : [];
+  const hints = rawHints.map((slot: any) => String(slot || "").trim()).filter(Boolean);
+  if (hints.length > 0) return hints;
+  return match ? Array.from(antonSourceSlotHints(match?.text)) : [];
+}
+
 function antonSourceSlotHints(text: unknown): Set<string> {
   const lower = normalizedSourceText(text);
   const slotPatterns: Record<string, RegExp[]> = {
@@ -1896,6 +1904,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       source_excerpt_hash?: string;
       source_tier?: string;
       source_capture_method?: string;
+      source_slot_hints?: string[];
     }> = {};
     const slots = Array.isArray((machinePreview?.story_plan as any)?.slots)
       ? (machinePreview?.story_plan as any).slots
@@ -1917,6 +1926,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           source_excerpt_hash: String(segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.text_hash || ""),
           source_tier: sourceTierForEvidence(segment, activePreviewSourcePackage)?.label,
           source_capture_method: sourceCaptureMethodForEvidence(segment, activePreviewSourcePackage),
+          source_slot_hints: sourceSlotHintsForEvidence(segment, activePreviewSourcePackage),
         };
       }
     }
@@ -2118,7 +2128,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                             {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                               <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                 <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                  {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
+                                  {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                 </p>
                                 {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
                               </div>
@@ -2170,7 +2180,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                                 <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                   <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
+                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                   </p>
                                   {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
                                   {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}

@@ -70,6 +70,10 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "Timeframe evidence Tier 4-only · preview blocked" in text
     assert "Visual identity evidence Tier 4-only · preview blocked" in text
     assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
+    assert "function sourceSlotHintsForEvidence" in text
+    assert "anton_slot_hints" in text
+    assert "source_slot_hints" in text
+    assert "hints ${evidence.source_slot_hints.join(\", \")}" in text
     assert "function antonSlotRoleForEvidenceKind" in text
     assert "machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage)" in text
     assert "disabled={previewGenerating || !activePreviewReady}" in text

@@ -89,6 +89,11 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Timeframe evidence Tier 4-only · preview blocked" in text
     assert "Visual identity evidence Tier 4-only · preview blocked" in text
     assert "sourceCandidateForEvidence(segment, sourcePackage)" in text
+    assert "function sourceSlotHintsForEvidence" in text
+    assert "anton_slot_hints" in text
+    assert "source_slot_hints" in text
+    assert "hints {sourceSlotHints.join(\", \")}" in text
+    assert "hints ${evidence.source_slot_hints.join(\", \")}" in text
     assert "function antonSlotRoleForEvidenceKind" in text
     assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
     assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text

@@ -187,6 +187,14 @@ function sourceCaptureMethodForEvidence(segment: any, sourcePackage: any): strin
   return String(match?.source_capture_method || segment?.source_capture_method || "legacy_unmarked");
 }
 
+function sourceSlotHintsForEvidence(segment: any, sourcePackage: any): string[] {
+  const match = sourceCandidateForEvidence(segment, sourcePackage);
+  const rawHints = Array.isArray(match?.anton_slot_hints) ? match.anton_slot_hints : [];
+  const hints = rawHints.map((slot: any) => String(slot || "").trim()).filter(Boolean);
+  if (hints.length > 0) return hints;
+  return match ? Array.from(antonSourceSlotHints(match?.text)) : [];
+}
+
 function hostnameForSource(url: unknown): string {
   try {
     const host = new URL(String(url || "")).hostname.toLowerCase();
@@ -984,6 +992,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       source_excerpt_hash?: string;
       source_tier?: string;
       source_capture_method?: string;
+      source_slot_hints?: string[];
     }> = {};
     const slots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
       ? (selectedMachinePreview?.story_plan as any).slots
@@ -1005,6 +1014,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           source_excerpt_hash: String(segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, selectedSourcePackage)?.text_hash || ""),
           source_tier: sourceTierForEvidence(segment, selectedSourcePackage)?.label,
           source_capture_method: sourceCaptureMethodForEvidence(segment, selectedSourcePackage),
+          source_slot_hints: sourceSlotHintsForEvidence(segment, selectedSourcePackage),
         };
       }
     }
@@ -1370,7 +1380,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                               {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                                 <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                   <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
+                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                   </p>
                                   {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
                                 </div>
@@ -1437,7 +1447,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                                 {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                                   <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                     <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                      {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
+                                      {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                     </p>
                                     {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
                                     {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}
@@ -1499,6 +1509,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                             {card.evidence_segments.slice(0, 12).map((segment: any, segmentIndex: number) => {
                               const sourceTier = sourceTierForEvidence(segment, cardSourcePackage);
                               const sourceCaptureMethod = sourceCaptureMethodForEvidence(segment, cardSourcePackage);
+                              const sourceSlotHints = sourceSlotHintsForEvidence(segment, cardSourcePackage);
                               return (
                                 <div key={`${segment.evidence_id || segment.kind || "evidence"}-${segmentIndex}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
                                   <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -1511,6 +1522,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                                     )}
                                     {segment.confidence && <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{segment.confidence}</span>}
                                     {sourceCaptureMethod && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{sourceCaptureMethod}</span>}
+                                    {sourceSlotHints.length > 0 && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>hints {sourceSlotHints.join(", ")}</span>}
                                   </div>
                                   {segment.claim && <p className="text-xs leading-5" style={{ color: "var(--text-primary)" }}>{segment.claim}</p>}
                                   {segment.source_excerpt && <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{segment.source_excerpt}</p>}

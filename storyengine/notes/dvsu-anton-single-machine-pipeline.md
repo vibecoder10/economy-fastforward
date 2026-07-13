@@ -132,7 +132,7 @@ Before Claude writes the card, the raw package must also contain exact fetched e
 
 The saved research card itself must select at least one Tier 1-2 source-backed evidence segment. A raw package is not considered enough if it contains an authoritative source but the model ignores that source when building the card. `timeframe` and `visual_identity` evidence cannot be supported only by Tier 4/caution sources.
 
-The saved research card must also select distinct, non-overlapping raw excerpt rows for the four required Anton slots. If `original_problem`, `engineering_decision`, `tradeoff`, and `reality` all point back to one broad excerpt, or to nested windows that mostly repeat the same text, the card is rejected even when the raw package contains enough other usable rows. This keeps the later sentence compiler aligned with Ryan's approved flow: one raw excerpt per beat, then one grounded sentence from each.
+The saved research card must also select distinct, non-overlapping raw excerpt rows for the four required Anton slots. If `original_problem`, `engineering_decision`, `tradeoff`, and `reality` all point back to one broad excerpt, or to nested windows that mostly repeat the same text, the card is rejected even when the raw package contains enough other usable rows. When saved `anton_slot_hints` exist, the card must respect them as the first-pass map for required beats; a real copied excerpt cannot be silently relabeled into the wrong Anton slot. This keeps the later sentence compiler aligned with Ryan's approved flow: one raw excerpt per beat, then one grounded sentence from each.
 
 The Research and Script/Voice tabs also check that the card's selected `source_excerpt` + `source_url` + `locator` rows still match the saved raw package before showing the selected machine as ready. This keeps stale card locators, cards that ignored Tier 1-2 sources, and Tier 4-only timeframe or visual identity evidence from appearing preview-ready in the UI.
 
@@ -140,7 +140,7 @@ When a selected evidence segment validates against a fetched raw candidate, the 
 
 After a selected-machine research or preview run, the UI invalidates the saved video state so the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` can be reviewed without relying on a manual browser refresh.
 
-The Research and Script/Voice single-machine preview panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
+The Research and Script/Voice single-machine preview panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence, including the raw source slot hints that explain which Anton beat the fetched excerpt was meant to support; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
 
 ## Script Contract
 
