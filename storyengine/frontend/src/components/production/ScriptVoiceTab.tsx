@@ -224,6 +224,34 @@ function sourceTierNumber(candidate: any): number {
   return sourceTierForUrl(candidate?.source_url || candidate?.url, candidate?.source_title || candidate?.title);
 }
 
+function normalizedSourceText(text: unknown): string {
+  return String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function sourceCandidateForEvidence(segment: any, sourcePackage: any): any | null {
+  const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  const sourceUrl = String(segment?.source_url || "").trim();
+  const locator = String(segment?.locator || "").trim();
+  const excerpt = normalizedSourceText(segment?.source_excerpt || "");
+  if (!sourceUrl || !excerpt) return null;
+  return excerpts.find((candidate: any) => {
+    const candidateUrl = String(candidate?.source_url || "").trim();
+    const candidateLocator = String(candidate?.locator || "").trim();
+    const candidateExcerptId = String(candidate?.excerpt_id || "").trim();
+    const candidateText = normalizedSourceText(candidate?.text || "");
+    const locatorMatches = !locator
+      || locator === candidateLocator
+      || locator === candidateExcerptId
+      || Boolean(candidateLocator && candidateLocator.startsWith(`${locator};`));
+    return candidateUrl === sourceUrl && locatorMatches && candidateText.includes(excerpt);
+  }) || null;
+}
+
+function sourceCaptureMethodForEvidence(segment: any, sourcePackage: any): string {
+  const match = sourceCandidateForEvidence(segment, sourcePackage);
+  return String(match?.source_capture_method || segment?.source_capture_method || "legacy_unmarked");
+}
+
 function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
   const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
@@ -1403,6 +1431,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       source_title?: string;
       source_url?: string;
       locator?: string;
+      source_capture_method?: string;
     }> = {};
     const slots = Array.isArray((machinePreview?.story_plan as any)?.slots)
       ? (machinePreview?.story_plan as any).slots
@@ -1420,6 +1449,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           source_title: String(segment?.source_title || ""),
           source_url: String(segment?.source_url || ""),
           locator: String(segment?.locator || ""),
+          source_capture_method: sourceCaptureMethodForEvidence(segment, activePreviewSourcePackage),
         };
       }
     }
@@ -1593,7 +1623,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                                 <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                   <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[evidence?.source_title || id, evidence?.locator].filter(Boolean).join(" · ")}
+                                    {[evidence?.source_title || id, evidence?.source_capture_method, evidence?.locator].filter(Boolean).join(" · ")}
                                   </p>
                                   {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
                                   {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}

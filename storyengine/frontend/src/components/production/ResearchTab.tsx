@@ -74,13 +74,13 @@ function normalizedSourceText(text: unknown): string {
   return String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number; label: string } | null {
+function sourceCandidateForEvidence(segment: any, sourcePackage: any): any | null {
   const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const sourceUrl = String(segment?.source_url || "").trim();
   const locator = String(segment?.locator || "").trim();
   const excerpt = normalizedSourceText(segment?.source_excerpt || "");
   if (!sourceUrl || !excerpt) return null;
-  const match = excerpts.find((candidate: any) => {
+  return excerpts.find((candidate: any) => {
     const candidateUrl = String(candidate?.source_url || "").trim();
     const candidateLocator = String(candidate?.locator || "").trim();
     const candidateExcerptId = String(candidate?.excerpt_id || "").trim();
@@ -90,13 +90,22 @@ function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number
       || locator === candidateExcerptId
       || Boolean(candidateLocator && candidateLocator.startsWith(`${locator};`));
     return candidateUrl === sourceUrl && locatorMatches && candidateText.includes(excerpt);
-  });
+  }) || null;
+}
+
+function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number; label: string } | null {
+  const match = sourceCandidateForEvidence(segment, sourcePackage);
   const rawTier = Number(match?.source_tier || segment?.source_tier || 0);
   if (!rawTier) return null;
   return {
     tier: rawTier,
     label: String(match?.source_tier_label || segment?.source_tier_label || `Tier ${rawTier}`),
   };
+}
+
+function sourceCaptureMethodForEvidence(segment: any, sourcePackage: any): string {
+  const match = sourceCandidateForEvidence(segment, sourcePackage);
+  return String(match?.source_capture_method || segment?.source_capture_method || "legacy_unmarked");
 }
 
 function hostnameForSource(url: unknown): string {
@@ -544,6 +553,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       source_url?: string;
       locator?: string;
       source_tier?: string;
+      source_capture_method?: string;
     }> = {};
     const slots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
       ? (selectedMachinePreview?.story_plan as any).slots
@@ -562,6 +572,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           source_url: String(segment?.source_url || ""),
           locator: String(segment?.locator || ""),
           source_tier: sourceTierForEvidence(segment, selectedSourcePackage)?.label,
+          source_capture_method: sourceCaptureMethodForEvidence(segment, selectedSourcePackage),
         };
       }
     }
@@ -911,7 +922,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                                 {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                                   <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                     <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                      {[evidence?.source_title || id, evidence?.source_tier, evidence?.locator].filter(Boolean).join(" · ")}
+                                      {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.locator].filter(Boolean).join(" · ")}
                                     </p>
                                     {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
                                     {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}
@@ -941,6 +952,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
             {research.unit_roster.map((item: any, index: number) => {
               const label = machineLabel(item);
               const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
+              const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
               return (
                 <details key={`${label}-${index}`} className="rounded-lg" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.06)" }}>
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">
@@ -965,7 +977,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                           </div>
                           <div className="space-y-2">
                             {card.evidence_segments.slice(0, 12).map((segment: any, segmentIndex: number) => {
-                              const sourceTier = sourceTierForEvidence(segment, selectedSourcePackage);
+                              const sourceTier = sourceTierForEvidence(segment, cardSourcePackage);
+                              const sourceCaptureMethod = sourceCaptureMethodForEvidence(segment, cardSourcePackage);
                               return (
                                 <div key={`${segment.evidence_id || segment.kind || "evidence"}-${segmentIndex}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
                                   <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -977,6 +990,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                                       </span>
                                     )}
                                     {segment.confidence && <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{segment.confidence}</span>}
+                                    {sourceCaptureMethod && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{sourceCaptureMethod}</span>}
                                   </div>
                                   {segment.claim && <p className="text-xs leading-5" style={{ color: "var(--text-primary)" }}>{segment.claim}</p>}
                                   {segment.source_excerpt && <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{segment.source_excerpt}</p>}

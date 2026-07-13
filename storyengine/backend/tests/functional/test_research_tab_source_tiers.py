@@ -83,7 +83,7 @@ def test_research_tab_does_not_offer_bulk_machine_research_action():
 
 def test_source_tier_helper_matches_excerpt_locator_not_card_claims():
     text = _research_tab().read_text()
-    helper = text[text.index("function sourceTierForEvidence"):text.index("function CollapsibleSection")]
+    helper = text[text.index("function sourceCandidateForEvidence"):text.index("function CollapsibleSection")]
 
     assert "normalizedSourceText(segment?.source_excerpt" in helper
     assert "normalizedSourceText(candidate?.text" in helper
@@ -94,6 +94,20 @@ def test_source_tier_helper_matches_excerpt_locator_not_card_claims():
     assert "candidateUrl === sourceUrl" in helper
     assert "candidateText.includes(excerpt)" in helper
     assert "segment?.claim" not in helper
+
+
+def test_research_tab_surfaces_source_capture_method():
+    text = _research_tab().read_text()
+
+    assert "function sourceCaptureMethodForEvidence" in text
+    assert "match?.source_capture_method || segment?.source_capture_method" in text
+    assert '"legacy_unmarked"' in text
+    assert "source_capture_method?: string" in text
+    assert "sourceCaptureMethodForEvidence(segment, selectedSourcePackage)" in text
+    assert "evidence?.source_capture_method" in text
+    assert "sourceCaptureMethod" in text
+    assert "const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label)" in text
+    assert "sourceCaptureMethodForEvidence(segment, cardSourcePackage)" in text
 
 
 def test_research_tab_surfaces_tier_badges_and_labels():

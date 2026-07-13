@@ -104,3 +104,15 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "evidenceRows.map" in text
     assert "evidence?.claim" in text
     assert "evidence?.source_excerpt" in text
+
+
+def test_script_voice_preview_surfaces_source_capture_method():
+    text = _script_voice_tab().read_text()
+
+    assert "function sourceCandidateForEvidence" in text
+    assert "function sourceCaptureMethodForEvidence" in text
+    assert "match?.source_capture_method || segment?.source_capture_method" in text
+    assert '"legacy_unmarked"' in text
+    assert "source_capture_method?: string" in text
+    assert "sourceCaptureMethodForEvidence(segment, activePreviewSourcePackage)" in text
+    assert "evidence?.source_capture_method" in text
