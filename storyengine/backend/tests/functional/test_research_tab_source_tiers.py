@@ -73,3 +73,13 @@ def test_research_tab_matches_cards_and_previews_by_normalized_machine_code():
     assert "function previewForMachine" in text
     assert "previewMatchesMachine(localMachinePreview, selectedMachineLabel)" in text
     assert "previewForMachine(research?.machine_script_previews, selectedMachineLabel)" in text
+
+
+def test_research_tab_keeps_failed_preview_reason_visible():
+    text = _research_tab().read_text()
+
+    handler = text[text.index("const handleOneMachinePreview"):text.index("const handleApproveResearch")]
+    assert "setLocalMachinePreview({" in handler
+    assert 'research_source: "preview_error"' in handler
+    assert "warnings: [message]" in handler
+    assert "Preview stopped before a paragraph was generated." in text

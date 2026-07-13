@@ -293,10 +293,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
 
   const handleOneMachinePreview = useCallback(async () => {
     setSinglePreviewRunning(true);
+    let machine = selectedMachine || "";
     try {
       const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
       const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
-      const machine = selectedMachine || machineLabel(roster[0]);
+      machine = selectedMachine || machineLabel(roster[0]);
       if (!machine) {
         throw new Error("No locked machine selected.");
       }
@@ -309,7 +310,20 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         toast.error("Single-machine preview needs review.");
       }
     } catch (err: unknown) {
-      toast.error(`Script preview failed: ${(err as Error).message || "Unknown error"}`);
+      const message = (err as Error).message || "Unknown error";
+      if (machine) {
+        setLocalMachinePreview({
+          machine,
+          scene: 0,
+          paragraph: "",
+          word_count: 0,
+          passed: false,
+          warnings: [message],
+          research_source: "preview_error",
+          claim_bundle: { claim_map: [] },
+        });
+      }
+      toast.error(`Script preview failed: ${message}`);
     } finally {
       setSinglePreviewRunning(false);
     }
@@ -742,7 +756,13 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                       </p>
                     </div>
                   )}
-                  <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{selectedMachinePreview.paragraph}</p>
+                  {selectedMachinePreview.paragraph ? (
+                    <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{selectedMachinePreview.paragraph}</p>
+                  ) : (
+                    <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                      Preview stopped before a paragraph was generated.
+                    </div>
+                  )}
 
                   {selectedPreviewSlots.length > 0 && (
                     <div className="flex flex-wrap gap-2">
