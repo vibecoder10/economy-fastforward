@@ -4296,7 +4296,10 @@ class PipelineExecutor:
                 await self._log_activity(bot_name, video_id, "failed", msg[:900])
                 return {"status": "failed", "error": msg, "video_id": video_id}
 
-        rows = await fetch_all("SELECT voice_id FROM scripts WHERE video_id = $1 LIMIT 1", video_id)
+        rows = await fetch_all(
+            "SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1",
+            video_id, self.tenant_id,
+        )
         voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
 
         # Stage every replacement paragraph in memory. Existing script rows remain

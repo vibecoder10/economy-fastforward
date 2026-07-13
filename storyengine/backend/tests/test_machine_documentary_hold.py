@@ -1254,6 +1254,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
         {"anthropic": fake_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
     )()
     load_calls = []
+    fetch_calls = []
 
     async def fake_load(video_id, payload, roster_arg, target_machine=None):
         load_calls.append((video_id, roster_arg, target_machine))
@@ -1267,7 +1268,8 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
         writes.append((query, args))
         return None
 
-    async def fake_fetch_all(*_args, **_kwargs):
+    async def fake_fetch_all(query, *args, **_kwargs):
+        fetch_calls.append((query, args))
         return []
 
     async def fake_log(*_args, **_kwargs):
@@ -1304,6 +1306,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert saved_brief_rows and saved_brief_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert saved_plan_rows and saved_plan_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
+    assert fetch_calls == [("SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1", ("video-test", "tenant-test"))]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
