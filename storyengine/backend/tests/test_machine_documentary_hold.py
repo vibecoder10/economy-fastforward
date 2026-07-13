@@ -814,6 +814,7 @@ def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_s
             "confidence": "high",
         },
     ]
+    memorable_span = "It never saw combat, yet the XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner."
     payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": evidence}]}
     plan = pe._machine_story_plan(payload, "Douglas XB-19")
     bundle = {
@@ -821,14 +822,14 @@ def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_s
             "Douglas built one XB-19 heavy bomber to test flight characteristics for giant bombers, but advances in technology made it obsolete before completion. "
             "The aircraft featured the world's largest landing gear wheel and tire in the early 1940s, proof of its unprecedented scale. "
             "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned. "
-            "The XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner. "
+            f"{memorable_span} "
             "The prototype proved too slow and expensive for production, yet it delivered critical engineering data that shaped the next generation of American heavy bombers."
         ),
         "claim_map": [
             {"slot": "identity_origin", "span": evidence[0]["claim"], "used_evidence_ids": ["XB19-IDENTITY"]},
             {"slot": "scale_specs", "span": evidence[1]["claim"], "used_evidence_ids": ["XB19-SCALE"]},
             {"slot": "service_reality", "span": evidence[2]["claim"], "used_evidence_ids": ["XB19-BUILD", "XB19-SERVICE"]},
-            {"slot": "memorable_fact", "span": evidence[4]["claim"], "used_evidence_ids": ["XB19-MEMORABLE"]},
+            {"slot": "memorable_fact", "span": memorable_span, "used_evidence_ids": ["XB19-MEMORABLE"]},
             {"slot": "memorable_fact", "span": evidence[5]["claim"], "used_evidence_ids": ["XB19-MEANING"]},
         ],
         "onscreen_label": "",
@@ -845,6 +846,7 @@ def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_s
     assert "unusually large" in paragraph
     assert "around the early 1940s" in paragraph
     assert "flew around 1941" in paragraph
+    assert "never" not in paragraph.lower()
     assert repaired["claim_map"][-1]["slot"] == "historical_meaning"
 
 

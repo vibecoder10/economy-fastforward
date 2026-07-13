@@ -904,8 +904,12 @@ def _span_has_high_risk_exact_fact(span: str, machine: str) -> bool:
 def _soften_single_source_span(span: str, machine: str) -> str:
     """Make single-source exact claims less brittle without adding facts."""
     updated = str(span or "")
+    updated = re.sub(r"\b(?:it|the aircraft|the machine)\s+never saw combat,\s*yet\s*", "", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bnever saw combat,\s*yet\s*", "", updated, flags=re.IGNORECASE)
     updated = re.sub(r"\bOnly one\b", "A single", updated)
     updated = re.sub(r"\bonly one\b", "a single", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bA single was built\b", "A single example was built", updated)
+    updated = re.sub(r"\ba single was built\b", "a single example was built", updated, flags=re.IGNORECASE)
     updated = re.sub(
         r"\bone\s+(?=(?:[A-Z]{1,4}-?\d{1,4}[A-Z]?|prototype|aircraft|machine|bomber|example|unit)\b)",
         "a single ",
@@ -999,13 +1003,22 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
             repaired["slot"] = next(iter(row_roles))
         span = " ".join(str(repaired.get("span") or repaired.get("text") or repaired.get("claim") or "").split())
         if span and row_ids:
+            row_evidence_text = " ".join(
+                f"{evidence_by_id.get(evidence_id, {}).get('claim', '')} {evidence_by_id.get(evidence_id, {}).get('source_excerpt', '')}"
+                for evidence_id in row_ids
+                if evidence_id in evidence_by_id
+            ).lower()
+            unsupported_risk_terms = [
+                term for term in ("first", "only", "largest", "fastest", "most", "never")
+                if re.search(rf"\b{term}\b", span.lower()) and not re.search(rf"\b{term}\b", row_evidence_text)
+            ]
             source_keys = {
                 str(evidence_by_id.get(evidence_id, {}).get("source_url") or evidence_by_id.get(evidence_id, {}).get("locator") or "").strip()
                 for evidence_id in row_ids
                 if evidence_id in evidence_by_id
             }
             source_keys = {source for source in source_keys if source}
-            if len(source_keys) < 2 and _span_has_high_risk_exact_fact(span, machine):
+            if unsupported_risk_terms or (len(source_keys) < 2 and _span_has_high_risk_exact_fact(span, machine)):
                 softened = _soften_single_source_span(span, machine)
                 if softened and softened != span and span in repaired_paragraph:
                     repaired_paragraph = repaired_paragraph.replace(span, softened, 1)
