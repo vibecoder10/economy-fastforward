@@ -452,17 +452,28 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
         evidence_id = str(segment.get("evidence_id") or "?").strip()
         excerpt = _normalized_source_text(segment.get("source_excerpt") or "")
         source_url = str(segment.get("source_url") or "").strip()
+        segment_locator = str(segment.get("locator") or "").strip()
         if not excerpt:
             continue
         if not source_url:
             warnings.append(f"evidence segment {evidence_id} missing verified source_url")
             continue
+        if not segment_locator:
+            warnings.append(f"evidence segment {evidence_id} missing verified locator")
+            continue
         matched = False
         for candidate in candidates:
             candidate_text = _normalized_source_text(candidate.get("text") or "")
             candidate_url = str(candidate.get("source_url") or "").strip()
+            candidate_locator = str(candidate.get("locator") or "").strip()
+            candidate_excerpt_id = str(candidate.get("excerpt_id") or "").strip()
             url_matches = candidate_url == source_url
-            if url_matches and excerpt in candidate_text:
+            locator_matches = (
+                segment_locator == candidate_locator
+                or segment_locator == candidate_excerpt_id
+                or bool(candidate_locator and candidate_locator.startswith(f"{segment_locator};"))
+            )
+            if url_matches and locator_matches and excerpt in candidate_text:
                 matched = True
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
                 if role in _ANTON_REQUIRED_SLOT_ROLES:
@@ -470,7 +481,7 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 break
         if not matched:
             warnings.append(
-                f"evidence segment {evidence_id} source_excerpt was not found in verified fetched source text"
+                f"evidence segment {evidence_id} source_excerpt/locator was not found in verified fetched source text"
             )
     for role, source_rows in required_slot_sources.items():
         if source_rows and all(tier >= 4 for _evidence_id, tier in source_rows):

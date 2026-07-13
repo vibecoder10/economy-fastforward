@@ -73,11 +73,11 @@ def _evidence_segments() -> list[dict]:
             "source_excerpt": claim,
             "source_url": f"https://example.test/{kind}",
             "source_title": "Test source",
-            "locator": "",
+            "locator": f"S{index}-E1",
             "numeric_tokens": [],
             "confidence": "high",
         }
-        for evidence_id, kind, claim in rows
+        for index, (evidence_id, kind, claim) in enumerate(rows, start=1)
     ]
 
 
@@ -103,7 +103,7 @@ def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
                 "source_id": f"S{index}",
                 "source_title": segment["source_title"],
                 "source_url": segment["source_url"],
-                "locator": f"S{index}-E1",
+                "locator": segment.get("locator") or f"S{index}-E1",
                 "text": segment["source_excerpt"],
                 "text_hash": "test",
             }
@@ -160,6 +160,17 @@ def test_required_anton_slots_accept_authoritative_source_support():
     warnings = pe._validate_card_against_verified_sources(card, package)
 
     assert warnings == []
+
+
+def test_verified_source_validation_requires_matching_locator():
+    segments = _evidence_segments()
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    segments[0]["locator"] = "wrong-excerpt-row"
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("source_excerpt/locator was not found" in warning for warning in warnings)
 
 
 def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
