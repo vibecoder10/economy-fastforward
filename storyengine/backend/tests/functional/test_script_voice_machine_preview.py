@@ -244,6 +244,8 @@ def test_script_voice_readiness_button_is_no_spend():
     assert "setMachinePreview(previewErrorArtifact(" in handler
     assert "readinessWarningsWithNextAction(readiness, message)" in handler
     assert "Next action:" in text
+    assert "preview?.research_source === \"readiness_preflight\" ? messages : messages.slice(0, 6)" in text
+    assert '? [`Next action: ${nextAction}`, ...warnings]' in text
     assert '"readiness_preflight"' in handler
     assert '"Readiness preflight"' in handler
     assert "Readiness blocked:" in handler

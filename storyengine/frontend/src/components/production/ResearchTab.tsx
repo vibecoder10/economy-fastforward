@@ -140,7 +140,8 @@ function machinePreviewReviewMessages(preview: any): string[] {
         .map((message: any) => String(message || "").trim())
         .filter(Boolean)
     : [];
-  return Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows])).slice(0, 6);
+  const messages = Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows]));
+  return preview?.research_source === "readiness_preflight" ? messages : messages.slice(0, 6);
 }
 
 function previewErrorArtifact(
@@ -187,7 +188,7 @@ function readinessWarningsWithNextAction(
     : [fallbackMessage];
   const nextAction = String(readiness.next_action || "").trim();
   return nextAction
-    ? [...warnings, `Next action: ${nextAction}`]
+    ? [`Next action: ${nextAction}`, ...warnings]
     : warnings;
 }
 

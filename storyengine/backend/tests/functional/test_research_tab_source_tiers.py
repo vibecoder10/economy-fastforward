@@ -338,6 +338,8 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     assert "setLocalMachinePreview(previewErrorArtifact(" in readiness_handler
     assert "readinessWarningsWithNextAction(readiness, message)" in readiness_handler
     assert "Next action:" in text
+    assert "preview?.research_source === \"readiness_preflight\" ? messages : messages.slice(0, 6)" in text
+    assert '? [`Next action: ${nextAction}`, ...warnings]' in text
     assert '"readiness_preflight"' in readiness_handler
     assert '"Readiness preflight"' in readiness_handler
     assert "Readiness blocked:" in readiness_handler

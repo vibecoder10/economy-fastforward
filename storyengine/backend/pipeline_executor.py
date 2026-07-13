@@ -7096,7 +7096,7 @@ separate scenes."""
                 "machine": matched,
                 "scene": scene,
                 "summary": msg,
-                "warnings": [msg],
+                "warnings": source_errors,
                 "next_action": "run_one_machine_research_refresh",
                 "research_payload": rp,
             }
