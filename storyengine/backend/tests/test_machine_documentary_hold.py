@@ -323,16 +323,16 @@ def test_animated_video_with_roster_shape_still_runs_global_writer(monkeypatch):
     assert pipeline.global_writer_calls == 1
 
 
-def test_hard_word_bounds_are_95_through_120_inclusive():
+def test_hard_word_bounds_are_90_through_120_inclusive():
     validate = pe.PipelineExecutor._validate_static_unit_paragraph
 
-    assert any("word count 90" in warning for warning in validate("XB-15", _words("XB-15", 90)))
-    assert validate("XB-15", _words("XB-15", 95)) == []
+    assert any("word count 89" in warning for warning in validate("XB-15", _words("XB-15", 89)))
+    assert validate("XB-15", _words("XB-15", 90)) == []
     assert validate("XB-15", _words("XB-15", 120)) == []
     assert any("word count 121" in warning for warning in validate("XB-15", _words("XB-15", 121)))
     two_paragraphs = _words("XB-15", 48) + "\n\n" + _words("XB-15", 47)
     assert "must be exactly one paragraph" in validate("XB-15", two_paragraphs)
-    assert validate("B52", _words("B-52", 95)) == []
+    assert validate("B52", _words("B-52", 90)) == []
 
 
 def test_meta_validator_does_not_match_as_an_ai_inside_was_an_aircraft():
@@ -526,6 +526,35 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
         "E-PROBLEM", "E-DECISION", "E-TRADEOFF", "E-REALITY"
     ]
     assert "E-MEMORABLE" in bundle["claim_map"][3]["used_evidence_ids"]
+
+
+def test_story_paragraph_validator_accepts_anton_benchmark_shape():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    sentences = [
+        "B-52 original problem claim grounded in the supplied source.",
+        "Engineering decision claim grounded in the supplied source.",
+        "Tradeoff claim grounded in the supplied source.",
+        "Reality claim grounded in the supplied source.",
+        "Memorable fact claim grounded in the supplied source.",
+        "Together, those choices made the machine matter beyond its own service.",
+        "The price was written into the design itself.",
+    ]
+    while pe._spoken_word_count(" ".join(sentences)) < 116:
+        sentences[1] = sentences[1].rstrip(".") + " clear."
+    bundle["paragraph"] = " ".join(sentences)
+    bundle["claim_map"] = [
+        {"slot": "original_problem", "span": sentences[0], "used_evidence_ids": ["E-PROBLEM"]},
+        {"slot": "engineering_decision", "span": sentences[1], "used_evidence_ids": ["E-DECISION"]},
+        {"slot": "tradeoff", "span": sentences[2], "used_evidence_ids": ["E-TRADEOFF"]},
+        {"slot": "reality", "span": " ".join(sentences[3:6]), "used_evidence_ids": ["E-REALITY", "E-MEMORABLE"]},
+    ]
+
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert warnings == []
+    assert pe._spoken_word_count(paragraph) == 116
 
 
 def test_story_paragraph_validator_requires_available_memorable_fact():
@@ -884,7 +913,7 @@ def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
     assert any("high-risk term" in warning for warning in warnings)
 
 
-def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
+def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
         "unit": "Boeing XB-15",
@@ -910,7 +939,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
         def __init__(self):
             self.prompts = []
             self.system_prompts = []
-            self.outputs = [_story_bundle("XB-15", 18), _story_bundle("XB-15", 19)]
+            self.outputs = [_story_bundle("XB-15", 17), _story_bundle("XB-15", 19)]
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
@@ -966,7 +995,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "at least one claim_map row must use a memorable_fact evidence ID" in fake_anthropic.prompts[0]
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
-    assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
+    assert "90-120 words, 4-7 natural sentences" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
     assert "final sentence must be 28 words or fewer" in fake_anthropic.prompts[0]
     assert "End with a short verdict" in fake_anthropic.prompts[0]
@@ -1256,7 +1285,7 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
                     "paragraph": "Reviewable paragraph.",
                     "word_count": 2,
                     "passed": False,
-                    "warnings": ["word count 2 outside 95-120 script-hold range"],
+                    "warnings": ["word count 2 outside 90-120 script-hold range"],
                     "claim_bundle": {"claim_map": []},
                 },
             }

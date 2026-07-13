@@ -127,6 +127,15 @@ def _spoken_word_count(text: str) -> int:
     return len(re.findall(r"\b[\w]+(?:[-'][\w]+)*\b", str(text or "")))
 
 
+_ANTON_PARAGRAPH_MIN_WORDS = 90
+_ANTON_PARAGRAPH_MAX_WORDS = 120
+_ANTON_PARAGRAPH_MIN_SENTENCES = 4
+_ANTON_PARAGRAPH_MAX_SENTENCES = 7
+_ANTON_PARAGRAPH_TARGET_WORDS = "100-112"
+_ANTON_PARAGRAPH_WORD_RANGE = f"{_ANTON_PARAGRAPH_MIN_WORDS}-{_ANTON_PARAGRAPH_MAX_WORDS}"
+_ANTON_PARAGRAPH_SENTENCE_RANGE = f"{_ANTON_PARAGRAPH_MIN_SENTENCES}-{_ANTON_PARAGRAPH_MAX_SENTENCES}"
+
+
 def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
     """Return the one-machine research card matching a locked roster item.
 
@@ -898,9 +907,9 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "required_slots": sorted(_ANTON_REQUIRED_SLOT_ROLES),
         "evidence_slot_roles": role_by_id,
         "contract": {
-            "paragraph_shape": "one Anton/DVsU paragraph, 4-6 natural sentences",
+            "paragraph_shape": f"one Anton/DVsU paragraph, {_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences",
             "movement": "raw original problem -> raw engineering decision -> raw tradeoff -> raw reality -> short paragraph-derived conclusion",
-            "paragraph_words": "95-120",
+            "paragraph_words": _ANTON_PARAGRAPH_WORD_RANGE,
             "maximum_numerical_details": 8,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
             "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
@@ -1118,8 +1127,10 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append("paragraph introduced unsupported designation(s): " + ", ".join(unsupported_designations))
 
     sentence_count = len([part for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()])
-    if sentence_count < 4 or sentence_count > 6:
-        warnings.append(f"paragraph sentence count {sentence_count} outside Anton 4-6 range")
+    if sentence_count < _ANTON_PARAGRAPH_MIN_SENTENCES or sentence_count > _ANTON_PARAGRAPH_MAX_SENTENCES:
+        warnings.append(
+            f"paragraph sentence count {sentence_count} outside Anton {_ANTON_PARAGRAPH_SENTENCE_RANGE} range"
+        )
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
     last_sentence = sentence_parts[-1] if sentence_parts else ""
     final_sentence_index = len(sentence_parts)
@@ -1278,8 +1289,18 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
 
     word_count = _spoken_word_count(paragraph)
     checks = [
-        check("word_range", "95-120 words", 95 <= word_count <= 120, f"{word_count} words"),
-        check("sentence_shape", "4-6 natural sentences", 4 <= len(sentence_parts) <= 6, f"{len(sentence_parts)} sentences"),
+        check(
+            "word_range",
+            f"{_ANTON_PARAGRAPH_WORD_RANGE} words",
+            _ANTON_PARAGRAPH_MIN_WORDS <= word_count <= _ANTON_PARAGRAPH_MAX_WORDS,
+            f"{word_count} words",
+        ),
+        check(
+            "sentence_shape",
+            f"{_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences",
+            _ANTON_PARAGRAPH_MIN_SENTENCES <= len(sentence_parts) <= _ANTON_PARAGRAPH_MAX_SENTENCES,
+            f"{len(sentence_parts)} sentences",
+        ),
         check(
             "four_evidence_beats",
             "Four grounded beats",
@@ -1398,7 +1419,7 @@ def _roster_pacing_targets(video_length_minutes: Any) -> Optional[dict]:
     return {
         "video_length_minutes": minutes,
         "seconds_per_machine_screen_time": 60,
-        "words_per_machine_segment_range": "95-120",
+        "words_per_machine_segment_range": _ANTON_PARAGRAPH_WORD_RANGE,
         "default_words_per_machine_segment": 105,
         "expected_final_roster": target_final,
         "minimum_final_roster": minimum_final,
@@ -2956,7 +2977,7 @@ class PipelineExecutor:
                     f"Target length: {pacing_targets['video_length_minutes']:g} minutes. "
                     "For Anton/DVsU machine-roster videos, calibrate to ~60 seconds "
                     "of final screen time per audience-facing machine section, with "
-                    "95-120 script words per machine. "
+                    f"{_ANTON_PARAGRAPH_WORD_RANGE} script words per machine. "
                     f"Expected final roster: around {pacing_targets['expected_final_roster']} machines. "
                     f"Minimum acceptable final roster before proving a small closed category: {pacing_targets['minimum_final_roster']}. "
                     f"Research reserve before final filtering: about {pacing_targets['candidate_universe_target']} total candidates "
@@ -3541,7 +3562,7 @@ class PipelineExecutor:
                 f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n\n"
                 "HARD CONTRACT:\n"
                 "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
-                "- Research/enrich only THIS machine enough to support one Anton-quality 95-120 word DVsU paragraph and one image brief.\n"
+                f"- Research/enrich only THIS machine enough to support one Anton-quality {_ANTON_PARAGRAPH_WORD_RANGE} word DVsU paragraph and one image brief.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
@@ -3798,9 +3819,9 @@ class PipelineExecutor:
         if "\n" in text:
             warnings.append("must be exactly one paragraph")
         # Anton/DVsU hard production range. Code is authoritative; model
-        # self-counts are ignored, and a 90-word result must repair upward.
-        if wc < 95 or wc > 120:
-            warnings.append(f"word count {wc} outside 95-120 script-hold range")
+        # self-counts are ignored.
+        if wc < _ANTON_PARAGRAPH_MIN_WORDS or wc > _ANTON_PARAGRAPH_MAX_WORDS:
+            warnings.append(f"word count {wc} outside {_ANTON_PARAGRAPH_WORD_RANGE} script-hold range")
         normalized_text = re.sub(r"[^A-Z0-9]", "", text.upper())
         if machine_code and machine_code not in normalized_text:
             warnings.append(f"missing locked machine designation {machine_code}")
@@ -3958,9 +3979,9 @@ class PipelineExecutor:
                 research_source_kind = "compact_editorial_brief"
                 structure_brief = (
                     "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
-                    "- TARGET 105-110 words, while remaining inside the absolute 95-120 validator.\n"
+                    f"- TARGET {_ANTON_PARAGRAPH_TARGET_WORDS} words, while remaining inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} validator.\n"
                     "- Before writing, silently rank the Anton slots. Keep the details needed to explain: original problem, engineering decision, tradeoff, and reality. Omit everything else.\n"
-                    "- Use 4-6 sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
+                    f"- Use {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
                     "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, or historical meaning understandable.\n"
                     "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural Anton micro-hook, not a manufactured twist.\n"
                     "- Do not inventory every dimension, engine, payload, speed, range, date, crew feature, and legacy field. Select the 2-4 technical facts that prove the decision, tradeoff, or reality.\n"
@@ -3981,7 +4002,7 @@ class PipelineExecutor:
                     "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
                     "Write a short Anton micro-story, not a compressed fact sheet and not a miniature engineering essay. "
                     "Silently cherry-pick only the details needed for one clear narrative: problem, decision, tradeoff, reality, and a paragraph-derived landing line. Omission is a feature. "
-                    "Target 105-110 words and 4-6 sentences. Use no more than six factual story beats. Never list research-card fields. "
+                    f"Target {_ANTON_PARAGRAPH_TARGET_WORDS} words and {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. Use no more than six factual story beats. Never list research-card fields. "
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
                     "Use a sourced memorable_fact when the story plan provides one, but merge it into the strongest required beat instead of adding trivia. "
                     "The final line must land as a verdict, paradox, irony, or reversal; brevity decides which secondary facts to cut, not whether the paragraph has a point. "
@@ -4040,8 +4061,8 @@ class PipelineExecutor:
                     "- Return only valid JSON with this exact shape: "
                     '{"editorial_thesis":"single engineering decision or contrast","paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
-                    "- paragraph must be final spoken narration: exactly one paragraph, 95-120 words, 4-6 natural sentences.\n"
-                    "- Target 105-110 words. If you are above 110 words, remove the least important sourced detail instead of compressing more facts.\n"
+                    f"- paragraph must be final spoken narration: exactly one paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences.\n"
+                    f"- Target {_ANTON_PARAGRAPH_TARGET_WORDS} words. If you are above 112 words, remove the least important sourced detail instead of compressing more facts. Concise prototype entries may land below 100 only when all evidence beats are complete.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
                     "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
@@ -4080,7 +4101,7 @@ class PipelineExecutor:
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n\n"
                     "HARD CONTRACT:\n"
-                    "- Return exactly ONE paragraph, 95-120 words inclusive. A 90-word result must be expanded.\n"
+                    f"- Return exactly ONE paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS}.\n"
                     "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, or JSON.\n"
                     "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
                     f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
@@ -4107,7 +4128,7 @@ class PipelineExecutor:
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
-                        "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
+                        f"Write exactly one paragraph, target {_ANTON_PARAGRAPH_TARGET_WORDS} words, absolute range {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only; it may be omitted from claim_map if it contains no new facts. "
@@ -4134,7 +4155,7 @@ class PipelineExecutor:
                     repair_prompt = (
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
-                        "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
+                        f"Return exactly ONE spoken paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS} and cut any result above {_ANTON_PARAGRAPH_MAX_WORDS}. "
                         "No markdown/labels. Include the locked designation/name. Use only the same research source. "
                         "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
                         "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this research source.\n\n"

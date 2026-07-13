@@ -16,7 +16,7 @@
 5. Editorial thesis: the single engineering decision, tradeoff, or contrast that tells the writer why these facts belong together.
 6. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
 
-The paragraph is still one natural 95-120 word unit. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
+The paragraph is still one natural 90-120 word unit. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
 Anton's desktop writing standards add two quality locks to this formula:
 
@@ -78,7 +78,7 @@ The script preview writer returns JSON:
 
 Validation requires:
 
-- one paragraph, 95-120 words, 4-6 sentences
+- one paragraph, 90-120 words, 4-7 sentences
 - locked machine designation present
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
 - claim-map spans copied exactly from the paragraph
@@ -90,7 +90,7 @@ Validation requires:
 - unsupported designations, high-risk terms, hype, list transitions, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
-The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-6 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern.
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 90-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern.
 
 ## Isolation Rule
 
