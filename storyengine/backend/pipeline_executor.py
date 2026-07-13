@@ -1703,6 +1703,22 @@ def _parse_machine_story_sentences(raw: str) -> dict:
         return {"_parse_error": "story distiller must return a JSON object matching the Anton paragraph schema"}
 
     parse_warnings: list[str] = []
+    canonical_keys = {
+        "editorial_thesis",
+        "formula_sentences",
+        "paragraph",
+        "claim_map",
+        "onscreen_label",
+    }
+    extra_keys = sorted(
+        str(key) for key in parsed.keys()
+        if str(key) not in canonical_keys
+    )
+    if extra_keys:
+        parse_warnings.append(
+            "story distiller returned extra top-level key(s) outside the exact Anton schema: "
+            + ", ".join(extra_keys)
+        )
     for key in ("paragraph", "voiceover", "narration"):
         if isinstance(parsed.get(key), str) and not isinstance(parsed.get("paragraph"), str):
             if key != "paragraph":

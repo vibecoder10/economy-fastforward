@@ -2028,6 +2028,22 @@ def test_story_sentence_parser_marks_alias_keys_for_review():
     assert any("formula_sentences must be an array of strings" in warning for warning in warnings)
 
 
+def test_story_sentence_parser_marks_extra_top_level_keys_for_review():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    canonical = json.loads(_story_bundle("B-52", 19))
+    canonical["producer_note"] = "This hidden production note must not pass the exact schema."
+    canonical["alternate_conclusion"] = "This hidden alternate ending must not pass either."
+
+    bundle = pe._parse_machine_story_sentences(json.dumps(canonical))
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert paragraph == canonical["paragraph"]
+    assert any("extra top-level key(s) outside the exact Anton schema" in warning for warning in warnings)
+    assert any("alternate_conclusion" in warning for warning in warnings)
+    assert any("producer_note" in warning for warning in warnings)
+
+
 def test_machine_preview_has_no_deterministic_story_fallback():
     source = open(pe.__file__, encoding="utf-8").read()
 
