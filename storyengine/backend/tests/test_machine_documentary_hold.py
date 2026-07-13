@@ -70,6 +70,27 @@ def _passing_quality_audit() -> dict:
     }
 
 
+def _assert_saved_failed_preview(result: dict, writes: list, machine: str, roster: list[str]) -> dict:
+    assert result["status"] == "completed"
+    assert result["preview"]["machine"] == machine
+    assert result["preview"]["passed"] is False
+    assert result["preview"]["paragraph"] == ""
+    assert result["preview"]["word_count"] == 0
+    assert result["preview"]["claim_bundle"]["claim_map"] == []
+    assert result["preview"]["quality_audit"]["passed"] is False
+    assert result["preview"]["quality_audit"]["checks"][0]["passed"] is False
+    saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
+    assert len(saved_preview_rows) == 1
+    saved_query, saved_args = saved_preview_rows[0]
+    assert saved_args[0] == pe._verified_source_cache_key(machine)
+    assert json.loads(saved_args[1]) == result["preview"]
+    assert json.loads(saved_args[4]) == roster
+    assert "research_payload->'unit_roster' = $5::jsonb" in saved_query
+    response_key = pe._verified_source_cache_key(machine)
+    assert result["research_payload"]["machine_script_previews"][response_key] == result["preview"]
+    return result["preview"]
+
+
 def _problem_opening_story_bundle(machine: str, words_per_sentence: int = 19) -> str:
     bundle = json.loads(_story_bundle(machine, words_per_sentence))
     old_span = bundle["claim_map"][0]["span"]
@@ -3904,10 +3925,68 @@ def test_target_machine_preview_requires_verified_raw_source_package_before_llm(
         executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
     )
 
-    assert result["status"] == "failed"
-    assert "missing verified raw internet source package" in result["error"]
+    preview = _assert_saved_failed_preview(result, writes, "Boeing XB-15", roster)
+    assert "missing verified raw internet source package" in preview["warnings"][0]
+    assert "missing verified raw internet source package" in preview["quality_audit"]["summary"]
     assert forbidden_anthropic.calls == 0
-    assert writes == []
+    assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
+    assert not any("machine_script_briefs" in query or "machine_story_plans" in query for query, _args in writes)
+
+
+def test_target_machine_preview_saves_missing_card_review_before_llm(monkeypatch):
+    roster = ["Boeing XB-15"]
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {"unit_roster": roster, "unit_research_cards": []},
+    }
+
+    class ForbiddenAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("missing-card preview must fail before spending an LLM call")
+
+    forbidden_anthropic = ForbiddenAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": forbidden_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def forbidden_fetch_all(*_args, **_kwargs):
+        raise AssertionError("missing-card preview must fail before voice lookup")
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", forbidden_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    preview = _assert_saved_failed_preview(result, writes, "Boeing XB-15", roster)
+    assert "saved research card" in preview["warnings"][0]
+    assert preview["quality_audit"]["checks"][0]["name"] == "research_card"
+    assert forbidden_anthropic.calls == 0
+    assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
+    assert not any("machine_script_briefs" in query or "machine_story_plans" in query for query, _args in writes)
 
 
 def test_target_machine_preview_requires_sourced_memorable_fact_before_llm(monkeypatch):
@@ -3973,11 +4052,12 @@ def test_target_machine_preview_requires_sourced_memorable_fact_before_llm(monke
         executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
     )
 
-    assert result["status"] == "failed"
-    assert "Script preview evidence gate failed" in result["error"]
-    assert "missing sourced memorable_fact evidence segment" in result["error"]
+    preview = _assert_saved_failed_preview(result, writes, "Boeing XB-15", roster)
+    assert "Script preview evidence gate failed" in preview["warnings"][0]
+    assert "missing sourced memorable_fact evidence segment" in preview["warnings"][0]
     assert forbidden_anthropic.calls == 0
-    assert writes == []
+    assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
+    assert not any("machine_script_briefs" in query or "machine_story_plans" in query for query, _args in writes)
 
 
 def test_target_machine_preview_rejects_stale_card_locator_before_llm(monkeypatch):
@@ -4044,10 +4124,11 @@ def test_target_machine_preview_rejects_stale_card_locator_before_llm(monkeypatc
         executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
     )
 
-    assert result["status"] == "failed"
-    assert "source_excerpt/locator was not found" in result["error"]
+    preview = _assert_saved_failed_preview(result, writes, "Boeing XB-15", roster)
+    assert "source_excerpt/locator was not found" in preview["warnings"][0]
     assert forbidden_anthropic.calls == 0
-    assert writes == []
+    assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
+    assert not any("machine_script_briefs" in query or "machine_story_plans" in query for query, _args in writes)
 
 
 def test_target_machine_preview_rejects_wrong_machine_source_package_before_llm(monkeypatch):
@@ -4114,10 +4195,11 @@ def test_target_machine_preview_rejects_wrong_machine_source_package_before_llm(
         executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
     )
 
-    assert result["status"] == "failed"
-    assert "does not match locked machine XB15" in result["error"]
+    preview = _assert_saved_failed_preview(result, writes, "Boeing XB-15", roster)
+    assert "does not match locked machine XB15" in preview["warnings"][0]
     assert forbidden_anthropic.calls == 0
-    assert writes == []
+    assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
+    assert not any("machine_script_briefs" in query or "machine_story_plans" in query for query, _args in writes)
 
 
 def test_machine_preview_route_returns_needs_review_audit(monkeypatch):

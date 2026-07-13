@@ -4092,6 +4092,30 @@ class PipelineExecutor:
             json.dumps(review_cards), json.dumps(validation), video_id, self.tenant_id, locked_roster_snapshot,
         )
 
+    async def _checkpoint_machine_script_preview(
+        self, video_id: str, machine_key: str, preview: dict, locked_roster_snapshot: str
+    ) -> Any:
+        """Persist one isolated machine script preview without touching production script rows."""
+        import json
+
+        if not machine_key:
+            raise ValueError("machine script preview checkpoint requires a non-empty machine key")
+        return await execute(
+            """UPDATE videos SET research_payload = jsonb_set(
+                   COALESCE(research_payload::jsonb, '{}'::jsonb),
+                   '{machine_script_previews}',
+                   COALESCE(research_payload::jsonb->'machine_script_previews', '{}'::jsonb)
+                     || jsonb_build_object($1::text, $2::jsonb),
+                   true
+               ), updated_at = now()
+               WHERE id = $3 AND tenant_id = $4
+                 AND (
+                     research_payload->'unit_roster' IS NULL
+                     OR research_payload->'unit_roster' = $5::jsonb
+                 )""",
+            machine_key, json.dumps(preview), video_id, self.tenant_id, locked_roster_snapshot,
+        )
+
     @staticmethod
     def _enabled_stages(video: Optional[dict]) -> Optional[list]:
         """The video's per-video stage plan (list of enabled stage keys), or
@@ -5899,10 +5923,79 @@ class PipelineExecutor:
             [(roster.index(target_machine) + 1, target_machine)]
             if target_machine else list(enumerate(roster, start=1))
         )
+
+        async def _return_saved_failed_preview(
+            machine: str,
+            scene: int,
+            msg: str,
+            *,
+            check_name: str = "evidence_gate",
+            check_label: str = "Evidence gate",
+            research_source: str = "preview_error",
+            story_plan: Optional[dict] = None,
+        ) -> dict:
+            machine_key = _verified_source_cache_key(machine)
+            preview = {
+                "machine": machine,
+                "scene": scene,
+                "paragraph": "",
+                "word_count": 0,
+                "passed": False,
+                "warnings": [msg],
+                "onscreen_label": "",
+                "research_source": research_source,
+                "story_plan": story_plan,
+                "claim_bundle": {
+                    "editorial_thesis": "",
+                    "formula_sentences": [],
+                    "claim_map": [],
+                },
+                "quality_audit": {
+                    "passed": False,
+                    "summary": msg,
+                    "checks": [
+                        {
+                            "name": check_name,
+                            "label": check_label,
+                            "passed": False,
+                            "detail": msg,
+                        }
+                    ],
+                },
+            }
+            preview_save_result = await self._checkpoint_machine_script_preview(
+                video_id, machine_key, preview, locked_roster_snapshot,
+            )
+            if self._db_write_missed(preview_save_result):
+                save_msg = "persisted unit_roster changed concurrently; script preview save refused"
+                await self._log_activity(bot_name, video_id, "failed", save_msg)
+                return {"status": "failed", "error": save_msg, "video_id": video_id}
+            _mirror_response_artifact("machine_script_previews", machine_key, preview)
+            await self._log_activity(
+                bot_name,
+                video_id,
+                "failed",
+                f"Single-machine script preview needs review: {machine}",
+            )
+            return {
+                "status": "completed",
+                "video_id": video_id,
+                "preview": preview,
+                "research_payload": response_research_payload,
+            }
+
         missing_cards = [machine for _, machine in selected_units if _research_card_for_machine(rp, machine) is None]
         if missing_cards:
             msg = "Script-hold requires a saved research card for every locked machine; missing: " + ", ".join(missing_cards)
             await self._log_activity(bot_name, video_id, "failed", msg[:900])
+            if target_machine and selected_units:
+                return await _return_saved_failed_preview(
+                    selected_units[0][1],
+                    selected_units[0][0],
+                    msg,
+                    check_name="research_card",
+                    check_label="Research card",
+                )
             return {"status": "failed", "error": msg, "video_id": video_id}
         source_gate_failures: list[str] = []
         for _, machine in selected_units:
@@ -5920,6 +6013,8 @@ class PipelineExecutor:
             prefix = "Script preview evidence gate failed" if target_machine else "Script-hold evidence gate failed"
             msg = prefix + ": " + " | ".join(source_gate_failures)
             await self._log_activity(bot_name, video_id, "failed", msg[:900])
+            if target_machine and selected_units:
+                return await _return_saved_failed_preview(selected_units[0][1], selected_units[0][0], msg)
             return {"status": "failed", "error": msg, "video_id": video_id}
 
         rows = await fetch_all(
@@ -6028,6 +6123,13 @@ class PipelineExecutor:
                 if plan_errors:
                     msg = "Story compiler evidence gate failed: " + "; ".join(plan_errors)
                     await self._log_activity(bot_name, video_id, "failed", msg)
+                    if target_machine:
+                        return await _return_saved_failed_preview(
+                            machine,
+                            i,
+                            msg,
+                            story_plan=story_plan,
+                        )
                     return {"status": "failed", "error": msg, "video_id": video_id}
                 brief_save_result = await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
@@ -6265,20 +6367,8 @@ class PipelineExecutor:
                     "claim_bundle": claim_bundle,
                     "quality_audit": quality_audit,
                 }
-                preview_save_result = await execute(
-                    """UPDATE videos SET research_payload = jsonb_set(
-                           COALESCE(research_payload::jsonb, '{}'::jsonb),
-                           '{machine_script_previews}',
-                           COALESCE(research_payload::jsonb->'machine_script_previews', '{}'::jsonb)
-                             || jsonb_build_object($1::text, $2::jsonb),
-                           true
-                       ), updated_at = now()
-                       WHERE id = $3 AND tenant_id = $4
-                         AND (
-                             research_payload->'unit_roster' IS NULL
-                             OR research_payload->'unit_roster' = $5::jsonb
-                         )""",
-                    _verified_source_cache_key(machine), _json_sh.dumps(preview), video_id, self.tenant_id, locked_roster_snapshot,
+                preview_save_result = await self._checkpoint_machine_script_preview(
+                    video_id, _verified_source_cache_key(machine), preview, locked_roster_snapshot,
                 )
                 if self._db_write_missed(preview_save_result):
                     msg = "persisted unit_roster changed concurrently; script preview save refused"
