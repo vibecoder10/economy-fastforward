@@ -726,6 +726,20 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         excerpt_numbers = _numeric_tokens_from_text(numeric_excerpt)
         excerpt_number_keys = {_numeric_token_key(token) for token in excerpt_numbers}
         claim_number_keys = {_numeric_token_key(token) for token in claim_numbers}
+        source_number_keys = claim_number_keys | excerpt_number_keys
+        # numeric_tokens is validation metadata, not creative research prose.
+        # Models often include aircraft designations like XB-19 or XBLR-2 here,
+        # which are not numeric support tokens. Keep only model tokens that map
+        # to actual numbers in the claim/excerpt, then deterministically add the
+        # numbers found in the exact sourced text.
+        normalized_numbers = list(dict.fromkeys(
+            [
+                token for token in normalized_numbers
+                if _numeric_token_key(token) in source_number_keys
+            ]
+            + claim_numbers
+            + excerpt_numbers
+        ))
         normalized_number_keys = {_numeric_token_key(token) for token in normalized_numbers}
         missing_number_support = [token for token in claim_numbers if _numeric_token_key(token) not in excerpt_number_keys]
         undeclared_numbers = [token for token in claim_numbers if _numeric_token_key(token) not in normalized_number_keys]

@@ -158,6 +158,33 @@ def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
     assert errors == []
 
 
+def test_machine_evidence_numeric_tokens_ignore_model_designation_tokens():
+    card = {
+        "unit": "Douglas XB-19",
+        "evidence_segments": [
+            {
+                "evidence_id": "XB19-BUILD-01",
+                "kind": "build_reality",
+                "claim": "The XB-19 took so long that competition for the XB-35 and XB-36 occurred before its first flight.",
+                "source_excerpt": "Its construction took so long that competition for the contracts to build the XB-35 and XB-36 occurred two months before its first flight.",
+                "source_url": "https://example.test/xb-19",
+                "source_title": "Test source",
+                "locator": "S1-E1",
+                "numeric_tokens": ["xb-19", "xb-35", "xb-36", "two"],
+                "confidence": "high",
+            },
+        ],
+    }
+
+    evidence, errors = pe._normalize_machine_evidence(card, "Douglas XB-19")
+
+    assert errors == []
+    assert "xb-19" not in evidence[0]["numeric_tokens"]
+    assert "xb-35" not in evidence[0]["numeric_tokens"]
+    assert "xb-36" not in evidence[0]["numeric_tokens"]
+    assert {"35", "36", "two"}.issubset(set(evidence[0]["numeric_tokens"]))
+
+
 def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
     payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17", "Convair B-36"]}
     machine_payload = {**payload, "documentary_style": "machine_documentary"}
