@@ -31,7 +31,9 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "function sourcePackageForMachine" in text
     assert "function sourcePackageReady" in text
     assert "function sourcePackageStatus" in text
+    assert "function textMentionsMachine" in text
     assert "rawExcerpts.filter((candidate: any) => String(candidate?.text || \"\").trim())" in text
+    assert "targetExcerpts.length < 6" in text
     assert "function sourceTierNumber" in text
     assert "function sourceTierForUrl" in text
     assert "host.endsWith(\".gov\")" in text
@@ -49,6 +51,7 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "Research card missing · preview blocked" in text
     assert "disabled={previewGenerating || !activePreviewReady}" in text
     assert "Raw source package missing · preview blocked" in text
+    assert "Raw source package target-thin ·" in text
     assert "Raw source package thin ·" in text
     assert "Raw source package caution-only · preview blocked" in text
     assert "Raw source package missing capture method ·" in text

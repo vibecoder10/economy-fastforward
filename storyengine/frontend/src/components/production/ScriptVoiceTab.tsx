@@ -130,6 +130,21 @@ function normalizedUnitCode(text: string): string {
   return unitCode(text).replace(/[^A-Z0-9]/g, "");
 }
 
+function textMentionsMachine(text: unknown, machine: string): boolean {
+  const body = String(text || "");
+  const target = String(machine || "").trim();
+  if (!body || !target) return false;
+  const compactBody = body.toUpperCase().replace(/[–—]/g, "-").replace(/[^A-Z0-9]/g, "");
+  const targetCode = normalizedUnitCode(target);
+  if (targetCode && compactBody.includes(targetCode)) return true;
+  const bodyLower = body.toLowerCase();
+  const targetLower = target.toLowerCase();
+  if (bodyLower.includes(targetLower)) return true;
+  const genericMakers = new Set(["boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin"]);
+  return (targetLower.match(/[a-z][a-z0-9-]{2,}/g) || [])
+    .some((word) => !genericMakers.has(word) && bodyLower.includes(word));
+}
+
 function machineLabelMatches(left: unknown, right: unknown): boolean {
   const leftText = String(left || "").trim();
   const rightText = String(right || "").trim();
@@ -276,21 +291,25 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   if (targetCode && (!packageCode || packageCode !== targetCode)) {
     return { ready: false, message: "Raw source package machine mismatch · preview blocked" };
   }
+  const targetExcerpts = machine ? excerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : excerpts;
+  if (machine && targetExcerpts.length < 6) {
+    return { ready: false, message: `Raw source package target-thin · ${targetExcerpts.length}/${excerpts.length} matching excerpts · preview blocked` };
+  }
   const sourceUrls = new Set(
-    excerpts.map((candidate: any) => String(candidate?.source_url || "").trim()).filter(Boolean)
+    targetExcerpts.map((candidate: any) => String(candidate?.source_url || "").trim()).filter(Boolean)
   );
   const nonCautionUrls = new Set(
-    excerpts
+    targetExcerpts
       .filter((candidate: any) => String(candidate?.source_url || "").trim() && sourceTierNumber(candidate) > 0 && sourceTierNumber(candidate) <= 3)
       .map((candidate: any) => String(candidate?.source_url || "").trim())
   );
   if (sourceUrls.size < 2) {
-    return { ready: false, message: `Raw source package thin · ${excerpts.length} excerpts / ${sourceUrls.size} source URL · preview blocked` };
+    return { ready: false, message: `Raw source package thin · ${targetExcerpts.length} excerpts / ${sourceUrls.size} source URL · preview blocked` };
   }
   if (nonCautionUrls.size < 1) {
     return { ready: false, message: "Raw source package caution-only · preview blocked" };
   }
-  return { ready: true, message: `Raw source package ready · ${excerpts.length} excerpts · ${sourceUrls.size} sources` };
+  return { ready: true, message: `Raw source package ready · ${targetExcerpts.length} excerpts · ${sourceUrls.size} sources` };
 }
 
 function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {

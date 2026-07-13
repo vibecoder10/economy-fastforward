@@ -102,7 +102,7 @@ def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
                 "source_title": segment["source_title"],
                 "source_url": segment["source_url"],
                 "locator": segment.get("locator") or f"S{index}-E1",
-                "text": segment["source_excerpt"],
+                "text": f"{machine} {segment['source_excerpt']}",
                 "text_hash": "test",
                 "source_capture_method": "fetched_page",
             }
@@ -201,6 +201,16 @@ def test_verified_source_package_ready_requires_exact_text_excerpts():
         {"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()},
         blank_package,
     ) == ["missing verified raw internet source package"]
+
+
+def test_verified_source_package_quality_rejects_wrong_machine_excerpt_text():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    for candidate in package["candidate_excerpts"]:
+        candidate["text"] = "Boeing B-17 Flying Fortress unrelated fetched source text."
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert any("mentioning the locked machine" in error for error in errors)
 
 
 def test_verified_source_package_identity_rejects_wrong_machine_metadata():
@@ -2390,7 +2400,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     prompt = fake_anthropic.prompts[0]
     assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
-    assert "EXACT_TEXT: Original problem claim grounded in the supplied source." in prompt
+    assert "EXACT_TEXT: Boeing B-52 Stratofortress Original problem claim grounded in the supplied source." in prompt
     assert "source_url, source_title, locator" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt

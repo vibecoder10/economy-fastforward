@@ -438,7 +438,7 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     return len(text_excerpts) >= 6
 
 
-def _verified_machine_source_package_quality_errors(package: Any) -> list[str]:
+def _verified_machine_source_package_quality_errors(package: Any, machine: str = "") -> list[str]:
     """Reject thin raw-source packages before spending an LLM call."""
     if not _verified_machine_source_package_ready(package):
         return []
@@ -446,27 +446,35 @@ def _verified_machine_source_package_quality_errors(package: Any) -> list[str]:
         item for item in (package or {}).get("candidate_excerpts", [])
         if isinstance(item, dict) and str(item.get("text") or "").strip()
     ]
+    quality_candidates = candidates
+    errors: list[str] = []
+    if machine:
+        quality_candidates = [
+            item for item in candidates
+            if _mentions_machine(str(item.get("text") or ""), machine)
+        ]
+        if len(quality_candidates) < 6:
+            errors.append("Verified source package needs at least six exact excerpts mentioning the locked machine.")
     source_urls = {
         str(item.get("source_url") or "").strip()
-        for item in candidates
+        for item in quality_candidates
         if str(item.get("source_url") or "").strip()
     }
     non_caution_urls = {
         str(item.get("source_url") or "").strip()
-        for item in candidates
+        for item in quality_candidates
         if str(item.get("source_url") or "").strip() and _source_tier_number(item) <= 3
     }
     unsupported_capture_methods = sorted({
         str(item.get("source_capture_method") or "").strip()
-        for item in candidates
+        for item in quality_candidates
         if str(item.get("source_capture_method") or "").strip()
         and str(item.get("source_capture_method") or "").strip() not in {"fetched_page", "tavily_raw_content"}
     })
     missing_capture_method_count = sum(
-        1 for item in candidates
+        1 for item in quality_candidates
         if not str(item.get("source_capture_method") or "").strip()
     )
-    errors: list[str] = []
     if len(source_urls) < 2:
         errors.append("Verified source package needs excerpts from at least two distinct source URLs.")
     if not non_caution_urls:
@@ -2494,7 +2502,7 @@ class PipelineExecutor:
         cached = ((payload or {}).get("machine_raw_source_packages") or {}).get(cache_key)
         if (
             _verified_machine_source_package_ready(cached)
-            and not _verified_machine_source_package_quality_errors(cached)
+            and not _verified_machine_source_package_quality_errors(cached, machine)
             and not _verified_machine_source_package_identity_errors(cached, machine)
         ):
             return cached
@@ -2601,7 +2609,7 @@ class PipelineExecutor:
             "errors": errors,
             "gathered_at": datetime.now(timezone.utc).isoformat(),
         }
-        quality_errors = _verified_machine_source_package_quality_errors(package)
+        quality_errors = _verified_machine_source_package_quality_errors(package, machine)
         if quality_errors:
             package["passed"] = False
             package["errors"] = list(dict.fromkeys(errors + quality_errors))
@@ -3831,7 +3839,7 @@ class PipelineExecutor:
             _, evidence_errors = _normalize_machine_evidence(card, machine)
             warnings.extend(evidence_errors)
             if source_package is not None or require_source_package:
-                warnings.extend(_verified_machine_source_package_quality_errors(source_package))
+                warnings.extend(_verified_machine_source_package_quality_errors(source_package, machine))
                 warnings.extend(_verified_machine_source_package_identity_errors(source_package, machine))
                 warnings.extend(_validate_card_against_verified_sources(card, source_package))
             if not evidence_errors:
@@ -3940,7 +3948,7 @@ class PipelineExecutor:
                 await self._log_activity(bot_name, video_id, "failed", conflict)
                 return payload
             source_package_errors = (
-                _verified_machine_source_package_quality_errors(verified_source_package)
+                _verified_machine_source_package_quality_errors(verified_source_package, target_machine or "")
                 + _verified_machine_source_package_identity_errors(verified_source_package, target_machine or "")
             )
             if not _verified_machine_source_package_ready(verified_source_package) or source_package_errors:
@@ -4421,7 +4429,7 @@ class PipelineExecutor:
             selected_card = _research_card_for_machine(rp, machine) or {}
             source_package = _verified_source_package_for_machine(rp, machine)
             source_errors = (
-                _verified_machine_source_package_quality_errors(source_package)
+                _verified_machine_source_package_quality_errors(source_package, machine)
                 + _verified_machine_source_package_identity_errors(source_package, machine)
                 + _validate_card_against_verified_sources(selected_card, source_package)
             )
