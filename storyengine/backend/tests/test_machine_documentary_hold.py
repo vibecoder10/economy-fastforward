@@ -1229,6 +1229,9 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
             "fact_sheet": "GLOBAL FACT SHEET MUST NOT LEAK",
             "unit_roster": roster,
             "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", _evidence_segments()),
+            },
         },
     }
 
@@ -1333,6 +1336,10 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
         "research_payload": {
             "unit_roster": roster,
             "unit_research_cards": cards,
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key(machine): _verified_package_for_segments(machine, _evidence_segments())
+                for machine in roster
+            },
         },
     }
 
@@ -1417,6 +1424,58 @@ def test_script_hold_refuses_missing_machine_card_before_touching_scripts(monkey
     assert result["status"] == "failed"
     assert "saved research card" in result["error"]
     assert writes == [], "missing card must fail before deleting or inserting scripts"
+
+
+def test_full_script_hold_requires_verified_source_packages_before_llm(monkeypatch):
+    roster = ["Boeing XB-15"]
+    card = {"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+        },
+    }
+
+    class ForbiddenAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("full script must fail before spending an LLM call")
+
+    forbidden_anthropic = ForbiddenAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": forbidden_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "failed"
+    assert "Script-hold evidence gate failed" in result["error"]
+    assert "missing verified raw internet source package" in result["error"]
+    assert forbidden_anthropic.calls == 0
+    assert writes == []
 
 
 def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loaded_cards(monkeypatch):
@@ -1800,7 +1859,10 @@ def test_script_generation_exception_preserves_existing_script_rows(monkeypatch)
         "render_mode": "static_docu",
         "research_payload": {
             "unit_roster": roster,
-            "unit_research_cards": [{"unit": "Boeing XB-15"}],
+            "unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", _evidence_segments()),
+            },
         },
     }
 

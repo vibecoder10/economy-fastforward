@@ -4306,18 +4306,22 @@ class PipelineExecutor:
             msg = "Script-hold requires a saved research card for every locked machine; missing: " + ", ".join(missing_cards)
             await self._log_activity(bot_name, video_id, "failed", msg[:900])
             return {"status": "failed", "error": msg, "video_id": video_id}
-        if target_machine:
-            selected_card = _research_card_for_machine(rp, target_machine) or {}
-            source_package = _verified_source_package_for_machine(rp, target_machine)
+        source_gate_failures: list[str] = []
+        for _, machine in selected_units:
+            selected_card = _research_card_for_machine(rp, machine) or {}
+            source_package = _verified_source_package_for_machine(rp, machine)
             source_errors = (
                 _verified_machine_source_package_quality_errors(source_package)
-                + _verified_machine_source_package_identity_errors(source_package, target_machine)
+                + _verified_machine_source_package_identity_errors(source_package, machine)
                 + _validate_card_against_verified_sources(selected_card, source_package)
             )
             if source_errors:
-                msg = "Script preview evidence gate failed: " + "; ".join(source_errors)
-                await self._log_activity(bot_name, video_id, "failed", msg[:900])
-                return {"status": "failed", "error": msg, "video_id": video_id}
+                source_gate_failures.append(f"{machine}: " + "; ".join(source_errors))
+        if source_gate_failures:
+            prefix = "Script preview evidence gate failed" if target_machine else "Script-hold evidence gate failed"
+            msg = prefix + ": " + " | ".join(source_gate_failures)
+            await self._log_activity(bot_name, video_id, "failed", msg[:900])
+            return {"status": "failed", "error": msg, "video_id": video_id}
 
         rows = await fetch_all(
             "SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1",
