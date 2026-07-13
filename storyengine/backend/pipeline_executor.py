@@ -2416,7 +2416,7 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         }
         lower_paragraph = paragraph.lower()
         has_scale_or_capability = bool(re.search(
-            r"\b(wingspan|engine|engines|horsepower|payload|bombs?|pounds?|miles?|range|speed|mph|mach|feet|foot|built|prototype|prototypes)\b",
+            r"\b(wingspan|engine|engines|horsepower|payload|bombs?|pounds?|miles?|range|speed|mph|mach|feet|foot|altitude|ceiling|fuel|carry|carried|load|loads)\b",
             lower_paragraph,
         ))
         has_production_or_service = bool(re.search(

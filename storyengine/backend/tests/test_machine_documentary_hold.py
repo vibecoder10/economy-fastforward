@@ -1781,6 +1781,28 @@ def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
     assert cadence_check["passed"] is False
     assert "scale/capability missing" in cadence_check["detail"]
 
+    production_only_paragraph = (
+        "Boeing XB-15 first flew in 1937 as America's experimental answer to strategic bombing. "
+        "Only one prototype was built, which gave the program a narrower path than a production bomber. "
+        "The aircraft later served during World War II, moving cargo across the Pacific instead of bombing targets. "
+        "That service reality made the machine useful, but not as the combat aircraft it had promised. "
+        "The XB-15 proved the idea without becoming the weapon."
+    )
+    production_only_audit = pe._anton_preview_quality_audit(
+        "Boeing XB-15",
+        plan,
+        {},
+        production_only_paragraph,
+        [],
+    )
+    production_only_check = next(
+        check for check in production_only_audit["checks"] if check["name"] == "benchmark_cadence"
+    )
+
+    assert production_only_check["passed"] is False
+    assert "scale/capability missing" in production_only_check["detail"]
+    assert "production/service reality present" in production_only_check["detail"]
+
     fact_rhythm_paragraph = (
         "Boeing XB-15 first flew in 1937 as America's experimental answer to long-range bombing. "
         "Its 149-foot wingspan, four engines, and 5,130-mile range turned scale into the engineering decision. "
