@@ -2278,6 +2278,36 @@ def test_story_sentence_validator_requires_cross_check_or_hedge_for_risky_number
 
     assert any("two independent sources" in warning for warning in warnings)
 
+    unrelated_second_source_bundle = copy.deepcopy(bundle)
+    unrelated_second_source_bundle["claim_map"][1]["used_evidence_ids"] = ["E-DECISION", "E-TRADEOFF"]
+
+    _, unrelated_second_source_warnings = pe._validate_machine_story_sentences(
+        "Boeing XB-15", plan, unrelated_second_source_bundle
+    )
+
+    assert any(
+        "exact numerical detail(s)" in warning and "5,000" in warning
+        for warning in unrelated_second_source_warnings
+    )
+
+    cross_checked_evidence = copy.deepcopy(evidence)
+    cross_check_segment = copy.deepcopy(cross_checked_evidence[2])
+    cross_check_segment["evidence_id"] = "E-DECISION-CHECK"
+    cross_check_segment["source_url"] = "https://airandspace.si.edu/cross-check-range"
+    cross_checked_evidence.append(cross_check_segment)
+    cross_checked_plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": cross_checked_evidence}]},
+        "Boeing XB-15",
+    )
+    cross_checked_bundle = copy.deepcopy(bundle)
+    cross_checked_bundle["claim_map"][1]["used_evidence_ids"] = ["E-DECISION", "E-DECISION-CHECK"]
+
+    _, cross_checked_warnings = pe._validate_machine_story_sentences(
+        "Boeing XB-15", cross_checked_plan, cross_checked_bundle
+    )
+
+    assert not any("exact numerical detail(s)" in warning for warning in cross_checked_warnings)
+
     hedged_bundle = copy.deepcopy(bundle)
     hedged_bundle["claim_map"][1]["span"] = unhedged_span.replace("5,000", "around 5,000")
     hedged_bundle["paragraph"] = hedged_bundle["paragraph"].replace("5,000", "around 5,000")

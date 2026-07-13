@@ -1999,7 +1999,35 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 })
             has_high_risk_term = bool(span_risk_terms)
             hedged = bool(re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", span_lower))
-            if (row_mentions or has_high_risk_term) and not hedged:
+            if row_mentions and not hedged:
+                insufficient_number_sources: list[str] = []
+                seen_insufficient_number_keys: set[str] = set()
+                for mention in row_mentions:
+                    mention_key = mention.get("key")
+                    if not mention_key or mention_key in seen_insufficient_number_keys:
+                        continue
+                    supporting_sources = {
+                        str(
+                            evidence_by_id.get(evidence_id, {}).get("source_url")
+                            or evidence_by_id.get(evidence_id, {}).get("locator")
+                            or ""
+                        ).strip()
+                        for evidence_id in row_ids
+                        if mention_key in {
+                            _numeric_token_key(token)
+                            for token in evidence_by_id.get(evidence_id, {}).get("numeric_tokens", [])
+                        }
+                    }
+                    supporting_sources = {source for source in supporting_sources if source}
+                    if len(supporting_sources) < 2:
+                        insufficient_number_sources.append(str(mention.get("raw") or mention_key))
+                        seen_insufficient_number_keys.add(mention_key)
+                if insufficient_number_sources:
+                    warnings.append(
+                        f"claim_map row {index} needs two independent sources or a hedge for exact numerical detail(s): "
+                        + ", ".join(insufficient_number_sources)
+                    )
+            if has_high_risk_term and not hedged:
                 row_source_keys = {
                     str(evidence_by_id.get(evidence_id, {}).get("source_url") or evidence_by_id.get(evidence_id, {}).get("locator") or "").strip()
                     for evidence_id in row_ids
@@ -2008,7 +2036,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 row_source_keys = {source for source in row_source_keys if source}
                 if len(row_source_keys) < 2:
                     warnings.append(
-                        f"claim_map row {index} needs two independent sources or a hedge for high-risk exact fact(s)"
+                        f"claim_map row {index} needs two independent sources or a hedge for high-risk exact term(s)"
                     )
         used_ids.extend(row_ids)
     used_ids = list(dict.fromkeys(used_ids))
