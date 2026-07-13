@@ -931,12 +931,13 @@ def test_script_hold_refuses_missing_machine_card_before_touching_scripts(monkey
 
 def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loaded_cards(monkeypatch):
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
+    xb15_segments = _evidence_segments()
     xb15_card = {
         "unit": "Boeing XB-15",
         "engineering_thesis": "XB-15 source-grounded engineering thesis.",
         "surprising_fact": "XB-15 source-grounded fact.",
         "source_notes": ["xb15-source"],
-        "evidence_segments": _evidence_segments(),
+        "evidence_segments": xb15_segments,
     }
     b17_card = {
         "unit": "Boeing B-17 Flying Fortress",
@@ -948,7 +949,13 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     video = {
         "video_title": "Every US Strategic Bomber Ever Built",
         "render_mode": "static_docu",
-        "research_payload": {"unit_roster": roster, "unit_research_cards": [xb15_card]},
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [xb15_card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", xb15_segments),
+            },
+        },
     }
 
     class FakeAnthropic:
@@ -1000,6 +1007,137 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
     assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
+
+
+def test_target_machine_preview_requires_verified_raw_source_package_before_llm(monkeypatch):
+    roster = ["Boeing XB-15"]
+    card = {
+        "unit": "Boeing XB-15",
+        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
+        "surprising_fact": "XB-15 source-grounded fact.",
+        "source_notes": ["xb15-source"],
+        "evidence_segments": _evidence_segments(),
+    }
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {"unit_roster": roster, "unit_research_cards": [card]},
+    }
+
+    class ForbiddenAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("stale preview must fail before spending an LLM call")
+
+    forbidden_anthropic = ForbiddenAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": forbidden_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    assert result["status"] == "failed"
+    assert "missing verified raw internet source package" in result["error"]
+    assert forbidden_anthropic.calls == 0
+    assert writes == []
+
+
+def test_target_machine_preview_rejects_stale_card_locator_before_llm(monkeypatch):
+    roster = ["Boeing XB-15"]
+    verified_segments = _evidence_segments()
+    stale_segments = copy.deepcopy(verified_segments)
+    stale_segments[0]["locator"] = "old-card-locator"
+    card = {
+        "unit": "Boeing XB-15",
+        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
+        "surprising_fact": "XB-15 source-grounded fact.",
+        "source_notes": ["xb15-source"],
+        "evidence_segments": stale_segments,
+    }
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", verified_segments),
+            },
+        },
+    }
+
+    class ForbiddenAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("stale locator preview must fail before spending an LLM call")
+
+    forbidden_anthropic = ForbiddenAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": forbidden_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    assert result["status"] == "failed"
+    assert "source_excerpt/locator was not found" in result["error"]
+    assert forbidden_anthropic.calls == 0
+    assert writes == []
 
 
 def test_machine_preview_route_returns_needs_review_audit(monkeypatch):

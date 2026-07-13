@@ -245,6 +245,43 @@ def _verified_source_cache_key(machine: str) -> str:
     return _normalized_unit_code(_unit_display_name(machine))
 
 
+def _verified_source_package_for_machine(payload: dict, machine: str) -> Optional[dict]:
+    """Find the fetched raw-source package for one locked machine."""
+    if not isinstance(payload, dict):
+        return None
+    packages = payload.get("machine_raw_source_packages")
+    if not packages:
+        return None
+
+    target_code = _verified_source_cache_key(machine)
+    target_name = _unit_display_name(machine).strip().lower()
+
+    def package_matches(raw_key: Any, package: Any) -> bool:
+        if not isinstance(package, dict):
+            return False
+        key_code = _normalized_unit_code(_unit_display_name(raw_key) or str(raw_key or ""))
+        package_code = _normalized_unit_code(
+            _unit_display_name(package.get("machine_key") or package.get("machine") or "")
+        )
+        package_name = _unit_display_name(package.get("machine") or "").strip().lower()
+        if target_code and (key_code == target_code or package_code == target_code):
+            return True
+        return bool(target_name and package_name == target_name)
+
+    if isinstance(packages, dict):
+        direct = packages.get(target_code)
+        if isinstance(direct, dict):
+            return direct
+        for raw_key, package in packages.items():
+            if package_matches(raw_key, package):
+                return package
+    if isinstance(packages, list):
+        for package in packages:
+            if package_matches("", package):
+                return package
+    return None
+
+
 def _normalized_source_text(text: str) -> str:
     return " ".join(str(text or "").split()).lower()
 
@@ -3729,6 +3766,14 @@ class PipelineExecutor:
             msg = "Script-hold requires a saved research card for every locked machine; missing: " + ", ".join(missing_cards)
             await self._log_activity(bot_name, video_id, "failed", msg[:900])
             return {"status": "failed", "error": msg, "video_id": video_id}
+        if target_machine:
+            selected_card = _research_card_for_machine(rp, target_machine) or {}
+            source_package = _verified_source_package_for_machine(rp, target_machine)
+            source_errors = _validate_card_against_verified_sources(selected_card, source_package)
+            if source_errors:
+                msg = "Script preview evidence gate failed: " + "; ".join(source_errors)
+                await self._log_activity(bot_name, video_id, "failed", msg[:900])
+                return {"status": "failed", "error": msg, "video_id": video_id}
 
         rows = await fetch_all("SELECT voice_id FROM scripts WHERE video_id = $1 LIMIT 1", video_id)
         voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
@@ -3763,17 +3808,6 @@ class PipelineExecutor:
                 story_brief = _inventory_story_brief(rp, machine)
                 research_source = _json_sh.dumps(story_brief, ensure_ascii=False, indent=2)
                 research_source_kind = "compact_editorial_brief"
-                await execute(
-                    """UPDATE videos SET research_payload = jsonb_set(
-                           COALESCE(research_payload::jsonb, '{}'::jsonb),
-                           '{machine_script_briefs}',
-                           COALESCE(research_payload::jsonb->'machine_script_briefs', '{}'::jsonb)
-                             || jsonb_build_object($1::text, $2::jsonb),
-                           true
-                       ), updated_at = now()
-                       WHERE id = $3 AND tenant_id = $4""",
-                    machine, _json_sh.dumps(story_brief), video_id, self.tenant_id,
-                )
                 structure_brief = (
                     "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
                     "- TARGET 105-110 words, while remaining inside the absolute 95-120 validator.\n"
@@ -3822,6 +3856,17 @@ class PipelineExecutor:
                     msg = "Story compiler evidence gate failed: " + "; ".join(plan_errors)
                     await self._log_activity(bot_name, video_id, "failed", msg)
                     return {"status": "failed", "error": msg, "video_id": video_id}
+                await execute(
+                    """UPDATE videos SET research_payload = jsonb_set(
+                           COALESCE(research_payload::jsonb, '{}'::jsonb),
+                           '{machine_script_briefs}',
+                           COALESCE(research_payload::jsonb->'machine_script_briefs', '{}'::jsonb)
+                             || jsonb_build_object($1::text, $2::jsonb),
+                           true
+                       ), updated_at = now()
+                       WHERE id = $3 AND tenant_id = $4""",
+                    machine, _json_sh.dumps(story_brief), video_id, self.tenant_id,
+                )
                 await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
                            COALESCE(research_payload::jsonb, '{}'::jsonb),
