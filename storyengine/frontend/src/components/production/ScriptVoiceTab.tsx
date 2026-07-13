@@ -225,7 +225,15 @@ function machinePreviewReviewMessages(preview: any): string[] {
   return Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows])).slice(0, 6);
 }
 
-function previewErrorArtifact(machine: string, message: string, warnings?: string[], scene = 0): MachineScriptPreview {
+function previewErrorArtifact(
+  machine: string,
+  message: string,
+  warnings?: string[],
+  scene = 0,
+  researchSource = "preview_error",
+  checkName = "preview_error",
+  checkLabel = "Preview error"
+): MachineScriptPreview {
   const reviewMessages = (Array.isArray(warnings) && warnings.length ? warnings : [message])
     .map((warning) => String(warning || "").trim())
     .filter(Boolean);
@@ -237,14 +245,14 @@ function previewErrorArtifact(machine: string, message: string, warnings?: strin
     word_count: 0,
     passed: false,
     warnings: reviewMessages.length ? reviewMessages : [summary],
-    research_source: "preview_error",
+    research_source: researchSource,
     claim_bundle: { editorial_thesis: "", formula_sentences: [], claim_map: [] },
     quality_audit: {
       passed: false,
       summary,
       checks: [{
-        name: "preview_error",
-        label: "Preview error",
+        name: checkName,
+        label: checkLabel,
         passed: false,
         detail: summary,
       }],
@@ -2107,7 +2115,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           readiness.machine || machine,
           message,
           readiness.warnings,
-          readiness.scene || 0
+          readiness.scene || 0,
+          "readiness_preflight",
+          "readiness_preflight",
+          "Readiness preflight"
         ));
         setPreviewMachine(readiness.machine || machine);
         invalidateAll();

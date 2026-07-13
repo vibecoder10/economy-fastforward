@@ -207,9 +207,14 @@ def test_script_voice_preview_keeps_failed_reason_visible():
     helper = text[text.index("function previewErrorArtifact"):text.index("function cardMatchesMachine")]
 
     assert "setMachinePreview(previewErrorArtifact(" in handler
-    assert 'research_source: "preview_error"' in helper
-    assert 'name: "preview_error"' in helper
-    assert 'label: "Preview error"' in helper
+    assert '"readiness_preflight"' in handler
+    assert '"Readiness preflight"' in handler
+    assert 'researchSource = "preview_error"' in helper
+    assert 'checkName = "preview_error"' in helper
+    assert 'checkLabel = "Preview error"' in helper
+    assert "research_source: researchSource" in helper
+    assert "name: checkName" in helper
+    assert "label: checkLabel" in helper
     assert "quality_audit: {" in helper
     assert "previewErrorArtifact(machine, message)" in handler
     assert "Production script unchanged." in handler
@@ -235,6 +240,8 @@ def test_script_voice_preview_button_calls_only_isolated_preview_route():
     assert "runMachineScriptPreview(video.id, machine)" in handler
     assert handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < handler.index("runMachineScriptPreview(video.id, machine)")
     assert "if (!readiness.ready)" in handler
+    assert '"readiness_preflight"' in handler
+    assert '"Readiness preflight"' in handler
     assert "setMachinePreview(result.preview)" in handler
     assert "setPreviewMachine(machine)" in handler
     assert "Production script unchanged." in handler

@@ -332,6 +332,8 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     assert "runMachineScriptPreview(video.id, machine)" in preview_handler
     assert preview_handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < preview_handler.index("runMachineScriptPreview(video.id, machine)")
     assert "if (!readiness.ready)" in preview_handler
+    assert '"readiness_preflight"' in preview_handler
+    assert '"Readiness preflight"' in preview_handler
     assert "setLocalMachinePreview(result.preview)" in preview_handler
     assert "Production script unchanged." in preview_handler
     assert 'runPipelineStage(video.id, "script")' not in preview_handler
@@ -458,9 +460,14 @@ def test_research_tab_keeps_failed_preview_reason_visible():
     helper = text[text.index("function previewErrorArtifact"):text.index("function previewForMachine")]
     assert "Production script unchanged." in handler
     assert "setLocalMachinePreview(previewErrorArtifact(" in handler
-    assert 'research_source: "preview_error"' in helper
-    assert 'name: "preview_error"' in helper
-    assert 'label: "Preview error"' in helper
+    assert '"readiness_preflight"' in handler
+    assert '"Readiness preflight"' in handler
+    assert 'researchSource = "preview_error"' in helper
+    assert 'checkName = "preview_error"' in helper
+    assert 'checkLabel = "Preview error"' in helper
+    assert "research_source: researchSource" in helper
+    assert "name: checkName" in helper
+    assert "label: checkLabel" in helper
     assert "quality_audit: {" in helper
     assert "previewErrorArtifact(machine, message)" in handler
     assert "Preview stopped before a paragraph was generated." in text
