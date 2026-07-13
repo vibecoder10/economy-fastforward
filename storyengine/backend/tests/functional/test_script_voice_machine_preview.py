@@ -32,6 +32,11 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "function sourcePackageReady" in text
     assert "function sourcePackageStatus" in text
     assert "function sourceTierNumber" in text
+    assert "function sourceTierForUrl" in text
+    assert "host.endsWith(\".gov\")" in text
+    assert "wikipedia.org" in text
+    assert "airandspace.si.edu" in text
+    assert "return host ? 3 : 0" in text
     assert "activePreviewSourcePackageReady" in text
     assert "disabled={previewGenerating || !activePreviewSourcePackageReady}" in text
     assert "Raw source package missing · preview blocked" in text

@@ -63,7 +63,7 @@ Fetched source packages also carry `SOURCE_TIER` metadata:
 
 Required Anton slots cannot be supported only by Tier 4 evidence. Tier 3 remains acceptable when official or museum sources do not contain the needed fact, but high-risk exact facts still need cross-checking or hedging.
 
-StoryEngine's Research and Script/Voice tabs mirror the backend source-package gate before enabling single-machine preview: at least six excerpts, at least two distinct source URLs, and at least one non-caution source. Thin or caution-only packages show a blocked badge instead of a misleading ready state.
+StoryEngine's Research and Script/Voice tabs mirror the backend source-package gate before enabling single-machine preview: at least six excerpts, at least two distinct source URLs, and at least one non-caution source. Thin or caution-only packages show a blocked badge instead of a misleading ready state. If an older raw package lacks explicit `source_tier`, the UI infers tier from source URL using the same official/museum/caution hierarchy as the backend.
 
 ## Script Contract
 

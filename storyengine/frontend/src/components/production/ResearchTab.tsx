@@ -99,12 +99,49 @@ function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number
   };
 }
 
+function hostnameForSource(url: unknown): string {
+  try {
+    const host = new URL(String(url || "")).hostname.toLowerCase();
+    return host.startsWith("www.") ? host.slice(4) : host;
+  } catch {
+    return "";
+  }
+}
+
+function sourceTierForUrl(url: unknown, title: unknown = ""): number {
+  const host = hostnameForSource(url);
+  const titleText = String(title || "").toLowerCase();
+  const cautionHosts = [
+    "wikipedia.org", "youtube.com", "youtu.be", "facebook.com", "instagram.com",
+    "tiktok.com", "x.com", "twitter.com", "reddit.com", "quora.com",
+    "fandom.com", "pinterest.com",
+  ];
+  if (cautionHosts.some((item) => host === item || host.endsWith(`.${item}`))) return 4;
+  if (host.includes("forum") || host.includes("wiki")) return 4;
+  const primaryHosts = [
+    "boeing.com", "lockheedmartin.com", "northropgrumman.com", "rtx.com",
+    "prattwhitney.com", "geaerospace.com", "defense.gov", "af.mil",
+    "army.mil", "navy.mil", "marines.mil", "usafa.edu", "nasa.gov",
+    "archives.gov", "congress.gov",
+  ];
+  if (host.endsWith(".gov") || host.endsWith(".mil") || primaryHosts.some((item) => host === item || host.endsWith(`.${item}`))) return 1;
+  const authoritativeHosts = [
+    "si.edu", "airandspace.si.edu", "nationalww2museum.org", "iwm.org.uk",
+    "imperialwarmuseums.org.uk", "rafmuseum.org.uk", "aerospace.org",
+    "historynet.com", "aviation-history.com",
+  ];
+  if (authoritativeHosts.some((item) => host === item || host.endsWith(`.${item}`))) return 2;
+  if (host.includes("museum") || titleText.includes("museum") || host.includes("archive")) return 2;
+  return host ? 3 : 0;
+}
+
 function sourceTierNumber(candidate: any): number {
   const rawTier = Number(candidate?.source_tier || candidate?.tier || 0);
   if (rawTier) return rawTier;
   const label = String(candidate?.source_tier_label || candidate?.label || "");
   const match = label.match(/tier\s*(\d+)/i);
-  return match ? Number(match[1]) : 0;
+  if (match) return Number(match[1]);
+  return sourceTierForUrl(candidate?.source_url || candidate?.url, candidate?.source_title || candidate?.title);
 }
 
 function sourcePackageStatus(sourcePackage: any): { ready: boolean; message: string } {

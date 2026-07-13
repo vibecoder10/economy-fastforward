@@ -38,6 +38,11 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "function sourcePackageReady" in text
     assert "function sourcePackageStatus" in text
     assert "function sourceTierNumber" in text
+    assert "function sourceTierForUrl" in text
+    assert "host.endsWith(\".gov\")" in text
+    assert "wikipedia.org" in text
+    assert "airandspace.si.edu" in text
+    assert "return host ? 3 : 0" in text
     assert "selectedSourcePackageReady" in text
     assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchCard || !selectedSourcePackageReady}" in text
     assert "Raw source package missing · preview blocked" in text
