@@ -178,6 +178,23 @@ def test_verified_source_package_quality_rejects_single_source_and_caution_only(
     assert any("unsupported source capture method" in error for error in unsupported_errors)
 
 
+def test_verified_source_package_ready_requires_exact_text_excerpts():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+
+    assert pe._verified_machine_source_package_ready(package) is True
+
+    blank_package = copy.deepcopy(package)
+    for candidate in blank_package["candidate_excerpts"]:
+        candidate["text"] = "   "
+
+    assert pe._verified_machine_source_package_ready(blank_package) is False
+    assert pe._verified_machine_source_package_quality_errors(blank_package) == []
+    assert pe._validate_card_against_verified_sources(
+        {"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()},
+        blank_package,
+    ) == ["missing verified raw internet source package"]
+
+
 def test_verified_source_package_identity_rejects_wrong_machine_metadata():
     package = _verified_package_for_segments("Boeing B-17 Flying Fortress", _evidence_segments())
 

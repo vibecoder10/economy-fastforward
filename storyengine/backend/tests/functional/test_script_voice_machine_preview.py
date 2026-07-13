@@ -31,6 +31,7 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "function sourcePackageForMachine" in text
     assert "function sourcePackageReady" in text
     assert "function sourcePackageStatus" in text
+    assert "rawExcerpts.filter((candidate: any) => String(candidate?.text || \"\").trim())" in text
     assert "function sourceTierNumber" in text
     assert "function sourceTierForUrl" in text
     assert "host.endsWith(\".gov\")" in text

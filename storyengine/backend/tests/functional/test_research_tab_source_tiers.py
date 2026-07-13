@@ -37,6 +37,7 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
 
     assert "function sourcePackageReady" in text
     assert "function sourcePackageStatus" in text
+    assert "rawExcerpts.filter((candidate: any) => String(candidate?.text || \"\").trim())" in text
     assert "function sourceTierNumber" in text
     assert "function sourceTierForUrl" in text
     assert "host.endsWith(\".gov\")" in text

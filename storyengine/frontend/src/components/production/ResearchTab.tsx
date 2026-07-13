@@ -154,7 +154,8 @@ function sourceTierNumber(candidate: any): number {
 }
 
 function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
-  const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  const excerpts = rawExcerpts.filter((candidate: any) => String(candidate?.text || "").trim());
   if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
     return { ready: false, message: "Raw source package missing · preview blocked" };
   }

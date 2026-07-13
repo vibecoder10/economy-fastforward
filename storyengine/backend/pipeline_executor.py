@@ -429,7 +429,13 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     if not isinstance(package, dict) or package.get("passed") is False:
         return False
     excerpts = package.get("candidate_excerpts")
-    return isinstance(excerpts, list) and len(excerpts) >= 6
+    if not isinstance(excerpts, list):
+        return False
+    text_excerpts = [
+        item for item in excerpts
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    return len(text_excerpts) >= 6
 
 
 def _verified_machine_source_package_quality_errors(package: Any) -> list[str]:
