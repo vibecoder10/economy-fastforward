@@ -1767,6 +1767,43 @@ def test_anton_preview_quality_audit_flags_ranked_list_connector():
     assert catalog_check["detail"] == "catalog pattern flagged"
 
 
+def test_anton_preview_quality_audit_reports_strategic_bomber_cadence_advisory():
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit("Boeing XB-15", plan, bundle, paragraph, warnings)
+    cadence_check = next(check for check in audit["checks"] if check["name"] == "benchmark_cadence")
+
+    assert audit["passed"] is True
+    assert cadence_check["advisory"] is True
+    assert cadence_check["passed"] is False
+    assert "scale/capability missing" in cadence_check["detail"]
+
+    fact_rhythm_paragraph = (
+        "Boeing XB-15 first flew in 1937 as America's experimental answer to long-range bombing. "
+        "Its 149-foot wingspan, four engines, and 5,130-mile range turned scale into the engineering decision. "
+        "Only one prototype was built, which made the ambition hard to convert into a combat bomber. "
+        "In World War II, the aircraft found reality as a Pacific transport instead of a bomber. "
+        "The XB-15 proved the concept without becoming the weapon."
+    )
+    fact_rhythm_audit = pe._anton_preview_quality_audit(
+        "Boeing XB-15",
+        plan,
+        {},
+        fact_rhythm_paragraph,
+        [],
+    )
+    fact_rhythm_check = next(
+        check for check in fact_rhythm_audit["checks"] if check["name"] == "benchmark_cadence"
+    )
+
+    assert fact_rhythm_check["passed"] is True
+    assert "scale/capability present" in fact_rhythm_check["detail"]
+    assert "production/service reality present" in fact_rhythm_check["detail"]
+
+
 def test_first_three_anton_audit_reports_human_detail_advisory():
     payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "Boeing XB-15")

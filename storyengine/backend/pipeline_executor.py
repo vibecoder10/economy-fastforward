@@ -2397,6 +2397,44 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "clean" if not any(token in warning_text for token in catalog_warnings) else "catalog pattern flagged",
         ),
     ]
+    if (
+        isinstance(reference_benchmark, dict)
+        and str(reference_benchmark.get("source_video") or "") == "Every US Strategic Bomber Ever Built"
+    ):
+        paragraph_for_numbers = paragraph
+        for designation in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", str(machine or "").upper()):
+            paragraph_for_numbers = re.sub(
+                rf"\b{re.escape(designation)}(?:s)?\b",
+                "",
+                paragraph_for_numbers,
+                flags=re.IGNORECASE,
+            )
+        numeric_keys = {
+            mention["key"]
+            for mention in _numeric_mentions_from_text(paragraph_for_numbers)
+            if mention.get("key")
+        }
+        lower_paragraph = paragraph.lower()
+        has_scale_or_capability = bool(re.search(
+            r"\b(wingspan|engine|engines|horsepower|payload|bombs?|pounds?|miles?|range|speed|mph|mach|feet|foot|built|prototype|prototypes)\b",
+            lower_paragraph,
+        ))
+        has_production_or_service = bool(re.search(
+            r"\b(built|produced|production|served|service|combat|transport|campaign|theater|theatre|lost|losses|flew|prototype|prototypes|wartime|world war)\b",
+            lower_paragraph,
+        ))
+        benchmark_cadence_passed = len(numeric_keys) >= 2 and has_scale_or_capability and has_production_or_service
+        checks.append(check(
+            "benchmark_cadence",
+            "Benchmark cadence",
+            benchmark_cadence_passed,
+            (
+                f"{len(numeric_keys)} numerical details; "
+                f"scale/capability {'present' if has_scale_or_capability else 'missing'}; "
+                f"production/service reality {'present' if has_production_or_service else 'missing'}"
+            ),
+            advisory=True,
+        ))
     if warnings:
         checks.append(check(
             "validator_warnings",
