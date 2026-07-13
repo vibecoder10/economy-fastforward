@@ -4378,6 +4378,134 @@ def test_run_one_machine_research_refuses_final_save_after_roster_change(monkeyp
     assert "unit_roster changed concurrently" in result["error"]
 
 
+def test_run_research_final_save_is_tenant_scoped(monkeypatch):
+    import sys
+    import types
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": object(), "airtable": object(), "research_system_prompt": "DVsU research override"},
+    )()
+    writes = []
+    syncs = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Focused DVsU proof",
+            "headline": "Focused DVsU proof",
+            "status": "idea_logged",
+            "render_mode": "static_docu",
+        }
+
+    async def fake_load_overrides(_video):
+        return None
+
+    async def fake_fetch_one(*_args, **_kwargs):
+        return {}
+
+    async def fake_run_research(**_kwargs):
+        return {
+            "thesis": "Source-grounded thesis",
+            "executive_hook": "Source-grounded hook",
+            "fact_sheet": "Source-backed research package.",
+        }
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    async def fake_sync(video_id, tenant_id):
+        syncs.append((video_id, tenant_id))
+
+    research_agent = types.SimpleNamespace(run_research=fake_run_research)
+    monkeypatch.setitem(sys.modules, "research", types.SimpleNamespace(agent=research_agent))
+    monkeypatch.setitem(sys.modules, "research.agent", research_agent)
+    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
+    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    result = asyncio.run(executor.run_research("video-test"))
+
+    assert result["status"] == "ready_for_scripting"
+    research_saves = [
+        (query, args) for query, args in writes
+        if "UPDATE videos SET" in query and "research_payload = $1" in query
+    ]
+    assert research_saves
+    assert "WHERE id = $5 AND tenant_id = $6" in research_saves[0][0]
+    assert research_saves[0][1][-2:] == ("video-test", "tenant-test")
+    assert syncs == [("video-test", "tenant-test")]
+
+
+def test_run_research_refuses_zero_row_final_save(monkeypatch):
+    import sys
+    import types
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": object(), "airtable": object(), "research_system_prompt": "DVsU research override"},
+    )()
+    syncs = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Focused DVsU proof",
+            "headline": "Focused DVsU proof",
+            "status": "idea_logged",
+            "render_mode": "static_docu",
+        }
+
+    async def fake_load_overrides(_video):
+        return None
+
+    async def fake_fetch_one(*_args, **_kwargs):
+        return {}
+
+    async def fake_run_research(**_kwargs):
+        return {
+            "thesis": "Source-grounded thesis",
+            "executive_hook": "Source-grounded hook",
+            "fact_sheet": "Source-backed research package.",
+        }
+
+    async def fake_execute(query, *_args):
+        if "UPDATE videos SET" in query and "research_payload = $1" in query:
+            return "UPDATE 0"
+        return "UPDATE 1"
+
+    async def fake_sync(video_id, tenant_id):
+        syncs.append((video_id, tenant_id))
+
+    research_agent = types.SimpleNamespace(run_research=fake_run_research)
+    monkeypatch.setitem(sys.modules, "research", types.SimpleNamespace(agent=research_agent))
+    monkeypatch.setitem(sys.modules, "research.agent", research_agent)
+    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
+    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    result = asyncio.run(executor.run_research("video-test"))
+
+    assert result["status"] == "failed"
+    assert "no longer available for this tenant" in result["error"]
+    assert syncs == []
+
+
 def test_run_unit_research_final_save_is_tenant_scoped(monkeypatch):
     import sys
     import types

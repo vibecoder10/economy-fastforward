@@ -4591,20 +4591,25 @@ class PipelineExecutor:
                     isinstance(hold_validation, dict) and hold_validation.get("passed")
                 )
             next_status = "ready_for_scripting" if (passed_roster_gate and passed_unit_research_hold) else (current_status or "idea_logged")
-            await execute(
+            save_result = await execute(
                 """UPDATE videos SET
                    research_payload = $1,
                    thesis = $2,
                    executive_hook = $3,
                    status = $4,
                    updated_at = now()
-                   WHERE id = $5""",
+                   WHERE id = $5 AND tenant_id = $6""",
                 json.dumps(payload),
                 payload.get("thesis", ""),
                 payload.get("executive_hook", ""),
                 next_status,
                 video_id,
+                self.tenant_id,
             )
+            if self._db_write_missed(save_result):
+                warning = "Research save refused because the video is no longer available for this tenant"
+                await self._log_activity(bot_name, video_id, "failed", warning)
+                return {"status": "failed", "video_id": video_id, "error": warning}
             from drive_workspace import sync_video_workspace_fail_soft
             await sync_video_workspace_fail_soft(video_id, self.tenant_id)
 

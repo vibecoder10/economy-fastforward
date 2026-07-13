@@ -76,7 +76,7 @@ Single-machine preview artifacts are saved under the same normalized machine key
 
 Every selected-machine research checkpoint and final save is guarded by the original locked `unit_roster` snapshot. If the roster changes while a one-machine run is in flight, the save is refused rather than overwriting the newer roster state.
 
-All machine-research saves and script-preview reads/writes are tenant-scoped. The legacy full-roster route now saves with `video_id + tenant_id` and refuses zero-row saves; the single-machine script preview reads the existing `voice_id` with the same tenant boundary before writing preview artifacts.
+All research saves, machine-research saves, and script-preview reads/writes are tenant-scoped. The legacy research and full-roster routes now save with `video_id + tenant_id` and refuse zero-row saves; the single-machine script preview reads the existing `voice_id` with the same tenant boundary before writing preview artifacts.
 
 Single-machine preview artifact writes also carry the locked `unit_roster` snapshot and refuse zero-row updates. A missed `machine_script_briefs` or `machine_story_plans` save stops before the paragraph LLM call; a missed `machine_script_previews` save returns failure instead of a false completed preview.
 
@@ -138,7 +138,7 @@ The Research and Script/Voice tabs also check that the card's selected `source_e
 
 When a selected evidence segment validates against a fetched raw candidate, the backend enriches it with `source_excerpt_id`, `source_id`, `source_excerpt_hash`, `source_tier`, `source_tier_label`, and `source_capture_method`. The UI uses `source_excerpt_id` and `source_excerpt_hash` as the primary match before falling back to URL/locator/text matching, then shows those fields beside the raw excerpt so review is tied to an exact fetched row, not a loose paraphrase.
 
-After a selected-machine research or preview run, the UI invalidates the saved video state so the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` can be reviewed without relying on a manual browser refresh.
+After a selected-machine research or preview run, the API returns the updated `research_payload`, the UI patches the selected video cache immediately, and then the UI invalidates the saved video state. This lets the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` be reviewed without relying on a manual browser refresh.
 
 The Research and Script/Voice single-machine preview panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence, including the raw source slot hints that explain which Anton beat the fetched excerpt was meant to support; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
 
