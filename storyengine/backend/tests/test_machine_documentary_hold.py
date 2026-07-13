@@ -674,11 +674,26 @@ def test_static_validator_blocks_anton_forbidden_ai_patterns():
         "The B-52 kept serving because range mattered more than speed. "
         f"However, {filler}."
     )
+    ranked_list_connector = (
+        "Next came the B-52, a machine that proved range mattered more than speed. "
+        f"{filler}."
+    )
+    ranked_number_connector = (
+        "At number two, the B-52 proved range mattered more than speed. "
+        f"{filler}."
+    )
+    another_aircraft_connector = (
+        "Another aircraft was the B-52, which proved range mattered more than speed. "
+        f"{filler}."
+    )
 
     assert any("Wikipedia-style" in warning for warning in validate("B-52", wiki_opening))
     assert any("list/spec-dump" in warning for warning in validate("B-52", spec_dump))
     assert any("retirement/date fact" in warning for warning in validate("B-52", retirement_ending))
     assert any("written-language connector" in warning for warning in validate("B-52", written_connector))
+    assert any("ranked-list connector" in warning for warning in validate("B-52", ranked_list_connector))
+    assert any("ranked-list connector" in warning for warning in validate("B-52", ranked_number_connector))
+    assert any("ranked-list connector" in warning for warning in validate("B-52", another_aircraft_connector))
 
 
 def test_static_validator_blocks_voiceover_file_artifacts():
@@ -1076,6 +1091,26 @@ def test_anton_preview_quality_audit_flags_timeline_structure():
         bundle,
         paragraph,
         ["contains timeline/chronology structure instead of an engineering argument"],
+    )
+    catalog_check = next(check for check in audit["checks"] if check["name"] == "not_catalog_copy")
+
+    assert audit["passed"] is False
+    assert catalog_check["passed"] is False
+    assert catalog_check["detail"] == "catalog pattern flagged"
+
+
+def test_anton_preview_quality_audit_flags_ranked_list_connector():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    paragraph, _warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit(
+        "B-52",
+        plan,
+        bundle,
+        paragraph,
+        ["contains forbidden Anton/DVsU ranked-list connector language"],
     )
     catalog_check = next(check for check in audit["checks"] if check["name"] == "not_catalog_copy")
 
@@ -1580,6 +1615,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "final sentence must be 28 words or fewer" in fake_anthropic.prompts[0]
     assert "End with a short verdict" in fake_anthropic.prompts[0]
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
+    assert "Do not use ranked-list connectors" in fake_anthropic.prompts[0]
     assert "Prefer voice-ready spoken number words" in fake_anthropic.prompts[0]
     assert "Keep designations/model names like B-52, XB-15, and F-86 as designations" in fake_anthropic.prompts[0]
     assert "Vary sentence length for spoken delivery. Do not write three long sentences in a row" in fake_anthropic.prompts[0]
@@ -1590,6 +1626,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[1]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[1]
     assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
+    assert "Remove ranked-list connectors" in fake_anthropic.prompts[1]
     assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
     assert "Vary sentence length for spoken delivery; do not write three long sentences in a row" in fake_anthropic.prompts[1]
     assert "Do not write a chronological biography" in fake_anthropic.prompts[1]

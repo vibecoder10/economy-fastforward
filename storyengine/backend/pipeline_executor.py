@@ -1597,7 +1597,8 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "wikipedia-style",
         "list/spec-dump",
         "timeline/chronology",
-        "hype or list-transition",
+        "hype language",
+        "ranked-list connector",
         "orphan facts",
     ]
 
@@ -4398,9 +4399,19 @@ class PipelineExecutor:
         if any(term in lower for term in (
             "one of the greatest", "one of the most incredible", "arguably the greatest",
             "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
-            "moving on to", "next is",
         )):
-            warnings.append("contains forbidden Anton/DVsU hype or list-transition language")
+            warnings.append("contains forbidden Anton/DVsU hype language")
+        list_transition_patterns = (
+            r"\bmoving\s+(?:on|down)\s+(?:to|the list)\b",
+            r"\bnext\s+(?:is|was|came|comes)\b",
+            r"\banother\s+(?:aircraft|bomber|machine|unit|example)\s+was\b",
+            r"\bat\s+number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b",
+            r"\bcoming\s+in\s+at\s+number\b",
+            r"\bon\s+this\s+list\b",
+            r"\bthe\s+next\s+(?:aircraft|bomber|machine|unit)\b",
+        )
+        if any(re.search(pattern, lower) for pattern in list_transition_patterns):
+            warnings.append("contains forbidden Anton/DVsU ranked-list connector language")
         sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
         first_sentence = sentence_parts[0] if sentence_parts else ""
         if re.search(
@@ -4705,6 +4716,7 @@ class PipelineExecutor:
                     "- Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
                     "- Avoid written-language connector sentence starts: However, Nevertheless, Furthermore, Moreover, Additionally, In addition.\n"
+                    "- Do not use ranked-list connectors: Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list. Bridge through problem, contrast, consequence, or the previous machine instead.\n"
                     "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
                     "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
                     "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
@@ -4741,7 +4753,7 @@ class PipelineExecutor:
                     "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
                     "- Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality.\n"
                     "- Avoid written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition.\n"
-                    "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
+                    "- Bridge naturally from the previous machine when useful, but never use ranked-list connectors such as Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list.\n\n"
                     f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
                 )
                 paragraph = await anthropic_client.generate(
@@ -4777,6 +4789,7 @@ class PipelineExecutor:
                         "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
                         "Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality. "
                         "Remove written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition. "
+                        "Remove ranked-list connectors such as Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list. "
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
                         "Delete every unsupported high-risk term named in the validation warnings unless that exact word appears in the selected source evidence. "
@@ -4800,6 +4813,7 @@ class PipelineExecutor:
                         "Follow OPENING ASSIGNMENT exactly. No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
                         "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
                         "Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality. "
+                        "Remove ranked-list connectors such as Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list. "
                         "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
                         "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this research source.\n\n"
                         f"RESEARCH SOURCE:\n{research_source}"
