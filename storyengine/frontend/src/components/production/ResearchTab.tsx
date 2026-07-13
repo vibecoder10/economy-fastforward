@@ -312,6 +312,26 @@ function sourceSlotEvidenceBySlot(excerpts: any[]): Record<string, string[]> {
   }, {});
 }
 
+function sourceCandidateTraceable(candidate: any): boolean {
+  const allowedCaptureMethods = new Set(["fetched_page", "tavily_raw_content"]);
+  const sourceUrl = String(candidate?.source_url || "").trim();
+  const locator = String(candidate?.locator || candidate?.excerpt_id || "").trim();
+  const captureMethod = String(candidate?.source_capture_method || "").trim();
+  return Boolean(sourceUrl && locator && allowedCaptureMethods.has(captureMethod));
+}
+
+function untraceableAntonSourceSlots(excerpts: any[]): string[] {
+  return REQUIRED_ANTON_SOURCE_SLOTS.filter((slot) => {
+    const slotCandidates = excerpts.filter((candidate: any) => {
+      const hints = Array.isArray(candidate?.anton_slot_hints)
+        ? candidate.anton_slot_hints.map((hint: any) => String(hint || "").trim()).filter(Boolean)
+        : Array.from(antonSourceSlotHints(candidate?.text));
+      return hints.includes(slot);
+    });
+    return slotCandidates.length > 0 && !slotCandidates.some(sourceCandidateTraceable);
+  });
+}
+
 function tierFourOnlyAntonSourceSlots(excerpts: any[]): string[] {
   return REQUIRED_ANTON_SOURCE_SLOTS.filter((slot) => {
     const slotCandidates = excerpts.filter((candidate: any) => {
@@ -320,7 +340,8 @@ function tierFourOnlyAntonSourceSlots(excerpts: any[]): string[] {
         : Array.from(antonSourceSlotHints(candidate?.text));
       return hints.includes(slot);
     });
-    return slotCandidates.length > 0 && slotCandidates.every((candidate: any) => sourceTierNumber(candidate) >= 4);
+    const traceableCandidates = slotCandidates.filter(sourceCandidateTraceable);
+    return traceableCandidates.length > 0 && traceableCandidates.every((candidate: any) => sourceTierNumber(candidate) >= 4);
   });
 }
 
@@ -435,6 +456,10 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     );
     if (savedNeedsDistinct || Object.keys(distinctAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
       return { ready: false, message: "Raw source package needs distinct Anton excerpts · preview blocked" };
+    }
+    const untraceableSlots = untraceableAntonSourceSlots(targetExcerpts);
+    if (untraceableSlots.length > 0) {
+      return { ready: false, message: `Raw source package untraceable Anton slots · ${untraceableSlots.join(", ")} · preview blocked` };
     }
     const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts);
     if (cautionOnlySlots.length > 0) {

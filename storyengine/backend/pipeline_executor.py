@@ -521,6 +521,20 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     return len(text_excerpts) >= 6
 
 
+def _verified_source_candidate_traceable(item: Any) -> bool:
+    """A raw excerpt can only unlock a required beat if the card can cite it later."""
+    if not isinstance(item, dict):
+        return False
+    source_url = str(item.get("source_url") or "").strip()
+    locator = str(item.get("locator") or item.get("excerpt_id") or "").strip()
+    capture_method = str(item.get("source_capture_method") or "").strip()
+    return bool(
+        source_url
+        and locator
+        and capture_method in {"fetched_page", "tavily_raw_content"}
+    )
+
+
 def _verified_machine_source_package_with_anton_metadata(package: Any, machine: str = "") -> Any:
     """Return a raw-source package with reviewable Anton slot metadata attached."""
     if not _verified_machine_source_package_ready(package):
@@ -722,14 +736,26 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
                 "Verified source package needs distinct raw excerpts for each Anton slot: "
                 + ", ".join(coverage.get("required_slots") or [])
             )
+        untraceable_slots: list[str] = []
         tier_four_only_slots: list[str] = []
         for slot in _ANTON_REQUIRED_SLOT_ROLES:
             slot_candidates = [
                 item for item in quality_candidates
                 if slot in (item.get("anton_slot_hints") or [])
             ]
-            if slot_candidates and all(_source_tier_number(item) >= 4 for item in slot_candidates):
+            traceable_slot_candidates = [
+                item for item in slot_candidates
+                if _verified_source_candidate_traceable(item)
+            ]
+            if slot_candidates and not traceable_slot_candidates:
+                untraceable_slots.append(slot)
+            if traceable_slot_candidates and all(_source_tier_number(item) >= 4 for item in traceable_slot_candidates):
                 tier_four_only_slots.append(slot)
+        if untraceable_slots:
+            errors.append(
+                "Verified source package required Anton slot(s) need traceable source_url/locator excerpts: "
+                + ", ".join(sorted(untraceable_slots))
+            )
         if tier_four_only_slots:
             errors.append(
                 "Verified source package cannot support required Anton slot(s) only with Tier 4/caution excerpts: "

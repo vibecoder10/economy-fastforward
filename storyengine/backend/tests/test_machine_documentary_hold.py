@@ -310,6 +310,35 @@ def test_verified_source_package_quality_rejects_tier_four_only_required_slot():
     assert any("only with Tier 4/caution excerpts: original_problem" in error for error in errors)
 
 
+def test_verified_source_package_quality_rejects_untraceable_required_slot():
+    segments = _evidence_segments()
+    for index, segment in enumerate(segments):
+        segment["source_url"] = f"https://airandspace.si.edu/collection-objects/boeing-xb-15-{index}"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"][0].pop("source_url")
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert any("need traceable source_url/locator excerpts: original_problem" in error for error in errors)
+
+
+def test_verified_source_package_quality_uses_traceable_candidates_for_tier_four_slot_check():
+    segments = _evidence_segments()
+    for index, segment in enumerate(segments):
+        segment["source_url"] = f"https://airandspace.si.edu/collection-objects/boeing-xb-15-{index}"
+    wiki_problem = copy.deepcopy(segments[0])
+    wiki_problem["evidence_id"] = "E-PROBLEM-WIKI"
+    wiki_problem["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    segments.append(wiki_problem)
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"][0].pop("source_url")
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert not any("need traceable source_url/locator excerpts: original_problem" in error for error in errors)
+    assert any("only with Tier 4/caution excerpts: original_problem" in error for error in errors)
+
+
 def test_verified_source_package_quality_requires_anton_slot_coverage():
     package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
     for candidate in package["candidate_excerpts"]:

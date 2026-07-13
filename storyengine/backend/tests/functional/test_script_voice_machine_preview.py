@@ -99,6 +99,10 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "Raw source package ready ·" in text
     assert "sourceUrls.size < 2" in text
     assert "nonCautionUrls.size < 1" in text
+    assert "function sourceCandidateTraceable" in text
+    assert "function untraceableAntonSourceSlots" in text
+    assert "const untraceableSlots = untraceableAntonSourceSlots(targetExcerpts)" in text
+    assert "Raw source package untraceable Anton slots ·" in text
     assert "function tierFourOnlyAntonSourceSlots" in text
     assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
     assert "Raw source package Tier 4-only Anton slots ·" in text
