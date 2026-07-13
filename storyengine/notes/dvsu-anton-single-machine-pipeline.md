@@ -44,7 +44,7 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 
 Do not research or pre-write a standalone "meaning" beat. The final sentence is editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.
 
-`memorable_fact` remains optional at the research-card level because the system must not invent a surprising detail. Once research has saved one, it becomes required at the script level and must be used inside one required beat, not as disconnected trivia.
+`memorable_fact` must not be invented. The research prompt asks for it when exact excerpts support one; the script preview audit will mark the machine as needing review if the story plan has no sourced memorable fact or if the paragraph ignores the one research found.
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.
 
@@ -89,6 +89,8 @@ Validation requires:
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
 - unsupported designations, high-risk terms, hype, list transitions, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
+
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-6 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern.
 
 ## Isolation Rule
 

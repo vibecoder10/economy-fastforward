@@ -539,6 +539,48 @@ def test_story_paragraph_validator_requires_available_memorable_fact():
     assert any("must use sourced memorable_fact" in warning for warning in warnings)
 
 
+def test_story_paragraph_validator_requires_memorable_fact_in_story_plan():
+    evidence = [
+        segment for segment in _evidence_segments()
+        if segment["kind"] != "memorable_fact"
+    ]
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["claim_map"][3]["used_evidence_ids"] = ["E-REALITY"]
+
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    audit = pe._anton_preview_quality_audit("B-52", plan, bundle, paragraph, warnings)
+
+    assert any("story plan missing sourced memorable_fact" in warning for warning in warnings)
+    assert audit["passed"] is False
+    memorable_check = next(check for check in audit["checks"] if check["name"] == "memorable_fact")
+    assert memorable_check["passed"] is False
+    assert "no sourced memorable_fact" in memorable_check["detail"]
+
+
+def test_anton_preview_quality_audit_reports_passed_checks():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit("B-52", plan, bundle, paragraph, warnings)
+
+    assert warnings == []
+    assert audit["passed"] is True
+    assert [check["name"] for check in audit["checks"]] == [
+        "word_range",
+        "sentence_shape",
+        "four_evidence_beats",
+        "memorable_fact",
+        "editorial_thesis",
+        "landed_final_line",
+        "not_catalog_copy",
+    ]
+    assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
+
+
 def test_story_paragraph_validator_requires_editorial_thesis():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -1053,6 +1095,13 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
 
     assert result["preview"]["passed"] is True
     assert result["preview"]["machine"] == "Boeing XB-15"
+    assert result["preview"]["quality_audit"]["passed"] is True
+    assert [check["name"] for check in result["preview"]["quality_audit"]["checks"]][:4] == [
+        "word_range",
+        "sentence_shape",
+        "four_evidence_beats",
+        "memorable_fact",
+    ]
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
@@ -1396,6 +1445,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "source_url, source_title, locator" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt
+    assert "memorable_fact should be returned when the verified excerpts support" in prompt
+    assert "never invent one" in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt
     assert result["unit_research_hold_validation"]["passed"] is True

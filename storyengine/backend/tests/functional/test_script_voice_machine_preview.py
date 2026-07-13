@@ -52,6 +52,8 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "previewEvidenceById" in text
     assert "Editorial thesis" in text
     assert "machinePreview.claim_bundle?.editorial_thesis" in text
+    assert "Anton quality audit" in text
+    assert "machinePreview.quality_audit?.checks" in text
     assert "source_excerpt: String(segment?.source_excerpt" in text
     assert "evidenceRows.map" in text
     assert "evidence?.claim" in text

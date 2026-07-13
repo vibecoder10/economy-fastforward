@@ -1072,7 +1072,9 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         if str(slot.get("slot") or "") == "memorable_fact"
         for evidence_id in (slot.get("evidence_ids") or [])
     ]
-    if memorable_ids and not any(evidence_id in used_ids for evidence_id in memorable_ids):
+    if not memorable_ids:
+        warnings.append("story plan missing sourced memorable_fact for Anton paragraph")
+    elif not any(evidence_id in used_ids for evidence_id in memorable_ids):
         warnings.append("paragraph must use sourced memorable_fact when the story plan provides one")
     missing_required = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
     if missing_required:
@@ -1224,6 +1226,102 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
 
     warnings.extend(PipelineExecutor._validate_static_unit_paragraph(machine, paragraph))
     return paragraph, list(dict.fromkeys(warnings))
+
+
+def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragraph: str, warnings: list[str]) -> dict:
+    """Small deterministic checklist for judging one machine against Anton's contract."""
+    import re
+
+    paragraph = " ".join(str(paragraph or "").split())
+    warning_text = " | ".join(str(item) for item in (warnings or [])).lower()
+    sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
+    claim_rows = bundle.get("claim_map") if isinstance(bundle, dict) else []
+    claim_rows = claim_rows if isinstance(claim_rows, list) else []
+    used_ids = list(dict.fromkeys(
+        str(evidence_id)
+        for row in claim_rows if isinstance(row, dict)
+        for evidence_id in (
+            row.get("used_evidence_ids") if isinstance(row.get("used_evidence_ids"), list)
+            else row.get("evidence_ids") if isinstance(row.get("evidence_ids"), list)
+            else []
+        )
+        if str(evidence_id).strip()
+    ))
+    role_by_id: dict[str, str] = {}
+    slot_ids: dict[str, list[str]] = {}
+    for slot in (plan.get("slots", []) if isinstance(plan, dict) else []):
+        role = str(slot.get("slot") or "")
+        ids = [str(item) for item in (slot.get("evidence_ids") or []) if str(item).strip()]
+        slot_ids[role] = ids
+        for evidence_id in ids:
+            role_by_id[evidence_id] = role
+    covered_roles = {role_by_id[evidence_id] for evidence_id in used_ids if evidence_id in role_by_id}
+    missing_roles = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
+    memorable_ids = slot_ids.get("memorable_fact") or []
+    memorable_used = [evidence_id for evidence_id in memorable_ids if evidence_id in used_ids]
+    final_line_warnings = [
+        "final sentence word count",
+        "final sentence uses generic",
+        "final sentence must be paragraph-derived",
+        "final sentence must not introduce",
+        "final sentence ends on",
+    ]
+    catalog_warnings = [
+        "wikipedia-style",
+        "list/spec-dump",
+        "hype or list-transition",
+        "orphan facts",
+    ]
+
+    def check(name: str, label: str, passed: bool, detail: str) -> dict:
+        return {"name": name, "label": label, "passed": bool(passed), "detail": detail}
+
+    word_count = _spoken_word_count(paragraph)
+    checks = [
+        check("word_range", "95-120 words", 95 <= word_count <= 120, f"{word_count} words"),
+        check("sentence_shape", "4-6 natural sentences", 4 <= len(sentence_parts) <= 6, f"{len(sentence_parts)} sentences"),
+        check(
+            "four_evidence_beats",
+            "Four grounded beats",
+            not missing_roles,
+            "covered" if not missing_roles else "missing " + ", ".join(missing_roles),
+        ),
+        check(
+            "memorable_fact",
+            "Sourced memorable fact",
+            bool(memorable_used),
+            (
+                "used " + ", ".join(memorable_used)
+                if memorable_used else
+                "research plan has no sourced memorable_fact" if not memorable_ids else
+                "available but unused"
+            ),
+        ),
+        check(
+            "editorial_thesis",
+            "Concrete editorial thesis",
+            isinstance(bundle, dict) and bool(str(bundle.get("editorial_thesis") or "").strip())
+            and "editorial_thesis" not in warning_text,
+            str(bundle.get("editorial_thesis") or "").strip() if isinstance(bundle, dict) else "",
+        ),
+        check(
+            "landed_final_line",
+            "Landed final line",
+            bool(sentence_parts) and not any(token in warning_text for token in final_line_warnings),
+            sentence_parts[-1] if sentence_parts else "missing final sentence",
+        ),
+        check(
+            "not_catalog_copy",
+            "Not catalog/spec dump",
+            not any(token in warning_text for token in catalog_warnings),
+            "clean" if not any(token in warning_text for token in catalog_warnings) else "catalog pattern flagged",
+        ),
+    ]
+    return {
+        "passed": all(item["passed"] for item in checks),
+        "checks": checks,
+        "summary": "Anton quality audit passed" if all(item["passed"] for item in checks) else "Anton quality audit needs review",
+    }
 
 
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
@@ -3456,7 +3554,7 @@ class PipelineExecutor:
                 "- engineering_decision = raw excerpt for the design/procurement/engineering answer.\n"
                 "- tradeoff = raw excerpt for the sacrifice, limitation, compromise, or unintended consequence.\n"
                 "- reality = raw excerpt for what happened in testing, production, service, or combat reality.\n"
-                "- memorable_fact is optional and must be a sourced fact serious viewers are unlikely to know; embed it only if it strengthens one of the four beats.\n"
+                "- memorable_fact should be returned when the verified excerpts support a fact serious viewers are unlikely to know; it will be required for Anton-quality script preview, but never invent one.\n"
                 "- Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence.\n"
                 "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
                 "- Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when directly supported by exact excerpts.\n"
@@ -3497,7 +3595,7 @@ class PipelineExecutor:
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
-                    "memorable_fact is optional and must strengthen one of those four beats; do not use trivia. "
+                    "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "
                     "Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence. "
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "
@@ -4051,6 +4149,13 @@ class PipelineExecutor:
                     paragraph = self._clean_static_unit_paragraph(paragraph)
                     warnings = self._validate_static_unit_paragraph(machine, paragraph)
 
+            quality_audit = _anton_preview_quality_audit(
+                machine,
+                story_plan or {},
+                bundle or {},
+                paragraph,
+                warnings,
+            ) if complete_inventory_mode else {}
             validation_units.append({
                 "scene": i,
                 "machine": machine,
@@ -4058,6 +4163,7 @@ class PipelineExecutor:
                 "research_source": research_source_kind,
                 "passed": not warnings,
                 "warnings": warnings,
+                "quality_audit": quality_audit,
             })
             if target_machine:
                 preview = {
@@ -4071,6 +4177,7 @@ class PipelineExecutor:
                     "research_source": research_source_kind,
                     "story_plan": story_plan,
                     "claim_bundle": bundle,
+                    "quality_audit": quality_audit,
                 }
                 await execute(
                     """UPDATE videos SET research_payload = jsonb_set(

@@ -675,6 +675,16 @@ export type MachineScriptPreview = {
   onscreen_label?: string;
   research_source?: string;
   story_plan?: Record<string, unknown>;
+  quality_audit?: {
+    passed?: boolean;
+    summary?: string;
+    checks?: Array<{
+      name?: string;
+      label?: string;
+      passed?: boolean;
+      detail?: string;
+    }>;
+  };
   claim_bundle?: {
     editorial_thesis?: string;
     paragraph?: string;

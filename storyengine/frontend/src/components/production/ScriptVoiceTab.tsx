@@ -1470,6 +1470,22 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     Preview stopped before a paragraph was generated.
                   </div>
                 )}
+                {!!machinePreview.quality_audit?.checks?.length && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: machinePreview.quality_audit.passed ? "var(--green)" : "var(--orange)" }}>
+                      <ShieldCheck size={13} />
+                      Anton quality audit
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {machinePreview.quality_audit.checks.map((check, index) => (
+                        <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: check.passed ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${check.passed ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
+                          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: check.passed ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}</div>
+                          {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {previewClaimMap.length > 0 && (
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
