@@ -462,11 +462,19 @@ def _verified_machine_source_package_quality_errors(package: Any) -> list[str]:
         if str(item.get("source_capture_method") or "").strip()
         and str(item.get("source_capture_method") or "").strip() not in {"fetched_page", "tavily_raw_content"}
     })
+    missing_capture_method_count = sum(
+        1 for item in candidates
+        if not str(item.get("source_capture_method") or "").strip()
+    )
     errors: list[str] = []
     if len(source_urls) < 2:
         errors.append("Verified source package needs excerpts from at least two distinct source URLs.")
     if not non_caution_urls:
         errors.append("Verified source package needs at least one non-caution source before Claude can write a card.")
+    if missing_capture_method_count:
+        errors.append(
+            f"Verified source package has {missing_capture_method_count} exact excerpt(s) without source capture method."
+        )
     if unsupported_capture_methods:
         errors.append(
             "Verified source package contains unsupported source capture method(s): "

@@ -259,11 +259,15 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     return { ready: false, message: "Raw source package missing · preview blocked" };
   }
   const allowedCaptureMethods = new Set(["fetched_page", "tavily_raw_content"]);
+  const missingCaptureMethodCount = excerpts.filter((candidate: any) => !String(candidate?.source_capture_method || "").trim()).length;
   const unsupportedCaptureMethods = new Set(
     excerpts
       .map((candidate: any) => String(candidate?.source_capture_method || "").trim())
       .filter((method: string) => method && !allowedCaptureMethods.has(method))
   );
+  if (missingCaptureMethodCount > 0) {
+    return { ready: false, message: `Raw source package missing capture method · ${missingCaptureMethodCount} excerpt · preview blocked` };
+  }
   if (unsupportedCaptureMethods.size > 0) {
     return { ready: false, message: `Raw source package unsupported capture · ${Array.from(unsupportedCaptureMethods).join(", ")} · preview blocked` };
   }
