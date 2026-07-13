@@ -84,6 +84,8 @@ All research saves, machine-research saves, and script-preview reads/writes are 
 
 Single-machine preview artifact writes also carry the locked `unit_roster` snapshot and refuse zero-row updates. A missed `machine_script_briefs` or `machine_story_plans` save stops before the paragraph LLM call; a missed `machine_script_previews` save returns failure instead of a false completed preview.
 
+Selected-machine preview gates that fail before a paragraph LLM call still save a failed `machine_script_previews[<machine_key>]` artifact when the roster snapshot matches. Missing research cards, missing verified raw source packages, stale card locators, wrong-machine source packages, and story-plan evidence errors therefore appear as reviewable UI audit artifacts with `passed: false`, empty paragraph text, the blocking warning, and a failed `quality_audit` check. They still do not call Claude, mutate `scripts`, update `script_validation`, or advance the video.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
@@ -158,6 +160,8 @@ After a selected-machine research or preview run, the API returns the updated `r
 
 The Research and Script/Voice single-machine preview panels both read persisted `machine_script_previews` for the active machine, falling back to local state only for a just-returned preview. This means the proof preview remains visible after refreshes and tab switches. Both panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence, including the raw source slot hints that explain which Anton beat the fetched excerpt was meant to support; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
 
+If the preview route itself fails before it can return a persisted backend artifact, Research and Script/Voice still build a local `preview_error` artifact with the same failed `quality_audit` shape. That local fallback is only for immediate operator visibility; the persisted backend artifact remains the source of truth whenever the backend save succeeds.
+
 ## Script Contract
 
 The script preview writer returns JSON:
@@ -218,6 +222,8 @@ For the current proof, only the selected first machine is researched or previewe
 2. In StoryEngine, run one-machine research for `Boeing XB-15` only if the existing locked research card needs refresh.
 3. Run only the single-machine script preview for `Boeing XB-15`.
 4. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
-5. Confirm the saved preview remains visible after switching between Research and Script/Voice; this proves the UI is reading persisted machine artifacts, not only local component state.
-6. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
-7. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
+5. If the preview returns a failed audit artifact, fix the selected machine's research/source package or compiler rule and rerun only `Boeing XB-15`.
+6. Confirm the saved preview remains visible after switching between Research and Script/Voice; this proves the UI is reading persisted machine artifacts, not only local component state.
+7. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
+8. Do not run broad research or full script generation until the single-machine preview passes the quality bar and Ryan explicitly approves moving to the next machine or full-roster path.
+9. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
