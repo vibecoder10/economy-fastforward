@@ -337,6 +337,53 @@ function antonSourceSlotHints(text: unknown): Set<string> {
   return hints;
 }
 
+const REQUIRED_ANTON_SOURCE_SLOTS = ["original_problem", "engineering_decision", "tradeoff", "reality"];
+
+function sourceExcerptId(candidate: any): string {
+  return String(candidate?.excerpt_id || candidate?.locator || "").trim();
+}
+
+function sourceSlotEvidenceBySlot(excerpts: any[]): Record<string, string[]> {
+  return excerpts.reduce((rows: Record<string, string[]>, candidate: any) => {
+    const excerptId = sourceExcerptId(candidate);
+    const hints = Array.isArray(candidate?.anton_slot_hints)
+      ? candidate.anton_slot_hints.map((slot: any) => String(slot || "").trim()).filter(Boolean)
+      : Array.from(antonSourceSlotHints(candidate?.text));
+    hints.forEach((slot: string) => {
+      if (!excerptId) return;
+      rows[slot] = rows[slot] || [];
+      if (!rows[slot].includes(excerptId)) rows[slot].push(excerptId);
+    });
+    return rows;
+  }, {});
+}
+
+function distinctAntonSlotAssignment(evidenceBySlot: Record<string, string[]>, requiredSlots = REQUIRED_ANTON_SOURCE_SLOTS): Record<string, string> {
+  const orderedSlots = [...requiredSlots].sort((a, b) => (evidenceBySlot[a]?.length || 0) - (evidenceBySlot[b]?.length || 0));
+  const assignment: Record<string, string> = {};
+  const used = new Set<string>();
+
+  const assign = (index: number): boolean => {
+    if (index >= orderedSlots.length) return true;
+    const slot = orderedSlots[index];
+    for (const excerptId of evidenceBySlot[slot] || []) {
+      if (!excerptId || used.has(excerptId)) continue;
+      assignment[slot] = excerptId;
+      used.add(excerptId);
+      if (assign(index + 1)) return true;
+      used.delete(excerptId);
+      delete assignment[slot];
+    }
+    return false;
+  };
+
+  if (!assign(0)) return {};
+  return requiredSlots.reduce((rows: Record<string, string>, slot) => {
+    if (assignment[slot]) rows[slot] = assignment[slot];
+    return rows;
+  }, {});
+}
+
 function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
   const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const excerpts = rawExcerpts.filter((candidate: any) => String(candidate?.text || "").trim());
@@ -370,18 +417,21 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     const savedMissingSlots = Array.isArray(sourcePackage?.source_slot_coverage?.missing_slots)
       ? sourcePackage.source_slot_coverage.missing_slots.map((slot: any) => String(slot || "").trim()).filter(Boolean)
       : [];
+    const computedEvidenceBySlot = sourceSlotEvidenceBySlot(targetExcerpts);
     const missingSlots = savedMissingSlots.length > 0
       ? savedMissingSlots
       : (() => {
-          const coveredSlots = new Set<string>();
-          targetExcerpts.forEach((candidate: any) => {
-            antonSourceSlotHints(candidate?.text).forEach((slot) => coveredSlots.add(slot));
-          });
-          return ["original_problem", "engineering_decision", "tradeoff", "reality"]
+          const coveredSlots = new Set(Object.keys(computedEvidenceBySlot));
+          return REQUIRED_ANTON_SOURCE_SLOTS
             .filter((slot) => !coveredSlots.has(slot));
         })();
     if (missingSlots.length > 0) {
       return { ready: false, message: `Raw source package missing Anton slots · ${missingSlots.join(", ")} · preview blocked` };
+    }
+    const savedNeedsDistinct = sourcePackage?.source_slot_coverage?.needs_distinct_slot_excerpts === true;
+    const distinctAssignment = distinctAntonSlotAssignment(computedEvidenceBySlot);
+    if (savedNeedsDistinct || Object.keys(distinctAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
+      return { ready: false, message: "Raw source package needs distinct Anton excerpts · preview blocked" };
     }
   }
   const sourceUrls = new Set(
@@ -420,25 +470,14 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
 }
 
 function sourceSlotCoverageRows(sourcePackage: any, machine: string = "") {
-  const requiredSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
+  const requiredSlots = REQUIRED_ANTON_SOURCE_SLOTS;
   const savedCoverage = sourcePackage?.source_slot_coverage;
   const savedEvidenceBySlot = savedCoverage && typeof savedCoverage === "object" && !Array.isArray(savedCoverage?.evidence_by_slot)
     ? savedCoverage.evidence_by_slot
     : {};
   const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const targetExcerpts = machine ? rawExcerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : rawExcerpts;
-  const computedEvidenceBySlot = targetExcerpts.reduce((rows: Record<string, string[]>, candidate: any) => {
-    const excerptId = String(candidate?.excerpt_id || candidate?.locator || "").trim();
-    const hints = Array.isArray(candidate?.anton_slot_hints)
-      ? candidate.anton_slot_hints.map((slot: any) => String(slot || "").trim()).filter(Boolean)
-      : Array.from(antonSourceSlotHints(candidate?.text));
-    hints.forEach((slot: string) => {
-      if (!excerptId) return;
-      rows[slot] = rows[slot] || [];
-      if (!rows[slot].includes(excerptId)) rows[slot].push(excerptId);
-    });
-    return rows;
-  }, {});
+  const computedEvidenceBySlot = sourceSlotEvidenceBySlot(targetExcerpts);
 
   const labelBySlot: Record<string, string> = {
     original_problem: "Problem",

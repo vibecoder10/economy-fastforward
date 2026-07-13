@@ -516,6 +516,35 @@ def _anton_source_slot_hints(text: str) -> set[str]:
     return hints
 
 
+def _distinct_anton_slot_assignment(coverage_by_slot: dict[str, list[str]], required_slots: list[str]) -> dict[str, str]:
+    """Assign each required Anton beat to a different raw excerpt when possible."""
+    ordered_slots = sorted(
+        [slot for slot in required_slots if slot],
+        key=lambda slot: len(coverage_by_slot.get(slot, [])),
+    )
+    assignment: dict[str, str] = {}
+    used_excerpt_ids: set[str] = set()
+
+    def assign(index: int) -> bool:
+        if index >= len(ordered_slots):
+            return True
+        slot = ordered_slots[index]
+        for excerpt_id in coverage_by_slot.get(slot, []):
+            if not excerpt_id or excerpt_id in used_excerpt_ids:
+                continue
+            assignment[slot] = excerpt_id
+            used_excerpt_ids.add(excerpt_id)
+            if assign(index + 1):
+                return True
+            used_excerpt_ids.remove(excerpt_id)
+            assignment.pop(slot, None)
+        return False
+
+    if not assign(0):
+        return {}
+    return {slot: assignment[slot] for slot in required_slots if slot in assignment}
+
+
 def _anton_source_slot_coverage(candidates: list[dict], machine: str = "") -> dict:
     """Summarize raw-source coverage before the card-writing LLM runs."""
     coverage_by_slot: dict[str, list[str]] = {}
@@ -535,12 +564,21 @@ def _anton_source_slot_coverage(candidates: list[dict], machine: str = "") -> di
                 coverage_by_slot.setdefault(slot, [])
                 if excerpt_id not in coverage_by_slot[slot]:
                     coverage_by_slot[slot].append(excerpt_id)
-    required_slots = sorted(_ANTON_REQUIRED_SLOT_ROLES)
+    required_slots = [
+        role for role, _accepted_kinds, _job in _ANTON_SLOT_SPECS
+        if role in _ANTON_REQUIRED_SLOT_ROLES
+    ]
     covered_slots = sorted(slot for slot in coverage_by_slot if slot in _ANTON_REQUIRED_SLOT_ROLES)
+    distinct_assignment = _distinct_anton_slot_assignment(coverage_by_slot, required_slots)
+    distinct_required_excerpts = sorted(set(distinct_assignment.values()))
     return {
         "required_slots": required_slots,
         "covered_slots": covered_slots,
         "missing_slots": sorted(set(required_slots) - set(covered_slots)),
+        "distinct_slot_excerpt_assignment": distinct_assignment,
+        "distinct_slot_excerpt_count": len(distinct_required_excerpts),
+        "distinct_required_excerpt_ids": distinct_required_excerpts,
+        "needs_distinct_slot_excerpts": len(distinct_assignment) < len(required_slots),
         "checked_excerpt_count": checked_excerpt_count,
         "evidence_by_slot": {
             slot: coverage_by_slot.get(slot, [])[:10]
@@ -572,6 +610,11 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
             errors.append(
                 "Verified source package needs exact excerpts plausibly covering Anton slot(s): "
                 + ", ".join(missing_slots)
+            )
+        if not missing_slots and coverage.get("needs_distinct_slot_excerpts"):
+            errors.append(
+                "Verified source package needs distinct raw excerpts for each Anton slot: "
+                + ", ".join(coverage.get("required_slots") or [])
             )
     source_urls = {
         str(item.get("source_url") or "").strip()

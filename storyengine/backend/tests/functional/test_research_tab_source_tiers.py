@@ -100,6 +100,8 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Raw source package missing Anton slots ·" in text
     assert "sourcePackage?.source_slot_coverage?.missing_slots" in text
     assert "antonSourceSlotHints(candidate?.text)" in text
+    assert "needs_distinct_slot_excerpts" in text
+    assert "Raw source package needs distinct Anton excerpts" in text
 
 
 def test_script_voice_tab_blocks_preview_without_authoritative_source():
@@ -141,6 +143,8 @@ def test_research_tab_shows_raw_source_beat_coverage():
     text = _research_tab().read_text()
 
     assert "function sourceSlotCoverageRows" in text
+    assert "function distinctAntonSlotAssignment" in text
+    assert "function sourceSlotEvidenceBySlot" in text
     assert "sourcePackage?.source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text

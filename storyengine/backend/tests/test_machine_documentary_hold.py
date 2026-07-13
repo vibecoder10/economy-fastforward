@@ -280,6 +280,25 @@ def test_verified_source_package_quality_requires_anton_slot_coverage():
     assert "reality" in slot_error
 
 
+def test_verified_source_package_quality_requires_distinct_anton_slot_excerpts():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    package["candidate_excerpts"][0]["text"] = (
+        "Boeing XB-15 was required for a long-range bomber program, built with "
+        "large wing and engine choices, but underpowered, and later served as a "
+        "World War II transport."
+    )
+    for candidate in package["candidate_excerpts"][1:]:
+        candidate["text"] = "Boeing XB-15 archived source row alpha bravo charlie delta."
+
+    coverage = pe._anton_source_slot_coverage(package["candidate_excerpts"], "Boeing XB-15")
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert coverage["missing_slots"] == []
+    assert coverage["needs_distinct_slot_excerpts"] is True
+    assert coverage["distinct_slot_excerpt_assignment"] == {}
+    assert any("distinct raw excerpts for each Anton slot" in error for error in errors)
+
+
 def test_anton_source_slot_coverage_records_excerpt_ids():
     package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
 
@@ -293,6 +312,14 @@ def test_anton_source_slot_coverage_records_excerpt_ids():
         "tradeoff",
     }
     assert coverage["evidence_by_slot"]["original_problem"] == ["S1-E1"]
+    assert coverage["distinct_slot_excerpt_count"] == 4
+    assert coverage["needs_distinct_slot_excerpts"] is False
+    assert coverage["distinct_slot_excerpt_assignment"] == {
+        "original_problem": "S1-E1",
+        "engineering_decision": "S3-E1",
+        "tradeoff": "S4-E1",
+        "reality": "S5-E1",
+    }
     assert "original_problem" in package["candidate_excerpts"][0]["anton_slot_hints"]
 
 
@@ -540,6 +567,8 @@ def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
 
     assert result["passed"] is True
     assert result["source_slot_coverage"]["missing_slots"] == []
+    assert result["source_slot_coverage"]["needs_distinct_slot_excerpts"] is False
+    assert result["source_slot_coverage"]["distinct_slot_excerpt_count"] == 4
     assert set(result["source_slot_coverage"]["covered_slots"]) == {
         "engineering_decision",
         "original_problem",
