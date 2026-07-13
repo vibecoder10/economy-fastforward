@@ -2026,6 +2026,10 @@ def test_story_sentence_parser_marks_alias_keys_for_review():
     assert any("noncanonical key `claims`" in warning for warning in warnings)
     assert any("noncanonical key `throughline`" in warning for warning in warnings)
     assert any("formula_sentences must be an array of strings" in warning for warning in warnings)
+    assert "voiceover" not in bundle
+    assert "sentences" not in bundle
+    assert "claims" not in bundle
+    assert "throughline" not in bundle
 
 
 def test_story_sentence_parser_marks_extra_top_level_keys_for_review():
@@ -2042,6 +2046,8 @@ def test_story_sentence_parser_marks_extra_top_level_keys_for_review():
     assert any("extra top-level key(s) outside the exact Anton schema" in warning for warning in warnings)
     assert any("alternate_conclusion" in warning for warning in warnings)
     assert any("producer_note" in warning for warning in warnings)
+    assert "alternate_conclusion" not in bundle
+    assert "producer_note" not in bundle
 
 
 def test_machine_preview_has_no_deterministic_story_fallback():
@@ -3742,6 +3748,10 @@ def test_target_machine_preview_saves_alias_story_schema_as_review_artifact(monk
         for warning in result["preview"]["warnings"]
     )
     assert result["preview"]["claim_bundle"]["_parse_warnings"]
+    assert "voiceover" not in result["preview"]["claim_bundle"]
+    assert "sentences" not in result["preview"]["claim_bundle"]
+    assert "claims" not in result["preview"]["claim_bundle"]
+    assert "throughline" not in result["preview"]["claim_bundle"]
     validator_check = next(
         check for check in result["preview"]["quality_audit"]["checks"]
         if check["name"] == "validator_warnings"

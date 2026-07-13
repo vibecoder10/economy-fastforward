@@ -1768,7 +1768,14 @@ def _parse_machine_story_sentences(raw: str) -> dict:
                 break
     if parse_warnings:
         parsed["_parse_warnings"] = list(dict.fromkeys(parse_warnings))
-    return parsed
+    sanitized = {
+        key: parsed[key]
+        for key in canonical_keys
+        if key in parsed
+    }
+    if parsed.get("_parse_warnings"):
+        sanitized["_parse_warnings"] = parsed["_parse_warnings"]
+    return sanitized
 
 
 def _anton_narrative_weight_profile(card: dict, evidence: list[dict]) -> dict:
