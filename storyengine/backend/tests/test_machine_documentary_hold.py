@@ -1205,6 +1205,9 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
     assert "EXACT_TEXT: Identity origin claim grounded in the supplied source." in prompt
+    assert "source_url, source_title, locator" in prompt
+    assert "source_url and locator must match" in prompt
+    assert "source_url or locator" not in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt
     assert result["unit_research_hold_validation"]["passed"] is True
@@ -1268,6 +1271,15 @@ def test_research_hold_contract_persists_each_card_and_never_reopens_roster():
     assert "The roster is locked. Do not add, remove, replace, or relitigate machines." in hold
     assert "SET research_payload" in hold
     assert "locked_roster_snapshot" in hold
+
+
+def test_research_card_repair_prompt_requires_source_url_and_locator():
+    source = open(pe.__file__, encoding="utf-8").read()
+    prompt = source[source.index("Repair this ONE-machine research card"):source.index("BAD/RAW CARD")]
+
+    assert "source_url, source_title, locator" in prompt
+    assert "source_url and locator must match" in prompt
+    assert "source_url or locator" not in prompt
 
 
 def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(monkeypatch):
