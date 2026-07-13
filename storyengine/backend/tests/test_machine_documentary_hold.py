@@ -221,6 +221,18 @@ def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
                 "text": f"{machine} {segment['source_excerpt']}",
                 "text_hash": "test",
                 "source_capture_method": "fetched_page",
+                "source_variant_selection": {
+                    "selected_capture_method": "fetched_page",
+                    "selected_variant": {
+                        "source_capture_method": "fetched_page",
+                        "covered_slot_count": 4,
+                        "distinct_slot_excerpt_count": 4,
+                    },
+                    "evaluated_variants": [
+                        {"source_capture_method": "fetched_page", "covered_slot_count": 4},
+                    ],
+                    "selection_rule": "highest Anton-slot coverage; fetched_page wins exact ties",
+                },
             }
             for index, segment in enumerate(segments, start=1)
         ],
@@ -365,6 +377,13 @@ def test_verified_source_package_quality_rejects_single_source_and_caution_only(
     missing_capture_errors = pe._verified_machine_source_package_quality_errors(missing_capture_package)
 
     assert any("without source capture method" in error for error in missing_capture_errors)
+
+    missing_provenance_package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    missing_provenance_package["candidate_excerpts"][0].pop("source_variant_selection")
+
+    missing_provenance_errors = pe._verified_machine_source_package_quality_errors(missing_provenance_package)
+
+    assert any("without source selection provenance" in error for error in missing_provenance_errors)
 
 
 def test_verified_source_package_quality_rejects_tier_four_only_required_slot():

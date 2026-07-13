@@ -641,6 +641,9 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   }
   const allowedCaptureMethods = new Set(["fetched_page", "tavily_raw_content"]);
   const missingCaptureMethodCount = targetExcerpts.filter((candidate: any) => !String(candidate?.source_capture_method || "").trim()).length;
+  const missingSourceProvenanceCount = targetExcerpts.filter((candidate: any) => (
+    !candidate?.source_variant_selection || typeof candidate.source_variant_selection !== "object" || Array.isArray(candidate.source_variant_selection)
+  )).length;
   const unsupportedCaptureMethods = new Set(
     targetExcerpts
       .map((candidate: any) => String(candidate?.source_capture_method || "").trim())
@@ -651,6 +654,9 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   }
   if (unsupportedCaptureMethods.size > 0) {
     return { ready: false, message: `Raw source package unsupported capture · ${Array.from(unsupportedCaptureMethods).join(", ")} · preview blocked` };
+  }
+  if (missingSourceProvenanceCount > 0) {
+    return { ready: false, message: `Raw source package missing provenance · ${missingSourceProvenanceCount} excerpt · preview blocked` };
   }
   if (machine) {
     const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable);

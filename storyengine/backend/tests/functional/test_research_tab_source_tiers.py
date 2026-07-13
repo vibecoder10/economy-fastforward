@@ -148,8 +148,11 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Raw source package needs Tier 1-2 source · preview blocked" in text
     assert "Raw source package missing capture method ·" in text
     assert "Raw source package unsupported capture ·" in text
+    assert "Raw source package missing provenance ·" in text
     assert 'new Set(["fetched_page", "tavily_raw_content"])' in text
     assert "missingCaptureMethodCount > 0" in text
+    assert "missingSourceProvenanceCount > 0" in text
+    assert "candidate?.source_variant_selection" in text
     assert "unsupportedCaptureMethods.size > 0" in text
     assert "Raw source package ready ·" in text
     assert "sourceUrls.size < 2" in text

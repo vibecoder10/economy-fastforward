@@ -826,6 +826,10 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         1 for item in quality_candidates
         if not str(item.get("source_capture_method") or "").strip()
     )
+    missing_source_variant_selection_count = sum(
+        1 for item in quality_candidates
+        if not isinstance(item.get("source_variant_selection"), dict)
+    )
     if len(source_urls) < 2:
         errors.append("Verified source package needs excerpts from at least two distinct source URLs.")
     if not non_caution_urls:
@@ -840,6 +844,10 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         errors.append(
             "Verified source package contains unsupported source capture method(s): "
             + ", ".join(unsupported_capture_methods)
+        )
+    if missing_source_variant_selection_count:
+        errors.append(
+            f"Verified source package has {missing_source_variant_selection_count} exact excerpt(s) without source selection provenance."
         )
     return errors
 
