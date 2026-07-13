@@ -2335,6 +2335,27 @@ def test_story_paragraph_validator_blocks_generic_final_synthesis_language():
     assert final_check["passed"] is False
 
 
+def test_story_paragraph_validator_requires_compressed_anton_final_line():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    sentence_parts = [part for part in bundle["paragraph"].split(". ") if part]
+    old_final = sentence_parts[-1]
+    long_final = (
+        "The original problem and engineering decision survived the tradeoff because "
+        "reality grounded the source claim in the same machine proof again."
+    )
+    bundle["paragraph"] = bundle["paragraph"].replace(old_final, long_final)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    audit = pe._anton_preview_quality_audit("B-52", plan, bundle, bundle["paragraph"], warnings)
+    final_check = next(check for check in audit["checks"] if check["name"] == "landed_final_line")
+
+    assert any("final sentence word count" in warning and "maximum is 18" in warning for warning in warnings)
+    assert final_check["passed"] is False
+
+
 def test_story_paragraph_validator_blocks_claim_mapped_final_synthesis():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -2806,7 +2827,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "4 evidence-backed sentences + 1 paragraph-derived conclusion" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
     assert "both contain that exact numeric detail" in fake_anthropic.prompts[0]
-    assert "final sentence must be 28 words or fewer" in fake_anthropic.prompts[0]
+    assert "final sentence must be 18 words or fewer" in fake_anthropic.prompts[0]
     assert "End with a short verdict" in fake_anthropic.prompts[0]
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
     assert "Do not use ranked-list connectors" in fake_anthropic.prompts[0]
@@ -2835,7 +2856,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[1]
-    assert "28 words or fewer" in fake_anthropic.prompts[1]
+    assert "18 words or fewer" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("You are a source-grounded Anton/DVsU paragraph compiler")
     assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]

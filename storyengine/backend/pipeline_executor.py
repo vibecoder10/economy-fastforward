@@ -136,6 +136,7 @@ _ANTON_PARAGRAPH_TARGET_WORDS = "100-112"
 _ANTON_PARAGRAPH_WORD_RANGE = f"{_ANTON_PARAGRAPH_MIN_WORDS}-{_ANTON_PARAGRAPH_MAX_WORDS}"
 _ANTON_PARAGRAPH_SENTENCE_RANGE = f"{_ANTON_PARAGRAPH_MIN_SENTENCES}-{_ANTON_PARAGRAPH_MAX_SENTENCES}"
 _ANTON_PARAGRAPH_FORMULA = "4 evidence-backed sentences + 1 paragraph-derived conclusion"
+_ANTON_FINAL_SENTENCE_MAX_WORDS = 18
 
 _ANTON_REFERENCE_BENCHMARKS = {
     "XB15": {
@@ -2407,8 +2408,11 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             )
     if sentence_parts:
         last_wc = _spoken_word_count(last_sentence)
-        if last_wc > 28:
-            warnings.append(f"final sentence word count {last_wc} is too long to land cleanly")
+        if last_wc > _ANTON_FINAL_SENTENCE_MAX_WORDS:
+            warnings.append(
+                f"final sentence word count {last_wc} is too long to land cleanly; "
+                f"maximum is {_ANTON_FINAL_SENTENCE_MAX_WORDS}"
+            )
         if re.search(
             r"\b(in conclusion|overall|to summarize|this shows that|those choices|these choices|beyond its own service)\b"
             r"|made\s+(?:the\s+)?(?:machine|aircraft|unit)\s+matter\b",
@@ -5796,7 +5800,7 @@ class PipelineExecutor:
                     "- Do not use ranked-list connectors: Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list. Bridge through problem, contrast, consequence, or the previous machine instead.\n"
                     "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
                     "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
-                    "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
+                    f"- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be {_ANTON_FINAL_SENTENCE_MAX_WORDS} words or fewer and contain no dates, specs, production counts, or new events.\n"
                     "- onscreen_label is metadata only, not narration. It must be empty unless onscreen_label evidence or sourced role/operator/build/date slots support it.\n"
                     "- No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes, hype, or list transitions.\n\n"
                     f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
@@ -5873,7 +5877,7 @@ class PipelineExecutor:
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
                         "Delete every unsupported high-risk term named in the validation warnings unless that exact word appears in the selected source evidence. "
-                        "End with a paragraph-derived Anton-style verdict of 28 words or fewer, not a generic summary, and do not add dates, specs, production counts, or new events there. The rejected draft is hidden; start fresh.\n\n"
+                        f"End with a paragraph-derived Anton-style verdict of {_ANTON_FINAL_SENTENCE_MAX_WORDS} words or fewer, not a generic summary, and do not add dates, specs, production counts, or new events there. The rejected draft is hidden; start fresh.\n\n"
                         f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                     )
                     raw_story = await anthropic_client.generate(

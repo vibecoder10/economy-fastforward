@@ -177,7 +177,7 @@ Validation requires:
 - required Anton evidence slots covered: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - sourced `memorable_fact` used when the story plan provides one
 - sourced `human_detail` used for the first three benchmark machines when the story plan provides one
-- final sentence is a paragraph-derived conclusion, not a researched meaning beat, and is not included in `claim_map`
+- final sentence is a paragraph-derived conclusion, not a researched meaning beat, is not included in `claim_map`, and lands in 18 words or fewer
 - opening assignment is followed; when the assignment says not to open with the machine name, the first sentence cannot start with the locked machine name or designation
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - every unhedged exact number, specification, date, production count, and superlative is supported by two independent evidence IDs that both contain that exact numeric detail, or it is hedged/removed
