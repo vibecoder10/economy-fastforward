@@ -509,6 +509,12 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             "confidence": "high",
         },
     ]
+    for source_id in ("XB15-IDENTITY", "XB15-SCALE", "XB15-BUILD", "XB15-MEMORABLE", "XB15-MEANING"):
+        duplicate = copy.deepcopy(next(item for item in evidence if item["evidence_id"] == source_id))
+        duplicate["evidence_id"] = f"{source_id}-CHECK"
+        duplicate["source_url"] = "https://example.test/xb-15-cross-check"
+        duplicate["source_title"] = "Anton cross-check fixture"
+        evidence.append(duplicate)
     plan = pe._machine_story_plan(
         {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]},
         "Boeing XB-15",
@@ -525,22 +531,22 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             {
                 "slot": "identity_origin",
                 "span": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
-                "used_evidence_ids": ["XB15-IDENTITY"],
+                "used_evidence_ids": ["XB15-IDENTITY", "XB15-IDENTITY-CHECK"],
             },
             {
                 "slot": "scale_specs",
                 "span": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
-                "used_evidence_ids": ["XB15-SCALE"],
+                "used_evidence_ids": ["XB15-SCALE", "XB15-SCALE-CHECK"],
             },
             {
                 "slot": "build_reality",
                 "span": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
-                "used_evidence_ids": ["XB15-BUILD"],
+                "used_evidence_ids": ["XB15-BUILD", "XB15-BUILD-CHECK"],
             },
             {
                 "slot": "memorable_fact",
                 "span": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
-                "used_evidence_ids": ["XB15-MEMORABLE"],
+                "used_evidence_ids": ["XB15-MEMORABLE", "XB15-MEMORABLE-CHECK"],
             },
             {
                 "slot": "service_reality",
@@ -550,7 +556,7 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             {
                 "slot": "historical_meaning",
                 "span": "Though never used in combat as a bomber, the XB-15 clearly validated concepts that would define American strategic aviation for the next eight decades.",
-                "used_evidence_ids": ["XB15-MEANING"],
+                "used_evidence_ids": ["XB15-MEANING", "XB15-MEANING-CHECK"],
             },
         ],
     }
@@ -581,9 +587,14 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
         "source_excerpt": "The Boeing XB-15 scale specs included range of 5,000 mi for the Army Air Corps.",
         "numeric_tokens": ["5000"],
     })
+    scale_check = copy.deepcopy(evidence[2])
+    scale_check["evidence_id"] = "E-SCALE-CHECK"
+    scale_check["source_url"] = "https://example.test/scale-cross-check"
+    evidence.append(scale_check)
     payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]}
     plan = pe._machine_story_plan(payload, "Boeing XB-15")
     bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    bundle["claim_map"][1]["used_evidence_ids"] = ["E-SCALE", "E-SCALE-CHECK"]
     old_span = bundle["claim_map"][1]["span"]
     new_span = old_span.replace("clear.", "clear five thousand miles.", 1)
     bundle["claim_map"][1]["span"] = new_span
@@ -605,6 +616,34 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
     _, bad_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bad_bundle)
 
     assert any("six thousand" in warning for warning in bad_warnings)
+
+
+def test_story_sentence_validator_requires_cross_check_or_hedge_for_risky_numbers():
+    evidence = _evidence_segments()
+    evidence[2].update({
+        "claim": "The Boeing XB-15 scale specs included a 5,000 mi range.",
+        "source_excerpt": "The Boeing XB-15 scale specs included a 5,000 mi range.",
+        "numeric_tokens": ["5000"],
+    })
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    old_span = bundle["claim_map"][1]["span"]
+    unhedged_span = old_span.rstrip(".") + " 5,000 miles."
+    bundle["claim_map"][1]["span"] = unhedged_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, unhedged_span)
+
+    _, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
+
+    assert any("two independent sources" in warning for warning in warnings)
+
+    hedged_bundle = copy.deepcopy(bundle)
+    hedged_bundle["claim_map"][1]["span"] = unhedged_span.replace("5,000", "around 5,000")
+    hedged_bundle["paragraph"] = hedged_bundle["paragraph"].replace("5,000", "around 5,000")
+
+    _, hedged_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, hedged_bundle)
+
+    assert not any("two independent sources" in warning for warning in hedged_warnings)
 
 
 def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
@@ -697,7 +736,9 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"paragraph":"..."' in fake_anthropic.prompts[0]
-    assert "identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning" in fake_anthropic.prompts[0]
+    for required_slot in ["identity_origin", "scale_specs", "build_reality", "service_reality", "historical_meaning"]:
+        assert required_slot in fake_anthropic.prompts[0]
+    assert "service_reality, memorable_fact, and historical_meaning" not in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
     assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]

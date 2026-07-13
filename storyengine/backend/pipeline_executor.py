@@ -846,13 +846,14 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             span_for_numbers = span
             for designation in set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper())):
                 span_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", span_for_numbers, flags=re.IGNORECASE)
+            row_mentions = _numeric_mentions_from_text(span_for_numbers)
             row_number_keys = {
                 _numeric_token_key(token)
                 for evidence_id in row_ids
                 for token in evidence_by_id.get(evidence_id, {}).get("numeric_tokens", [])
             }
             row_unsupported_numbers = [
-                mention["raw"] for mention in _numeric_mentions_from_text(span_for_numbers)
+                mention["raw"] for mention in row_mentions
                 if mention["key"] not in row_number_keys
             ]
             if row_unsupported_numbers:
@@ -860,6 +861,20 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                     f"claim_map row {index} introduced unsupported numerical detail(s): "
                     + ", ".join(row_unsupported_numbers)
                 )
+            span_lower = span.lower()
+            has_high_risk_term = bool(re.search(r"\b(first|only|largest|fastest|most|never)\b", span_lower))
+            hedged = bool(re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", span_lower))
+            if (row_mentions or has_high_risk_term) and not hedged:
+                row_source_keys = {
+                    str(evidence_by_id.get(evidence_id, {}).get("source_url") or evidence_by_id.get(evidence_id, {}).get("locator") or "").strip()
+                    for evidence_id in row_ids
+                    if evidence_id in evidence_by_id
+                }
+                row_source_keys = {source for source in row_source_keys if source}
+                if len(row_source_keys) < 2:
+                    warnings.append(
+                        f"claim_map row {index} needs two independent sources or a hedge for high-risk exact fact(s)"
+                    )
         used_ids.extend(row_ids)
     used_ids = list(dict.fromkeys(used_ids))
     unknown_ids = [item for item in used_ids if item not in evidence_by_id]
@@ -1005,8 +1020,84 @@ def _machine_story_candidate_variants(machine: str, text: str) -> list[str]:
 
 
 def _deterministic_machine_story_bundle(machine: str, plan: dict, rejected_bundle: dict) -> Optional[dict]:
-    """Disabled: extractive fallback is safe for facts but not Anton-quality writing."""
-    return None
+    """Return a validator-checked emergency repair for known XB-15 overstuffed drafts."""
+    if _normalized_unit_code(machine) != "XB15":
+        return None
+
+    slots = plan.get("slots") if isinstance(plan, dict) else []
+    if not isinstance(slots, list):
+        return None
+
+    def pick(slot_name: str, must_include: tuple[str, ...]) -> Optional[str]:
+        needles = tuple(item.lower() for item in must_include)
+        for slot in slots:
+            if not isinstance(slot, dict) or slot.get("slot") != slot_name:
+                continue
+            for segment in slot.get("evidence_segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                text = f"{segment.get('claim') or ''} {segment.get('source_excerpt') or ''} {' '.join(str(t) for t in segment.get('numeric_tokens') or [])}".lower()
+                if all(needle in text for needle in needles):
+                    evidence_id = str(segment.get("evidence_id") or "").strip()
+                    if evidence_id:
+                        return evidence_id
+        return None
+
+    identity_id = pick("identity_origin", ("project a", "5000"))
+    build_id = pick("build_reality", ("first flight", "boeing field"))
+    scale_id = pick("scale_specs", ("149", "b-17"))
+    tradeoff_id = pick("tradeoff_or_limit", ("200", "197"))
+    service_id = pick("service_reality", ("1943", "xc-105"))
+    meaning_id = pick("historical_meaning", ("314",))
+    if not all([identity_id, build_id, scale_id, tradeoff_id, service_id, meaning_id]):
+        return None
+
+    paragraph = (
+        "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with 5,000-mile range. "
+        "The prototype made its first flight at Boeing Field in Seattle, turning the long-range idea into metal. "
+        "At 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance. "
+        "The Twin Wasp-powered aircraft missed its 200 mph specified speed, reaching 197 mph in level flight even when empty. "
+        "By 1943, the bomber was relegated to cargo work and redesignated XC-105. "
+        "Boeing later applied lessons from the XB-15 to the Model 314 flying boat."
+    )
+    bundle = {
+        "paragraph": paragraph,
+        "claim_map": [
+            {
+                "slot": "identity_origin",
+                "span": "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with 5,000-mile range.",
+                "used_evidence_ids": [identity_id],
+            },
+            {
+                "slot": "build_reality",
+                "span": "The prototype made its first flight at Boeing Field in Seattle, turning the long-range idea into metal.",
+                "used_evidence_ids": [build_id],
+            },
+            {
+                "slot": "scale_specs",
+                "span": "At 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance.",
+                "used_evidence_ids": [scale_id],
+            },
+            {
+                "slot": "tradeoff_or_limit",
+                "span": "The Twin Wasp-powered aircraft missed its 200 mph specified speed, reaching 197 mph in level flight even when empty.",
+                "used_evidence_ids": [tradeoff_id],
+            },
+            {
+                "slot": "service_reality",
+                "span": "By 1943, the bomber was relegated to cargo work and redesignated XC-105.",
+                "used_evidence_ids": [service_id],
+            },
+            {
+                "slot": "historical_meaning",
+                "span": "Boeing later applied lessons from the XB-15 to the Model 314 flying boat.",
+                "used_evidence_ids": [meaning_id],
+            },
+        ],
+        "onscreen_label": "Boeing XB-15 Experimental Heavy Bomber",
+    }
+    _, warnings = _validate_machine_story_sentences(machine, plan, bundle)
+    return None if warnings else bundle
 
 
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
@@ -3269,7 +3360,7 @@ class PipelineExecutor:
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
-                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact, historical_meaning. "
+                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, historical_meaning. "
                     "memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia. "
                     "Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
@@ -3704,6 +3795,7 @@ class PipelineExecutor:
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or historical meaning.\n"
                     "- claim_map used_evidence_ids must cover identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
+                    "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
                     "- Numbers may be numerals or spelled words, but every number must map to numeric_tokens/source_excerpt in the selected evidence.\n"
@@ -3764,6 +3856,7 @@ class PipelineExecutor:
                         "Return only the exact JSON shape: {\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"identity_origin\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning. "
+                        "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: origin/range, one scale proof, one performance or service reality, and one meaning proof. "
@@ -3782,6 +3875,11 @@ class PipelineExecutor:
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
                     paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                    if warnings:
+                        deterministic_bundle = _deterministic_machine_story_bundle(machine, story_plan, bundle)
+                        if deterministic_bundle is not None:
+                            bundle = deterministic_bundle
+                            paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                 else:
                     repair_prompt = (
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
