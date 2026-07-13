@@ -38,6 +38,8 @@ Anton's desktop writing standards add two quality locks to this formula:
 
 The first three benchmark profiles are also carried into the StoryEngine story plan as shape-only metadata: reference order, word count, sentence count, opening mode, sentence jobs, and final-line job. For the XB-15 proof, this means the compiler sees `94 words / 5 sentences / machine-date-significance opening` as a rhythm target, but it still may use only the locked source excerpts for facts.
 
+Opening assignments are separate from the shape-only benchmark. Anton's desktop writing standard allows only 4-5 machine-name openings across a full video, so StoryEngine deterministically assigns name-openers to roster slots 1, 6, 11, 16, and 21. All other slots save `contract.opening_assignment` into the machine story plan and the validator rejects a first sentence that starts with the locked machine name or designation. This keeps one-machine calls from all defaulting to the same Wikipedia-style opener.
+
 ## Research Contract
 
 Research runs one locked roster machine at a time. The model may use only fetched raw internet excerpts saved in `machine_raw_source_packages`.
@@ -135,6 +137,7 @@ Validation requires:
 - sourced `memorable_fact` used when the story plan provides one
 - sourced `human_detail` used for the first three benchmark machines when the story plan provides one
 - final sentence is a paragraph-derived conclusion, not a researched meaning beat, and is not included in `claim_map`
+- opening assignment is followed; when the assignment says not to open with the machine name, the first sentence cannot start with the locked machine name or designation
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
 - voice-ready number wording is preferred for years and quantities; designations/model names such as B-52, XB-15, and F-86 remain designations
@@ -142,7 +145,7 @@ Validation requires:
 - unsupported designations, high-risk terms, hype, list transitions, timeline-biography structure, production cues, bracketed notes, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
-The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, opening assignment, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
 
 ## Isolation Rule
 

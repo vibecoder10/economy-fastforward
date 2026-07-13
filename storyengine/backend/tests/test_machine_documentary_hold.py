@@ -52,6 +52,27 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
     })
 
 
+def _problem_opening_story_bundle(machine: str, words_per_sentence: int = 19) -> str:
+    bundle = json.loads(_story_bundle(machine, words_per_sentence))
+    old_span = bundle["claim_map"][0]["span"]
+    new_span = old_span
+    prefix = f"{machine} "
+    if new_span.startswith(prefix):
+        new_span = new_span[len(prefix):]
+        new_span = new_span[:1].upper() + new_span[1:]
+    bundle["claim_map"][0]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span, 1)
+    old_final = "Together, those choices made the machine matter beyond its own service."
+    new_final = f"Together, those choices made the {machine} matter beyond its own service."
+    bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final, 1)
+    while pe._spoken_word_count(bundle["paragraph"]) < 95:
+        old_decision = bundle["claim_map"][1]["span"]
+        new_decision = old_decision.rstrip(".") + " clear."
+        bundle["claim_map"][1]["span"] = new_decision
+        bundle["paragraph"] = bundle["paragraph"].replace(old_decision, new_decision, 1)
+    return json.dumps(bundle)
+
+
 def _evidence_segments() -> list[dict]:
     rows = [
         ("E-PROBLEM", "original_problem", "Original problem claim grounded in the supplied source."),
@@ -887,6 +908,34 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
     assert "E-MEMORABLE" in bundle["claim_map"][3]["used_evidence_ids"]
 
 
+def test_story_paragraph_validator_blocks_forbidden_machine_name_opening():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    plan["contract"] = dict(plan["contract"])
+    plan["contract"]["opening_assignment"] = "Do NOT open with the machine name. Open with a problem or operational need."
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    audit = pe._anton_preview_quality_audit("B-52", plan, bundle, paragraph, warnings)
+
+    assert any("opening assignment forbids machine-name opening" in warning for warning in warnings)
+    opening_check = next(check for check in audit["checks"] if check["name"] == "opening_assignment")
+    assert opening_check["passed"] is False
+    assert opening_check["detail"] == "machine-name opener flagged"
+
+
+def test_story_paragraph_validator_allows_problem_opening_when_assignment_forbids_machine_name():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    plan["contract"] = dict(plan["contract"])
+    plan["contract"]["opening_assignment"] = "Do NOT open with the machine name. Open with a problem or operational need."
+    bundle = pe._parse_machine_story_sentences(_problem_opening_story_bundle("B-52", 19))
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert not any("opening assignment forbids machine-name opening" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_accepts_anton_benchmark_shape():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -966,11 +1015,13 @@ def test_anton_preview_quality_audit_reports_passed_checks():
         "landed_final_line",
         "clean_voiceover",
         "spoken_rhythm",
+        "opening_assignment",
         "not_catalog_copy",
     ]
     assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
     assert next(check for check in audit["checks"] if check["name"] == "clean_voiceover")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "spoken_rhythm")["passed"] is True
+    assert next(check for check in audit["checks"] if check["name"] == "opening_assignment")["passed"] is True
 
 
 def test_anton_preview_quality_audit_flags_voiceover_artifacts():
@@ -1515,6 +1566,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[0]
     assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
+    assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
+    assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
     for required_slot in ["original_problem", "engineering_decision", "tradeoff", "reality"]:
         assert required_slot in fake_anthropic.prompts[0]
     assert "original_problem, engineering_decision, tradeoff, and reality" in fake_anthropic.prompts[0]
@@ -1534,6 +1587,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes" in fake_anthropic.prompts[0]
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
+    assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[1]
+    assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[1]
     assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
     assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
     assert "Vary sentence length for spoken delivery; do not write three long sentences in a row" in fake_anthropic.prompts[1]
@@ -1580,16 +1635,22 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
 
     class FakeAnthropic:
         def __init__(self):
-            self.outputs = [_story_bundle(machine, 19) for machine in roster]
+            self.prompts = []
+            self.outputs = [
+                _story_bundle(roster[0], 19),
+                _problem_opening_story_bundle(roster[1], 19),
+            ]
 
-        async def generate(self, **_kwargs):
+        async def generate(self, **kwargs):
+            self.prompts.append(kwargs["prompt"])
             return self.outputs.pop(0)
 
+    fake_anthropic = FakeAnthropic()
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
     executor.__dict__["_pipeline"] = type(
         "FakePipeline", (),
-        {"anthropic": FakeAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+        {"anthropic": fake_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
     )()
     writes = []
 
@@ -1631,6 +1692,8 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     assert "in conclusion" not in full_script.lower()
     assert "to summarize" not in full_script.lower()
     assert "what have we learned" not in full_script.lower()
+    assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
+    assert "OPENING ASSIGNMENT: Do NOT open with the machine name" in fake_anthropic.prompts[1]
 
 
 def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save(monkeypatch):
@@ -1867,6 +1930,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert reference_check["advisory"] is True
     assert "benchmark 94 words/5 sentences" in reference_check["detail"]
     assert result["preview"]["story_plan"]["reference_benchmark"]["reference_machine"] == "Boeing XB-15"
+    assert result["preview"]["story_plan"]["contract"]["opening_assignment"].startswith("A machine-name opening is allowed")
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
     saved_brief_rows = [(query, args) for query, args in writes if "machine_script_briefs" in query]
     saved_plan_rows = [(query, args) for query, args in writes if "machine_story_plans" in query]
@@ -1882,6 +1946,8 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "reference_benchmark" in fake_anthropic.prompts[0]
     assert "Do not copy or infer unsourced facts from it" in fake_anthropic.prompts[0]
+    assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
+    assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
     assert "If the plan provides a human_detail slot for one of the first three benchmark machines" in fake_anthropic.prompts[0]
 
 

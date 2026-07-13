@@ -391,6 +391,46 @@ def _mentions_machine(text: str, machine: str) -> bool:
     return False
 
 
+def _paragraph_opens_with_machine_name(paragraph: str, machine: str) -> bool:
+    import re as _re
+
+    sentence_parts = [
+        part.strip()
+        for part in _re.split(r"(?<=[.!?])\s+", str(paragraph or "").strip())
+        if part.strip()
+    ]
+    if not sentence_parts:
+        return False
+    first_sentence = sentence_parts[0]
+    machine_text = _unit_display_name(machine)
+    terms = [machine_text]
+    code = _unit_code(machine_text)
+    if code:
+        terms.extend([code, code.replace("-", "")])
+    terms.extend(_re.findall(r"\b[A-Z]{1,4}-?\d{1,4}[A-Z]?\b", machine_text.upper()))
+    for term in dict.fromkeys(item for item in terms if str(item or "").strip()):
+        pieces = _re.findall(r"[A-Za-z0-9]+", str(term))
+        if not pieces:
+            continue
+        pattern = (
+            r"^[\"'(\[]*\s*(?:the\s+)?"
+            + r"[\s.\-']*".join(_re.escape(piece) for piece in pieces)
+            + r"s?(?:\b|[^A-Za-z0-9])"
+        )
+        if _re.search(pattern, first_sentence, flags=_re.IGNORECASE):
+            return True
+    return False
+
+
+def _opening_assignment_warnings(machine: str, paragraph: str, opening_assignment: str) -> list[str]:
+    assignment = str(opening_assignment or "").strip().lower()
+    if "do not open with the machine name" not in assignment:
+        return []
+    if _paragraph_opens_with_machine_name(paragraph, machine):
+        return ["opening assignment forbids machine-name opening"]
+    return []
+
+
 def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -> list[str]:
     import re as _re
 
@@ -1195,6 +1235,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     if not paragraph:
         return "", ["story distiller must return a paragraph string"]
+    opening_assignment = str(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("opening_assignment") or "")
+    warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_assignment))
 
     editorial_thesis = " ".join(str(bundle.get("editorial_thesis") or "").split())
     if not editorial_thesis:
@@ -1548,6 +1590,9 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
     rhythm_warnings = [
         "three consecutive long sentences",
     ]
+    opening_warnings = [
+        "opening assignment forbids machine-name opening",
+    ]
     catalog_warnings = [
         "wikipedia-style",
         "list/spec-dump",
@@ -1618,6 +1663,12 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "Spoken rhythm",
             not any(token in warning_text for token in rhythm_warnings),
             "varied sentence lengths" if not any(token in warning_text for token in rhythm_warnings) else "three long sentences in a row",
+        ),
+        check(
+            "opening_assignment",
+            "Opening assignment",
+            not any(token in warning_text for token in opening_warnings),
+            "matched" if not any(token in warning_text for token in opening_warnings) else "machine-name opener flagged",
         ),
         check(
             "not_catalog_copy",
@@ -4567,7 +4618,9 @@ class PipelineExecutor:
             story_plan = None
             bundle = None
             if complete_inventory_mode:
-                story_plan = _machine_story_plan(rp, machine)
+                story_plan = dict(_machine_story_plan(rp, machine))
+                story_plan["contract"] = dict(story_plan.get("contract") or {})
+                story_plan["contract"]["opening_assignment"] = opening_brief
                 machine_artifact_key = _verified_source_cache_key(machine)
                 plan_errors = list(story_plan.get("evidence_errors") or [])
                 missing_slots = [
@@ -4623,7 +4676,8 @@ class PipelineExecutor:
                     f"VIDEO TITLE: {title}\n"
                     f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
                     f"PREVIOUS MACHINE: {prev_machine}\n"
-                    f"NEXT MACHINE: {next_machine}\n\n"
+                    f"NEXT MACHINE: {next_machine}\n"
+                    f"OPENING ASSIGNMENT: {opening_brief}\n\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
                     "The target movement is four evidence-backed sentences from original_problem, engineering_decision, tradeoff, and reality, then one paragraph-derived conclusion.\n\n"
                     "HARD CONTRACT:\n"
@@ -4631,6 +4685,7 @@ class PipelineExecutor:
                     '{"editorial_thesis":"single engineering decision or contrast","paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
                     f"- paragraph must be final spoken narration: exactly one paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences.\n"
+                    "- Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
                     f"- Target {_ANTON_PARAGRAPH_TARGET_WORDS} words. If you are above 112 words, remove the least important sourced detail instead of compressing more facts. Concise prototype entries may land below 100 only when all evidence beats are complete.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
@@ -4697,15 +4752,18 @@ class PipelineExecutor:
                 )
                 paragraph = self._clean_static_unit_paragraph(paragraph)
                 warnings = self._validate_static_unit_paragraph(machine, paragraph)
+                warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
 
             if warnings:
                 if complete_inventory_mode:
                     repair_prompt = (
                         "REBUILD THE ANTON-STYLE PARAGRAPH JSON FROM THE SAME LOCKED STORY PLAN.\n\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
+                        f"OPENING ASSIGNMENT: {opening_brief}\n\n"
                         "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
                         f"Write exactly one paragraph, target {_ANTON_PARAGRAPH_TARGET_WORDS} words, absolute range {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. "
+                        "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
@@ -4737,8 +4795,9 @@ class PipelineExecutor:
                     repair_prompt = (
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
+                        f"OPENING ASSIGNMENT: {opening_brief}\n\n"
                         f"Return exactly ONE spoken paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS} and cut any result above {_ANTON_PARAGRAPH_MAX_WORDS}. "
-                        "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
+                        "Follow OPENING ASSIGNMENT exactly. No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
                         "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
                         "Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality. "
                         "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
@@ -4753,6 +4812,7 @@ class PipelineExecutor:
                     )
                     paragraph = self._clean_static_unit_paragraph(paragraph)
                     warnings = self._validate_static_unit_paragraph(machine, paragraph)
+                    warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
 
             quality_audit = _anton_preview_quality_audit(
                 machine,
