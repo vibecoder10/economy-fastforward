@@ -901,11 +901,32 @@ def _span_has_high_risk_exact_fact(span: str, machine: str) -> bool:
     return bool(re.search(r"\b(first|only|largest|fastest|most|never)\b", lowered))
 
 
+def _capitalize_sentence_starts(text: str) -> str:
+    return re.sub(
+        r"(^|[.!?]\s+)([a-z])",
+        lambda match: match.group(1) + match.group(2).upper(),
+        str(text or ""),
+    )
+
+
+def _remove_unsupported_never_clause(text: str) -> str:
+    updated = str(text or "")
+    updated = re.sub(
+        r"\b(?:it|the aircraft|the bomber|the machine|the prototype)\s+never saw combat,\s*yet\s*",
+        "",
+        updated,
+        flags=re.IGNORECASE,
+    )
+    updated = re.sub(r"\bnever saw combat,\s*yet\s*", "", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bnever\b", "did not", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\s+([,.;:!?])", r"\1", updated)
+    updated = re.sub(r"\s{2,}", " ", updated).strip()
+    return _capitalize_sentence_starts(updated)
+
+
 def _soften_single_source_span(span: str, machine: str) -> str:
     """Make single-source exact claims less brittle without adding facts."""
-    updated = str(span or "")
-    updated = re.sub(r"\b(?:it|the aircraft|the machine)\s+never saw combat,\s*yet\s*", "", updated, flags=re.IGNORECASE)
-    updated = re.sub(r"\bnever saw combat,\s*yet\s*", "", updated, flags=re.IGNORECASE)
+    updated = _remove_unsupported_never_clause(str(span or ""))
     updated = re.sub(r"\bOnly one\b", "A single", updated)
     updated = re.sub(r"\bonly one\b", "a single", updated, flags=re.IGNORECASE)
     updated = re.sub(r"\bA single was built\b", "A single example was built", updated)
@@ -1024,6 +1045,30 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
                     repaired_paragraph = repaired_paragraph.replace(span, softened, 1)
                     repaired["span"] = softened
         repaired_rows.append(repaired)
+
+    all_evidence_text = " ".join(
+        f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        for segment in evidence_by_id.values()
+    ).lower()
+    if re.search(r"\bnever\b", repaired_paragraph.lower()) and not re.search(r"\bnever\b", all_evidence_text):
+        cleaned_paragraph = _remove_unsupported_never_clause(repaired_paragraph)
+        if cleaned_paragraph != repaired_paragraph:
+            cleaned_rows: list[dict] = []
+            for row in repaired_rows:
+                if not isinstance(row, dict):
+                    cleaned_rows.append(row)
+                    continue
+                span = " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split())
+                if span and re.search(r"\bnever\b", span.lower()):
+                    cleaned_span = _remove_unsupported_never_clause(span)
+                    if cleaned_span and cleaned_span in cleaned_paragraph:
+                        row = dict(row)
+                        row["span"] = cleaned_span
+                        cleaned_rows.append(row)
+                    continue
+                cleaned_rows.append(row)
+            repaired_rows = cleaned_rows
+            repaired_paragraph = cleaned_paragraph
 
     repaired_bundle = dict(bundle)
     repaired_bundle["paragraph"] = repaired_paragraph
