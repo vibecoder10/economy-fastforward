@@ -5004,6 +5004,92 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert saved_cards[2]["unit"] == "Boeing B-52 Stratofortress"
 
 
+def test_run_one_machine_research_refuses_non_roster_machine_before_hold(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Strategic Bomber Ever Built",
+            "render_mode": "static_docu",
+            "status": "ready_for_research_review",
+            "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": roster_names},
+        }
+
+    async def forbidden_research_hold(*_args, **_kwargs):
+        raise AssertionError("non-roster machine must stop before research hold")
+
+    async def forbidden_execute(*_args, **_kwargs):
+        raise AssertionError("non-roster machine must not perform a final save")
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", forbidden_research_hold)
+    monkeypatch.setattr(pe, "execute", forbidden_execute)
+
+    result = asyncio.run(
+        executor.run_one_machine_research("video-test", "Boeing B-52 Stratofortress")
+    )
+
+    assert result["status"] == "failed"
+    assert result["error"] == "Machine is not in the locked roster: Boeing B-52 Stratofortress"
+
+
+def test_run_one_machine_research_canonicalizes_label_to_locked_roster(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    payload = {
+        "unit_roster": roster_names,
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): {
+                "machine": "Boeing XB-15",
+                "candidate_excerpts": [{"excerpt_id": "S1-E1", "text": "Boeing XB-15 raw source excerpt."}],
+            },
+        },
+        "unit_research_hold_validation": {
+            "passed": False,
+            "target_machine": "Boeing XB-15",
+            "target_machine_passed": False,
+            "units": [{"machine": "Boeing XB-15", "passed": False, "warnings": ["research card missing Anton slots"]}],
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    calls = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Strategic Bomber Ever Built",
+            "render_mode": "static_docu",
+            "status": "ready_for_research_review",
+            "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": roster_names},
+        }
+
+    async def fake_research_hold(video_id, title, current_payload, roster, target_machine=None):
+        calls.append((video_id, title, current_payload, roster, target_machine))
+        return payload
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_research_hold)
+
+    result = asyncio.run(
+        executor.run_one_machine_research("video-test", "XB-15 — Boeing XB-15")
+    )
+
+    assert result["status"] == "needs_review"
+    assert result["machine"] == "Boeing XB-15"
+    assert calls[0][3] == roster_names
+    assert calls[0][4] == "Boeing XB-15"
+    assert "research card missing Anton slots" in result["error"]
+
+
 def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(monkeypatch):
     roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
     card = {"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}
