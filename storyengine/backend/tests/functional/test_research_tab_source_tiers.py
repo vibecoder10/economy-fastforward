@@ -262,6 +262,10 @@ def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
     text = _research_tab().read_text()
 
     assert "selectedPreviewClaimMap" in text
+    assert "selectedPreviewFormulaSentences" in text
+    assert "selectedPreviewFormulaRows" in text
+    assert "Sentence assembly" in text
+    assert '["problem", "decision", "tradeoff", "reality"][index] : "conclusion"' in text
     assert "selectedPreviewEvidenceById" in text
     assert "Editorial thesis" in text
     assert "selectedMachinePreview.claim_bundle?.editorial_thesis" in text

@@ -940,6 +940,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map
     : [];
+  const selectedPreviewFormulaSentences = Array.isArray(selectedMachinePreview?.claim_bundle?.formula_sentences)
+    ? selectedMachinePreview.claim_bundle.formula_sentences
+    : [];
 
   const selectedPreviewEvidenceById = useMemo(() => {
     const rows: Record<string, {
@@ -979,6 +982,31 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     }
     return rows;
   }, [selectedMachinePreview?.story_plan, selectedSourcePackage]);
+  const selectedPreviewFormulaRows = selectedPreviewFormulaSentences.map((sentence: string, index: number) => {
+    const expectedSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
+    const expectedSlot = expectedSlots[index] || "conclusion";
+    const claimRows = index < expectedSlots.length
+      ? selectedPreviewClaimMap.filter((row: any) => {
+          const span = String(row?.span || "").trim();
+          const slot = String(row?.slot || "").trim();
+          return slot === expectedSlot || (span && (span === sentence || sentence.includes(span) || span.includes(sentence)));
+        })
+      : [];
+    const evidenceIds = Array.from(new Set(
+      claimRows.flatMap((row: any) => {
+        if (Array.isArray(row?.used_evidence_ids)) return row.used_evidence_ids;
+        if (Array.isArray(row?.evidence_ids)) return row.evidence_ids;
+        return [];
+      }).map((id: any) => String(id || "").trim()).filter(Boolean)
+    ));
+    const evidenceRows = evidenceIds.map((id) => ({ id, evidence: selectedPreviewEvidenceById[id] }));
+    return {
+      sentence,
+      slot: expectedSlot,
+      label: index < expectedSlots.length ? ["problem", "decision", "tradeoff", "reality"][index] : "conclusion",
+      evidenceRows,
+    };
+  });
 
   const selectedPreviewSlots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
     ? (selectedMachinePreview?.story_plan as any).slots
@@ -1288,6 +1316,35 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   ) : (
                     <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                       Preview stopped before a paragraph was generated.
+                    </div>
+                  )}
+
+                  {selectedPreviewFormulaRows.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                        <ShieldCheck size={12} />
+                        Sentence assembly
+                      </div>
+                      {selectedPreviewFormulaRows.map((row, index) => (
+                        <div key={`selected-formula-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
+                          <span className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: index < 4 ? "var(--turquoise)" : "var(--orange)", background: index < 4 ? "rgba(79,214,198,.1)" : "rgba(255,120,73,.1)" }}>
+                            {row.label}
+                          </span>
+                          <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.sentence}</p>
+                          {row.evidenceRows.length > 0 && (
+                            <div className="mt-2 space-y-2">
+                              {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
+                                <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
+                                  <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
+                                  </p>
+                                  {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
 

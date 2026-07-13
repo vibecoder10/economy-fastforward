@@ -175,6 +175,10 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     text = _script_voice_tab().read_text()
 
     assert "previewEvidenceById" in text
+    assert "previewFormulaSentences" in text
+    assert "previewFormulaRows" in text
+    assert "Sentence assembly" in text
+    assert '["problem", "decision", "tradeoff", "reality"][index] : "conclusion"' in text
     assert "Editorial thesis" in text
     assert "machinePreview.claim_bundle?.editorial_thesis" in text
     assert "Anton quality audit" in text

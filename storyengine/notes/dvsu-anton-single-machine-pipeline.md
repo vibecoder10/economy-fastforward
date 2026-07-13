@@ -140,7 +140,7 @@ When a selected evidence segment validates against a fetched raw candidate, the 
 
 After a selected-machine research or preview run, the UI invalidates the saved video state so the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` can be reviewed without relying on a manual browser refresh.
 
-The Script/Voice single-machine preview displays the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
+The Research and Script/Voice single-machine preview panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
 
 ## Script Contract
 
