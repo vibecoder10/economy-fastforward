@@ -131,9 +131,11 @@ _ANTON_PARAGRAPH_MIN_WORDS = 95
 _ANTON_PARAGRAPH_MAX_WORDS = 120
 _ANTON_PARAGRAPH_MIN_SENTENCES = 4
 _ANTON_PARAGRAPH_MAX_SENTENCES = 7
+_ANTON_PARAGRAPH_FORMULA_SENTENCES = 5
 _ANTON_PARAGRAPH_TARGET_WORDS = "100-112"
 _ANTON_PARAGRAPH_WORD_RANGE = f"{_ANTON_PARAGRAPH_MIN_WORDS}-{_ANTON_PARAGRAPH_MAX_WORDS}"
 _ANTON_PARAGRAPH_SENTENCE_RANGE = f"{_ANTON_PARAGRAPH_MIN_SENTENCES}-{_ANTON_PARAGRAPH_MAX_SENTENCES}"
+_ANTON_PARAGRAPH_FORMULA = "4 evidence-backed sentences + 1 paragraph-derived conclusion"
 
 _ANTON_REFERENCE_BENCHMARKS = {
     "XB15": {
@@ -1249,8 +1251,9 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "required_slots": sorted(_ANTON_REQUIRED_SLOT_ROLES),
         "evidence_slot_roles": role_by_id,
         "contract": {
-            "paragraph_shape": f"one Anton/DVsU paragraph, {_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences",
+            "paragraph_shape": f"one Anton/DVsU paragraph, {_ANTON_PARAGRAPH_FORMULA_SENTENCES} natural formula sentences",
             "movement": "raw original problem -> raw engineering decision -> raw tradeoff -> raw reality -> short paragraph-derived conclusion",
+            "sentence_formula": _ANTON_PARAGRAPH_FORMULA,
             "paragraph_words": _ANTON_PARAGRAPH_WORD_RANGE,
             "narrative_weight": narrative_weight,
             "maximum_numerical_details": 8,
@@ -1732,9 +1735,14 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append(
             f"paragraph sentence count {sentence_count} outside Anton {_ANTON_PARAGRAPH_SENTENCE_RANGE} range"
         )
+    if sentence_count != _ANTON_PARAGRAPH_FORMULA_SENTENCES:
+        warnings.append(
+            f"paragraph must follow Anton formula: {_ANTON_PARAGRAPH_FORMULA} ({_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences)"
+        )
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
     last_sentence = sentence_parts[-1] if sentence_parts else ""
     final_sentence_index = len(sentence_parts)
+    formula_roles = ["original_problem", "engineering_decision", "tradeoff", "reality"]
     for sentence_index, sentence in enumerate(sentence_parts, start=1):
         sentence_claim_spans = [
             detail for detail in claim_span_details
@@ -1746,6 +1754,15 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             if sentence_index != final_sentence_index:
                 warnings.append(f"sentence {sentence_index} is not covered by claim_map evidence")
             continue
+        if sentence_count == _ANTON_PARAGRAPH_FORMULA_SENTENCES and sentence_index <= len(formula_roles):
+            sentence_roles = {
+                role
+                for detail in sentence_claim_spans
+                for role in detail.get("roles", set())
+            }
+            expected_role = formula_roles[sentence_index - 1]
+            if expected_role not in sentence_roles:
+                warnings.append(f"sentence {sentence_index} must carry {expected_role} evidence in Anton formula order")
         sentence_for_numbers = sentence
         for designation in designation_tokens:
             sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", sentence_for_numbers, flags=re.IGNORECASE)
@@ -1925,9 +1942,9 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         ),
         check(
             "sentence_shape",
-            f"{_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences",
-            _ANTON_PARAGRAPH_MIN_SENTENCES <= len(sentence_parts) <= _ANTON_PARAGRAPH_MAX_SENTENCES,
-            f"{len(sentence_parts)} sentences",
+            f"{_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula sentences",
+            len(sentence_parts) == _ANTON_PARAGRAPH_FORMULA_SENTENCES,
+            f"{len(sentence_parts)} sentences; {_ANTON_PARAGRAPH_FORMULA}",
         ),
         check(
             "four_evidence_beats",
@@ -4948,7 +4965,7 @@ class PipelineExecutor:
                     "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
                     f"- NARRATIVE WEIGHT: {narrative_weight.get('label')}; target {narrative_target_words} words inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} validator. {narrative_guidance}\n"
                     "- Before writing, silently rank the Anton slots. Keep the details needed to explain: original problem, engineering decision, tradeoff, and reality. Omit everything else.\n"
-                    f"- Use {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
+                    f"- Use exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences: original_problem, engineering_decision, tradeoff, reality, then a paragraph-derived conclusion. Each sentence should do one clear job, not carry a list.\n"
                     "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, or historical meaning understandable.\n"
                     "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural Anton micro-hook, not a manufactured twist.\n"
                     "- Do not inventory every dimension, engine, payload, speed, range, date, crew feature, and legacy field. Select the 2-4 technical facts that prove the decision, tradeoff, or reality.\n"
@@ -4969,7 +4986,7 @@ class PipelineExecutor:
                     "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
                     "Write a short Anton micro-story, not a compressed fact sheet and not a miniature engineering essay. "
                     "Silently cherry-pick only the details needed for one clear narrative: problem, decision, tradeoff, reality, and a paragraph-derived landing line. Omission is a feature. "
-                    f"Use the NARRATIVE WEIGHT target while staying inside {_ANTON_PARAGRAPH_WORD_RANGE} words and {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. Use no more than six factual story beats. Never list research-card fields. "
+                    f"Use the NARRATIVE WEIGHT target while staying inside {_ANTON_PARAGRAPH_WORD_RANGE} words and exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences. Use the formula: {_ANTON_PARAGRAPH_FORMULA}. Never list research-card fields. "
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
                     "Use a sourced memorable_fact when the story plan provides one, but merge it into the strongest required beat instead of adding trivia. "
                     "The final line must land as a verdict, paradox, irony, or reversal; brevity decides which secondary facts to cut, not whether the paragraph has a point. "
@@ -5050,7 +5067,7 @@ class PipelineExecutor:
                     "- Return only valid JSON with this exact shape: "
                     '{"editorial_thesis":"single engineering decision or contrast","paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
-                    f"- paragraph must be final spoken narration: exactly one paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences.\n"
+                    f"- paragraph must be final spoken narration: exactly one paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words, exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} natural sentences following {_ANTON_PARAGRAPH_FORMULA}.\n"
                     "- Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
                     "- Follow NARRATIVE WEIGHT as the target inside the hard range: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. Do not pad with orphan facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
@@ -5130,7 +5147,7 @@ class PipelineExecutor:
                         f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
                         "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
-                        f"Write exactly one paragraph inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} word range and {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. Follow NARRATIVE WEIGHT as the target: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. "
+                        f"Write exactly one paragraph inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} word range and exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences following {_ANTON_PARAGRAPH_FORMULA}. Follow NARRATIVE WEIGHT as the target: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "

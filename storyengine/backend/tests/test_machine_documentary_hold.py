@@ -937,6 +937,8 @@ def test_story_plan_locks_research_into_anton_slots():
     assert plan["contract"]["maximum_numerical_details"] == 8
     assert plan["contract"]["narrative_weight"]["label"] == "standard"
     assert plan["contract"]["narrative_weight"]["target_words"] == "100-112"
+    assert plan["contract"]["paragraph_shape"] == "one Anton/DVsU paragraph, 5 natural formula sentences"
+    assert plan["contract"]["sentence_formula"] == "4 evidence-backed sentences + 1 paragraph-derived conclusion"
     assert "engineering decision" in plan["contract"]["movement"]
     assert "single engineering decision" in plan["contract"]["editorial_thesis"]
     assert "memorable_fact" in plan["contract"]["memorable_fact_rule"]
@@ -1109,9 +1111,7 @@ def test_story_paragraph_validator_accepts_anton_benchmark_shape():
         "B-52 original problem claim grounded in the supplied source.",
         "Engineering decision claim grounded in the supplied source.",
         "Tradeoff claim grounded in the supplied source.",
-        "Reality claim grounded in the supplied source.",
-        "Memorable fact claim grounded in the supplied source.",
-        "Together, those choices made the machine matter beyond its own service.",
+        "Reality claim grounded in the supplied source and memorable fact claim grounded in the supplied source.",
         "The price was written into the design itself.",
     ]
     while pe._spoken_word_count(" ".join(sentences)) < 116:
@@ -1121,13 +1121,45 @@ def test_story_paragraph_validator_accepts_anton_benchmark_shape():
         {"slot": "original_problem", "span": sentences[0], "used_evidence_ids": ["E-PROBLEM"]},
         {"slot": "engineering_decision", "span": sentences[1], "used_evidence_ids": ["E-DECISION"]},
         {"slot": "tradeoff", "span": sentences[2], "used_evidence_ids": ["E-TRADEOFF"]},
-        {"slot": "reality", "span": " ".join(sentences[3:6]), "used_evidence_ids": ["E-REALITY", "E-MEMORABLE"]},
+        {"slot": "reality", "span": sentences[3], "used_evidence_ids": ["E-REALITY", "E-MEMORABLE"]},
     ]
 
     paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
     assert warnings == []
     assert pe._spoken_word_count(paragraph) == 116
+
+
+def test_story_paragraph_validator_requires_five_sentence_formula_order():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    extra_sentence_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    old_final = "Together, those choices made the machine matter beyond its own service."
+    extra_sentence = "Memorable fact claim grounded in the supplied source."
+    extra_sentence_bundle["paragraph"] = extra_sentence_bundle["paragraph"].replace(
+        old_final,
+        extra_sentence + " " + old_final,
+    )
+    extra_sentence_bundle["claim_map"].append({
+        "slot": "memorable_fact",
+        "span": extra_sentence,
+        "used_evidence_ids": ["E-MEMORABLE"],
+    })
+
+    _paragraph, extra_warnings = pe._validate_machine_story_sentences("B-52", plan, extra_sentence_bundle)
+
+    assert any("paragraph must follow Anton formula" in warning for warning in extra_warnings)
+
+    wrong_order_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    wrong_order_bundle["claim_map"][0]["slot"] = "engineering_decision"
+    wrong_order_bundle["claim_map"][0]["used_evidence_ids"] = ["E-DECISION"]
+    wrong_order_bundle["claim_map"][1]["slot"] = "original_problem"
+    wrong_order_bundle["claim_map"][1]["used_evidence_ids"] = ["E-PROBLEM"]
+
+    _paragraph, order_warnings = pe._validate_machine_story_sentences("B-52", plan, wrong_order_bundle)
+
+    assert any("sentence 1 must carry original_problem evidence" in warning for warning in order_warnings)
+    assert any("sentence 2 must carry engineering_decision evidence" in warning for warning in order_warnings)
 
 
 def test_story_paragraph_validator_requires_available_memorable_fact():
@@ -1801,7 +1833,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
-    assert "95-120 words, 4-7 natural sentences" in fake_anthropic.prompts[0]
+    assert "95-120 words, exactly 5 natural sentences" in fake_anthropic.prompts[0]
+    assert "4 evidence-backed sentences + 1 paragraph-derived conclusion" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
     assert "final sentence must be 28 words or fewer" in fake_anthropic.prompts[0]
     assert "End with a short verdict" in fake_anthropic.prompts[0]

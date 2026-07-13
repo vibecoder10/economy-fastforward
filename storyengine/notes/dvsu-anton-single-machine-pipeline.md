@@ -19,7 +19,7 @@
 5. Editorial thesis: the single engineering decision, tradeoff, or contrast that tells the writer why these facts belong together.
 6. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
 
-The paragraph is one natural 95-120 word unit for this proof, matching Anton's current DVsU writing and voiceover standards. The extracted XB-15 benchmark paragraph remains shape-only reference metadata; it can guide rhythm, sentence jobs, and final-line job, but it no longer lowers the hard production floor. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
+The paragraph is one natural 95-120 word unit for this proof, matching Anton's current DVsU writing and voiceover standards. The hard compiler formula is five sentences: four evidence-backed sentences in `original_problem -> engineering_decision -> tradeoff -> reality` order, followed by one paragraph-derived conclusion. The extracted XB-15 benchmark paragraph remains shape-only reference metadata; it can guide rhythm, sentence jobs, and final-line job, but it no longer lowers the hard production floor. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
 Anton's desktop writing standards add these quality locks to this formula:
 
@@ -142,7 +142,7 @@ The script preview writer returns JSON:
 
 Validation requires:
 
-- one paragraph, 95-120 words, 4-7 sentences
+- one paragraph, 95-120 words, exactly five formula sentences
 - narrative weight target followed inside that hard range: major machines closer to 120 words, transitional machines closer to 95 words, with no padding
 - locked machine designation present
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
@@ -159,7 +159,7 @@ Validation requires:
 - unsupported designations, high-risk terms, hype, ranked-list connectors, timeline-biography structure, production cues, bracketed notes, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
-The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, opening assignment, narrative weight, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, five formula sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, opening assignment, narrative weight, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
 
 ## Isolation Rule
 
