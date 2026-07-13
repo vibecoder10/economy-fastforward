@@ -1539,6 +1539,12 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "final sentence must not introduce",
         "final sentence ends on",
     ]
+    voiceover_clean_warnings = [
+        "production cue/label",
+        "bracketed production note",
+        "meta/commentary",
+        "must be exactly one paragraph",
+    ]
     catalog_warnings = [
         "wikipedia-style",
         "list/spec-dump",
@@ -1596,6 +1602,12 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "Landed final line",
             bool(sentence_parts) and not any(token in warning_text for token in final_line_warnings),
             sentence_parts[-1] if sentence_parts else "missing final sentence",
+        ),
+        check(
+            "clean_voiceover",
+            "Clean voiceover only",
+            not any(token in warning_text for token in voiceover_clean_warnings),
+            "clean" if not any(token in warning_text for token in voiceover_clean_warnings) else "production/meta artifact flagged",
         ),
         check(
             "not_catalog_copy",
@@ -4314,6 +4326,14 @@ class PipelineExecutor:
         )
         if any(re.search(pattern, lower) for pattern in meta_patterns):
             warnings.append("contains meta/commentary instead of narration")
+        production_patterns = (
+            r"^\s*(?:act|unit)\s+(?:[ivx]+|\d+)\b",
+            r"\b(?:b-roll|visual cue|image prompt|thumbnail|graphics list|producer file|on-screen text|onscreen text)\b",
+        )
+        if any(re.search(pattern, lower) for pattern in production_patterns):
+            warnings.append("contains production cue/label instead of clean voiceover narration")
+        if re.search(r"\[[^\]]+\]", text):
+            warnings.append("contains bracketed production note instead of clean voiceover narration")
         if any(term in lower for term in (
             "one of the greatest", "one of the most incredible", "arguably the greatest",
             "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
@@ -4598,7 +4618,7 @@ class PipelineExecutor:
                     "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
                     "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
                     "- onscreen_label is metadata only, not narration. It must be empty unless onscreen_label evidence or sourced role/operator/build/date slots support it.\n"
-                    "- No citations, headings, markdown, commentary, hype, or list transitions.\n\n"
+                    "- No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes, hype, or list transitions.\n\n"
                     f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                 )
                 raw_story = await anthropic_client.generate(
@@ -4620,7 +4640,7 @@ class PipelineExecutor:
                     f"NEXT MACHINE: {next_machine}\n\n"
                     "HARD CONTRACT:\n"
                     f"- Return exactly ONE paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS}.\n"
-                    "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, or JSON.\n"
+                    "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, JSON, b-roll cues, thumbnail lines, or bracketed production notes.\n"
                     "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
                     f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
                     "- Include the locked machine designation/name naturally.\n"
@@ -4657,6 +4677,7 @@ class PipelineExecutor:
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "
+                        "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. "
                         "Remove written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition. "
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
@@ -4677,7 +4698,7 @@ class PipelineExecutor:
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         f"Return exactly ONE spoken paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS} and cut any result above {_ANTON_PARAGRAPH_MAX_WORDS}. "
-                        "No markdown/labels. Include the locked designation/name. Use only the same research source. "
+                        "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
                         "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
                         "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this research source.\n\n"
                         f"RESEARCH SOURCE:\n{research_source}"

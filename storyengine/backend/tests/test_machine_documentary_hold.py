@@ -660,6 +660,18 @@ def test_static_validator_blocks_anton_forbidden_ai_patterns():
     assert any("written-language connector" in warning for warning in validate("B-52", written_connector))
 
 
+def test_static_validator_blocks_voiceover_file_artifacts():
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+
+    unit_label = "UNIT 1: " + _words("B-52", 95)
+    bracket_note = _words("B-52", 50) + " [B-ROLL: archival ground shot] " + _words("B-52", 45)
+    thumbnail_line = _words("B-52", 95) + " THUMBNAIL: B-52 / B-21."
+
+    assert any("production cue/label" in warning for warning in validate("B-52", unit_label))
+    assert any("bracketed production note" in warning for warning in validate("B-52", bracket_note))
+    assert any("production cue/label" in warning for warning in validate("B-52", thumbnail_line))
+
+
 def test_card_matching_never_confuses_prefix_designations():
     payload = {"unit_research_cards": [{"unit": "B-21", "engineering_thesis": "wrong machine"}]}
     assert pe._research_card_for_machine(payload, "B-2") is None
@@ -918,9 +930,31 @@ def test_anton_preview_quality_audit_reports_passed_checks():
         "memorable_fact",
         "editorial_thesis",
         "landed_final_line",
+        "clean_voiceover",
         "not_catalog_copy",
     ]
     assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
+    assert next(check for check in audit["checks"] if check["name"] == "clean_voiceover")["passed"] is True
+
+
+def test_anton_preview_quality_audit_flags_voiceover_artifacts():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    paragraph, _warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit(
+        "B-52",
+        plan,
+        bundle,
+        paragraph,
+        ["contains production cue/label instead of clean voiceover narration"],
+    )
+    voiceover_check = next(check for check in audit["checks"] if check["name"] == "clean_voiceover")
+
+    assert audit["passed"] is False
+    assert voiceover_check["passed"] is False
+    assert voiceover_check["detail"] == "production/meta artifact flagged"
 
 
 def test_first_three_anton_audit_reports_human_detail_advisory():
@@ -1419,9 +1453,11 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
     assert "Prefer voice-ready spoken number words" in fake_anthropic.prompts[0]
     assert "Keep designations/model names like B-52, XB-15, and F-86 as designations" in fake_anthropic.prompts[0]
+    assert "No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes" in fake_anthropic.prompts[0]
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
     assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
+    assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
