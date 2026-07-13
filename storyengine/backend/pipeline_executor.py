@@ -399,6 +399,44 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
     return warnings
 
 
+def _clamp_card_excerpts_to_verified_sources(card: dict, package: Optional[dict]) -> dict:
+    """Replace model-trimmed excerpts with the exact verified candidate row."""
+    if not isinstance(card, dict) or not _verified_machine_source_package_ready(package):
+        return card
+    candidates = [
+        item for item in (package or {}).get("candidate_excerpts", [])
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    if not candidates:
+        return card
+    by_locator = {
+        str(candidate.get("locator") or candidate.get("excerpt_id") or "").strip(): candidate
+        for candidate in candidates
+    }
+    for segment in card.get("evidence_segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        locator = str(segment.get("locator") or "").strip()
+        source_url = str(segment.get("source_url") or "").strip()
+        candidate = by_locator.get(locator)
+        if candidate is None and locator:
+            candidate = next(
+                (
+                    item for item in candidates
+                    if str(item.get("excerpt_id") or "").strip() in locator
+                    and (not source_url or str(item.get("source_url") or "").strip() == source_url)
+                ),
+                None,
+            )
+        if candidate is None:
+            continue
+        segment["source_excerpt"] = str(candidate.get("text") or "").strip()
+        segment["source_url"] = str(candidate.get("source_url") or segment.get("source_url") or "").strip()
+        segment["source_title"] = str(candidate.get("source_title") or segment.get("source_title") or "").strip()
+        segment["locator"] = str(candidate.get("locator") or locator).strip()
+    return card
+
+
 def _inventory_story_brief(payload: dict, machine: str) -> dict:
     """Hide exhaustive card fields from the complete-inventory writer."""
     import re
@@ -3356,6 +3394,7 @@ class PipelineExecutor:
                     import re as _re_uh
                     text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
                 card = _hydrate_compatibility_fields(_json_uh.loads(text))
+                card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
                 warnings = _card_warnings(machine, card)
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
@@ -3390,6 +3429,7 @@ class PipelineExecutor:
                         import re as _re_uh2
                         text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
                     card = _hydrate_compatibility_fields(_json_uh.loads(text))
+                    card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
                     warnings = _card_warnings(machine, card)
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
