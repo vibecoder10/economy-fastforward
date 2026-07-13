@@ -3595,10 +3595,16 @@ class PipelineExecutor:
                 title_text = str(item.get("title") or url).strip()
                 fetched_text = await self._fetch_source_text(client, url)
                 raw_content = str(item.get("raw_content") or "")
-                source_text = fetched_text or raw_content
+                source_text = ""
+                capture_method = ""
+                if fetched_text and _mentions_machine(fetched_text, machine):
+                    source_text = fetched_text
+                    capture_method = "fetched_page"
+                elif raw_content and _mentions_machine(raw_content, machine):
+                    source_text = raw_content
+                    capture_method = "tavily_raw_content"
                 if not source_text or not _mentions_machine(source_text, machine):
                     continue
-                capture_method = "fetched_page" if fetched_text else "tavily_raw_content"
                 source_id = f"S{len(sources) + 1}"
                 source_hash = _source_text_fingerprint(source_text)
                 source_tier = _source_tier_for_url(url, title_text)

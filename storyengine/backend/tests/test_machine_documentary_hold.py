@@ -500,6 +500,66 @@ def test_source_gathering_tags_tavily_raw_content_fallback(monkeypatch):
     assert "Boeing XB-15" in result["candidate_excerpts"][0]["text"]
 
 
+def test_source_gathering_uses_raw_content_when_direct_fetch_misses_machine(monkeypatch):
+    import httpx
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "results": [
+                    {
+                        "url": "https://example.test/page-shell",
+                        "title": "Page shell with raw content",
+                        "raw_content": (
+                            "Boeing XB-15 came from a requirement for long-range bombing. "
+                            "Boeing XB-15 used a large wing and four engines as the design answer. "
+                            "Boeing XB-15 was underpowered for the intended bomber role. "
+                            "Boeing XB-15 later served as a World War II transport."
+                        ),
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_fetch_source_text(_client, _url):
+        return "Cookie banner and navigation text without the locked aircraft."
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(executor, "_fetch_source_text", fake_fetch_source_text)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    assert result["sources"][0]["source_capture_method"] == "tavily_raw_content"
+    assert result["candidate_excerpts"][0]["source_capture_method"] == "tavily_raw_content"
+    assert "Cookie banner" not in result["candidate_excerpts"][0]["text"]
+    assert "Boeing XB-15 came from a requirement" in result["candidate_excerpts"][0]["text"]
+
+
 def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
     import httpx
 
