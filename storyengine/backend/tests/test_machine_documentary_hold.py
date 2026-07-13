@@ -5541,6 +5541,19 @@ def test_research_card_hydration_never_uses_meaning_as_paragraph_rationale():
     assert 'why_this_unit_deserves_a_paragraph", by_kind.get("legacy")' not in hydrate
 
 
+def test_story_compiler_prompt_does_not_request_meaning_beat():
+    source = open(pe.__file__, encoding="utf-8").read()
+    compiler = source[
+        source.index("FORMAT MODE: COMPLETE INVENTORY MICRO-STORY")
+        :source.index("REBUILD THE ANTON-STYLE PARAGRAPH JSON")
+    ]
+
+    assert "historical meaning understandable" not in compiler
+    assert "engineering meaning" not in compiler
+    assert "service consequence, or final contrast" in compiler
+    assert "facts serve the engineering argument" in compiler
+
+
 def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(monkeypatch):
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-a"
