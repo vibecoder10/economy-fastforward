@@ -716,6 +716,21 @@ def test_story_paragraph_validator_requires_sentence_numbers_inside_claim_map_sp
     assert not any("paragraph introduced unsupported numerical detail" in warning for warning in warnings)
 
 
+def test_story_paragraph_validator_blocks_unsupported_factual_words_in_claim_span():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    old_span = bundle["claim_map"][0]["span"]
+    new_span = old_span.rstrip(".") + " with a pressurized cockpit."
+    bundle["claim_map"][0]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("unsupported factual word(s)" in warning for warning in warnings)
+    assert any("pressurized" in warning and "cockpit" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     evidence = [
         {

@@ -805,6 +805,56 @@ def _unit_word_variants_from_evidence(text: str) -> set[str]:
     return variants
 
 
+def _grounding_stem(token: str) -> str:
+    for suffix in ("ingly", "edly", "ing", "ed", "es", "s"):
+        if token.endswith(suffix) and len(token) > len(suffix) + 3:
+            return token[:-len(suffix)]
+    return token
+
+
+def _ungrounded_factual_words(text: str, evidence_text: str, machine: str, *, extra_stopwords: Optional[set[str]] = None) -> list[str]:
+    """Return non-glue words in text that are not supported by selected evidence."""
+    import re
+
+    stopwords = {
+        "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by", "can", "could", "did", "do",
+        "does", "for", "from", "had", "has", "have", "having", "if", "in", "into", "is", "it", "its", "made",
+        "make", "more", "not", "of", "on", "only", "or", "own", "so", "than", "that", "the", "their", "then",
+        "there", "these", "this", "those", "through", "to", "was", "were", "which", "while", "with", "without",
+        "would", "yet",
+        # Connector and compression words are allowed; nouns, design claims,
+        # specs, places, and outcomes still need to appear in the evidence.
+        "about", "across", "after", "against", "around", "before", "behind", "between", "beyond", "during",
+        "inside", "less", "rather", "same", "together",
+        "choice", "choices", "claim", "clear", "decision", "engineering", "grounded", "machine", "matter",
+        "mattered", "service", "source", "supplied",
+    } | _NUMBER_WORD_VOCABULARY | _unit_word_variants_from_evidence(evidence_text)
+    if extra_stopwords:
+        stopwords |= extra_stopwords
+
+    evidence_vocab = {_grounding_stem(token) for token in re.findall(r"[a-z]+", evidence_text.lower())}
+    machine_vocab = {_grounding_stem(token) for token in re.findall(r"[a-z]+", machine.lower())}
+
+    def _grounded(stem: str) -> bool:
+        if stem in evidence_vocab or stem in machine_vocab:
+            return True
+        return len(stem) >= 5 and any(
+            len(candidate) >= 5 and (candidate.startswith(stem) or stem.startswith(candidate))
+            for candidate in evidence_vocab
+        )
+
+    ungrounded: list[str] = []
+    seen: set[str] = set()
+    for raw_token in re.findall(r"[a-z]+", str(text or "").lower()):
+        stem = _grounding_stem(raw_token)
+        if raw_token in stopwords or stem in stopwords or _grounded(stem):
+            continue
+        if raw_token not in seen:
+            ungrounded.append(raw_token)
+            seen.add(raw_token)
+    return ungrounded
+
+
 def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], list[str]]:
     """Validate atomic, source-addressable evidence for one locked machine."""
     import re
@@ -850,14 +900,8 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             "while", "with", "without", "would", "yet",
         } | _NUMBER_WORD_VOCABULARY | _unit_word_variants_from_evidence(excerpt)
 
-        def _evidence_stem(token: str) -> str:
-            for suffix in ("ingly", "edly", "ing", "ed", "es", "s"):
-                if token.endswith(suffix) and len(token) > len(suffix) + 3:
-                    return token[:-len(suffix)]
-            return token
-
-        excerpt_vocab = {_evidence_stem(token) for token in re.findall(r"[a-z]+", excerpt.lower())}
-        machine_vocab = {_evidence_stem(token) for token in re.findall(r"[a-z]+", machine.lower())}
+        excerpt_vocab = {_grounding_stem(token) for token in re.findall(r"[a-z]+", excerpt.lower())}
+        machine_vocab = {_grounding_stem(token) for token in re.findall(r"[a-z]+", machine.lower())}
 
         def _grounded_word(stem: str) -> bool:
             if stem in excerpt_vocab or stem in machine_vocab:
@@ -870,7 +914,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         ungrounded_words = sorted({
             stem
             for raw_token in re.findall(r"[a-z]+", claim.lower())
-            for stem in [_evidence_stem(raw_token)]
+            for stem in [_grounding_stem(raw_token)]
             if raw_token not in grounding_stopwords and not _grounded_word(stem)
         })
         if ungrounded_words:
@@ -1089,6 +1133,18 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             for designation in designation_tokens:
                 span_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", span_for_numbers, flags=re.IGNORECASE)
             row_mentions = _numeric_mentions_from_text(span_for_numbers)
+            row_evidence_text = " ".join(
+                f"{evidence_by_id.get(evidence_id, {}).get('claim', '')} {evidence_by_id.get(evidence_id, {}).get('source_excerpt', '')}"
+                for evidence_id in row_ids
+                if evidence_id in evidence_by_id
+            )
+            if row_evidence_text:
+                unsupported_words = _ungrounded_factual_words(span, row_evidence_text, machine)
+                if unsupported_words:
+                    warnings.append(
+                        f"claim_map row {index} introduced unsupported factual word(s): "
+                        + ", ".join(unsupported_words[:10])
+                    )
             span_number_keys = {mention["key"] for mention in row_mentions}
             row_number_keys = {
                 _numeric_token_key(token)
