@@ -1848,6 +1848,37 @@ def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
     assert "production/service reality present" in spoken_number_check["detail"]
 
 
+def test_anton_preview_quality_audit_applies_benchmark_cadence_to_first_three_bombers():
+    examples = {
+        "Boeing B-17 Flying Fortress": (
+            "Boeing B-17 Flying Fortress became the daylight precision bomber America trusted over Europe. "
+            "Its seventy-four-foot length, four engines, four thousand five hundred pounds of bombs, and two thousand-mile reach made that doctrine measurable. "
+            "Crews believed thirteen machine guns could defend formations without fighter escort. "
+            "Boeing built twelve thousand seven hundred thirty-one aircraft, while the Eighth Air Force lost four thousand seven hundred thirty-five over Europe. "
+            "The B-17 proved the doctrine could work, but only at a price crews paid."
+        ),
+        "Consolidated B-24 Liberator": (
+            "Consolidated B-24 Liberator answered the wartime need for range, efficiency, and mass production. "
+            "Its one hundred ten-foot wingspan, Davis wing, eight thousand-pound bomb load, and two thousand one hundred-mile reach made output useful across oceans. "
+            "That efficient wing gave range, but crews found the airplane less forgiving than the B-17. "
+            "American factories produced eighteen thousand four hundred eighty-two Liberators, and the aircraft served from Ploesti to the Atlantic. "
+            "The B-24 turned industrial scale into the bomber argument."
+        ),
+    }
+
+    for machine, paragraph in examples.items():
+        plan = pe._machine_story_plan(
+            {"unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()}]},
+            machine,
+        )
+        audit = pe._anton_preview_quality_audit(machine, plan, {}, paragraph, [])
+        cadence_check = next(check for check in audit["checks"] if check["name"] == "benchmark_cadence")
+
+        assert cadence_check["passed"] is True
+        assert "scale/capability present" in cadence_check["detail"]
+        assert "production/service reality present" in cadence_check["detail"]
+
+
 def test_first_three_anton_audit_reports_human_detail_advisory():
     payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "Boeing XB-15")
