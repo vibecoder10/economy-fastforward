@@ -1472,6 +1472,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 <ShieldCheck size={12} />
                 {selectedResearchStatusMessage}
               </div>
+              {!selectedResearchReady && (
+                <div className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  Research refresh required before preview.
+                </div>
+              )}
               {selectedSourcePackage && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {selectedSourceCoverageRows.map((row) => (

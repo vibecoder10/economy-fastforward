@@ -2252,6 +2252,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               <ShieldCheck size={12} />
               {activePreviewStatusMessage}
             </div>
+            {!activePreviewReady && (
+              <div className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                Research refresh required before preview.
+              </div>
+            )}
             {activePreviewSourcePackage && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {activePreviewSourceCoverageRows.map((row) => (

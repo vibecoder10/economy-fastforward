@@ -124,6 +124,7 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
     assert "Raw source package Tier 4-only Anton slots ·" in text
     assert "activePreviewSourcePackageStatus.message" in text
+    assert "Research refresh required before preview." in text
 
 
 def test_script_voice_research_gate_counts_only_verified_cards():
