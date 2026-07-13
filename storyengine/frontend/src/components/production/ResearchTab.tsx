@@ -403,7 +403,15 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     : [];
 
   const selectedPreviewEvidenceById = useMemo(() => {
-    const rows: Record<string, { slot?: string; claim?: string; source_title?: string; source_tier?: string }> = {};
+    const rows: Record<string, {
+      slot?: string;
+      claim?: string;
+      source_excerpt?: string;
+      source_title?: string;
+      source_url?: string;
+      locator?: string;
+      source_tier?: string;
+    }> = {};
     const slots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
       ? (selectedMachinePreview?.story_plan as any).slots
       : [];
@@ -416,7 +424,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         rows[id] = {
           slot: slotName,
           claim: String(segment?.claim || ""),
+          source_excerpt: String(segment?.source_excerpt || ""),
           source_title: String(segment?.source_title || ""),
+          source_url: String(segment?.source_url || ""),
+          locator: String(segment?.locator || ""),
           source_tier: sourceTierForEvidence(segment, selectedSourcePackage)?.label,
         };
       }
@@ -729,13 +740,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                         const evidenceIds = Array.isArray(row.used_evidence_ids)
                           ? row.used_evidence_ids
                           : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
-                        const sources = evidenceIds
-                          .map((id: string) => {
-                            const evidence = selectedPreviewEvidenceById[id];
-                            if (!evidence) return id;
-                            return [evidence.source_title || id, evidence.source_tier].filter(Boolean).join(" · ");
-                          })
-                          .filter(Boolean);
+                        const evidenceRows = evidenceIds
+                          .map((id: string) => ({ id, evidence: selectedPreviewEvidenceById[id] }))
+                          .filter((item: { id: string; evidence?: any }) => item.id);
                         return (
                           <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
                             <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -743,7 +750,19 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                               <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{evidenceIds.join(", ")}</span>
                             </div>
                             {row.span && <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>}
-                            {sources.length > 0 && <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>{sources.join(" · ")}</p>}
+                            {evidenceRows.length > 0 && (
+                              <div className="mt-2 space-y-2">
+                                {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
+                                  <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
+                                    <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                      {[evidence?.source_title || id, evidence?.source_tier, evidence?.locator].filter(Boolean).join(" · ")}
+                                    </p>
+                                    {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
+                                    {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         );
                       })}

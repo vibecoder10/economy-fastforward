@@ -49,3 +49,14 @@ def test_research_tab_surfaces_tier_badges_and_labels():
     assert "sourceTier?.label" in text
     assert "source_tier_label" in text
     assert "source_tier" in text
+
+
+def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
+    text = _research_tab().read_text()
+
+    assert "selectedPreviewClaimMap" in text
+    assert "selectedPreviewEvidenceById" in text
+    assert "source_excerpt: String(segment?.source_excerpt" in text
+    assert "evidence?.claim" in text
+    assert "evidence?.source_excerpt" in text
+    assert "evidenceRows.map" in text
