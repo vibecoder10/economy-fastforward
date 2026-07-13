@@ -424,6 +424,26 @@ def test_required_anton_slots_accept_authoritative_source_support():
     assert warnings == []
 
 
+def test_paragraph_worth_rejects_unsupported_numbers_and_designations():
+    segments = _evidence_segments()
+    segments[0]["claim"] = "Boeing XB-15 original problem involved range and payload requirements."
+    segments[0]["source_excerpt"] = "Boeing XB-15 original problem involved range and payload requirements."
+    segments[0]["numeric_tokens"] = []
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    card = {
+        "unit": "Boeing XB-15",
+        "why_this_unit_deserves_a_paragraph": (
+            "Boeing XB-15 proves how a 1939 range problem created a B-29 replacement path."
+        ),
+        "evidence_segments": segments,
+    }
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("why_this_unit_deserves_a_paragraph introduced unsupported numerical detail(s): 1939" in warning for warning in warnings)
+    assert any("why_this_unit_deserves_a_paragraph introduced unsupported designation(s): B29" in warning for warning in warnings)
+
+
 def test_verified_source_validation_requires_matching_locator():
     segments = _evidence_segments()
     package = _verified_package_for_segments("Boeing XB-15", segments)
@@ -2737,6 +2757,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "source_url or locator" not in prompt
     assert "why_this_unit_deserves_a_paragraph must state the unique engineering idea" in prompt
     assert "no other roster machine could replace it" in prompt
+    assert "may not introduce dates, numbers, other machine designations" in prompt
     assert "Optional key: narrative_weight with one of major, standard, or transitional" in prompt
     assert "Use major for pivotal machines" in prompt
     assert "memorable_fact should be returned when the verified excerpts support" in prompt

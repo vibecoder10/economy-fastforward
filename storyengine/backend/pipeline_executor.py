@@ -771,6 +771,68 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
             warnings.append(
                 f"required Anton slot {role} uses only Tier 4/caution sources: {evidence_ids}"
             )
+    machine = _unit_display_name(
+        (card or {}).get("unit")
+        or (card or {}).get("machine")
+        or (card or {}).get("name")
+        or (card or {}).get("designation")
+        or (package or {}).get("machine")
+        or ""
+    )
+    rationale = " ".join(str((card or {}).get("why_this_unit_deserves_a_paragraph") or "").split())
+    if rationale:
+        rationale_for_numbers = rationale
+        for designation in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()):
+            rationale_for_numbers = re.sub(
+                rf"\b{re.escape(designation)}(?:s)?\b",
+                "",
+                rationale_for_numbers,
+                flags=re.IGNORECASE,
+            )
+        rationale_numbers = _numeric_mentions_from_text(rationale_for_numbers)
+        evidence_segments = (card.get("evidence_segments") if isinstance(card, dict) else []) or []
+        allowed_number_keys = {
+            _numeric_token_key(token)
+            for segment in evidence_segments
+            if isinstance(segment, dict)
+            for token in (
+                list(segment.get("numeric_tokens") if isinstance(segment.get("numeric_tokens"), list) else [])
+                + _numeric_tokens_from_text(segment.get("source_excerpt") or "")
+            )
+        }
+        unsupported_numbers = [
+            mention["raw"] for mention in rationale_numbers
+            if mention["key"] not in allowed_number_keys
+        ]
+        if unsupported_numbers:
+            warnings.append(
+                "why_this_unit_deserves_a_paragraph introduced unsupported numerical detail(s): "
+                + ", ".join(unsupported_numbers)
+            )
+
+        allowed_designations = {_normalized_unit_code(machine)}
+        evidence_text = " ".join(
+            f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+            for segment in evidence_segments
+            if isinstance(segment, dict)
+        )
+        allowed_designations.update(
+            _normalized_unit_code(token)
+            for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", evidence_text.upper())
+        )
+        rationale_designations = {
+            _normalized_unit_code(token)
+            for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", rationale.upper())
+        }
+        unsupported_designations = sorted(
+            token for token in rationale_designations
+            if token and token not in allowed_designations
+        )
+        if unsupported_designations:
+            warnings.append(
+                "why_this_unit_deserves_a_paragraph introduced unsupported designation(s): "
+                + ", ".join(unsupported_designations)
+            )
     return warnings
 
 
@@ -4248,6 +4310,7 @@ class PipelineExecutor:
                 "- Return ONLY valid JSON. No markdown.\n\n"
                 "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
                 "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it. Do not say it mattered, was famous, or deserves a paragraph.\n"
+                "why_this_unit_deserves_a_paragraph may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence_segments.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
@@ -4301,6 +4364,7 @@ class PipelineExecutor:
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it; do not use generic fame/importance wording. "
+                    "It may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence_segments. "
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
