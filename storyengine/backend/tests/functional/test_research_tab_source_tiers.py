@@ -49,6 +49,12 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "function sourcePackageReady" in text
     assert "function sourcePackageStatus" in text
     assert "function textMentionsMachine" in text
+    assert "function designationCodes" in text
+    assert "function designationCodeMatches" in text
+    assert "designationCodeMatches(code, targetCode)" in text
+    assert "B-2 must not match B-21" in text
+    assert "compactBody.includes(targetCode)" not in text
+    assert "targetLower.match(/[a-z]{3,}/g)" in text
     assert "rawExcerpts.filter((candidate: any) => String(candidate?.text || \"\").trim())" in text
     assert "targetExcerpts.length < 6" in text
     assert "function sourceTierNumber" in text

@@ -56,6 +56,8 @@ New source packages accept excerpt text only from a direct fetched page/PDF or T
 
 Cached raw source packages are reused only when their saved `machine_key`/`machine` identity still matches the locked target machine. A package stored under the right JSON key but internally belonging to another machine is ignored for research and rejected for script preview before any paid script call.
 
+UI source-package excerpt matching uses exact designation tokens plus letter suffixes only. A `B-52H` excerpt may count for a locked `B-52` family machine, but compact substring matches are forbidden, so `B-2` never borrows `B-21` excerpts and `B-1` never borrows `B-10` excerpts.
+
 A successful selected-machine research pass sets `unit_research_hold_validation.target_machine_passed`, but it does not set the full `unit_research_hold_validation.passed` flag unless the entire locked roster is complete. UI progress and incomplete-research messages likewise count only cards that have a matching ready raw source package, so older legacy cards cannot make the new one-machine proof appear complete.
 
 The Script/Voice calibration panel may show the single-machine preview control once at least one machine has a verified card and ready raw source package. That does not unblock full script generation; it only lets the operator preview the selected machine paragraph before paying to continue the roster.

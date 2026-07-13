@@ -43,18 +43,32 @@ function normalizedUnitCode(text: string): string {
   return unitCode(text).replace(/[^A-Z0-9]/g, "");
 }
 
+function designationCodes(text: unknown): Set<string> {
+  const body = String(text || "").toUpperCase().replace(/[–—]/g, "-");
+  const matches = body.match(/\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b|\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b/g) || [];
+  return new Set(matches.map((item) => item.replace(/[^A-Z0-9]/g, "")));
+}
+
+function designationCodeMatches(candidateCode: string, targetCode: string): boolean {
+  if (!candidateCode || !targetCode) return false;
+  if (candidateCode === targetCode) return true;
+  const suffix = candidateCode.startsWith(targetCode) ? candidateCode.slice(targetCode.length) : "";
+  return Boolean(suffix && /^[A-Z]+$/.test(suffix));
+}
+
 function textMentionsMachine(text: unknown, machine: string): boolean {
   const body = String(text || "");
   const target = String(machine || "").trim();
   if (!body || !target) return false;
-  const compactBody = body.toUpperCase().replace(/[–—]/g, "-").replace(/[^A-Z0-9]/g, "");
   const targetCode = normalizedUnitCode(target);
-  if (targetCode && compactBody.includes(targetCode)) return true;
+  const bodyCodes = designationCodes(body);
+  // Exact designation tokens and letter suffixes only: B-2 must not match B-21.
+  if (targetCode && Array.from(bodyCodes).some((code) => designationCodeMatches(code, targetCode))) return true;
   const bodyLower = body.toLowerCase();
   const targetLower = target.toLowerCase();
-  if (bodyLower.includes(targetLower)) return true;
+  if (targetLower.length >= 8 && bodyLower.includes(targetLower)) return true;
   const genericMakers = new Set(["boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin"]);
-  return (targetLower.match(/[a-z][a-z0-9-]{2,}/g) || [])
+  return (targetLower.match(/[a-z]{3,}/g) || [])
     .some((word) => !genericMakers.has(word) && bodyLower.includes(word));
 }
 
