@@ -707,6 +707,78 @@ def test_script_hold_refuses_missing_machine_card_before_touching_scripts(monkey
     assert writes == [], "missing card must fail before deleting or inserting scripts"
 
 
+def test_target_machine_preview_filters_unrelated_loaded_cards(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
+    xb15_card = {
+        "unit": "Boeing XB-15",
+        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
+        "surprising_fact": "XB-15 source-grounded fact.",
+        "source_notes": ["xb15-source"],
+        "evidence_segments": _evidence_segments(),
+    }
+    b17_card = {
+        "unit": "Boeing B-17 Flying Fortress",
+        "engineering_thesis": "B-17 SHOULD NOT LEAK INTO XB-15 PREVIEW",
+        "surprising_fact": "B-17 SHOULD NOT LEAK INTO XB-15 PREVIEW",
+        "source_notes": ["b17-source"],
+        "evidence_segments": _evidence_segments(),
+    }
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {"unit_roster": roster, "unit_research_cards": [xb15_card]},
+    }
+
+    class FakeAnthropic:
+        def __init__(self):
+            self.prompts = []
+
+        async def generate(self, **kwargs):
+            self.prompts.append(kwargs["prompt"])
+            return _story_bundle("Boeing XB-15", 19)
+
+    fake_anthropic = FakeAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": fake_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    load_calls = []
+
+    async def fake_load(video_id, payload, roster_arg, target_machine=None):
+        load_calls.append((video_id, roster_arg, target_machine))
+        loaded = dict(payload)
+        loaded["unit_research_cards"] = [xb15_card, b17_card]
+        return loaded
+
+    async def fake_execute(*_args, **_kwargs):
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold(
+            "video-test", video, roster, target_machine="Boeing XB-15"
+        )
+    )
+
+    assert result["preview"]["passed"] is True
+    assert load_calls == [("video-test", roster, "Boeing XB-15")]
+    assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
+    assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
+    assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
+
+
 def test_script_generation_exception_preserves_existing_script_rows(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {

@@ -1,17 +1,20 @@
 # Task Tracking
 
-## Handoff — 2026-07-12 (DVsU one-machine research proof)
+## Handoff — 2026-07-13 (DVsU Anton one-machine pipeline)
 
 Current DVsU bomber proof state:
 
 - `fc73860c-a9af-444f-95a5-7f86d60503e0` has a locked 23-machine roster.
-- `Boeing XB-15` one-machine research is live in StoryEngine and passed: verified raw source package only under `machine_raw_source_packages.XB15`, 5 sources, 23 candidate excerpts, 4 evidence beats (`design_problem`, `engineering_response`, `tradeoff`, `operational_reality`), compact row validation passed.
-- UI/backend path exists: Research tab `Research selected` → `/api/pipeline/machine-research-one/{video_id}`. Bulk missing-card generation is disabled for hallucination safety.
-- The next gate is one-machine script preview via `/api/pipeline/machine-script-preview/{video_id}`. First live attempt reached Anthropic but failed with "credit balance is too low"; this is a provider billing/key blocker, not a research or script-plan validation failure.
-- Hotfix added: machine script preview exceptions now humanize Anthropic/Claude out-of-credit errors instead of surfacing a generic 500.
-- Follow-up hotfix added: the script-preview parser canonicalizes Claude's alternate `evidence`, top-level beat-key, and `paragraph_derived_sentence` JSON shapes before strict validation, the route returns a 400 when a preview saves as failed instead of returning `200 completed` with an empty paragraph, and the story-distiller now runs under a strict JSON compiler system prompt with literal source vocabulary, exact locked machine name, and no spelled-out number conversions.
+- The old four-beat evidence-sentence preview shape is intentionally retired. It was fact-safe but visibly unlike Anton.
+- Current StoryEngine machine research cards use Anton schema-v3 evidence slots: required `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `historical_meaning`; optional `engineering_intent`, `role_category`, `combat_reality`, `tradeoff_or_limit`, `transition_hook`, `onscreen_label`.
+- Current StoryEngine machine script preview expects one 95-120 word paragraph plus `claim_map` spans. Validation checks exact span presence, required slot coverage, per-span/paragraph number support, unsupported designations, high-risk terms, sentence count, final-line length, and static DVsU paragraph rules.
+- The deterministic extractive fallback is disabled. If the model cannot produce an Anton-quality claim-mapped paragraph after repair, the preview must fail for review instead of saving safe filler.
+- Target-machine preview now filters the hydrated compact/legacy card set back to only the requested machine before building the story plan, so other roster cards are not loaded into the proof prompt.
+- Local no-spend proof passed with real fetched XB-15 sources from Boeing Images, National Museum of the USAF, and Pacific Wrecks: 99 words, no research-card errors, no validator warnings.
+- VPS read-only check: backend service is active and running from checkout `e288cec8`; the DB still has the old saved XB-15 preview marked `passed=false`, `word_count=122`, with warnings for too many numbers, overlong final sentence, high-risk terms, and word count. This is good: the system is not treating the old preview as acceptable.
+- New note/spec file: `storyengine/notes/dvsu-anton-single-machine-pipeline.md` maps Anton desktop materials, the first three Strategic Bomber paragraphs, the research slot contract, script JSON contract, and isolation rule.
 
-Next safe action: add credits/update the tenant Anthropic key in StoryEngine Settings, then rerun only the `Boeing XB-15` machine script preview. Do not run the full roster script until that preview passes Ryan's quality bar.
+Next safe action: after Ryan approves a paid Anthropic preview rerun, run only `/api/pipeline/machine-script-preview/{video_id}` for `Boeing XB-15` through the StoryEngine UI/API. Do not run the full roster script until that preview passes Ryan's quality bar.
 
 ## Handoff — 2026-06-22 (chat-first creative producer)
 
