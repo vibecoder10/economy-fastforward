@@ -479,6 +479,97 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
     assert any("six thousand" in warning for warning in bad_warnings)
 
 
+def test_deterministic_story_bundle_recovers_overlong_grounded_xb15_draft():
+    evidence = [
+        {
+            "evidence_id": "XB15-DP-01",
+            "kind": "design_problem",
+            "claim": "Project A began in mid-1933 as USAAC discussions regarding the possibility of flying a very large bomber with a range of 5,000 mi.",
+            "source_excerpt": "The specification that produced the XB-15 began in mid-1933 as Project A, USAAC discussions regarding the possibility of flying a very large bomber with a range of 5,000 mi (8,000 km).",
+            "source_url": "https://example.test/xb-15",
+            "source_title": "Test source",
+            "locator": "S1-E1",
+            "numeric_tokens": ["1933", "5000", "8000"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB15-ER-01",
+            "kind": "engineering_response",
+            "claim": "The XB-15 pioneered unusual features including an autopilot, deicing equipment, and two gasoline generators used as auxiliary power units to power the 110-volt electrical system.",
+            "source_excerpt": "Unusual features that the XB-15 pioneered included an autopilot, deicing equipment, and two gasoline generators used as auxiliary power units to power the 110-volt electrical system.",
+            "source_url": "https://example.test/xb-15",
+            "source_title": "Test source",
+            "locator": "S1-E2",
+            "numeric_tokens": ["2", "110"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB15-TR-01",
+            "kind": "tradeoff",
+            "claim": "With a wingspan of 149 feet, the XB-15 was the victim of lag in engine development with no engines available powerful enough to give it the performance it deserved.",
+            "source_excerpt": "With a wingspan of 149 feet, almost half again as large as the B-17, the XB-15 was the victim of lag in engine development; there were simply no engines available which were powerful enough to give it the performance it deserved.",
+            "source_url": "https://example.test/xb-15",
+            "source_title": "Test source",
+            "locator": "S1-E3",
+            "numeric_tokens": ["149", "17"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB15-OR-01",
+            "kind": "operational_reality",
+            "claim": "The specified speed of 200 mph for the Twin Wasp-powered XB-15 was not quite reached even when the aircraft was empty; the best speed attained in level flight was 197 mph.",
+            "source_excerpt": "The specified speed of 200 mph for the Twin Wasp-powered XB-15 was not quite reached even when the aircraft was empty; the best speed attained in level flight was 197 mph.",
+            "source_url": "https://example.test/xb-15",
+            "source_title": "Test source",
+            "locator": "S1-E4",
+            "numeric_tokens": ["200", "197"],
+            "confidence": "high",
+        },
+    ]
+    plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]},
+        "Boeing XB-15",
+    )
+    rejected = {
+        "sentences": [
+            {
+                "beat": "problem",
+                "sentence": "Project A began in mid-1933 as USAAC discussions regarding the possibility of flying a very large Boeing XB-15 bomber with a range of 5,000 miles.",
+                "used_evidence_ids": [],
+            },
+            {
+                "beat": "decision",
+                "sentence": "The Boeing XB-15 pioneered unusual features including an autopilot, deicing equipment, and two gasoline generators used as auxiliary power units to power the electrical system.",
+                "used_evidence_ids": [],
+            },
+            {
+                "beat": "tradeoff",
+                "sentence": "With a wingspan of 149 feet, the Boeing XB-15 was the victim of lag in engine development with no engines available powerful enough to give it deserved performance.",
+                "used_evidence_ids": [],
+            },
+            {
+                "beat": "outcome",
+                "sentence": "The specified speed for the Twin Wasp-powered Boeing XB-15 was not quite reached even when the aircraft was empty; the best speed attained in level flight was 197 mph.",
+                "used_evidence_ids": [],
+            },
+        ],
+        "conclusion": {
+            "sentence": "The Boeing XB-15 proved that ambition alone could not overcome the technological limits of its era, as inadequate engine power transformed a pioneering long-range bomber into a cautionary tale about mismatched aspirations and available propulsion technology."
+        },
+    }
+
+    _, initial_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, rejected)
+    fallback = pe._deterministic_machine_story_bundle("Boeing XB-15", plan, rejected)
+    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, fallback)
+
+    assert any("word count 144" in warning for warning in initial_warnings)
+    assert warnings == []
+    assert 95 <= pe._spoken_word_count(paragraph) <= 120
+    assert "5,000 miles" in paragraph
+    assert "197 mph" in paragraph
+    assert ", and its best level flight speed" in paragraph
+
+
 def test_story_sentence_validator_blocks_conclusion_new_evidence_or_numbers():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")

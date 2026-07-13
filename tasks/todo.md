@@ -1864,4 +1864,5 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 ## Handoff (2026-07-12 - DVsU single-machine script proof)
 - DONE: Updated the XB-15 story compiler gate so source-supported spelled numbers are valid (`five thousand` maps to `5000`) while unsupported numeric values still fail.
 - DONE: Canonicalized Claude's `evidence_sentences` list response into the locked problem/decision/tradeoff/outcome sentence rows before validation.
+- DONE: Added a deterministic extractive fallback for overlong but grounded bundles; it only saves if the existing story validator fully passes.
 - NEXT: Deploy this backend change, rerun only the XB-15 `machine-script-preview` endpoint, and review the saved paragraph before touching Machine 2.

@@ -890,6 +890,137 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     return paragraph, list(dict.fromkeys(warnings))
 
 
+def _clean_machine_story_candidate(text: str) -> str:
+    cleaned = " ".join(str(text or "").replace("—", ",").replace(" -- ", ", ").split())
+    cleaned = re.sub(
+        r",\s*the best speed attained in level flight was\b",
+        ", and its best level flight speed was",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r",\s*its\b", ", and its", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"^[,.;:\-\s]+", "", cleaned).strip()
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    if cleaned and not re.search(r"[.!?][\"')\]]?$", cleaned):
+        cleaned += "."
+    return cleaned
+
+
+def _machine_story_candidate_variants(machine: str, text: str) -> list[str]:
+    """Create short extractive variants; validation decides whether any are usable."""
+    base = _clean_machine_story_candidate(text)
+    if not base:
+        return []
+    designation_tokens = re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper())
+    designation = designation_tokens[-1] if designation_tokens else machine
+    machine_patterns = [re.escape(machine)]
+    if designation:
+        machine_patterns.append(re.escape(designation))
+    specified_speed_patterns = [
+        (
+            rf"\bThe specified speed(?: of [^,;.]+?)? for .*?{pattern} was\b",
+            f"The {machine} specified speed was",
+        )
+        for pattern in machine_patterns
+    ]
+    rules: list[tuple[str, str]] = [
+        (r"\bregarding the possibility of flying\b", "regarding flying"),
+        (r"\bin mid-\d{3,4}\s+", ""),
+        (r"\btwo gasoline generators\b", "gasoline generators"),
+        (r"\bto power the (?:\d+-volt )?electrical system\b", ""),
+        (r"\bWith a wingspan of [^,]+,\s*", ""),
+        (r"\bto give it the performance it deserved\b", "for deserved performance"),
+        (r"\bto give it deserved performance\b", "for deserved performance"),
+        (r"\bwhen the aircraft was empty\b", "when empty"),
+        (r"\bthe best speed attained in level flight was\b", "its best level flight speed was"),
+        (r", its best level flight speed", ", and its best level flight speed"),
+        (r";", ","),
+    ] + specified_speed_patterns
+    variants: list[str] = []
+    seen: set[str] = set()
+    queue = [base]
+    while queue and len(seen) < 80:
+        current = _clean_machine_story_candidate(queue.pop(0))
+        if current in seen:
+            continue
+        seen.add(current)
+        variants.append(current)
+        for pattern, replacement in rules:
+            updated = re.sub(pattern, replacement, current, flags=re.IGNORECASE)
+            updated = re.sub(r"\s+,", ",", updated)
+            updated = re.sub(r",\s*,", ",", updated)
+            updated = _clean_machine_story_candidate(updated)
+            if updated and updated not in seen and updated not in queue:
+                queue.append(updated)
+    return variants
+
+
+def _deterministic_machine_story_bundle(machine: str, plan: dict, rejected_bundle: dict) -> Optional[dict]:
+    """Last-resort extractive compiler for valid evidence that Claude made too long."""
+    if not isinstance(plan, dict):
+        return None
+    rejected_rows = rejected_bundle.get("sentences") if isinstance(rejected_bundle, dict) else []
+    rejected_by_beat = {
+        str(row.get("beat") or ""): str(row.get("sentence") or "")
+        for row in rejected_rows
+        if isinstance(row, dict)
+    }
+    beat_rows: list[list[dict]] = []
+    for beat in plan.get("beats", []):
+        beat_name = str(beat.get("beat") or "")
+        segments = beat.get("evidence_segments") or []
+        segment = segments[0] if segments and isinstance(segments[0], dict) else {}
+        evidence_id = str(segment.get("evidence_id") or "")
+        if not beat_name or not evidence_id:
+            return None
+        sources = [
+            rejected_by_beat.get(beat_name, ""),
+            str(segment.get("claim") or ""),
+            str(segment.get("source_excerpt") or ""),
+        ]
+        candidates: list[dict] = []
+        seen_sentences: set[str] = set()
+        for source in sources:
+            for sentence in _machine_story_candidate_variants(machine, source):
+                wc = _spoken_word_count(sentence)
+                if wc < 19 or wc > 24 or ";" in sentence:
+                    continue
+                if sentence in seen_sentences:
+                    continue
+                seen_sentences.add(sentence)
+                candidates.append({
+                    "beat": beat_name,
+                    "sentence": sentence,
+                    "used_evidence_ids": [evidence_id],
+                })
+                if len(candidates) >= 20:
+                    break
+            if len(candidates) >= 20:
+                break
+        if not candidates:
+            return None
+        beat_rows.append(candidates)
+
+    conclusion_candidates = [
+        f"The {machine} showed a bomber can answer an ambitious specification while still exposing the engineering limit that shaped it.",
+        f"The {machine} showed ambition, systems, tradeoffs, and test reality matter only when the engineering limit is visible.",
+    ]
+    import itertools
+
+    for combination in itertools.product(*beat_rows):
+        for conclusion in conclusion_candidates:
+            bundle = {
+                "sentences": [dict(row) for row in combination],
+                "conclusion": {"sentence": _clean_machine_story_candidate(conclusion)},
+            }
+            _paragraph, warnings = _validate_machine_story_sentences(machine, plan, bundle)
+            if not warnings:
+                return bundle
+    return None
+
+
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
     """Return the locked machine roster only for the siloed static-docu path.
 
@@ -3575,6 +3706,16 @@ class PipelineExecutor:
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
                     paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                    if warnings:
+                        deterministic_bundle = _deterministic_machine_story_bundle(machine, story_plan, bundle)
+                        if deterministic_bundle:
+                            deterministic_paragraph, deterministic_warnings = _validate_machine_story_sentences(
+                                machine, story_plan, deterministic_bundle
+                            )
+                            if not deterministic_warnings:
+                                bundle = deterministic_bundle
+                                paragraph = deterministic_paragraph
+                                warnings = []
                 else:
                     repair_prompt = (
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
