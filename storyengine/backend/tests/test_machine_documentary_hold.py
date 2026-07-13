@@ -4955,6 +4955,7 @@ def test_machine_preview_readiness_reports_missing_package_without_provider(monk
     assert result["ready"] is False
     assert result["machine"] == "Boeing XB-15"
     assert result["scene"] == 1
+    assert result["next_action"] == "run_one_machine_research_refresh"
     assert "missing verified raw internet source package" in result["warnings"][0]
     assert "Anthropic client" not in result["warnings"][0]
 
@@ -5005,6 +5006,7 @@ def test_machine_preview_readiness_blocks_source_package_without_selection_prove
     assert result["ready"] is False
     assert result["machine"] == "Boeing XB-15"
     assert result["scene"] == 1
+    assert result["next_action"] == "run_one_machine_research_refresh"
     assert "without source selection provenance" in result["warnings"][0]
 
 
@@ -5049,6 +5051,7 @@ def test_machine_preview_readiness_passes_with_verified_card_and_package(monkeyp
     assert result["machine"] == "Boeing XB-15"
     assert result["scene"] == 1
     assert result["warnings"] == []
+    assert result["next_action"] == "run_machine_script_preview"
 
 
 def test_machine_preview_readiness_does_not_touch_generation_side_effects(monkeypatch):

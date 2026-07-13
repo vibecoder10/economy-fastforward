@@ -7049,19 +7049,19 @@ separate scenes."""
         await self._ensure_initialized()
         video = await self._get_video(video_id)
         if not video:
-            return {"status": "failed", "ready": False, "error": "Video not found"}
+            return {"status": "failed", "ready": False, "error": "Video not found", "next_action": "select_valid_video"}
         rp = video.get("research_payload") or {}
         if isinstance(rp, str):
             import json as _json_preview_ready
             rp = _json_preview_ready.loads(rp)
         if not isinstance(rp, dict):
-            return {"status": "failed", "ready": False, "error": "Research payload is missing or invalid"}
+            return {"status": "failed", "ready": False, "error": "Research payload is missing or invalid", "next_action": "fix_research_payload"}
         roster = _machine_documentary_hold_roster(video)
         if not roster:
-            return {"status": "failed", "ready": False, "error": "No locked machine roster found"}
+            return {"status": "failed", "ready": False, "error": "No locked machine roster found", "next_action": "run_or_fix_roster_research"}
         matched = _locked_roster_item_for_machine(roster, machine)
         if not matched:
-            return {"status": "failed", "ready": False, "error": f"Machine is not in the locked roster: {machine}"}
+            return {"status": "failed", "ready": False, "error": f"Machine is not in the locked roster: {machine}", "next_action": "select_locked_roster_machine"}
         rp = await self._load_machine_research_cards(
             video_id, rp, roster, target_machine=matched
         )
@@ -7077,6 +7077,7 @@ separate scenes."""
                 "scene": scene,
                 "summary": msg,
                 "warnings": [msg],
+                "next_action": "run_one_machine_research_refresh",
                 "research_payload": rp,
             }
         source_package = _verified_source_package_for_machine(rp, matched)
@@ -7096,6 +7097,7 @@ separate scenes."""
                 "scene": scene,
                 "summary": msg,
                 "warnings": [msg],
+                "next_action": "run_one_machine_research_refresh",
                 "research_payload": rp,
             }
         return {
@@ -7106,6 +7108,7 @@ separate scenes."""
             "scene": scene,
             "summary": "Machine script preview is ready.",
             "warnings": [],
+            "next_action": "run_machine_script_preview",
             "research_payload": rp,
         }
 

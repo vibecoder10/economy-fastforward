@@ -54,6 +54,7 @@ def test_one_machine_api_wrappers_use_isolated_endpoints():
     assert "body: JSON.stringify({ machine })" in readiness_wrapper
     assert "body: JSON.stringify({ machine })" in research_wrapper
     assert "body: JSON.stringify({ machine })" in preview_wrapper
+    assert "next_action?: string" in text
     assert "/api/pipeline/machine-research/" not in research_wrapper
     assert "/api/pipeline/script/" not in preview_wrapper
 
@@ -335,6 +336,8 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     assert "machine = selectedMachine || machineLabel(roster[0])" in readiness_handler
     assert "checkMachineScriptPreviewReadiness(video.id, machine)" in readiness_handler
     assert "setLocalMachinePreview(previewErrorArtifact(" in readiness_handler
+    assert "readinessWarningsWithNextAction(readiness, message)" in readiness_handler
+    assert "Next action:" in text
     assert '"readiness_preflight"' in readiness_handler
     assert '"Readiness preflight"' in readiness_handler
     assert "Readiness blocked:" in readiness_handler

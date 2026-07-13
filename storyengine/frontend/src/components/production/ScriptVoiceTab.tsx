@@ -19,7 +19,7 @@ import {
   getPipelineTaskStatus, checkMachineScriptPreviewReadiness, runMachineScriptPreview,
 } from "@/lib/api";
 import { API_URL } from "@/lib/env";
-import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview } from "@/lib/api";
+import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview, MachineScriptPreviewReadiness } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -258,6 +258,19 @@ function previewErrorArtifact(
       }],
     },
   };
+}
+
+function readinessWarningsWithNextAction(
+  readiness: MachineScriptPreviewReadiness,
+  fallbackMessage: string
+): string[] {
+  const warnings = Array.isArray(readiness.warnings) && readiness.warnings.length
+    ? readiness.warnings
+    : [fallbackMessage];
+  const nextAction = String(readiness.next_action || "").trim();
+  return nextAction
+    ? [...warnings, `Next action: ${nextAction}`]
+    : warnings;
 }
 
 function cardMatchesMachine(card: any, machine: string): boolean {
@@ -2148,7 +2161,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         setMachinePreview(previewErrorArtifact(
           readiness.machine || machine,
           message,
-          readiness.warnings,
+          readinessWarningsWithNextAction(readiness, message),
           readiness.scene || 0,
           "readiness_preflight",
           "readiness_preflight",
@@ -2193,7 +2206,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         setMachinePreview(previewErrorArtifact(
           readiness.machine || machine,
           message,
-          readiness.warnings,
+          readinessWarningsWithNextAction(readiness, message),
           readiness.scene || 0,
           "readiness_preflight",
           "readiness_preflight",

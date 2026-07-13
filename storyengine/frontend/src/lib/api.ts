@@ -708,6 +708,7 @@ export type MachineScriptPreviewReadiness = {
   scene?: number;
   summary?: string;
   warnings?: string[];
+  next_action?: string;
   research_payload?: Record<string, unknown>;
 };
 

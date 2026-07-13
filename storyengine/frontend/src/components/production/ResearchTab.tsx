@@ -15,7 +15,7 @@ import {
   runOneMachineResearch,
   runMachineScriptPreview,
 } from "@/lib/api";
-import type { MachineScriptPreview } from "@/lib/api";
+import type { MachineScriptPreview, MachineScriptPreviewReadiness } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 
@@ -176,6 +176,19 @@ function previewErrorArtifact(
       }],
     },
   };
+}
+
+function readinessWarningsWithNextAction(
+  readiness: MachineScriptPreviewReadiness,
+  fallbackMessage: string
+): string[] {
+  const warnings = Array.isArray(readiness.warnings) && readiness.warnings.length
+    ? readiness.warnings
+    : [fallbackMessage];
+  const nextAction = String(readiness.next_action || "").trim();
+  return nextAction
+    ? [...warnings, `Next action: ${nextAction}`]
+    : warnings;
 }
 
 function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
@@ -1003,7 +1016,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         setLocalMachinePreview(previewErrorArtifact(
           readiness.machine || machine,
           message,
-          readiness.warnings,
+          readinessWarningsWithNextAction(readiness, message),
           readiness.scene || 0,
           "readiness_preflight",
           "readiness_preflight",
@@ -1054,7 +1067,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         setLocalMachinePreview(previewErrorArtifact(
           readiness.machine || machine,
           message,
-          readiness.warnings,
+          readinessWarningsWithNextAction(readiness, message),
           readiness.scene || 0,
           "readiness_preflight",
           "readiness_preflight",

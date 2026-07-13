@@ -242,6 +242,8 @@ def test_script_voice_readiness_button_is_no_spend():
     assert "const machine = previewMachine || machineRosterLabels[0]" in handler
     assert "checkMachineScriptPreviewReadiness(video.id, machine)" in handler
     assert "setMachinePreview(previewErrorArtifact(" in handler
+    assert "readinessWarningsWithNextAction(readiness, message)" in handler
+    assert "Next action:" in text
     assert '"readiness_preflight"' in handler
     assert '"Readiness preflight"' in handler
     assert "Readiness blocked:" in handler
