@@ -2222,6 +2222,23 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 + ", ".join(final_risk_terms)
             )
         prior_paragraph_text = " ".join(sentence_parts[:-1])
+        unsupported_final_words = _ungrounded_factual_words(
+            last_sentence,
+            prior_paragraph_text,
+            machine,
+            extra_stopwords={
+                "argument", "became", "becoming", "concept", "cost", "costs",
+                "design", "idea", "itself", "lesson", "lessons", "mature",
+                "maturity", "power", "price", "proof", "proved", "proving",
+                "range", "result", "results", "showed", "showing", "size",
+                "survive", "survived", "surviving", "weapon", "written",
+            },
+        )
+        if unsupported_final_words:
+            warnings.append(
+                "final sentence must not introduce new factual word(s): "
+                + ", ".join(unsupported_final_words[:10])
+            )
         known_entity_text = f"{prior_paragraph_text} {machine}"
         ignored_final_entities = {
             "a", "an", "and", "as", "but", "it", "its", "so", "that", "the",
