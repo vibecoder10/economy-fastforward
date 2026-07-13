@@ -947,6 +947,19 @@ _NUMBER_SCALE_WORDS = {
 _INDEFINITE_NUMBER_SCALE_WORDS = {"hundreds", "thousands", "millions"}
 _NUMBER_WORD_VOCABULARY = set(_NUMBER_TOKEN_WORDS) | set(_NUMBER_SCALE_WORDS) | _INDEFINITE_NUMBER_SCALE_WORDS | {"and"}
 _NUMERIC_DIGIT_PATTERN = r"(?<![A-Za-z0-9])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?(?![A-Za-z0-9])"
+_VOICEOVER_UNIT_ABBREVIATIONS = {
+    "ft": "foot or feet",
+    "hp": "horsepower",
+    "kg": "kilograms",
+    "km": "kilometers",
+    "kt": "knots",
+    "kts": "knots",
+    "lb": "pounds",
+    "lbs": "pounds",
+    "mi": "miles",
+    "mph": "miles per hour",
+    "rpm": "revolutions per minute",
+}
 
 
 def _parse_number_word_phrase(tokens: list[str]) -> Optional[int]:
@@ -1053,6 +1066,12 @@ def _raw_digit_mentions_for_voiceover(text: str) -> list[str]:
     ))
 
 
+def _written_unit_abbreviations_for_voiceover(text: str) -> list[str]:
+    """Find unit abbreviations that should be expanded for clean narration."""
+    pattern = r"(?<![A-Za-z0-9])(?:ft|hp|kg|km|kts?|lbs?|mi|mph|rpm)\.?(?![A-Za-z0-9])"
+    return list(dict.fromkeys(match.group(0).rstrip(".").lower() for match in re.finditer(pattern, str(text or ""), flags=re.IGNORECASE)))
+
+
 def _unit_word_variants_from_evidence(text: str) -> set[str]:
     """Allow common spoken unit expansions only when the source uses that unit."""
     lower = str(text or "").lower()
@@ -1067,6 +1086,14 @@ def _unit_word_variants_from_evidence(text: str) -> set[str]:
         variants.update({"kilometer", "kilometers"})
     if re.search(r"\blbs?\b", lower):
         variants.update({"pound", "pounds"})
+    if re.search(r"\bkg\b", lower):
+        variants.update({"kilogram", "kilograms"})
+    if re.search(r"\bhp\b", lower):
+        variants.update({"horsepower"})
+    if re.search(r"\brpm\b", lower):
+        variants.update({"revolution", "revolutions", "per", "minute"})
+    if re.search(r"\bkts?\b", lower):
+        variants.update({"knot", "knots"})
     return variants
 
 
@@ -1979,6 +2006,15 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append(
             "paragraph uses raw numeric digit(s); write spoken numbers as words: "
             + ", ".join(raw_digit_mentions)
+        )
+    unit_abbreviations = _written_unit_abbreviations_for_voiceover(paragraph)
+    if unit_abbreviations:
+        warnings.append(
+            "paragraph uses written unit abbreviation(s); spell out for voiceover: "
+            + ", ".join(
+                f"{abbr} -> {_VOICEOVER_UNIT_ABBREVIATIONS.get(abbr, 'spoken words')}"
+                for abbr in unit_abbreviations
+            )
         )
 
     allowed_designations = {_normalized_unit_code(machine)}
@@ -5005,6 +5041,15 @@ class PipelineExecutor:
                 "uses raw numeric digit(s); write spoken numbers as words: "
                 + ", ".join(raw_digit_mentions)
             )
+        unit_abbreviations = _written_unit_abbreviations_for_voiceover(text)
+        if unit_abbreviations:
+            warnings.append(
+                "uses written unit abbreviation(s); spell out for voiceover: "
+                + ", ".join(
+                    f"{abbr} -> {_VOICEOVER_UNIT_ABBREVIATIONS.get(abbr, 'spoken words')}"
+                    for abbr in unit_abbreviations
+                )
+            )
         if any(term in lower for term in (
             "one of the greatest", "one of the most incredible", "arguably the greatest",
             "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
@@ -5331,7 +5376,7 @@ class PipelineExecutor:
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
-                    "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Keep designations/model names like B-52, XB-15, and F-86 as designations. Every number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
+                    "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Keep designations/model names like B-52, XB-15, and F-86 as designations. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. Every number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
                     "- Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
                     "- Prefer fewer than 6 numerical details when optional slots add clutter; keep only numbers that explain the problem, decision, tradeoff, or reality.\n"
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
@@ -5406,7 +5451,7 @@ class PipelineExecutor:
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
-                        "Use voice-ready spoken number words for years and quantities while preserving designations/model names like B-52, XB-15, and F-86. If validation says raw numeric digit, rewrite that number as spoken words. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
+                        "Use voice-ready spoken number words for years and quantities while preserving designations/model names like B-52, XB-15, and F-86. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite it as spoken words. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "

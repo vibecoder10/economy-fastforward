@@ -1011,6 +1011,14 @@ def test_voiceover_digit_gate_keeps_designations_but_flags_quantities():
     assert mentions == ["1937", "5,130", "47%"]
 
 
+def test_voiceover_unit_gate_flags_written_units_but_keeps_designations():
+    mentions = pe._written_unit_abbreviations_for_voiceover(
+        "B-52, XB-15, and J57 stay, but five hundred mph, three thousand rpm, one hundred ft, two lb, ten hp, and fifty mi should be expanded."
+    )
+
+    assert mentions == ["mph", "rpm", "ft", "lb", "hp", "mi"]
+
+
 def test_static_validator_requires_spoken_numbers_but_keeps_designations():
     validate = pe.PipelineExecutor._validate_static_unit_paragraph
 
@@ -1019,6 +1027,13 @@ def test_static_validator_requires_spoken_numbers_but_keeps_designations():
 
     assert not any("raw numeric digit" in warning for warning in validate("B-52", clean_designations))
     assert any("raw numeric digit" in warning and "1937" in warning for warning in validate("B-52", raw_quantity))
+
+
+def test_static_validator_requires_spoken_unit_words():
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    raw_unit = _words("B-52", 92) + " five hundred mph."
+
+    assert any("written unit abbreviation" in warning and "mph -> miles per hour" in warning for warning in validate("B-52", raw_unit))
 
 
 def test_meta_validator_does_not_match_as_an_ai_inside_was_an_aircraft():
@@ -1980,6 +1995,18 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
 
     assert any("six thousand" in warning for warning in bad_warnings)
 
+    unit_bundle = copy.deepcopy(bundle)
+    unit_bundle["paragraph"] = unit_bundle["paragraph"].replace(
+        "five thousand miles", "five thousand mi"
+    )
+    unit_bundle["claim_map"][1]["span"] = unit_bundle["claim_map"][1]["span"].replace(
+        "five thousand miles", "five thousand mi"
+    )
+
+    _, unit_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, unit_bundle)
+
+    assert any("written unit abbreviation" in warning and "mi -> miles" in warning for warning in unit_warnings)
+
 
 def test_story_sentence_validator_requires_cross_check_or_hedge_for_risky_numbers():
     evidence = _evidence_segments()
@@ -2121,6 +2148,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
     assert "Do not use ranked-list connectors" in fake_anthropic.prompts[0]
     assert "Use voice-ready spoken number words" in fake_anthropic.prompts[0]
+    assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[0]
     assert "Keep designations/model names like B-52, XB-15, and F-86 as designations" in fake_anthropic.prompts[0]
     assert "Vary sentence length for spoken delivery. Do not write three long sentences in a row" in fake_anthropic.prompts[0]
     assert "Do not write a chronological biography" in fake_anthropic.prompts[0]
@@ -2138,6 +2166,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Do not write a chronological biography" in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
+    assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[1]
     assert "28 words or fewer" in fake_anthropic.prompts[1]
