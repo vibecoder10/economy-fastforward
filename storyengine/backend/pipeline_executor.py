@@ -5967,18 +5967,6 @@ class PipelineExecutor:
             f"Script-hold active: generating {len(roster)} static-docu machine paragraph(s) one at a time",
         )
 
-        anthropic_client = getattr(self._pipeline, "anthropic", None)
-        if anthropic_client is None:
-            msg = "Script-hold requires an Anthropic client, but none is configured."
-            await self._log_activity(bot_name, video_id, "failed", msg)
-            return {"status": "failed", "error": msg, "video_id": video_id}
-        # Unit-by-unit generation must inherit the same resolved per-video/tenant
-        # script contract as the global writer. For DVsU this is Anton's full
-        # saved channel prompt, not a generic military-history instruction.
-        script_system_prompt = getattr(self._pipeline, "script_system_prompt", None) or (
-            "You write precise military-history documentary voiceover. Output only the requested spoken paragraph."
-        )
-
         # The machine writer is not allowed to fall back to the global fact
         # sheet. Research and script are separate artifacts, and every locked
         # machine must have its own persisted card before any script rows change.
@@ -6079,6 +6067,18 @@ class PipelineExecutor:
             if target_machine and selected_units:
                 return await _return_saved_failed_preview(selected_units[0][1], selected_units[0][0], msg)
             return {"status": "failed", "error": msg, "video_id": video_id}
+
+        anthropic_client = getattr(self._pipeline, "anthropic", None)
+        if anthropic_client is None:
+            msg = "Script-hold requires an Anthropic client, but none is configured."
+            await self._log_activity(bot_name, video_id, "failed", msg)
+            return {"status": "failed", "error": msg, "video_id": video_id}
+        # Unit-by-unit generation must inherit the same resolved per-video/tenant
+        # script contract as the global writer. For DVsU this is Anton's full
+        # saved channel prompt, not a generic military-history instruction.
+        script_system_prompt = getattr(self._pipeline, "script_system_prompt", None) or (
+            "You write precise military-history documentary voiceover. Output only the requested spoken paragraph."
+        )
 
         rows = await fetch_all(
             "SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1",

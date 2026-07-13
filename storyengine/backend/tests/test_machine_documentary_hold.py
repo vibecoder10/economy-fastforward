@@ -4245,6 +4245,52 @@ def test_target_machine_preview_requires_verified_raw_source_package_before_llm(
     assert not any("machine_script_briefs" in query or "machine_story_plans" in query for query, _args in writes)
 
 
+def test_target_machine_preview_reports_missing_package_before_provider_config(monkeypatch):
+    roster = ["Boeing XB-15"]
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [_valid_research_card("Boeing XB-15", _evidence_segments())],
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": None, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def forbidden_fetch_all(*_args, **_kwargs):
+        raise AssertionError("missing-package preview must fail before voice lookup")
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", forbidden_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    preview = _assert_saved_failed_preview(result, writes, "Boeing XB-15", roster)
+    assert "missing verified raw internet source package" in preview["warnings"][0]
+    assert "Anthropic client" not in preview["warnings"][0]
+
+
 def test_target_machine_preview_saves_missing_card_review_before_llm(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {
@@ -4299,6 +4345,49 @@ def test_target_machine_preview_saves_missing_card_review_before_llm(monkeypatch
     assert forbidden_anthropic.calls == 0
     assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
     assert not any("machine_script_briefs" in query or "machine_story_plans" in query for query, _args in writes)
+
+
+def test_target_machine_preview_reports_missing_card_before_provider_config(monkeypatch):
+    roster = ["Boeing XB-15"]
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {"unit_roster": roster, "unit_research_cards": []},
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": None, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def forbidden_fetch_all(*_args, **_kwargs):
+        raise AssertionError("missing-card preview must fail before voice lookup")
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", forbidden_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    preview = _assert_saved_failed_preview(result, writes, "Boeing XB-15", roster)
+    assert "saved research card" in preview["warnings"][0]
+    assert "Anthropic client" not in preview["warnings"][0]
 
 
 def test_target_machine_preview_requires_sourced_memorable_fact_before_llm(monkeypatch):
