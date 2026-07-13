@@ -1967,6 +1967,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       const result = await runMachineScriptPreview(video.id, machine);
       setMachinePreview(result.preview);
       setPreviewMachine(machine);
+      if (result.research_payload) {
+        queryClient.setQueryData(["video", video.id], (current: any) => (
+          current ? { ...current, research_payload: result.research_payload } : current
+        ));
+      }
       invalidateAll();
       if (machinePreviewPassesAntonGate(result.preview)) {
         toast.success(`${machine} preview generated. Production script unchanged.`);

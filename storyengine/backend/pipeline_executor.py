@@ -5603,6 +5603,19 @@ class PipelineExecutor:
         rp = await self._load_machine_research_cards(
             video_id, rp, roster, target_machine=target_machine if target_machine else None
         )
+        response_research_payload = dict(rp)
+
+        def _mirror_response_artifact(container: str, key: str, value: dict) -> None:
+            existing = response_research_payload.get(container)
+            if isinstance(existing, str):
+                try:
+                    existing = _json_sh.loads(existing)
+                except Exception:
+                    existing = {}
+            if not isinstance(existing, dict):
+                existing = {}
+            response_research_payload[container] = {**existing, key: value}
+
         locked_roster_snapshot = _json_sh.dumps(rp.get("unit_roster"), sort_keys=True, ensure_ascii=False)
         if target_machine:
             target_key = _normalized_unit_code(target_machine)
@@ -5796,6 +5809,7 @@ class PipelineExecutor:
                     msg = "persisted unit_roster changed concurrently; script preview brief save refused"
                     await self._log_activity(bot_name, video_id, "failed", msg)
                     return {"status": "failed", "error": msg, "video_id": video_id}
+                _mirror_response_artifact("machine_script_briefs", machine_artifact_key, story_brief)
                 plan_save_result = await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
                            COALESCE(research_payload::jsonb, '{}'::jsonb),
@@ -5815,6 +5829,7 @@ class PipelineExecutor:
                     msg = "persisted unit_roster changed concurrently; script preview story-plan save refused"
                     await self._log_activity(bot_name, video_id, "failed", msg)
                     return {"status": "failed", "error": msg, "video_id": video_id}
+                _mirror_response_artifact("machine_story_plans", machine_artifact_key, story_plan)
                 prompt = (
                     "WRITE ONE ANTON-STYLE PARAGRAPH FROM LOCKED SOURCE SLOTS.\n\n"
                     f"VIDEO TITLE: {title}\n"
@@ -5993,6 +6008,7 @@ class PipelineExecutor:
                 "quality_audit": quality_audit,
             })
             if target_machine:
+                claim_bundle = bundle if isinstance(bundle, dict) else {}
                 preview = {
                     "machine": machine,
                     "scene": i,
@@ -6000,10 +6016,10 @@ class PipelineExecutor:
                     "word_count": _spoken_word_count(paragraph),
                     "passed": preview_passed,
                     "warnings": warnings,
-                    "onscreen_label": str(bundle.get("onscreen_label") or "").strip(),
+                    "onscreen_label": str(claim_bundle.get("onscreen_label") or "").strip(),
                     "research_source": research_source_kind,
                     "story_plan": story_plan,
-                    "claim_bundle": bundle,
+                    "claim_bundle": claim_bundle,
                     "quality_audit": quality_audit,
                 }
                 preview_save_result = await execute(
@@ -6025,11 +6041,21 @@ class PipelineExecutor:
                     msg = "persisted unit_roster changed concurrently; script preview save refused"
                     await self._log_activity(bot_name, video_id, "failed", msg)
                     return {"status": "failed", "error": msg, "video_id": video_id}
+                _mirror_response_artifact(
+                    "machine_script_previews",
+                    _verified_source_cache_key(machine),
+                    preview,
+                )
                 await self._log_activity(
                     bot_name, video_id, "completed" if preview_passed else "failed",
                     f"Single-machine script preview {'passed' if preview_passed else 'needs review'}: {machine}",
                 )
-                return {"status": "completed", "video_id": video_id, "preview": preview}
+                return {
+                    "status": "completed",
+                    "video_id": video_id,
+                    "preview": preview,
+                    "research_payload": response_research_payload,
+                }
             if not preview_passed:
                 validation = {"script_hold": {"passed": False, "units": validation_units}}
                 await execute(

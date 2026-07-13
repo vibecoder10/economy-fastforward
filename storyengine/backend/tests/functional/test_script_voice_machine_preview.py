@@ -23,6 +23,8 @@ def test_script_voice_preview_uses_normalized_machine_labels():
     assert "const machineRosterLabels" in text
     assert "machineRosterLabels.map" in text
     assert "previewForMachine(researchPayload?.machine_script_previews, e.target.value)" in text
+    assert "queryClient.setQueryData([\"video\", video.id]" in text
+    assert "{ ...current, research_payload: result.research_payload }" in text
 
 
 def test_script_voice_preview_blocks_without_ready_raw_package():

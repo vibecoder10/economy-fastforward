@@ -3276,6 +3276,12 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert " ".join(saved_preview["claim_bundle"]["formula_sentences"]) == saved_preview["paragraph"]
     assert saved_brief_rows and saved_brief_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert saved_plan_rows and saved_plan_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
+    response_payload = result["research_payload"]
+    response_key = pe._verified_source_cache_key("Boeing XB-15")
+    assert response_payload["machine_script_previews"][response_key]["paragraph"] == saved_preview["paragraph"]
+    assert response_payload["machine_script_briefs"][response_key]
+    assert response_payload["machine_story_plans"][response_key]["contract"]["opening_assignment"].startswith("A machine-name opening")
+    assert any(card.get("unit") == "Boeing B-17 Flying Fortress" for card in response_payload["unit_research_cards"])
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
     assert fetch_calls == [("SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1", ("video-test", "tenant-test"))]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
@@ -3882,6 +3888,11 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
                     "warnings": ["word count 2 outside 95-120 script-hold range"],
                     "claim_bundle": {"claim_map": []},
                 },
+                "research_payload": {
+                    "machine_script_previews": {
+                        "XB15": {"machine": machine, "passed": False},
+                    },
+                },
             }
 
     monkeypatch.setattr(route, "PipelineExecutor", FakeExecutor)
@@ -3897,6 +3908,7 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
     assert result["preview"]["passed"] is False
     assert result["preview"]["paragraph"] == "Reviewable paragraph."
     assert "word count" in result["preview"]["warnings"][0]
+    assert result["research_payload"]["machine_script_previews"]["XB15"]["passed"] is False
 
 
 def test_machine_research_route_humanizes_unexpected_exception(monkeypatch):

@@ -827,6 +827,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       }
       const result = await runMachineScriptPreview(video.id, machine);
       setLocalMachinePreview(result.preview);
+      if (result.research_payload) {
+        queryClient.setQueryData(["video", video.id], (current: any) => (
+          current ? { ...current, research_payload: result.research_payload } : current
+        ));
+      }
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       if (machinePreviewPassesAntonGate(result.preview)) {
         toast.success("Single-machine preview passed. Production script unchanged.");

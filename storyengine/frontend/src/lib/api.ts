@@ -701,7 +701,7 @@ export type MachineScriptPreview = {
 };
 
 export const runMachineScriptPreview = (videoId: string, machine: string) =>
-  fetchApi<{ status: string; preview: MachineScriptPreview }>(
+  fetchApi<{ status: string; preview: MachineScriptPreview; research_payload?: Record<string, unknown> }>(
     `/api/pipeline/machine-script-preview/${videoId}`,
     { method: "POST", body: JSON.stringify({ machine }) },
   );
