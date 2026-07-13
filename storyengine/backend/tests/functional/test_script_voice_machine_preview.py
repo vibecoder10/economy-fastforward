@@ -43,7 +43,10 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "activePreviewSourcePackageReady" in text
     assert "sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine)" in text
     assert "sourcePackageReady(activePreviewSourcePackage, activePreviewMachine)" in text
-    assert "disabled={previewGenerating || !activePreviewSourcePackageReady}" in text
+    assert "activePreviewResearchCard" in text
+    assert "activePreviewReady" in text
+    assert "Research card missing · preview blocked" in text
+    assert "disabled={previewGenerating || !activePreviewReady}" in text
     assert "Raw source package missing · preview blocked" in text
     assert "Raw source package thin ·" in text
     assert "Raw source package caution-only · preview blocked" in text

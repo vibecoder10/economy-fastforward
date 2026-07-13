@@ -1463,9 +1463,15 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const scriptGenerationBlockedByRoster = Boolean(activeRosterGate?.complete_title && activeRosterGate?.passed === false);
   const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
   const activePreviewMachine = previewMachine || machineRosterLabels[0] || "";
+  const activePreviewResearchCard = (Array.isArray(researchPayload?.unit_research_cards) ? researchPayload.unit_research_cards : [])
+    .find((candidate: any) => cardMatchesMachine(candidate, activePreviewMachine));
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
   const activePreviewSourcePackageStatus = sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine);
   const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage, activePreviewMachine);
+  const activePreviewReady = Boolean(activePreviewResearchCard) && activePreviewSourcePackageReady;
+  const activePreviewStatusMessage = activePreviewResearchCard
+    ? activePreviewSourcePackageStatus.message
+    : "Research card missing · preview blocked";
   const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
     ? machinePreview.claim_bundle.claim_map
     : [];
@@ -1595,7 +1601,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               </select>
               <button
                 onClick={handleMachinePreview}
-                disabled={previewGenerating || !activePreviewSourcePackageReady}
+                disabled={previewGenerating || !activePreviewReady}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
                 style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
               >
@@ -1603,9 +1609,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 {previewGenerating ? "Generating one..." : machinePreview ? "Retry this machine" : "Generate one machine"}
               </button>
             </div>
-            <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: activePreviewSourcePackageReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: activePreviewSourcePackageReady ? "var(--green)" : "var(--orange)", border: `1px solid ${activePreviewSourcePackageReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
+            <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: activePreviewReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: activePreviewReady ? "var(--green)" : "var(--orange)", border: `1px solid ${activePreviewReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
               <ShieldCheck size={12} />
-              {activePreviewSourcePackageStatus.message}
+              {activePreviewStatusMessage}
             </div>
             {machinePreview && (
               <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreview.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
