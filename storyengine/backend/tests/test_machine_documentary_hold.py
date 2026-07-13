@@ -1845,12 +1845,23 @@ def test_story_plan_locks_research_into_anton_slots():
         "reality",
     ]
     by_slot = {slot["slot"]: slot["evidence_ids"] for slot in plan["slots"]}
+    evidence_by_id = {
+        segment["evidence_id"]: segment
+        for slot in plan["slots"]
+        for segment in slot.get("evidence_segments", [])
+    }
     assert by_slot["original_problem"] == ["E-PROBLEM"]
     assert by_slot["engineering_decision"] == ["E-DECISION"]
     assert by_slot["tradeoff"] == ["E-TRADEOFF"]
     assert by_slot["reality"] == ["E-REALITY", "E-MEANING"]
     assert by_slot["memorable_fact"] == ["E-MEMORABLE"]
+    assert evidence_by_id["E-MEANING"]["kind"] == "reality"
     assert "historical_meaning" not in by_slot
+    assert all(
+        segment.get("kind") != "historical_meaning"
+        for slot in plan["slots"]
+        for segment in slot.get("evidence_segments", [])
+    )
     assert "must not enter the plan" not in json.dumps(plan)
     assert plan["contract"]["maximum_numerical_details"] == 8
     assert plan["contract"]["narrative_weight"]["label"] == "standard"
@@ -5518,6 +5529,18 @@ def test_research_card_repair_prompt_requires_source_url_and_locator():
     assert "return it as reality, not historical_meaning" in prompt
 
 
+def test_research_card_hydration_never_uses_meaning_as_paragraph_rationale():
+    source = open(pe.__file__, encoding="utf-8").read()
+    hydrate = source[
+        source.index("def _hydrate_compatibility_fields")
+        :source.index("def _card_warnings")
+    ]
+
+    assert 'card.setdefault("why_this_unit_deserves_a_paragraph", "")' in hydrate
+    assert 'why_this_unit_deserves_a_paragraph", by_kind.get("historical_meaning")' not in hydrate
+    assert 'why_this_unit_deserves_a_paragraph", by_kind.get("legacy")' not in hydrate
+
+
 def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(monkeypatch):
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-a"
@@ -5585,11 +5608,22 @@ def test_compact_card_read_preserves_schema_v3_four_beat_evidence(monkeypatch):
 
     plan = pe._machine_story_plan(result, machine)
     by_slot = {slot["slot"]: slot["evidence_ids"] for slot in plan["slots"]}
+    evidence_by_id = {
+        segment["evidence_id"]: segment
+        for slot in plan["slots"]
+        for segment in slot.get("evidence_segments", [])
+    }
     assert by_slot["original_problem"] == ["E-PROBLEM"]
     assert by_slot["engineering_decision"] == ["E-DECISION"]
     assert by_slot["tradeoff"] == ["E-TRADEOFF"]
     assert by_slot["reality"] == ["E-REALITY", "E-MEANING"]
+    assert evidence_by_id["E-MEANING"]["kind"] == "reality"
     assert "historical_meaning" not in by_slot
+    assert all(
+        segment.get("kind") != "historical_meaning"
+        for slot in plan["slots"]
+        for segment in slot.get("evidence_segments", [])
+    )
 
 
 def test_compact_card_read_falls_back_to_legacy_payload(monkeypatch):

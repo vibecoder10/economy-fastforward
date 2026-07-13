@@ -1503,6 +1503,10 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             continue
         evidence_id = str(raw.get("evidence_id") or "").strip()
         kind = str(raw.get("kind") or "").strip().lower()
+        slot_role = _anton_slot_role_for_kind(kind)
+        if slot_role == "reality" and kind in {"historical_meaning", "legacy"}:
+            kind = "reality"
+            slot_role = "reality"
         claim = " ".join(str(raw.get("claim") or "").split())
         excerpt = " ".join(str(raw.get("source_excerpt") or "").split())
         source_url = str(raw.get("source_url") or "").strip()
@@ -1514,9 +1518,9 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         seen.add(evidence_id)
         if not kind or not claim:
             errors.append(f"evidence segment {evidence_id or index} missing kind or atomic claim")
-        elif _anton_slot_role_for_kind(kind) is None:
+        elif slot_role is None:
             errors.append(f"evidence segment {evidence_id or index} has unsupported Anton slot kind: {kind}")
-        elif _anton_slot_role_for_kind(kind) == "human_detail" and not _human_detail_has_attribution(
+        elif slot_role == "human_detail" and not _human_detail_has_attribution(
             " ".join([claim, excerpt])
         ):
             errors.append(
@@ -1602,7 +1606,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         normalized_segment = {
             "evidence_id": evidence_id,
             "kind": kind,
-            "slot_role": _anton_slot_role_for_kind(kind),
+            "slot_role": slot_role,
             "claim": claim,
             "source_excerpt": excerpt,
             "source_url": source_url,
@@ -5165,10 +5169,14 @@ class PipelineExecutor:
             if not isinstance(card, dict):
                 return card
             segments = card.get("evidence_segments") or []
-            by_kind = {
-                str(segment.get("kind") or "").strip().lower(): str(segment.get("claim") or "").strip()
-                for segment in segments if isinstance(segment, dict)
-            }
+            by_kind = {}
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                kind = str(segment.get("kind") or "").strip().lower()
+                if _anton_slot_role_for_kind(kind) == "reality" and kind in {"historical_meaning", "legacy"}:
+                    kind = "reality"
+                by_kind[kind] = str(segment.get("claim") or "").strip()
             card.setdefault(
                 "design_problem",
                 by_kind.get("original_problem")
@@ -5208,7 +5216,7 @@ class PipelineExecutor:
                 or by_kind.get("build_reality")
                 or "",
             )
-            card.setdefault("why_this_unit_deserves_a_paragraph", by_kind.get("historical_meaning") or by_kind.get("legacy") or "")
+            card.setdefault("why_this_unit_deserves_a_paragraph", "")
             card.setdefault("onscreen_label", by_kind.get("onscreen_label") or "")
             card.setdefault(
                 "surprising_fact",

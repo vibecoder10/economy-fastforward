@@ -17,6 +17,8 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     assert "Raw source package" in text or "raw source package" in text
     assert "original_problem -> engineering_decision -> tradeoff -> reality" in text
     assert "Do not research or pre-write a standalone \"meaning\" beat" in text
+    assert "normalizes those labels into `reality` before building `machine_story_plans`" in text
+    assert "may not use them to fill `why_this_unit_deserves_a_paragraph`" in text
     assert "For the current proof, only the selected first machine is researched or previewed" in text
     assert "run one-machine research for `Boeing XB-15` only" in text
     assert "Run only the single-machine script preview for `Boeing XB-15`" in text

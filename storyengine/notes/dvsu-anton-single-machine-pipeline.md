@@ -107,6 +107,8 @@ When the full locked roster is evaluated, StoryEngine also compares saved cards 
 
 Do not research or pre-write a standalone "meaning" beat. If a source states a concrete downstream consequence, save it as `reality`; the final sentence remains editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.
 
+Older or repaired cards that still contain `historical_meaning` or `legacy` evidence labels are treated as compatibility input only. StoryEngine normalizes those labels into `reality` before building `machine_story_plans`, and compatibility hydration may not use them to fill `why_this_unit_deserves_a_paragraph`.
+
 `onscreen_label` is metadata for Producer File/on-screen text, never spoken narration. It may use only sourced full name, concise role, operator or build count, and service/date range. The script paragraph must remain clean voiceover text with no headers, labels, editor notes, thumbnail lines, or visual directions.
 
 The voiceover-clean gate rejects Producer File artifacts inside narration: unit labels, act labels, b-roll cues, thumbnail lines, graphics-list language, and bracketed production notes. These belong to Producer File or downstream assembly, not the single-machine spoken paragraph.
