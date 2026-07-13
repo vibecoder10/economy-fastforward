@@ -1398,6 +1398,70 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     assert "what have we learned" not in full_script.lower()
 
 
+def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = _evidence_segments()
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": segments}],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    class FakeAnthropic:
+        async def generate(self, **_kwargs):
+            return _story_bundle("Boeing XB-15", 19)
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": FakeAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        if "jsonb_to_recordset" in query:
+            return "INSERT 0 0"
+        return "UPDATE 1"
+
+    async def fake_fetch_all(_query, *_args):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def forbidden_validate(*_args, **_kwargs):
+        raise AssertionError("zero-row final script save must not proceed to roster validation")
+
+    async def forbidden_update_status(*_args, **_kwargs):
+        raise AssertionError("zero-row final script save must not advance status")
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_validate_static_script_roster", forbidden_validate)
+    monkeypatch.setattr(executor, "_update_video_status", forbidden_update_status)
+    monkeypatch.setattr(executor, "_skip_disabled_next", lambda _video, status: status)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "failed"
+    assert "final save refused" in result["error"]
+    atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
+    assert len(atomic_replacements) == 1
+    assert "WITH updated AS" in atomic_replacements[0][0]
+    assert "USING updated" in atomic_replacements[0][0]
+    assert "FROM updated u" in atomic_replacements[0][0]
+    assert "SELECT count(*) AS deleted_count FROM deleted" in atomic_replacements[0][0]
+
+
 def test_script_hold_refuses_missing_machine_card_before_touching_scripts(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {

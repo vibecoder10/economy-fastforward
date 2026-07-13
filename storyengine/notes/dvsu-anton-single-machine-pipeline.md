@@ -55,7 +55,7 @@ Single-machine script preview is a review artifact path, not production script g
 
 When the last locked machine is researched through the same selected-machine path, StoryEngine recomputes the full roster gate from every saved card and that card's matching raw source package. Only then does `unit_research_hold_validation.passed` become true.
 
-Full static-docu script generation revalidates that same source package/card contract for every locked machine before spending a script LLM call or replacing `scripts` rows. The UI gate is a convenience layer; the backend remains the authority.
+Full static-docu script generation revalidates that same source package/card contract for every locked machine before spending a script LLM call or replacing `scripts` rows. The final production replacement updates the tenant/video row first and only then deletes/inserts `scripts` rows, so a missed video update cannot create orphan replacement scenes. The UI gate is a convenience layer; the backend remains the authority.
 
 Single-machine preview artifacts are saved under the same normalized machine key as raw source packages, for example `XB15`, so retries from slightly different UI labels update the same preview slot instead of creating duplicate display-name keys.
 

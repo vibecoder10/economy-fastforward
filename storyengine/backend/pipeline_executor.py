@@ -4684,21 +4684,27 @@ class PipelineExecutor:
             {"scene": i, "scene_text": paragraph}
             for i, paragraph in enumerate(paragraphs, start=1)
         ]
-        # One PostgreSQL statement means delete + insert + video mirror update
-        # either all commit or all roll back. A failed rerun cannot erase the
-        # previously valid documentary script.
-        await execute(
-            """WITH deleted AS (
-                   DELETE FROM scripts WHERE video_id = $2 AND tenant_id = $1 RETURNING 1
-               ), inserted AS (
-                   INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
-                   SELECT $1, $2, staged.scene, staged.scene_text, $4, 'Create', $5
-                   FROM jsonb_to_recordset($3::jsonb) AS staged(scene int, scene_text text)
+        # One PostgreSQL statement means video mirror update + script row
+        # replacement either all commit or all roll back. The scripts mutation is
+        # gated by the updated video row so a tenant/video miss cannot create
+        # orphan replacement rows.
+        replacement_result = await execute(
+            """WITH updated AS (
+                   UPDATE videos
+                   SET script = $6, script_validation = $7, updated_at = now()
+                   WHERE id = $2 AND tenant_id = $1
+                   RETURNING id
+               ), deleted AS (
+                   DELETE FROM scripts s
+                   USING updated u
+                   WHERE s.video_id = u.id AND s.tenant_id = $1
                    RETURNING 1
                )
-               UPDATE videos
-               SET script = $6, script_validation = $7, updated_at = now()
-               WHERE id = $2 AND tenant_id = $1""",
+               INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+               SELECT $1, u.id, staged.scene, staged.scene_text, $4, 'Create', $5
+               FROM updated u
+               CROSS JOIN (SELECT count(*) AS deleted_count FROM deleted) d
+               CROSS JOIN jsonb_to_recordset($3::jsonb) AS staged(scene int, scene_text text)""",
             self.tenant_id,
             video_id,
             _json_sh.dumps(staged_rows),
@@ -4707,6 +4713,10 @@ class PipelineExecutor:
             full_script,
             _json_sh.dumps(validation),
         )
+        if self._db_write_missed(replacement_result):
+            msg = "Script-hold final save refused because the video is no longer available for this tenant"
+            await self._log_activity(bot_name, video_id, "failed", msg)
+            return {"status": "failed", "error": msg, "video_id": video_id}
         from drive_workspace import sync_video_workspace_fail_soft
         await sync_video_workspace_fail_soft(video_id, self.tenant_id)
 
