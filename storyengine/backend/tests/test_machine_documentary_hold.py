@@ -2039,6 +2039,20 @@ def test_story_paragraph_validator_requires_five_sentence_formula_order():
     assert any("sentence 2 must carry engineering_decision evidence" in warning for warning in order_warnings)
 
 
+def test_story_paragraph_validator_rejects_mixed_required_slots_inside_formula_sentence():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["claim_map"][0]["used_evidence_ids"] = ["E-PROBLEM", "E-DECISION"]
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any(
+        "sentence 1 used out-of-order required Anton slot evidence: engineering_decision" in warning
+        for warning in warnings
+    )
+
+
 def test_story_paragraph_validator_requires_available_memorable_fact():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")

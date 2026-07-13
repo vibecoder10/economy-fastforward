@@ -2494,6 +2494,15 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             expected_role = formula_roles[sentence_index - 1]
             if expected_role not in sentence_roles:
                 warnings.append(f"sentence {sentence_index} must carry {expected_role} evidence in Anton formula order")
+            unexpected_required_roles = sorted(
+                role for role in sentence_roles
+                if role in _ANTON_REQUIRED_SLOT_ROLES and role != expected_role
+            )
+            if unexpected_required_roles:
+                warnings.append(
+                    f"sentence {sentence_index} used out-of-order required Anton slot evidence: "
+                    + ", ".join(unexpected_required_roles)
+                )
         sentence_for_numbers = sentence
         for designation in designation_tokens:
             sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", sentence_for_numbers, flags=re.IGNORECASE)
