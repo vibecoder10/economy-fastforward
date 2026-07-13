@@ -42,13 +42,22 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "return host ? 3 : 0" in text
     assert "Raw source package machine mismatch · preview blocked" in text
     assert "const targetCode = normalizedUnitCode(machine)" in text
-    assert "const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || \"\"))" in text
+    assert "const packageKey = normalizedUnitCode(String(sourcePackage?.machine_key || \"\"))" in text
+    assert "const packageMachine = normalizedUnitCode(String(sourcePackage?.machine || \"\"))" in text
+    assert "packageKey && packageKey !== targetCode" in text
+    assert "packageMachine && packageMachine !== targetCode" in text
     assert "activePreviewSourcePackageReady" in text
     assert "sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine)" in text
     assert "sourcePackageReady(activePreviewSourcePackage, activePreviewMachine)" in text
     assert "activePreviewResearchCard" in text
     assert "activePreviewReady" in text
     assert "Research card missing · preview blocked" in text
+    assert "Evidence source mismatch ·" in text
+    assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
+    assert "Timeframe evidence Tier 4-only · preview blocked" in text
+    assert "Visual identity evidence Tier 4-only · preview blocked" in text
+    assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
+    assert "machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage)" in text
     assert "disabled={previewGenerating || !activePreviewReady}" in text
     assert "Raw source package missing · preview blocked" in text
     assert "Raw source package target-thin ·" in text
@@ -70,7 +79,9 @@ def test_script_voice_research_gate_counts_only_verified_cards():
 
     assert "function cardMatchesMachine" in text
     assert "const verifiedMachineResearchCount = useMemo" in text
-    assert "sourcePackageReady(sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label), label)" in text
+    assert "const sourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label)" in text
+    assert "machineResearchCardReady(card, label, sourcePackage)" in text
+    assert "sourcePackageReady(sourcePackage, label)" in text
     assert "verified cards finished" in text
     assert "unit_research_cards?.length || 0" not in text
 
@@ -136,6 +147,9 @@ def test_script_voice_preview_surfaces_source_capture_method():
     text = _script_voice_tab().read_text()
 
     assert "function sourceCandidateForEvidence" in text
+    assert "function sourceTierForEvidence" in text
+    assert "sourceTierNumber(match)" in text
+    assert "sourceTierForUrl(segment?.source_url, segment?.source_title)" in text
     assert "function sourceCaptureMethodForEvidence" in text
     assert "match?.source_capture_method || segment?.source_capture_method" in text
     assert '"legacy_unmarked"' in text

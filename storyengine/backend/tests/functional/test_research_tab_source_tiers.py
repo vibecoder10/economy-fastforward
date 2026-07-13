@@ -59,7 +59,10 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "return host ? 3 : 0" in text
     assert "Raw source package machine mismatch · preview blocked" in text
     assert "const targetCode = normalizedUnitCode(machine)" in text
-    assert "const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || \"\"))" in text
+    assert "const packageKey = normalizedUnitCode(String(sourcePackage?.machine_key || \"\"))" in text
+    assert "const packageMachine = normalizedUnitCode(String(sourcePackage?.machine || \"\"))" in text
+    assert "packageKey && packageKey !== targetCode" in text
+    assert "packageMachine && packageMachine !== targetCode" in text
     assert "selectedSourcePackageReady" in text
     assert "sourcePackageStatus(selectedSourcePackage, selectedMachineLabel)" in text
     assert "sourcePackageReady(selectedSourcePackage, selectedMachineLabel)" in text
@@ -69,7 +72,15 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Visual identity missing · preview blocked" in text
     assert "Visual identity evidence missing ·" in text
     assert "Memorable fact missing · preview blocked" in text
+    assert "Evidence source mismatch ·" in text
+    assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
+    assert "Timeframe evidence Tier 4-only · preview blocked" in text
+    assert "Visual identity evidence Tier 4-only · preview blocked" in text
+    assert "sourceCandidateForEvidence(segment, sourcePackage)" in text
+    assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
     assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text
+    assert "machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage)" in text
+    assert "machineResearchCardReady(card, label, sourcePackage)" in text
     assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchReady}" in text
     assert "Raw source package missing · preview blocked" in text
     assert "Raw source package target-thin ·" in text
@@ -96,7 +107,14 @@ def test_script_voice_tab_blocks_preview_without_authoritative_source():
     assert "Timeframe missing · preview blocked" in text
     assert "Visual identity missing · preview blocked" in text
     assert "Memorable fact missing · preview blocked" in text
+    assert "Evidence source mismatch ·" in text
+    assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
+    assert "Timeframe evidence Tier 4-only · preview blocked" in text
+    assert "Visual identity evidence Tier 4-only · preview blocked" in text
+    assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
     assert "activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady" in text
+    assert "machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage)" in text
+    assert "machineResearchCardReady(card, label, sourcePackage)" in text
     assert "Raw source package needs Tier 1-2 source · preview blocked" in text
     assert "authoritativeUrls.size < 1" in text
     assert "sourceTierNumber(candidate) <= 2" in text
@@ -107,8 +125,9 @@ def test_research_tab_counts_only_verified_machine_cards():
 
     assert "function sourcePackageForMachine" in text
     assert "const verifiedMachineResearchCount = useMemo" in text
-    assert "machineResearchCardReady(card, label)" in text
-    assert "sourcePackageReady(sourcePackageForMachine(research.machine_raw_source_packages, label), label)" in text
+    assert "machineResearchCardReady(card, label, sourcePackage)" in text
+    assert "const sourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label)" in text
+    assert "sourcePackageReady(sourcePackage, label)" in text
     assert "verified machines researched" in text
     assert "verifiedMachineResearchCount / research.unit_roster.length" in text
     assert "verified cards finished" in text
@@ -161,6 +180,8 @@ def test_research_tab_surfaces_tier_badges_and_labels():
     assert "sourceTier?.label" in text
     assert "source_tier_label" in text
     assert "source_tier" in text
+    assert "sourceTierNumber(match)" in text
+    assert "sourceTierForUrl(segment?.source_url, segment?.source_title)" in text
 
 
 def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():

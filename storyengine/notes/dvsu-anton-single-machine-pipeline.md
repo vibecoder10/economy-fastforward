@@ -123,6 +123,8 @@ Before Claude writes or previews a machine card, the raw package must also inclu
 
 The saved research card itself must select at least one Tier 1-2 source-backed evidence segment. A raw package is not considered enough if it contains an authoritative source but the model ignores that source when building the card. `timeframe` and `visual_identity` evidence cannot be supported only by Tier 4/caution sources.
 
+The Research and Script/Voice tabs also check that the card's selected `source_excerpt` + `source_url` + `locator` rows still match the saved raw package before showing the selected machine as ready. This keeps stale card locators, cards that ignored Tier 1-2 sources, and Tier 4-only timeframe or visual identity evidence from appearing preview-ready in the UI.
+
 After a selected-machine research or preview run, the UI invalidates the saved video state so the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` can be reviewed without relying on a manual browser refresh.
 
 ## Script Contract

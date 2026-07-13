@@ -111,10 +111,13 @@ function sourceCandidateForEvidence(segment: any, sourcePackage: any): any | nul
 function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number; label: string } | null {
   const match = sourceCandidateForEvidence(segment, sourcePackage);
   const rawTier = Number(match?.source_tier || segment?.source_tier || 0);
-  if (!rawTier) return null;
+  const tier = rawTier || (match
+    ? sourceTierNumber(match)
+    : sourceTierForUrl(segment?.source_url, segment?.source_title));
+  if (!tier) return null;
   return {
-    tier: rawTier,
-    label: String(match?.source_tier_label || segment?.source_tier_label || `Tier ${rawTier}`),
+    tier,
+    label: String(match?.source_tier_label || segment?.source_tier_label || `Tier ${tier}`),
   };
 }
 
@@ -188,8 +191,9 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     return { ready: false, message: `Raw source package unsupported capture · ${Array.from(unsupportedCaptureMethods).join(", ")} · preview blocked` };
   }
   const targetCode = normalizedUnitCode(machine);
-  const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || ""));
-  if (targetCode && (!packageCode || packageCode !== targetCode)) {
+  const packageKey = normalizedUnitCode(String(sourcePackage?.machine_key || ""));
+  const packageMachine = normalizedUnitCode(String(sourcePackage?.machine || ""));
+  if (targetCode && ((!packageKey && !packageMachine) || (packageKey && packageKey !== targetCode) || (packageMachine && packageMachine !== targetCode))) {
     return { ready: false, message: "Raw source package machine mismatch · preview blocked" };
   }
   const targetExcerpts = machine ? excerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : excerpts;
@@ -225,7 +229,7 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
   return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
-function machineResearchCardStatus(card: any, machine: string = ""): { ready: boolean; message: string } {
+function machineResearchCardStatus(card: any, machine: string = "", sourcePackage: any = null): { ready: boolean; message: string } {
   if (!card) return { ready: false, message: "Research card missing · preview blocked" };
   const timeframe = String(card?.timeframe || "").trim();
   const timeframeEvidenceIds = Array.isArray(card?.timeframe_evidence_ids)
@@ -253,6 +257,11 @@ function machineResearchCardStatus(card: any, machine: string = ""): { ready: bo
       .map((segment: any) => String(segment?.evidence_id || "").trim())
       .filter(Boolean)
   );
+  const evidenceById = new Map(
+    evidenceSegments
+      .filter((segment: any) => String(segment?.evidence_id || "").trim())
+      .map((segment: any) => [String(segment?.evidence_id || "").trim(), segment])
+  );
   const unknownTimeframeEvidenceIds = timeframeEvidenceIds.filter((id: string) => !evidenceIds.has(id));
   if (unknownTimeframeEvidenceIds.length > 0) {
     return { ready: false, message: `Timeframe evidence missing · ${unknownTimeframeEvidenceIds.join(", ")} · preview blocked` };
@@ -264,11 +273,41 @@ function machineResearchCardStatus(card: any, machine: string = ""): { ready: bo
   if (machine && !machineLabelMatches(cardLabel(card), machine)) {
     return { ready: false, message: "Research card machine mismatch · preview blocked" };
   }
+  if (sourcePackage && Array.isArray(sourcePackage?.candidate_excerpts)) {
+    const sourcedSegments = evidenceSegments.filter((segment: any) => String(segment?.source_excerpt || "").trim());
+    const staleSegment = sourcedSegments.find((segment: any) => (
+      !String(segment?.source_url || "").trim()
+      || !String(segment?.locator || "").trim()
+      || !sourceCandidateForEvidence(segment, sourcePackage)
+    ));
+    if (staleSegment) {
+      const evidenceId = String(staleSegment?.evidence_id || "unknown evidence").trim();
+      return { ready: false, message: `Evidence source mismatch · ${evidenceId} · preview blocked` };
+    }
+    const selectedTiers = sourcedSegments
+      .map((segment: any) => sourceTierForEvidence(segment, sourcePackage)?.tier || 0)
+      .filter((tier: number) => tier > 0);
+    if (selectedTiers.length > 0 && selectedTiers.every((tier: number) => tier > 2)) {
+      return { ready: false, message: "Research card needs selected Tier 1-2 evidence · preview blocked" };
+    }
+    const timeframeTiers = timeframeEvidenceIds
+      .map((id: string) => sourceTierForEvidence(evidenceById.get(id), sourcePackage)?.tier || 0)
+      .filter((tier: number) => tier > 0);
+    if (timeframeTiers.length > 0 && timeframeTiers.every((tier: number) => tier >= 4)) {
+      return { ready: false, message: "Timeframe evidence Tier 4-only · preview blocked" };
+    }
+    const visualTiers = visualIdentityEvidenceIds
+      .map((id: string) => sourceTierForEvidence(evidenceById.get(id), sourcePackage)?.tier || 0)
+      .filter((tier: number) => tier > 0);
+    if (visualTiers.length > 0 && visualTiers.every((tier: number) => tier >= 4)) {
+      return { ready: false, message: "Visual identity evidence Tier 4-only · preview blocked" };
+    }
+  }
   return { ready: true, message: "Research card ready · visual identity grounded" };
 }
 
-function machineResearchCardReady(card: any, machine: string = ""): boolean {
-  return machineResearchCardStatus(card, machine).ready;
+function machineResearchCardReady(card: any, machine: string = "", sourcePackage: any = null): boolean {
+  return machineResearchCardStatus(card, machine, sourcePackage).ready;
 }
 
 function sourcePackageForMachine(packages: any, machine: string): any | null {
@@ -618,7 +657,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   }, [research, selectedMachineLabel]);
   const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage, selectedMachineLabel);
   const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage, selectedMachineLabel);
-  const selectedResearchCardStatus = machineResearchCardStatus(selectedResearchCard, selectedMachineLabel);
+  const selectedResearchCardStatus = machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage);
   const selectedResearchReady = selectedResearchCardStatus.ready && selectedSourcePackageReady;
   const selectedResearchStatusMessage = selectedResearchCardStatus.ready
     ? selectedSourcePackageStatus.message
@@ -628,7 +667,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     return research.unit_roster.filter((item: any) => {
       const label = machineLabel(item);
       const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-      return machineResearchCardReady(card, label) && sourcePackageReady(sourcePackageForMachine(research.machine_raw_source_packages, label), label);
+      const sourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
+      return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
     }).length;
   }, [research]);
 
@@ -1045,7 +1085,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               const label = machineLabel(item);
               const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
               const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
-              const cardStatus = machineResearchCardStatus(card, label);
+              const cardStatus = machineResearchCardStatus(card, label, cardSourcePackage);
               const cardReady = cardStatus.ready;
               const cardSourceReady = sourcePackageReady(cardSourcePackage, label);
               const cardVerified = cardReady && cardSourceReady;
