@@ -403,9 +403,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setLocalMachinePreview(result.preview);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       if (result.preview.passed) {
-        toast.success("Single-machine preview passed.");
+        toast.success("Single-machine preview passed. Production script unchanged.");
       } else {
-        toast.error("Single-machine preview needs review.");
+        toast.error("Single-machine preview needs review. Production script unchanged.");
       }
     } catch (err: unknown) {
       const message = (err as Error).message || "Unknown error";

@@ -1422,6 +1422,8 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
     saved_brief_rows = [(query, args) for query, args in writes if "machine_script_briefs" in query]
     saved_plan_rows = [(query, args) for query, args in writes if "machine_story_plans" in query]
+    assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
+    assert not any("script_validation" in query or "SET script =" in query for query, _args in writes)
     assert saved_preview_rows and saved_preview_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert saved_brief_rows and saved_brief_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert saved_plan_rows and saved_plan_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")

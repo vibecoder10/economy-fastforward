@@ -155,6 +155,7 @@ def test_research_tab_keeps_failed_preview_reason_visible():
     text = _research_tab().read_text()
 
     handler = text[text.index("const handleOneMachinePreview"):text.index("const handleApproveResearch")]
+    assert "Production script unchanged." in handler
     assert "setLocalMachinePreview({" in handler
     assert 'research_source: "preview_error"' in handler
     assert "warnings: [message]" in handler
