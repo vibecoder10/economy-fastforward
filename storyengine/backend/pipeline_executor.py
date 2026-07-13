@@ -548,7 +548,7 @@ _ANTON_SLOT_SPECS = (
     ("service_reality", ("service_reality_context",), "Optional supporting service detail when it is not the main reality beat."),
     ("memorable_fact", ("memorable_fact", "surprising_fact", "retention_fact"), "Optional sourced fact serious viewers are unlikely to know; embed it only when it strengthens one of the four beats."),
     ("role_category", ("role_category", "classification"), "Name the role or category only when it helps the viewer understand the engineering lane."),
-    ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced."),
+    ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced and attributed."),
     ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "Optional sourced downstream consequence; do not use this as a pre-written conclusion beat."),
     ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
     ("onscreen_label", ("onscreen_label",), "On-screen metadata ingredients: full name, concise role, operator or build count, and service/date range; never spoken narration."),
@@ -561,6 +561,51 @@ _ANTON_REQUIRED_SLOT_ROLES = {
     "tradeoff",
     "reality",
 }
+
+
+def _human_detail_has_attribution(text: str) -> bool:
+    """Anton human-detail evidence must be named, or clearly official."""
+    raw = str(text or "")
+    lower = raw.lower()
+    official_markers = (
+        "official finding",
+        "official inquiry",
+        "inquiry finding",
+        "accident report",
+        "combat report",
+        "test report",
+        "after-action report",
+        "board found",
+        "board concluded",
+        "report found",
+        "report concluded",
+        "memo warned",
+        "letter warned",
+        "official decision",
+        "documented decision",
+        "command decision",
+        "ordered by",
+        "recorded decision",
+    )
+    if any(marker in lower for marker in official_markers):
+        return True
+
+    machine_or_institution = {
+        "Air Force",
+        "Army Air",
+        "Boeing XB",
+        "Designed Vs",
+        "Designed vs",
+        "National Museum",
+        "United States",
+        "World War",
+    }
+    name_pattern = r"\b[A-Z][a-z]+(?:\s+(?:[A-Z]\.)?)*\s+[A-Z][a-z]+\b"
+    for match in re.findall(name_pattern, raw):
+        if any(term in match for term in machine_or_institution):
+            continue
+        return True
+    return False
 
 
 def _anton_slot_role_for_kind(kind: str) -> Optional[str]:
@@ -939,6 +984,12 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             errors.append(f"evidence segment {evidence_id or index} missing kind or atomic claim")
         elif _anton_slot_role_for_kind(kind) is None:
             errors.append(f"evidence segment {evidence_id or index} has unsupported Anton slot kind: {kind}")
+        elif _anton_slot_role_for_kind(kind) == "human_detail" and not _human_detail_has_attribution(
+            " ".join([claim, excerpt])
+        ):
+            errors.append(
+                f"evidence segment {evidence_id or index} human_detail must name a person or cite an official finding"
+            )
         if not excerpt:
             errors.append(f"evidence segment {evidence_id or index} missing source_excerpt")
         if not source_url and not locator:
@@ -3949,6 +4000,7 @@ class PipelineExecutor:
                 "- reality = raw excerpt for what happened in testing, production, service, or combat reality.\n"
                 "- memorable_fact should be returned when the verified excerpts support a fact serious viewers are unlikely to know; it will be required for Anton-quality script preview, but never invent one.\n"
                 "- For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it. Never invent a human account.\n"
+                "- A human_detail segment must be attributed to a named person or cite an official finding/decision. Generic pilot, crew, or engineer claims are invalid.\n"
                 "- Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence.\n"
                 "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
                 "- Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when directly supported by exact excerpts.\n"
@@ -3994,6 +4046,7 @@ class PipelineExecutor:
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
                     "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "
                     "For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it; never invent a human account. "
+                    "A human_detail segment must be attributed to a named person or cite an official finding/decision; generic pilot, crew, or engineer claims are invalid. "
                     "Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence. "
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "

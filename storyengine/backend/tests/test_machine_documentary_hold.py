@@ -424,6 +424,48 @@ def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
     assert errors == []
 
 
+def test_machine_evidence_human_detail_requires_attribution():
+    base_segment = {
+        "evidence_id": "XB15-HUMAN-01",
+        "kind": "human_detail",
+        "claim": "A pilot account said the bomber was difficult to manage.",
+        "source_excerpt": "A pilot account said the bomber was difficult to manage.",
+        "source_url": "https://example.test/xb-15-human",
+        "source_title": "Test source",
+        "locator": "S1-E1",
+        "numeric_tokens": [],
+        "confidence": "high",
+    }
+
+    _evidence, generic_errors = pe._normalize_machine_evidence(
+        {"unit": "Boeing XB-15", "evidence_segments": [base_segment]},
+        "Boeing XB-15",
+    )
+    assert any("human_detail must name a person or cite an official finding" in error for error in generic_errors)
+
+    named_segment = {
+        **base_segment,
+        "claim": "Major William Snow said the bomber was difficult to manage.",
+        "source_excerpt": "Major William Snow said the bomber was difficult to manage.",
+    }
+    _evidence, named_errors = pe._normalize_machine_evidence(
+        {"unit": "Boeing XB-15", "evidence_segments": [named_segment]},
+        "Boeing XB-15",
+    )
+    assert named_errors == []
+
+    official_segment = {
+        **base_segment,
+        "claim": "The accident report concluded the bomber was difficult to manage.",
+        "source_excerpt": "The accident report concluded the bomber was difficult to manage.",
+    }
+    _evidence, official_errors = pe._normalize_machine_evidence(
+        {"unit": "Boeing XB-15", "evidence_segments": [official_segment]},
+        "Boeing XB-15",
+    )
+    assert official_errors == []
+
+
 def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
     payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17", "Convair B-36"]}
     machine_payload = {**payload, "documentary_style": "machine_documentary"}
@@ -857,8 +899,8 @@ def test_first_three_anton_audit_reports_human_detail_advisory():
     evidence.append({
         "evidence_id": "E-HUMAN",
         "kind": "human_detail",
-        "claim": "A named pilot account grounded in the supplied source.",
-        "source_excerpt": "A named pilot account grounded in the supplied source.",
+        "claim": "Major William Snow account grounded in the supplied source.",
+        "source_excerpt": "Major William Snow account grounded in the supplied source.",
         "source_url": "https://example.test/human-detail",
         "source_title": "Test source",
         "locator": "S9-E1",
@@ -883,7 +925,7 @@ def test_first_three_anton_audit_reports_human_detail_advisory():
     assert audit_with_human["passed"] is False
 
     human_bundle = copy.deepcopy(bundle)
-    human_sentence = "A named pilot account grounded in the supplied source."
+    human_sentence = "Major William Snow account grounded in the supplied source."
     human_bundle["paragraph"] = human_bundle["paragraph"].replace(
         "Together, those choices",
         f"{human_sentence} Together, those choices",
@@ -2326,6 +2368,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "never pick the higher or more dramatic claim" in prompt
     assert "onscreen_label is metadata for Producer File/on-screen text, never spoken narration" in prompt
     assert "For machines 1-3, prefer one verified human_detail" in prompt
+    assert "A human_detail segment must be attributed to a named person" in prompt
     assert "Never invent a human account" in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt

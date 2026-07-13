@@ -70,6 +70,8 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - Optional when directly sourced: `memorable_fact`, `role_category`, `human_detail`, `historical_meaning`, `transition_hook`, `onscreen_label`, or narrow context slots
 
+`human_detail` must either name a person or cite an official finding/decision. Generic pilot, crew, or engineer claims are invalid even when they come from a fetched excerpt, because Anton's rule is about a documented perspective that builds trust without replacing the engineering thesis.
+
 Do not research or pre-write a standalone "meaning" beat. The final sentence is editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.
 
 `onscreen_label` is metadata for Producer File/on-screen text, never spoken narration. It may use only sourced full name, concise role, operator or build count, and service/date range. The script paragraph must remain clean voiceover text with no headers, labels, editor notes, thumbnail lines, or visual directions.
