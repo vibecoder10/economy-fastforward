@@ -1860,3 +1860,8 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 - DONE: GPT Image 2 is the character-lock scene-image path (`image_client.generate_scene_image_gpt`, always-available scene model). Coverage-frames-to-app store path (`scripts/coverage_to_app.py`) + pipeline route wiring + Characters / Scenes workspace UI. Committed here after being found running-but-uncommitted on the VPS.
 - ALSO shipped today (separate effort): the YouTube intelligence ruleset is live - but/therefore + a 15-second hook rule in the script engine, a retention grader gate (`grade_script_with_client` routes via the tenant's `AnthropicClient` so it covers Kie-gateway tenants too), an idea scorer in chat, and a format-aware script engine that auto-applies story craft vs teaching craft per niche (verified live: ESL teaches, true-crime tells a story). See `storyengine/YOUTUBE-INTELLIGENCE-RULESET.md`.
 - NEXT: the character-consistency / coverage UI may still be mid-iteration (the session was actively editing `pipeline.py` when this was committed) - verify a real coverage run end to end. The format-aware engine supersedes `tasks/engine-identity-seeds/faceless-story.md` for auto-handling channel types.
+
+## Handoff (2026-07-12 - DVsU single-machine script proof)
+- DONE: Updated the XB-15 story compiler gate so source-supported spelled numbers are valid (`five thousand` maps to `5000`) while unsupported numeric values still fail.
+- DONE: Canonicalized Claude's `evidence_sentences` list response into the locked problem/decision/tradeoff/outcome sentence rows before validation.
+- NEXT: Deploy this backend change, rerun only the XB-15 `machine-script-preview` endpoint, and review the saved paragraph before touching Machine 2.

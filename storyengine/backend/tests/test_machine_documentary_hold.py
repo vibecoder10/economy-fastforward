@@ -107,6 +107,17 @@ def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
                 "numeric_tokens": ["2"],
                 "confidence": "high",
             },
+            {
+                "evidence_id": "XB15-TR-01",
+                "kind": "tradeoff",
+                "claim": "Boeing XB-15 range was five thousand miles.",
+                "source_excerpt": "Boeing XB-15 range was 5,000 mi.",
+                "source_url": "https://example.test/xb-15",
+                "source_title": "Test source",
+                "locator": "S1-E3",
+                "numeric_tokens": ["5000"],
+                "confidence": "high",
+            },
         ],
     }
 
@@ -418,6 +429,56 @@ def test_story_sentence_parser_canonicalizes_top_level_beat_shape():
     assert pe._spoken_word_count(paragraph) == 95
 
 
+def test_story_sentence_parser_canonicalizes_evidence_sentences_list_shape():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    canonical = json.loads(_story_bundle("B-52", 19))
+    loose = {
+        "evidence_sentences": [
+            row["sentence"]
+            for row in canonical["sentences"]
+        ] + [canonical["conclusion"]["sentence"]]
+    }
+
+    bundle = pe._parse_machine_story_sentences(json.dumps(loose))
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert warnings == []
+    assert [row["beat"] for row in bundle["sentences"]] == ["problem", "decision", "tradeoff", "outcome"]
+    assert bundle["conclusion"]["sentence"] == canonical["conclusion"]["sentence"]
+    assert pe._spoken_word_count(paragraph) == 95
+
+
+def test_story_sentence_validator_allows_source_supported_spelled_numbers_only():
+    evidence = _evidence_segments()
+    evidence[0].update({
+        "claim": "The Boeing XB-15 problem required a very large bomber with range of 5000 mi for the Army Air Corps.",
+        "source_excerpt": "The Boeing XB-15 problem required a very large bomber with range of 5,000 mi for the Army Air Corps.",
+        "numeric_tokens": ["5000"],
+    })
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    bundle["sentences"][0]["sentence"] = (
+        "The Boeing XB-15 problem required a very large bomber with range of five thousand miles for the Army Air Corps."
+    )
+
+    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
+
+    assert warnings == []
+    assert "five thousand miles" in paragraph
+    assert pe._spoken_word_count(paragraph) == 96
+
+    bad_bundle = copy.deepcopy(bundle)
+    bad_bundle["sentences"][0]["sentence"] = bad_bundle["sentences"][0]["sentence"].replace(
+        "five thousand", "six thousand"
+    )
+
+    _, bad_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bad_bundle)
+
+    assert any("six thousand" in warning for warning in bad_warnings)
+
+
 def test_story_sentence_validator_blocks_conclusion_new_evidence_or_numbers():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -513,11 +574,11 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "conclusion has no used_evidence_ids" in fake_anthropic.prompts[0]
     assert "at most two numerical details" in fake_anthropic.prompts[0]
     assert "Prefer copying claim/source words literally" in fake_anthropic.prompts[0]
-    assert "Never spell numbers as words" in fake_anthropic.prompts[0]
+    assert "Numbers may be numerals or spelled words" in fake_anthropic.prompts[0]
     assert "Include the exact locked machine name" in fake_anthropic.prompts[0]
     assert "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE" in fake_anthropic.prompts[1]
     assert "Delete or replace every word named in the validation warnings" in fake_anthropic.prompts[1]
-    assert "copy essential numerals/units exactly" in fake_anthropic.prompts[1]
+    assert "Numbers may be numerals or spelled words" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("You are a deterministic source-grounded JSON compiler")
     assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]

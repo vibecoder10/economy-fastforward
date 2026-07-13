@@ -411,27 +411,130 @@ _NUMBER_TOKEN_WORDS = {
     "eighteen": "18",
     "nineteen": "19",
     "twenty": "20",
+    "thirty": "30",
+    "forty": "40",
+    "fifty": "50",
+    "sixty": "60",
+    "seventy": "70",
+    "eighty": "80",
+    "ninety": "90",
 }
+
+
+_NUMBER_SCALE_WORDS = {
+    "hundred": 100,
+    "thousand": 1000,
+    "million": 1000000,
+}
+
+
+_INDEFINITE_NUMBER_SCALE_WORDS = {"hundreds", "thousands", "millions"}
+_NUMBER_WORD_VOCABULARY = set(_NUMBER_TOKEN_WORDS) | set(_NUMBER_SCALE_WORDS) | _INDEFINITE_NUMBER_SCALE_WORDS | {"and"}
+
+
+def _parse_number_word_phrase(tokens: list[str]) -> Optional[int]:
+    """Return a numeric value for precise spoken number phrases."""
+    cleaned = [token for token in tokens if token and token != "and"]
+    if not cleaned or any(token in _INDEFINITE_NUMBER_SCALE_WORDS for token in cleaned):
+        return None
+
+    values = [int(_NUMBER_TOKEN_WORDS[token]) for token in cleaned if token in _NUMBER_TOKEN_WORDS]
+    if (
+        len(values) in {2, 3}
+        and len(values) == len(cleaned)
+        and 10 <= values[0] <= 99
+        and 20 <= values[1] <= 90
+        and values[1] % 10 == 0
+    ):
+        # Handles spoken years such as "nineteen thirty three" -> 1933.
+        return values[0] * 100 + sum(values[1:])
+
+    total = 0
+    current = 0
+    seen = False
+    for token in cleaned:
+        if token in _NUMBER_TOKEN_WORDS:
+            current += int(_NUMBER_TOKEN_WORDS[token])
+            seen = True
+            continue
+        scale = _NUMBER_SCALE_WORDS.get(token)
+        if scale is None:
+            return None
+        seen = True
+        if scale == 100:
+            current = max(current, 1) * scale
+        else:
+            total += max(current, 1) * scale
+            current = 0
+    return total + current if seen else None
 
 
 def _numeric_token_key(token: Any) -> str:
     """Canonicalize equivalent numeric spellings without weakening support checks."""
     raw = str(token or "").strip().lower()
-    if raw in _NUMBER_TOKEN_WORDS:
-        return _NUMBER_TOKEN_WORDS[raw]
+    word_tokens = re.findall(r"\b[a-z]+\b", raw.replace("-", " "))
+    if word_tokens and all(token in _NUMBER_WORD_VOCABULARY for token in word_tokens):
+        parsed = _parse_number_word_phrase(word_tokens)
+        if parsed is not None:
+            return str(parsed)
+        return " ".join(word_tokens)
     cleaned = raw.replace(",", "")
     cleaned = re.sub(r"(?<=\d)(?:st|nd|rd|th)$", "", cleaned)
     return cleaned
 
 
-def _numeric_tokens_from_text(text: str) -> list[str]:
-    digit_tokens = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", str(text or "").lower())
-    word_tokens = [
-        token
-        for token in re.findall(r"\b[a-z]+\b", str(text or "").lower())
-        if token in _NUMBER_TOKEN_WORDS
+def _numeric_mentions_from_text(text: str) -> list[dict[str, str]]:
+    """Extract numeric mentions with raw text and a canonical comparison key."""
+    lower = str(text or "").lower()
+    mentions = [
+        {"raw": token, "key": _numeric_token_key(token)}
+        for token in re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", lower)
     ]
-    return digit_tokens + word_tokens
+    tokens = re.findall(r"\b[a-z]+\b", lower.replace("-", " "))
+    number_terms = set(_NUMBER_TOKEN_WORDS) | set(_NUMBER_SCALE_WORDS) | _INDEFINITE_NUMBER_SCALE_WORDS
+    i = 0
+    while i < len(tokens):
+        if tokens[i] not in number_terms:
+            i += 1
+            continue
+        phrase = [tokens[i]]
+        j = i + 1
+        while j < len(tokens):
+            token = tokens[j]
+            if token in number_terms:
+                phrase.append(token)
+                j += 1
+                continue
+            if token == "and" and j + 1 < len(tokens) and tokens[j + 1] in number_terms:
+                phrase.append(token)
+                j += 1
+                continue
+            break
+        raw = " ".join(phrase)
+        mentions.append({"raw": raw, "key": _numeric_token_key(raw)})
+        i = j
+    return mentions
+
+
+def _numeric_tokens_from_text(text: str) -> list[str]:
+    return [mention["raw"] for mention in _numeric_mentions_from_text(text)]
+
+
+def _unit_word_variants_from_evidence(text: str) -> set[str]:
+    """Allow common spoken unit expansions only when the source uses that unit."""
+    lower = str(text or "").lower()
+    variants: set[str] = set()
+    if re.search(r"\bmi\b", lower):
+        variants.update({"mile", "miles"})
+    if re.search(r"\bmph\b", lower):
+        variants.update({"mile", "miles", "per", "hour"})
+    if re.search(r"\bft\b", lower):
+        variants.update({"foot", "feet"})
+    if re.search(r"\bkm\b", lower):
+        variants.update({"kilometer", "kilometers"})
+    if re.search(r"\blbs?\b", lower):
+        variants.update({"pound", "pounds"})
+    return variants
 
 
 def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], list[str]]:
@@ -475,7 +578,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             "for", "from", "had", "has", "have", "in", "into", "is", "it", "its", "made", "more", "not", "of",
             "on", "only", "or", "than", "that", "the", "their", "then", "through", "to", "was", "were", "which",
             "while", "with", "without", "would", "yet",
-        }
+        } | _NUMBER_WORD_VOCABULARY | _unit_word_variants_from_evidence(excerpt)
 
         def _evidence_stem(token: str) -> str:
             for suffix in ("ingly", "edly", "ing", "ed", "es", "s"):
@@ -603,6 +706,18 @@ def _parse_machine_story_sentences(raw: str) -> dict:
             for beat in ("problem", "decision", "tradeoff", "outcome")
             if evidence.get(beat)
         ]
+    if not isinstance(parsed.get("sentences"), list) and isinstance(parsed.get("evidence_sentences"), list):
+        evidence_sentences = [
+            " ".join(str(item or "").split())
+            for item in parsed.get("evidence_sentences") or []
+            if str(item or "").strip()
+        ]
+        parsed["sentences"] = [
+            {"beat": beat, "sentence": sentence, "used_evidence_ids": []}
+            for beat, sentence in zip(("problem", "decision", "tradeoff", "outcome"), evidence_sentences[:4])
+        ]
+        if len(evidence_sentences) >= 5 and not isinstance(parsed.get("conclusion"), dict):
+            parsed["conclusion"] = {"sentence": evidence_sentences[4]}
     if not isinstance(parsed.get("sentences"), list):
         parsed["sentences"] = [
             {"beat": beat, "sentence": str(parsed.get(beat) or ""), "used_evidence_ids": []}
@@ -610,6 +725,9 @@ def _parse_machine_story_sentences(raw: str) -> dict:
             if parsed.get(beat)
         ]
     conclusion = parsed.get("conclusion")
+    if isinstance(conclusion, str):
+        parsed["conclusion"] = {"sentence": conclusion}
+        conclusion = parsed.get("conclusion")
     if isinstance(conclusion, dict) and not conclusion.get("sentence") and conclusion.get("paragraph_derived_sentence"):
         parsed["conclusion"] = {"sentence": conclusion.get("paragraph_derived_sentence")}
     return parsed
@@ -635,12 +753,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     sentences: list[str] = []
     all_number_tokens: list[str] = []
     designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
-    number_words = {
-        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
-        "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
-        "hundred", "hundreds", "thousand", "thousands", "million", "millions",
-    }
     for row in rows:
         if not isinstance(row, dict):
             warnings.append("every sentence row must be an object")
@@ -670,21 +782,19 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             warnings.append(f"{beat} must contain exactly one sentence")
         if ";" in sentence:
             warnings.append(f"{beat} may not use semicolons")
-        allowed_numbers = {
-            str(token).lower()
+        allowed_number_keys = {
+            _numeric_token_key(token)
             for evidence_id in used_ids
             for token in allowed.get(str(evidence_id), {}).get("numeric_tokens", [])
         }
         sentence_for_numbers = sentence
         for designation in designation_tokens:
             sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", sentence_for_numbers, flags=re.IGNORECASE)
-        digit_tokens = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", sentence_for_numbers.lower())
-        word_tokens = [token for token in re.findall(r"\b[a-z]+\b", sentence_for_numbers.lower()) if token in number_words]
-        sentence_numbers = digit_tokens + word_tokens
-        unsupported = [token for token in sentence_numbers if token not in allowed_numbers]
+        sentence_numbers = _numeric_mentions_from_text(sentence_for_numbers)
+        unsupported = [mention["raw"] for mention in sentence_numbers if mention["key"] not in allowed_number_keys]
         if unsupported:
             warnings.append(f"{beat} introduced unsupported numerical detail(s): {', '.join(unsupported)}")
-        all_number_tokens.extend(sentence_numbers)
+        all_number_tokens.extend(mention["key"] for mention in sentence_numbers)
 
         evidence_text = " ".join(
             f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
@@ -698,7 +808,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             "she", "so", "still", "than", "that", "the", "their", "them", "then", "there", "these", "they",
             "this", "those", "through", "to", "ultimately", "was", "were", "what", "when", "which", "while",
             "who", "whose", "with", "without", "would", "yet", "showed", "revealed", "proved", "became", "instead",
-        }
+        } | _NUMBER_WORD_VOCABULARY | _unit_word_variants_from_evidence(evidence_text)
 
         def _claim_stem(token: str) -> str:
             for suffix in ("ingly", "edly", "ing", "ed", "es", "s"):
@@ -748,11 +858,13 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         for designation in designation_tokens:
             conclusion_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", conclusion_for_numbers, flags=re.IGNORECASE)
             evidence_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", evidence_for_numbers, flags=re.IGNORECASE)
-        evidence_numbers = set(re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", evidence_for_numbers.lower()))
-        evidence_numbers.update(token for token in re.findall(r"\b[a-z]+\b", evidence_for_numbers.lower()) if token in number_words)
-        conclusion_numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", conclusion_for_numbers.lower())
-        conclusion_numbers += [token for token in re.findall(r"\b[a-z]+\b", conclusion_for_numbers.lower()) if token in number_words]
-        unsupported_conclusion_numbers = [token for token in conclusion_numbers if token not in evidence_numbers]
+        evidence_numbers = {mention["key"] for mention in _numeric_mentions_from_text(evidence_for_numbers)}
+        conclusion_numbers = _numeric_mentions_from_text(conclusion_for_numbers)
+        unsupported_conclusion_numbers = [
+            mention["raw"]
+            for mention in conclusion_numbers
+            if mention["key"] not in evidence_numbers
+        ]
         if unsupported_conclusion_numbers:
             warnings.append(
                 "conclusion introduced unsupported numerical detail(s): "
@@ -3391,7 +3503,7 @@ class PipelineExecutor:
                     "- Distill; do not inventory. One sentence may express only the central idea of its evidence.\n"
                     "- Keep factual nouns and verbs inside the vocabulary of that beat's claim and source excerpt; do not add factual synonyms.\n"
                     "- Prefer copying claim/source words literally, then deleting clutter. Do not translate 'not quite reached' into 'fell short', 'give' into 'deliver', or 'very large' into 'exceptional'.\n"
-                    "- Never spell numbers as words. If a number is essential, copy the source numeral/unit exactly, such as '5000 mi' or '197 mph'; never write 'five thousand miles' or 'one hundred ninety-seven miles per hour'.\n"
+                    "- Numbers may be numerals or spelled words, but every number must map to that beat's numeric_tokens/source excerpt; do not add or convert unsupported numbers or units.\n"
                     "- Do not add dates, numbers, names, programs, specifications, causes, or claims absent from that beat's evidence.\n"
                     "- Across the four evidence sentences, use at most two numerical details, and only when essential.\n"
                     "- The conclusion has no used_evidence_ids. It may state only what the assembled four-sentence paragraph demonstrates.\n"
@@ -3449,7 +3561,7 @@ class PipelineExecutor:
                         "Preserve problem, decision, tradeoff, outcome order. Write one 19-24 word sentence per evidence beat. "
                         "Use only that beat's evidence. Introduce no new claims or numerical details. "
                         "Delete or replace every word named in the validation warnings with literal wording from the claim/source excerpt. "
-                        "Never spell numbers as words; copy essential numerals/units exactly from the source or omit them. "
+                        "Numbers may be numerals or spelled words, but every number must map to that beat's numeric_tokens/source excerpt; omit unsupported numbers or units. "
                         "Do not use semicolons. Include the exact locked machine name in the evidence sentences. "
                         "Write the conclusion only from the assembled four evidence sentences; no evidence IDs, no new facts, no new numbers. "
                         "Use no more than two numerical details across the evidence bundle. The rejected draft is hidden; start fresh.\n\n"
