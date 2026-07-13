@@ -30,3 +30,12 @@ def test_dvsu_anton_runbook_keeps_failed_preview_as_review_artifact():
     assert "reviewable UI audit artifacts" in text
     assert "They still do not call Claude, mutate `scripts`, update `script_validation`, or advance the video" in text
     assert "Do not run broad research or full script generation" in text
+
+
+def test_dvsu_anton_runbook_keeps_script_briefs_evidence_derived():
+    text = _runbook().read_text()
+
+    assert "Saved `machine_script_briefs` are review aids only and are derived from validated evidence rows" in text
+    assert "source_contract: evidence_rows_only" in text
+    assert "evidence IDs, copied source excerpts, URLs, locators, and source metadata" in text
+    assert "must not contain unsourced top-level card summaries" in text

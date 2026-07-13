@@ -1203,43 +1203,42 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
 
 
 def _inventory_story_brief(payload: dict, machine: str) -> dict:
-    """Hide exhaustive card fields from the complete-inventory writer."""
-    import re
+    """Compact source-addressable evidence summary for review artifacts."""
 
     card = _research_card_for_machine(payload, machine) or {}
     evidence, _errors = _normalize_machine_evidence(card, machine)
 
-    def sentences(value, limit: int) -> str:
-        text = " ".join(str(value or "").split())
-        if not text:
-            return ""
-        parts = re.split(r"(?<=[.!?])\s+", text)
-        return " ".join(parts[:limit]).strip()
+    slot_rows = []
+    for segment in evidence:
+        role = segment.get("slot_role") or _anton_slot_role_for_kind(segment.get("kind"))
+        if not role:
+            continue
+        slot_rows.append({
+            "slot": role,
+            "evidence_id": segment.get("evidence_id"),
+            "claim": segment.get("claim"),
+            "source_excerpt": segment.get("source_excerpt"),
+            "source_url": segment.get("source_url"),
+            "locator": segment.get("locator"),
+            "source_tier": segment.get("source_tier"),
+            "source_capture_method": segment.get("source_capture_method"),
+        })
+
+    def first_claim(*roles: str) -> str:
+        for role in roles:
+            for row in slot_rows:
+                if row.get("slot") == role:
+                    return " ".join(str(row.get("claim") or "").split())
+        return ""
 
     return {
         "machine": machine,
-        "core_tension": sentences(
-            card.get("engineering_thesis") or card.get("tradeoff") or card.get("design_problem"), 1
-        ),
-        "actual_outcome": sentences(
-            card.get("actual_outcome") or card.get("operational_reality") or card.get("result"), 2
-        ),
-        "historical_significance": sentences(
-            card.get("why_this_unit_deserves_a_paragraph")
-            or card.get("legacy")
-            or card.get("historical_significance"),
-            1,
-        ),
-        "anton_slots": [
-            {
-                "slot": segment.get("slot_role") or _anton_slot_role_for_kind(segment.get("kind")),
-                "evidence_id": segment.get("evidence_id"),
-                "claim": segment.get("claim"),
-            }
-            for segment in evidence
-            if segment.get("slot_role") or _anton_slot_role_for_kind(segment.get("kind"))
-        ],
-        "onscreen_label": card.get("onscreen_label") or "",
+        "source_contract": "evidence_rows_only",
+        "core_tension": first_claim("original_problem", "tradeoff"),
+        "actual_outcome": first_claim("reality"),
+        "historical_significance": first_claim("memorable_fact", "role_category", "reality"),
+        "anton_slots": slot_rows,
+        "onscreen_label": first_claim("onscreen_label"),
         "editorial_rule": (
             "Use Anton slots as candidate ingredients, not a checklist. Build one micro-story from problem, engineering decision, tradeoff, reality, then a paragraph-derived conclusion."
         ),

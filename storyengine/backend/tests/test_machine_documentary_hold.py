@@ -1790,7 +1790,7 @@ def test_inventory_story_brief_hides_exhaustive_card_fields():
     payload = {
         "unit_research_cards": [{
             "unit": "Boeing XB-15",
-            "engineering_thesis": "The central size-versus-power tension.",
+            "engineering_thesis": "UNSOURCED CARD SUMMARY MUST NOT LEAK.",
             "actual_outcome": "It missed combat requirements. It later hauled cargo. A third sentence must be hidden.",
             "why_this_unit_deserves_a_paragraph": "It taught Boeing what the next generation required. Extra legacy detail must be hidden.",
             "surprising_fact": "SECRET SPEC-DUMP BAIT",
@@ -1801,15 +1801,23 @@ def test_inventory_story_brief_hides_exhaustive_card_fields():
             "timeframe_evidence_ids": ["E-REALITY"],
             "visual_identity": "CAMERA PAN OVER WING ENGINE TAIL NOSE FUSELAGE TEXT OVERLAY",
             "visual_identity_evidence_ids": ["E-DECISION"],
+            "onscreen_label": "UNSOURCED LABEL BAIT",
+            "evidence_segments": _evidence_segments(),
         }],
     }
 
     brief = pe._inventory_story_brief(payload, "Boeing XB-15")
     serialized = json.dumps(brief)
 
-    assert brief["core_tension"] == "The central size-versus-power tension."
-    assert brief["actual_outcome"] == "It missed combat requirements. It later hauled cargo."
-    assert brief["historical_significance"] == "It taught Boeing what the next generation required."
+    assert brief["source_contract"] == "evidence_rows_only"
+    assert brief["core_tension"] == "Original problem claim grounded in the supplied source."
+    assert brief["actual_outcome"] == "Reality claim grounded in the supplied source through its Cold War service period."
+    assert brief["historical_significance"] == "Memorable fact claim grounded in the supplied source."
+    assert brief["onscreen_label"] == "Onscreen label claim grounded in the supplied source."
+    assert brief["anton_slots"][0]["source_excerpt"] == "Original problem claim grounded in the supplied source."
+    assert brief["anton_slots"][0]["source_url"] == "https://airandspace.si.edu/test/original_problem"
+    assert "UNSOURCED CARD SUMMARY" not in serialized
+    assert "UNSOURCED LABEL BAIT" not in serialized
     assert "SECRET SPEC-DUMP BAIT" not in serialized
     assert "DIMENSIONS ENGINES" not in serialized
     assert "EXHAUSTIVE SOURCE NOTES" not in serialized

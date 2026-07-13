@@ -86,6 +86,8 @@ Single-machine preview artifact writes also carry the locked `unit_roster` snaps
 
 Selected-machine preview gates that fail before a paragraph LLM call still save a failed `machine_script_previews[<machine_key>]` artifact when the roster snapshot matches. Missing research cards, missing verified raw source packages, stale card locators, wrong-machine source packages, and story-plan evidence errors therefore appear as reviewable UI audit artifacts with `passed: false`, empty paragraph text, the blocking warning, and a failed `quality_audit` check. They still do not call Claude, mutate `scripts`, update `script_validation`, or advance the video.
 
+Saved `machine_script_briefs` are review aids only and are derived from validated evidence rows. They carry `source_contract: evidence_rows_only`, Anton slots, evidence IDs, copied source excerpts, URLs, locators, and source metadata. They must not contain unsourced top-level card summaries, script beats, visual directions, source notes, or other model-authored prose that could be mistaken for evidence.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
