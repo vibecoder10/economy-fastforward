@@ -19,7 +19,7 @@ import {
   getPipelineTaskStatus, runMachineScriptPreview,
 } from "@/lib/api";
 import { API_URL } from "@/lib/env";
-import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
+import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -504,7 +504,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const [approved, setApproved] = useState(false);
   const [previewMachine, setPreviewMachine] = useState("");
   const [previewGenerating, setPreviewGenerating] = useState(false);
-  const [machinePreview, setMachinePreview] = useState<any>(null);
+  const [machinePreview, setMachinePreview] = useState<MachineScriptPreview | null>(null);
 
   // Voice actions
   const [generatingVoiceAll, setGeneratingVoiceAll] = useState(false);
@@ -1234,6 +1234,29 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   })();
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
+  const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
+    ? machinePreview.claim_bundle.claim_map
+    : [];
+  const previewEvidenceById = (() => {
+    const rows: Record<string, { slot?: string; claim?: string; source_title?: string }> = {};
+    const slots = Array.isArray((machinePreview?.story_plan as any)?.slots)
+      ? (machinePreview?.story_plan as any).slots
+      : [];
+    for (const slot of slots) {
+      const slotName = String(slot?.slot || "");
+      const segments = Array.isArray(slot?.evidence_segments) ? slot.evidence_segments : [];
+      for (const segment of segments) {
+        const id = String(segment?.evidence_id || "");
+        if (!id) continue;
+        rows[id] = {
+          slot: slotName,
+          claim: String(segment?.claim || ""),
+          source_title: String(segment?.source_title || ""),
+        };
+      }
+    }
+    return rows;
+  })();
 
   const handleMachinePreview = async () => {
     const machine = previewMachine || machineRoster[0];
@@ -1327,6 +1350,32 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                   <span className="text-xs font-mono" style={{ color: machinePreview.passed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreview.passed ? "Passed" : "Needs review"}</span>
                 </div>
                 <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machinePreview.paragraph}</p>
+                {previewClaimMap.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                      <ShieldCheck size={13} />
+                      Evidence map
+                    </div>
+                    {previewClaimMap.slice(0, 8).map((row, index) => {
+                      const evidenceIds = Array.isArray(row.used_evidence_ids)
+                        ? row.used_evidence_ids
+                        : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
+                      const sources = evidenceIds
+                        .map((id) => previewEvidenceById[id]?.source_title || id)
+                        .filter(Boolean);
+                      return (
+                        <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{row.slot || "slot"}</span>
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{evidenceIds.join(", ")}</span>
+                          </div>
+                          <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>
+                          {sources.length > 0 && <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>{sources.join(" · ")}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {!!machinePreview.warnings?.length && <p className="mt-2 text-xs" style={{ color: "var(--orange)" }}>{machinePreview.warnings.join(" · ")}</p>}
               </div>
             )}

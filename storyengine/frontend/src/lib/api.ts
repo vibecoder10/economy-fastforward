@@ -665,8 +665,27 @@ export const runPipelineStage = (videoId: string, stage: string, params?: Record
   return fetchApi<PipelineResponse>(`/api/pipeline/${stage}/${videoId}${queryString}`, { method: "POST" });
 };
 
+export type MachineScriptPreview = {
+  machine: string;
+  scene: number;
+  paragraph: string;
+  word_count: number;
+  passed: boolean;
+  warnings: string[];
+  story_plan?: Record<string, unknown>;
+  claim_bundle?: {
+    paragraph?: string;
+    claim_map?: Array<{
+      span?: string;
+      slot?: string;
+      used_evidence_ids?: string[];
+      evidence_ids?: string[];
+    }>;
+  };
+};
+
 export const runMachineScriptPreview = (videoId: string, machine: string) =>
-  fetchApi<{ status: string; preview: { machine: string; scene: number; paragraph: string; word_count: number; passed: boolean; warnings: string[] } }>(
+  fetchApi<{ status: string; preview: MachineScriptPreview }>(
     `/api/pipeline/machine-script-preview/${videoId}`,
     { method: "POST", body: JSON.stringify({ machine }) },
   );

@@ -1002,76 +1002,6 @@ def _machine_story_candidate_variants(machine: str, text: str) -> list[str]:
     return variants
 
 
-def _deterministic_anton_story_bundle(machine: str, plan: dict) -> Optional[dict]:
-    """Last-resort Anton-slot compiler for the XB-15 proof path."""
-    if _normalized_unit_code(machine) != "XB15" or not isinstance(plan, dict):
-        return None
-    by_slot = {
-        str(slot.get("slot") or ""): [
-            segment for segment in (slot.get("evidence_segments") or [])
-            if isinstance(segment, dict) and segment.get("evidence_id")
-        ]
-        for slot in plan.get("slots", [])
-    }
-
-    def segment(slot: str, required_text: tuple[str, ...] = ()) -> Optional[dict]:
-        for item in by_slot.get(slot, []):
-            text = f"{item.get('claim', '')} {item.get('source_excerpt', '')}".lower()
-            if all(part.lower() in text for part in required_text):
-                return item
-        return None
-
-    identity = segment("identity_origin", ("project a", "5,000"))
-    build = segment("build_reality", ("first flight", "boeing field"))
-    scale = segment("scale_specs", ("149", "b-17"))
-    tradeoff = segment("tradeoff_or_limit", ("200", "197"))
-    service = segment("service_reality", ("1943", "xc-105"))
-    meaning = segment("historical_meaning", ("model 314",))
-    if not all((identity, build, scale, tradeoff, service, meaning)):
-        return None
-
-    rows = [
-        (
-            "identity_origin",
-            "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with 5,000-mile range.",
-            identity["evidence_id"],
-        ),
-        (
-            "build_reality",
-            "The prototype made its first flight at Boeing Field in Seattle, turning the long-range idea into metal.",
-            build["evidence_id"],
-        ),
-        (
-            "scale_specs",
-            "At 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance.",
-            scale["evidence_id"],
-        ),
-        (
-            "tradeoff_or_limit",
-            "The Twin Wasp-powered aircraft missed its 200 mph specified speed, reaching 197 mph in level flight even when empty.",
-            tradeoff["evidence_id"],
-        ),
-        (
-            "service_reality",
-            "By 1943, the bomber was relegated to cargo work and redesignated XC-105.",
-            service["evidence_id"],
-        ),
-        (
-            "historical_meaning",
-            "Boeing later applied lessons from the XB-15 to the Model 314 flying boat.",
-            meaning["evidence_id"],
-        ),
-    ]
-    return {
-        "paragraph": " ".join(row[1] for row in rows),
-        "claim_map": [
-            {"slot": slot, "span": span, "used_evidence_ids": [evidence_id]}
-            for slot, span, evidence_id in rows
-        ],
-        "onscreen_label": "",
-    }
-
-
 def _deterministic_machine_story_bundle(machine: str, plan: dict, rejected_bundle: dict) -> Optional[dict]:
     """Disabled: extractive fallback is safe for facts but not Anton-quality writing."""
     return None
@@ -3822,16 +3752,6 @@ class PipelineExecutor:
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
                     paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
-                    if warnings:
-                        deterministic_bundle = _deterministic_anton_story_bundle(machine, story_plan)
-                        if deterministic_bundle:
-                            deterministic_paragraph, deterministic_warnings = _validate_machine_story_sentences(
-                                machine, story_plan, deterministic_bundle
-                            )
-                            if not deterministic_warnings:
-                                bundle = deterministic_bundle
-                                paragraph = deterministic_paragraph
-                                warnings = []
                 else:
                     repair_prompt = (
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
