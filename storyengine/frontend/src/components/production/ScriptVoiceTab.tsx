@@ -195,7 +195,16 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
   const auditChecks = Array.isArray(preview?.quality_audit?.checks)
     ? preview.quality_audit.checks
     : [];
-  return Boolean(preview?.passed && preview?.quality_audit?.passed && auditChecks.length > 0 && formulaSentences.length === 5);
+  const blockingAuditChecksPassed = auditChecks.every((check: any) => check?.passed || check?.advisory);
+  const completeFormulaSentences = formulaSentences.length === 5
+    && formulaSentences.every((sentence: any) => String(sentence || "").trim().length > 0);
+  return Boolean(
+    preview?.passed === true
+    && preview?.quality_audit?.passed === true
+    && auditChecks.length > 0
+    && blockingAuditChecksPassed
+    && completeFormulaSentences
+  );
 }
 
 function cardMatchesMachine(card: any, machine: string): boolean {

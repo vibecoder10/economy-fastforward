@@ -120,6 +120,13 @@ def test_script_voice_research_gate_counts_only_verified_cards():
     assert "function machinePreviewPassesAntonGate" in text
     assert "const auditChecks = Array.isArray(preview?.quality_audit?.checks)" in text
     assert "auditChecks.length > 0" in text
+    assert "const blockingAuditChecksPassed = auditChecks.every((check: any) => check?.passed || check?.advisory)" in text
+    assert "const completeFormulaSentences = formulaSentences.length === 5" in text
+    assert "formulaSentences.every((sentence: any) => String(sentence || \"\").trim().length > 0)" in text
+    assert "preview?.passed === true" in text
+    assert "preview?.quality_audit?.passed === true" in text
+    assert "&& blockingAuditChecksPassed" in text
+    assert "&& completeFormulaSentences" in text
     assert "verifiedCount === rosterCount" in text
     assert "units.length >= rosterCount" in text
     assert "!validation?.target_machine" in text
