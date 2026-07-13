@@ -655,6 +655,48 @@ def test_anton_preview_quality_audit_reports_passed_checks():
     assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
 
 
+def test_first_three_anton_audit_reports_human_detail_advisory():
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit("Boeing XB-15", plan, bundle, paragraph, warnings)
+    human_check = next(check for check in audit["checks"] if check["name"] == "early_human_detail")
+
+    assert audit["passed"] is True
+    assert human_check["advisory"] is True
+    assert human_check["passed"] is False
+    assert "no sourced human_detail" in human_check["detail"]
+
+    evidence = _evidence_segments()
+    evidence.append({
+        "evidence_id": "E-HUMAN",
+        "kind": "human_detail",
+        "claim": "A named pilot account grounded in the supplied source.",
+        "source_excerpt": "A named pilot account grounded in the supplied source.",
+        "source_url": "https://example.test/human-detail",
+        "source_title": "Test source",
+        "locator": "S9-E1",
+        "numeric_tokens": [],
+        "confidence": "high",
+    })
+    plan_with_human = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]},
+        "Boeing XB-15",
+    )
+    audit_with_human = pe._anton_preview_quality_audit(
+        "Boeing XB-15", plan_with_human, bundle, paragraph, warnings
+    )
+    human_check_with_source = next(
+        check for check in audit_with_human["checks"] if check["name"] == "early_human_detail"
+    )
+
+    assert human_check_with_source["advisory"] is True
+    assert human_check_with_source["passed"] is True
+    assert "E-HUMAN" in human_check_with_source["detail"]
+
+
 def test_story_paragraph_validator_requires_editorial_thesis():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -1201,6 +1243,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "reference_benchmark" in fake_anthropic.prompts[0]
     assert "Do not copy or infer unsourced facts from it" in fake_anthropic.prompts[0]
+    assert "If the plan provides a human_detail slot for one of the first three benchmark machines" in fake_anthropic.prompts[0]
 
 
 def test_target_machine_preview_requires_verified_raw_source_package_before_llm(monkeypatch):
@@ -1542,6 +1585,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "source_url or locator" not in prompt
     assert "memorable_fact should be returned when the verified excerpts support" in prompt
     assert "never invent one" in prompt
+    assert "For machines 1-3, prefer one verified human_detail" in prompt
+    assert "Never invent a human account" in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt
     assert result["unit_research_hold_validation"]["passed"] is True

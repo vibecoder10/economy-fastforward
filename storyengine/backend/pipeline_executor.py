@@ -1044,6 +1044,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "maximum_numerical_details": 8,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
             "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
+            "early_human_detail_rule": "for the first three machines, prefer sourced human_detail, named decision, or official finding when available; never invent one",
             "conclusion_rule": "final sentence is editorial synthesis from the assembled paragraph only; no new sourced meaning beat, dates, specs, or numbers",
             "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
         },
@@ -1507,6 +1508,28 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             ),
             advisory=True,
         ))
+        try:
+            reference_order = int(reference_benchmark.get("reference_order") or 0)
+        except Exception:
+            reference_order = 0
+        if 1 <= reference_order <= 3:
+            human_detail_ids = [
+                evidence_id
+                for slot in plan.get("slots", [])
+                if str(slot.get("slot") or "") == "human_detail"
+                for evidence_id in (slot.get("evidence_ids") or [])
+            ]
+            checks.append(check(
+                "early_human_detail",
+                "Early human detail",
+                bool(human_detail_ids),
+                (
+                    "sourced " + ", ".join(human_detail_ids[:3])
+                    if human_detail_ids
+                    else "no sourced human_detail, named decision, or official finding in locked slots"
+                ),
+                advisory=True,
+            ))
     hard_checks_passed = all(item["passed"] or item.get("advisory") for item in checks)
     return {
         "passed": hard_checks_passed,
@@ -3755,6 +3778,7 @@ class PipelineExecutor:
                 "- tradeoff = raw excerpt for the sacrifice, limitation, compromise, or unintended consequence.\n"
                 "- reality = raw excerpt for what happened in testing, production, service, or combat reality.\n"
                 "- memorable_fact should be returned when the verified excerpts support a fact serious viewers are unlikely to know; it will be required for Anton-quality script preview, but never invent one.\n"
+                "- For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it. Never invent a human account.\n"
                 "- Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence.\n"
                 "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
                 "- Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when directly supported by exact excerpts.\n"
@@ -3796,6 +3820,7 @@ class PipelineExecutor:
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
                     "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "
+                    "For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it; never invent a human account. "
                     "Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence. "
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "
@@ -4248,6 +4273,7 @@ class PipelineExecutor:
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
                     "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
+                    "- If the plan provides a human_detail slot for one of the first three benchmark machines, use it only when it strengthens the four-beat story. Do not add a separate anecdote sentence.\n"
                     "- The final sentence is editorial synthesis from the assembled paragraph only. It may be omitted from claim_map if it contains no new facts.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
@@ -4314,6 +4340,7 @@ class PipelineExecutor:
                         f"Write exactly one paragraph, target {_ANTON_PARAGRAPH_TARGET_WORDS} words, absolute range {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
+                        "If the plan provides a human_detail slot for one of the first three benchmark machines, use it only when it strengthens the four-beat story; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only; it may be omitted from claim_map if it contains no new facts. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
