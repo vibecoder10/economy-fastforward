@@ -1523,6 +1523,34 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
     assert "word count" in result["preview"]["warnings"][0]
 
 
+def test_machine_research_route_humanizes_unexpected_exception(monkeypatch):
+    import routes.pipeline as route
+
+    class FakeExecutor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def run_one_machine_research(self, video_id, machine):
+            raise RuntimeError("SECRET_RAW_RESEARCH_PROVIDER_ERROR")
+
+    monkeypatch.setattr(route, "PipelineExecutor", FakeExecutor)
+
+    try:
+        asyncio.run(
+            route.run_one_machine_research(
+                "video-test",
+                route.MachineResearchRequest(machine="Boeing XB-15"),
+                tenant_id="tenant-test",
+            )
+        )
+    except route.HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "One-machine research failed. Please try again."
+        assert "SECRET_RAW" not in exc.detail
+    else:
+        raise AssertionError("provider failure should return a humanized HTTPException")
+
+
 def test_script_generation_exception_preserves_existing_script_rows(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {

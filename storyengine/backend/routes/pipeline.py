@@ -623,7 +623,13 @@ async def run_one_machine_research(
     if not machine:
         raise HTTPException(status_code=400, detail="machine is required")
     executor = PipelineExecutor(tenant_id)
-    result = await executor.run_one_machine_research(video_id, machine)
+    try:
+        result = await executor.run_one_machine_research(video_id, machine)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=humanize_error(e, context="One-machine research failed"),
+        ) from e
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Machine research failed")
     return result
