@@ -232,11 +232,12 @@ For the current proof, only the selected first machine is researched or previewe
 
 1. Deploy only after Ryan approves the live StoryEngine update.
 2. Current live proof row `fc73860c-a9af-444f-95a5-7f86d60503e0` needs a fresh one-machine research pass for `Boeing XB-15` before preview. The saved `XB15` raw package predates the provenance gate: it has 23 legacy excerpts without `source_capture_method` or `source_variant_selection`, and the saved card evidence does not trace back to verified fetched source text.
-3. Let the StoryEngine UI call the no-spend readiness preflight for `Boeing XB-15`; if it shows `readiness_preflight`, fix the selected card/source package before paying for preview.
-4. Run only the single-machine script preview for `Boeing XB-15` after readiness passes.
-5. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
-6. If the preview returns a failed audit artifact, fix the selected machine's research/source package or compiler rule and rerun only `Boeing XB-15`.
-7. Confirm the saved preview remains visible after switching between Research and Script/Voice; this proves the UI is reading persisted machine artifacts, not only local component state.
-8. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
-9. Do not run broad research or full script generation until the single-machine preview passes the quality bar and Ryan explicitly approves moving to the next machine or full-roster path.
-10. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
+3. For a repeatable no-spend operator check, run `python3 backend/scripts/dvsu_machine_preflight.py --video-id fc73860c-a9af-444f-95a5-7f86d60503e0 --machine "Boeing XB-15"` from `storyengine`; it reuses the backend evidence gates and reports whether the next action is research refresh or readiness/preview.
+4. Let the StoryEngine UI call the no-spend readiness preflight for `Boeing XB-15`; if it shows `readiness_preflight`, fix the selected card/source package before paying for preview.
+5. Run only the single-machine script preview for `Boeing XB-15` after readiness passes.
+6. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
+7. If the preview returns a failed audit artifact, fix the selected machine's research/source package or compiler rule and rerun only `Boeing XB-15`.
+8. Confirm the saved preview remains visible after switching between Research and Script/Voice; this proves the UI is reading persisted machine artifacts, not only local component state.
+9. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
+10. Do not run broad research or full script generation until the single-machine preview passes the quality bar and Ryan explicitly approves moving to the next machine or full-roster path.
+11. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.

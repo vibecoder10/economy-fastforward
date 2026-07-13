@@ -6693,3 +6693,71 @@ def test_one_machine_research_checkpoint_updates_review_cells(monkeypatch):
     assert "research_payload->'unit_roster' = $5::jsonb" in captured["query"]
     assert json.loads(captured["args"][0]) == review_cards
     assert json.loads(captured["args"][1]) == validation
+
+
+def test_dvsu_machine_preflight_reports_ready_machine_without_spend():
+    from scripts import dvsu_machine_preflight as preflight
+
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _evidence_segments()
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [_valid_research_card("Boeing XB-15", segments)],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+        },
+    }
+    video = {
+        "id": "video-test",
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "status": "ready_for_scripting",
+        "render_mode": "static_docu",
+        "research_payload": payload,
+    }
+
+    report = preflight.build_preflight_report(video, "XB-15 — Boeing XB-15")
+
+    assert report["status"] == "completed"
+    assert report["ready"] is True
+    assert report["machine"] == "Boeing XB-15"
+    assert report["scene"] == 1
+    assert report["next_action"] == "run_no_spend_readiness_then_script_preview"
+    assert report["source_package"]["missing_capture_method_count"] == 0
+    assert report["source_package"]["missing_source_selection_count"] == 0
+
+
+def test_dvsu_machine_preflight_points_legacy_package_to_research_refresh():
+    from scripts import dvsu_machine_preflight as preflight
+
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _evidence_segments()
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    for candidate in package["candidate_excerpts"]:
+        candidate.pop("source_capture_method", None)
+        candidate.pop("source_variant_selection", None)
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [_valid_research_card("Boeing XB-15", segments)],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): package,
+        },
+    }
+    video = {
+        "id": "video-test",
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "status": "ready_for_scripting",
+        "render_mode": "static_docu",
+        "research_payload": payload,
+    }
+
+    report = preflight.build_preflight_report(video, "Boeing XB-15")
+
+    assert report["status"] == "needs_review"
+    assert report["ready"] is False
+    assert report["next_action"] == "run_one_machine_research_refresh"
+    assert report["source_package"]["missing_capture_method_count"] == len(package["candidate_excerpts"])
+    assert report["source_package"]["missing_source_selection_count"] == len(package["candidate_excerpts"])
+    assert any("without source capture method" in warning for warning in report["warnings"])
+    assert any("without source selection provenance" in warning for warning in report["warnings"])
