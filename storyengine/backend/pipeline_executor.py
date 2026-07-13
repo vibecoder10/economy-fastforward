@@ -6136,8 +6136,12 @@ class PipelineExecutor:
                 warnings,
             ) if complete_inventory_mode else {}
             audit_checks = (quality_audit or {}).get("checks") if isinstance(quality_audit, dict) else []
+            audit_blocking_checks_passed = bool(audit_checks) and all(
+                isinstance(check, dict) and (check.get("passed") is True or check.get("advisory") is True)
+                for check in audit_checks
+            )
             preview_passed = (not warnings) and (
-                bool((quality_audit or {}).get("passed")) and bool(audit_checks)
+                bool((quality_audit or {}).get("passed")) and audit_blocking_checks_passed
                 if complete_inventory_mode else
                 True
             )
