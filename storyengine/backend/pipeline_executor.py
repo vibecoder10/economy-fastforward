@@ -1280,7 +1280,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         if invented_numeric_tokens:
             errors.append(f"evidence segment {evidence_id or index} numeric_tokens absent from claim/excerpt: {', '.join(invented_numeric_tokens)}")
 
-        normalized.append({
+        normalized_segment = {
             "evidence_id": evidence_id,
             "kind": kind,
             "slot_role": _anton_slot_role_for_kind(kind),
@@ -1291,7 +1291,27 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             "locator": locator,
             "numeric_tokens": normalized_numbers,
             "confidence": str(raw.get("confidence") or "").strip().lower() or "unknown",
-        })
+        }
+        for source_identity_field in (
+            "source_excerpt_id",
+            "excerpt_id",
+            "source_id",
+            "source_excerpt_hash",
+            "source_tier_label",
+            "source_capture_method",
+        ):
+            value = str(raw.get(source_identity_field) or "").strip()
+            if value:
+                normalized_segment[source_identity_field] = value
+        if "source_excerpt_id" not in normalized_segment and normalized_segment.get("excerpt_id"):
+            normalized_segment["source_excerpt_id"] = normalized_segment["excerpt_id"]
+        try:
+            source_tier = int(raw.get("source_tier") or raw.get("tier") or 0)
+        except (TypeError, ValueError):
+            source_tier = 0
+        if source_tier:
+            normalized_segment["source_tier"] = source_tier
+        normalized.append(normalized_segment)
     return normalized, list(dict.fromkeys(errors))
 
 

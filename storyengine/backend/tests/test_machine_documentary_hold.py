@@ -494,6 +494,34 @@ def test_verified_card_validation_backfills_raw_excerpt_identity():
     assert segments[0]["source_capture_method"] == "fetched_page"
 
 
+def test_story_plan_preserves_raw_excerpt_identity_for_script_preview():
+    segments = _evidence_segments()
+    segments[0].update({
+        "source_excerpt_id": "S1-E1",
+        "source_id": "S1",
+        "source_excerpt_hash": "excerpt-hash-1",
+        "source_tier": 2,
+        "source_tier_label": "Tier 2 museum/authoritative secondary",
+        "source_capture_method": "fetched_page",
+    })
+    payload = {
+        "unit_research_cards": [{
+            "unit": "Boeing XB-15",
+            "evidence_segments": segments,
+        }]
+    }
+
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+
+    segment = plan["slots"][0]["evidence_segments"][0]
+    assert segment["source_excerpt_id"] == "S1-E1"
+    assert segment["source_id"] == "S1"
+    assert segment["source_excerpt_hash"] == "excerpt-hash-1"
+    assert segment["source_tier"] == 2
+    assert segment["source_tier_label"] == "Tier 2 museum/authoritative secondary"
+    assert segment["source_capture_method"] == "fetched_page"
+
+
 def test_verified_card_validation_rejects_mismatched_raw_excerpt_id():
     segments = _evidence_segments()
     for segment in segments:
