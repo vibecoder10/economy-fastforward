@@ -473,6 +473,14 @@ def test_story_paragraph_validator_blocks_missing_slots_and_unsupported_numbers(
     assert any("unsupported numerical detail" in warning for warning in warnings)
 
 
+def test_machine_preview_has_no_deterministic_story_fallback():
+    source = open(pe.__file__, encoding="utf-8").read()
+
+    assert "_deterministic_machine_story_bundle" not in source
+    assert "deterministic_bundle" not in source
+    assert "emergency repair for known XB-15" not in source
+
+
 def test_story_paragraph_validator_accepts_anton_slot_bundle():
     payload = {"unit_research_cards": [{
         "unit": "B-52",
