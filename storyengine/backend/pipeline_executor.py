@@ -432,6 +432,32 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     return isinstance(excerpts, list) and len(excerpts) >= 6
 
 
+def _verified_machine_source_package_quality_errors(package: Any) -> list[str]:
+    """Reject thin raw-source packages before spending an LLM call."""
+    if not _verified_machine_source_package_ready(package):
+        return []
+    candidates = [
+        item for item in (package or {}).get("candidate_excerpts", [])
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    source_urls = {
+        str(item.get("source_url") or "").strip()
+        for item in candidates
+        if str(item.get("source_url") or "").strip()
+    }
+    non_caution_urls = {
+        str(item.get("source_url") or "").strip()
+        for item in candidates
+        if str(item.get("source_url") or "").strip() and _source_tier_number(item) <= 3
+    }
+    errors: list[str] = []
+    if len(source_urls) < 2:
+        errors.append("Verified source package needs excerpts from at least two distinct source URLs.")
+    if not non_caution_urls:
+        errors.append("Verified source package needs at least one non-caution source before Claude can write a card.")
+    return errors
+
+
 def _source_tier_for_url(url: str, title: str = "") -> dict[str, Any]:
     """Classify fetched sources using the DVsU verification hierarchy."""
     host = urlparse(str(url or "")).netloc.lower()
@@ -2321,7 +2347,7 @@ class PipelineExecutor:
         """
         cache_key = _verified_source_cache_key(machine)
         cached = ((payload or {}).get("machine_raw_source_packages") or {}).get(cache_key)
-        if _verified_machine_source_package_ready(cached):
+        if _verified_machine_source_package_ready(cached) and not _verified_machine_source_package_quality_errors(cached):
             return cached
 
         tavily_key = await get_secret("tavily_api_key", self.tenant_id)
@@ -2422,7 +2448,11 @@ class PipelineExecutor:
             "errors": errors,
             "gathered_at": datetime.now(timezone.utc).isoformat(),
         }
-        if not package["passed"] and not errors:
+        quality_errors = _verified_machine_source_package_quality_errors(package)
+        if quality_errors:
+            package["passed"] = False
+            package["errors"] = list(dict.fromkeys(errors + quality_errors))
+        if not package["passed"] and not package["errors"]:
             package["errors"] = [
                 "Verified source gathering found fewer than six exact machine-matching excerpts."
             ]
@@ -3651,8 +3681,13 @@ class PipelineExecutor:
                 title, target_machine or "", payload
             )
             payload.setdefault("machine_raw_source_packages", {})[target_code] = verified_source_package
-            if not _verified_machine_source_package_ready(verified_source_package):
-                msg = "; ".join(str(item) for item in (verified_source_package.get("errors") or []))
+            source_package_errors = _verified_machine_source_package_quality_errors(verified_source_package)
+            if not _verified_machine_source_package_ready(verified_source_package) or source_package_errors:
+                messages = [
+                    str(item) for item in (verified_source_package.get("errors") or [])
+                    if str(item).strip()
+                ] + source_package_errors
+                msg = "; ".join(dict.fromkeys(messages))
                 msg = msg or "Verified one-machine internet research did not return enough exact source excerpts."
                 payload["unit_research_hold_validation"] = {
                     "passed": False,
@@ -4082,7 +4117,10 @@ class PipelineExecutor:
         if target_machine:
             selected_card = _research_card_for_machine(rp, target_machine) or {}
             source_package = _verified_source_package_for_machine(rp, target_machine)
-            source_errors = _validate_card_against_verified_sources(selected_card, source_package)
+            source_errors = (
+                _verified_machine_source_package_quality_errors(source_package)
+                + _validate_card_against_verified_sources(selected_card, source_package)
+            )
             if source_errors:
                 msg = "Script preview evidence gate failed: " + "; ".join(source_errors)
                 await self._log_activity(bot_name, video_id, "failed", msg[:900])

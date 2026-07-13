@@ -139,6 +139,36 @@ def test_verified_source_package_format_exposes_source_tier():
     assert "SOURCE_TIER: 4 - Tier 4 caution/general" in formatted
 
 
+def test_verified_source_package_quality_rejects_single_source_and_caution_only():
+    single_source_segments = _evidence_segments()
+    for segment in single_source_segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    single_source = _verified_package_for_segments("Boeing XB-15", single_source_segments)
+
+    single_source_errors = pe._verified_machine_source_package_quality_errors(single_source)
+
+    assert any("two distinct source URLs" in error for error in single_source_errors)
+
+    diverse_segments = _evidence_segments()
+    for index, segment in enumerate(diverse_segments):
+        segment["source_url"] = f"https://airandspace.si.edu/collection-objects/boeing-xb-15-{index}"
+    diverse_package = _verified_package_for_segments("Boeing XB-15", diverse_segments)
+
+    assert pe._verified_machine_source_package_quality_errors(diverse_package) == []
+
+    caution_segments = _evidence_segments()
+    for index, segment in enumerate(caution_segments):
+        segment["source_url"] = [
+            "https://en.wikipedia.org/wiki/Boeing_XB-15",
+            "https://www.youtube.com/watch?v=test",
+        ][index % 2]
+    caution_package = _verified_package_for_segments("Boeing XB-15", caution_segments)
+
+    caution_errors = pe._verified_machine_source_package_quality_errors(caution_package)
+
+    assert any("non-caution source" in error for error in caution_errors)
+
+
 def test_required_anton_slots_reject_tier_four_only_source_support():
     segments = _evidence_segments()
     for segment in segments:
@@ -1566,6 +1596,52 @@ def test_target_machine_research_requires_verified_source_package_before_llm(mon
 
     assert result["unit_research_hold_validation"]["passed"] is False
     assert result["unit_research_hold_validation"]["warnings"] == ["no verified excerpts"]
+
+
+def test_target_machine_research_rejects_thin_source_package_before_llm(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-52 Stratofortress", "Convair B-36"]
+    payload = {"unit_roster": roster_names}
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("thin verified package must stop before Claude")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": ForbiddenAnthropic()})()
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_execute(*_args, **_kwargs):
+        raise AssertionError("thin source package should not checkpoint a card")
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_gather(_title, machine, _payload):
+        segments = _evidence_segments()
+        for segment in segments:
+            segment["source_url"] = "https://airandspace.si.edu/collection-objects/b-52"
+        return _verified_package_for_segments(machine, segments)
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_gather_verified_machine_source_package", fake_gather)
+
+    result = asyncio.run(
+        executor._run_unit_research_hold(
+            "video-test",
+            "Designed vs Used",
+            payload,
+            roster_names,
+            target_machine="Boeing B-52 Stratofortress",
+        )
+    )
+
+    assert result["unit_research_hold_validation"]["passed"] is False
+    assert "two distinct source URLs" in result["unit_research_hold_validation"]["warnings"][0]
 
 
 def test_research_hold_contract_persists_each_card_and_never_reopens_roster():
