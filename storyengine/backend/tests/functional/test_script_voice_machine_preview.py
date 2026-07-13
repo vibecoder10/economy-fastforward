@@ -25,6 +25,17 @@ def test_script_voice_preview_uses_normalized_machine_labels():
     assert "previewForMachine(researchPayload?.machine_script_previews, e.target.value)" in text
 
 
+def test_script_voice_preview_blocks_without_ready_raw_package():
+    text = _script_voice_tab().read_text()
+
+    assert "function sourcePackageForMachine" in text
+    assert "function sourcePackageReady" in text
+    assert "activePreviewSourcePackageReady" in text
+    assert "disabled={previewGenerating || !activePreviewSourcePackageReady}" in text
+    assert "Raw source package missing · preview blocked" in text
+    assert "Raw source package ready ·" in text
+
+
 def test_script_voice_preview_keeps_failed_reason_visible():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]

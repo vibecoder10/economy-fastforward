@@ -149,6 +149,37 @@ function previewForMachine(previews: any, machine: string): MachineScriptPreview
   return match ? match[1] as MachineScriptPreview : null;
 }
 
+function sourcePackageForMachine(packages: any, machine: string): any | null {
+  if (!packages || typeof packages !== "object") return null;
+  const key = normalizedUnitCode(machine);
+  if (!Array.isArray(packages) && key && packages[key]) return packages[key];
+  const rows = Array.isArray(packages) ? packages : Object.entries(packages).map(([rawKey, value]) => ({ rawKey, value }));
+  for (const row of rows) {
+    const rawKey = Array.isArray(packages) ? "" : String(row.rawKey || "");
+    const candidate = Array.isArray(packages) ? row : row.value;
+    if (!candidate || typeof candidate !== "object") continue;
+    const machineName = String(candidate.machine || "");
+    const machineKey = String(candidate.machine_key || "");
+    if (
+      normalizedUnitCode(rawKey) === key
+      || normalizedUnitCode(machineName) === key
+      || normalizedUnitCode(machineKey) === key
+    ) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function sourcePackageReady(sourcePackage: any): boolean {
+  return Boolean(
+    sourcePackage
+      && sourcePackage.passed !== false
+      && Array.isArray(sourcePackage.candidate_excerpts)
+      && sourcePackage.candidate_excerpts.length >= 6
+  );
+}
+
 function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
   const sorted = [...apiScenes].sort((a, b) => (a.scene || 0) - (b.scene || 0));
   const total = sorted.length;
@@ -1274,6 +1305,12 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
   const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
+  const activePreviewMachine = previewMachine || machineRosterLabels[0] || "";
+  const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
+  const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage);
+  const activePreviewSourceExcerptCount = Array.isArray(activePreviewSourcePackage?.candidate_excerpts)
+    ? activePreviewSourcePackage.candidate_excerpts.length
+    : 0;
   const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
     ? machinePreview.claim_bundle.claim_map
     : [];
@@ -1391,7 +1428,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             <p className="text-xs mb-3" style={{ color: "var(--text-tertiary)" }}>Generate one isolated paragraph for calibration. This does not create scenes, advance the video, or touch the full script.</p>
             <div className="flex flex-col sm:flex-row gap-2">
               <select
-                value={previewMachine || machineRosterLabels[0] || ""}
+                value={activePreviewMachine}
                 onChange={(e) => { setPreviewMachine(e.target.value); setMachinePreview(previewForMachine(researchPayload?.machine_script_previews, e.target.value)); }}
                 className="flex-1 rounded-lg px-3 py-2 text-sm"
                 style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
@@ -1400,13 +1437,17 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               </select>
               <button
                 onClick={handleMachinePreview}
-                disabled={previewGenerating}
+                disabled={previewGenerating || !activePreviewSourcePackageReady}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
                 style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
               >
                 {previewGenerating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
                 {previewGenerating ? "Generating one..." : machinePreview ? "Retry this machine" : "Generate one machine"}
               </button>
+            </div>
+            <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: activePreviewSourcePackageReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: activePreviewSourcePackageReady ? "var(--green)" : "var(--orange)", border: `1px solid ${activePreviewSourcePackageReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
+              <ShieldCheck size={12} />
+              {activePreviewSourcePackageReady ? `Raw source package ready · ${activePreviewSourceExcerptCount} excerpts` : "Raw source package missing · preview blocked"}
             </div>
             {machinePreview && (
               <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreview.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
