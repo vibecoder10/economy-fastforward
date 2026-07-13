@@ -54,7 +54,9 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "designationCodeMatches(code, targetCode)" in text
     assert "B-2 must not match B-21" in text
     assert "compactBody.includes(targetCode)" not in text
-    assert "targetLower.match(/[a-z]{3,}/g)" in text
+    assert "const bodyWords = new Set(bodyLower.match(/[a-z]{3,}/g) || [])" in text
+    assert "bodyWords.has(word)" in text
+    assert '"grumman", "general", "dynamics", "rockwell", "american", "republic", "mcdonnell"' in text
     assert "rawExcerpts.filter((candidate: any) => String(candidate?.text || \"\").trim())" in text
     assert "targetExcerpts.length < 6" in text
     assert "function sourceTierNumber" in text

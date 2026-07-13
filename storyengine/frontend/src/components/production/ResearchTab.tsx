@@ -67,9 +67,13 @@ function textMentionsMachine(text: unknown, machine: string): boolean {
   const bodyLower = body.toLowerCase();
   const targetLower = target.toLowerCase();
   if (targetLower.length >= 8 && bodyLower.includes(targetLower)) return true;
-  const genericMakers = new Set(["boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin"]);
+  const genericMakers = new Set([
+    "boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin",
+    "grumman", "general", "dynamics", "rockwell", "american", "republic", "mcdonnell",
+  ]);
+  const bodyWords = new Set(bodyLower.match(/[a-z]{3,}/g) || []);
   return (targetLower.match(/[a-z]{3,}/g) || [])
-    .some((word) => !genericMakers.has(word) && bodyLower.includes(word));
+    .some((word) => !genericMakers.has(word) && bodyWords.has(word));
 }
 
 function machineLabelMatches(left: unknown, right: unknown): boolean {
