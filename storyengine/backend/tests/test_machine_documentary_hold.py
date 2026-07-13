@@ -6079,6 +6079,133 @@ def test_target_machine_research_marks_full_hold_complete_after_final_verified_c
     assert all(unit["passed"] for unit in validation["units"])
 
 
+def test_target_machine_research_refresh_replaces_only_target_state(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    target_key = pe._verified_source_cache_key("Boeing XB-15")
+    b17_key = pe._verified_source_cache_key("Boeing B-17 Flying Fortress")
+    b24_key = pe._verified_source_cache_key("Consolidated B-24 Liberator")
+    existing_cards = [
+        _valid_research_card(
+            "Boeing XB-15",
+            _evidence_segments(),
+            engineering_thesis="Old XB-15 card that must be replaced during target refresh.",
+            why_this_unit_deserves_a_paragraph=(
+                "Old XB-15 paragraph rationale must not survive a target refresh."
+            ),
+        ),
+        _valid_research_card(
+            "Boeing B-17 Flying Fortress",
+            _evidence_segments(),
+            engineering_thesis="B-17 existing card stays untouched during XB-15 refresh.",
+            why_this_unit_deserves_a_paragraph=(
+                "B-17 keeps its existing precision-bombing engineering decision while XB-15 refreshes."
+            ),
+        ),
+        _valid_research_card(
+            "Consolidated B-24 Liberator",
+            _evidence_segments(),
+            engineering_thesis="B-24 existing card stays untouched during XB-15 refresh.",
+            why_this_unit_deserves_a_paragraph=(
+                "B-24 keeps its existing production-and-range engineering decision while XB-15 refreshes."
+            ),
+        ),
+    ]
+    target_segments = _evidence_segments()
+    refreshed_card = _valid_research_card(
+        "Boeing XB-15",
+        target_segments,
+        engineering_thesis="Refreshed XB-15 card grounded in the new raw source package.",
+        why_this_unit_deserves_a_paragraph=(
+            "XB-15 now anchors the early range-and-power tradeoff behind strategic bomber design."
+        ),
+    )
+    old_target_package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    old_target_package["refresh_marker"] = "old"
+    refreshed_package = _verified_package_for_segments("Boeing XB-15", target_segments)
+    refreshed_package["refresh_marker"] = "new"
+    payload = {
+        "unit_roster": roster_names,
+        "unit_research_cards": copy.deepcopy(existing_cards),
+        "machine_raw_source_packages": {
+            target_key: old_target_package,
+            b17_key: _verified_package_for_segments("Boeing B-17 Flying Fortress", _evidence_segments()),
+            b24_key: _verified_package_for_segments("Consolidated B-24 Liberator", _evidence_segments()),
+        },
+        "machine_script_previews": {
+            target_key: {"paragraph": "Old XB-15 preview."},
+            b17_key: {"paragraph": "B-17 preview stays."},
+        },
+        "machine_script_briefs": {
+            target_key: {"old": "XB-15 brief"},
+            b17_key: {"old": "B-17 brief"},
+        },
+        "machine_story_plans": {
+            target_key: {"old": "XB-15 plan"},
+            b17_key: {"old": "B-17 plan"},
+        },
+    }
+
+    class FakeAnthropic:
+        async def generate(self, **_kwargs):
+            return json.dumps(refreshed_card)
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": FakeAnthropic()})()
+    writes = []
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_gather(_title, machine, _payload):
+        assert machine == "Boeing XB-15"
+        return refreshed_package
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_gather_verified_machine_source_package", fake_gather)
+
+    result = asyncio.run(
+        executor._run_unit_research_hold(
+            "video-test",
+            "Every US Strategic Bomber Ever Built",
+            payload,
+            roster_names,
+            target_machine="Boeing XB-15",
+        )
+    )
+
+    cards_by_key = {
+        pe._verified_source_cache_key(card["unit"]): card
+        for card in result["unit_research_cards"]
+    }
+    assert cards_by_key[target_key]["engineering_thesis"] == refreshed_card["engineering_thesis"]
+    assert cards_by_key[b17_key]["engineering_thesis"] == existing_cards[1]["engineering_thesis"]
+    assert cards_by_key[b24_key]["engineering_thesis"] == existing_cards[2]["engineering_thesis"]
+    assert result["machine_raw_source_packages"][target_key]["refresh_marker"] == "new"
+    assert result["machine_raw_source_packages"][b17_key] == payload["machine_raw_source_packages"][b17_key]
+    assert result["machine_raw_source_packages"][b24_key] == payload["machine_raw_source_packages"][b24_key]
+    assert target_key not in result["machine_script_previews"]
+    assert target_key not in result["machine_script_briefs"]
+    assert target_key not in result["machine_story_plans"]
+    assert result["machine_script_previews"][b17_key]["paragraph"] == "B-17 preview stays."
+    assert result["machine_script_briefs"][b17_key]["old"] == "B-17 brief"
+    assert result["machine_story_plans"][b17_key]["old"] == "B-17 plan"
+    assert result["unit_research_hold_validation"]["target_machine"] == "Boeing XB-15"
+    assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+    raw_checkpoint = next(query for query, _args in writes if "machine_raw_source_packages" in query)
+    assert "jsonb_build_object($1::text, $2::jsonb)" in raw_checkpoint
+    assert "- $1::text" in raw_checkpoint
+
+
 def test_target_machine_research_requires_verified_source_package_before_llm(monkeypatch):
     roster_names = ["Boeing XB-15", "Boeing B-52 Stratofortress", "Convair B-36"]
     stale_key = pe._verified_source_cache_key("Boeing B-52 Stratofortress")
