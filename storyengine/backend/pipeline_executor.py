@@ -1359,6 +1359,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "narrative_weight": narrative_weight,
             "maximum_numerical_details": 8,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
+            "benchmark_style_rule": "for Strategic Bomber benchmark machines, preserve Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, while using only locked evidence",
             "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
             "early_human_detail_rule": "for the first three machines, use sourced human_detail, named decision, or official finding when available; never invent one",
             "conclusion_rule": "final sentence is editorial synthesis from the assembled paragraph only; no new sourced meaning beat, dates, specs, or numbers",
@@ -5358,6 +5359,7 @@ class PipelineExecutor:
                     "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, or historical meaning understandable.\n"
                     "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural Anton micro-hook, not a manufactured twist.\n"
                     "- Do not inventory every dimension, engine, payload, speed, range, date, crew feature, and legacy field. Select the 2-4 technical facts that prove the decision, tradeoff, or reality.\n"
+                    "- For the Strategic Bomber benchmark, preserve Anton's compact inventory cadence: identity/significance, selected scale or capability facts, production or service reality, then a landed verdict. Do not strip useful specs until the paragraph becomes a pure thesis essay.\n"
                     "- Use sourced memorable_fact when the plan provides it, folded into one of the four evidence-backed sentences. Do not add a separate trivia sentence.\n"
                     "- Prefer clean spoken history over technical completeness, but the paragraph still needs a concrete engineering thesis and a final line that lands.\n"
                 )
@@ -5374,6 +5376,7 @@ class PipelineExecutor:
                     "\n\nSCOPED OVERRIDE — COMPLETE INVENTORY MODE:\n"
                     "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
                     "Write a short Anton micro-story, not a compressed fact sheet and not a miniature engineering essay. "
+                    "For the Strategic Bomber benchmark, keep Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, all from locked evidence. "
                     "Silently cherry-pick only the details needed for one clear narrative: problem, decision, tradeoff, reality, and a paragraph-derived landing line. Omission is a feature. "
                     f"Use the NARRATIVE WEIGHT target while staying inside {_ANTON_PARAGRAPH_WORD_RANGE} words and exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences. Use the formula: {_ANTON_PARAGRAPH_FORMULA}. Never list research-card fields. "
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
@@ -5471,7 +5474,7 @@ class PipelineExecutor:
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
                     "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Keep designations/model names like B-52, XB-15, and F-86 as designations. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. Every number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
                     "- Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
-                    "- Prefer fewer than 6 numerical details when optional slots add clutter; keep only numbers that explain the problem, decision, tradeoff, or reality.\n"
+                    "- Prefer fewer than 6 numerical details when optional slots add clutter, but a Strategic Bomber benchmark paragraph may use 6-8 when each one proves scale, capability, production, service reality, or the final contrast.\n"
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
@@ -5545,6 +5548,7 @@ class PipelineExecutor:
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
+                        "For the Strategic Bomber benchmark, keep Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, all from locked evidence. "
                         "Use voice-ready spoken number words for years and quantities while preserving designations/model names like B-52, XB-15, and F-86. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite it as spoken words. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "

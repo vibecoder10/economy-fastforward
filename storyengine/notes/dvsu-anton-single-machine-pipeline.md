@@ -27,6 +27,7 @@ Anton's desktop writing standards add these quality locks to this formula:
 - Narrative weight matters. Major or pivotal machines should aim toward the high end of the 95-120 word range; transitional, prototype, interim, or limited machines should aim toward the low end without losing the four grounded beats.
 - Every paragraph needs one memorable sourced fact for serious enthusiasts. This is not a fifth required research sentence. If a `memorable_fact` excerpt exists, the compiler folds it into the strongest of the four evidence-backed beats.
 - Technical specifications are allowed when they prove the decision, tradeoff, or reality. The compiler should select the 2-4 useful technical facts instead of either dumping every spec or stripping the paragraph until it loses the Anton inventory feel.
+- For the Strategic Bomber benchmark specifically, the script target is Anton's compact inventory cadence: identity/significance, selected scale or capability facts, production or service reality, and a landed verdict. The anti-spec-dump rule must not strip sourced scale facts so aggressively that the paragraph becomes a thin engineering essay unlike the reference script.
 - For the first three machines, a verified human account, named decision, or official finding is required when the locked story plan contains one because the desktop DVsU standard uses it to build early trust. The system must never invent a human detail.
 
 ## First Three Machines Broken Into Reusable Slots

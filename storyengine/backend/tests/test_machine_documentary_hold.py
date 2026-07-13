@@ -1304,6 +1304,7 @@ def test_story_plan_locks_research_into_anton_slots():
     assert plan["contract"]["sentence_formula"] == "4 evidence-backed sentences + 1 paragraph-derived conclusion"
     assert "engineering decision" in plan["contract"]["movement"]
     assert "single engineering decision" in plan["contract"]["editorial_thesis"]
+    assert "compact inventory cadence" in plan["contract"]["benchmark_style_rule"]
     assert "memorable_fact" in plan["contract"]["memorable_fact_rule"]
     assert "paragraph-derived conclusion" in plan["contract"]["movement"]
     assert "no new sourced meaning beat" in plan["contract"]["conclusion_rule"]
@@ -2664,6 +2665,8 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "reference_benchmark" in fake_anthropic.prompts[0]
     assert "Do not copy or infer unsourced facts from it" in fake_anthropic.prompts[0]
+    assert "Strategic Bomber benchmark" in fake_anthropic.prompts[0]
+    assert "selected scale/spec facts" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
     assert "If the plan provides a human_detail slot for one of the first three benchmark machines" in fake_anthropic.prompts[0]
