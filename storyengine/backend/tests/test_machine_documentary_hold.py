@@ -670,6 +670,24 @@ def test_story_plan_attaches_first_three_anton_benchmark_profile():
     assert any("landing" in job for job in profile["sentence_jobs"])
 
 
+def test_first_three_anton_benchmark_profiles_match_extracted_script_shape():
+    expected = {
+        "Boeing XB-15": (1, 94, 5, "machine/date/significance"),
+        "Boeing B-17 Flying Fortress": (2, 116, 7, "machine/service/significance"),
+        "Consolidated B-24 Liberator": (3, 110, 6, "machine/date/production significance"),
+    }
+
+    for machine, (order, word_count, sentence_count, opening_mode) in expected.items():
+        profile = pe._anton_reference_benchmark_profile(machine)
+
+        assert profile["source_video"] == "Every US Strategic Bomber Ever Built"
+        assert profile["reference_order"] == order
+        assert profile["word_count"] == word_count
+        assert profile["sentence_count"] == sentence_count
+        assert profile["opening_mode"] == opening_mode
+        assert profile["final_line_job"]
+
+
 def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
     plan = pe._machine_story_plan(
         {"unit_research_cards": [{"unit": "B-52", "engineering_thesis": "Untraceable prose."}]},
@@ -1301,6 +1319,76 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     saved_paragraph = json.loads(atomic_replacements[0][1][2])[0]["scene_text"]
     assert pe._spoken_word_count(saved_paragraph) == 95
     assert "XB-15" in saved_paragraph
+
+
+def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
+    cards = [
+        {"unit": machine, "evidence_segments": _evidence_segments()}
+        for machine in roster
+    ]
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": cards,
+        },
+    }
+
+    class FakeAnthropic:
+        def __init__(self):
+            self.outputs = [_story_bundle(machine, 19) for machine in roster]
+
+        async def generate(self, **_kwargs):
+            return self.outputs.pop(0)
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": FakeAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(_query, *_args):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_update_status(*_args, **_kwargs):
+        return None
+
+    async def fake_validate(_video_id):
+        return {"passed": True}
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_validate_static_script_roster", fake_validate)
+    monkeypatch.setattr(executor, "_update_video_status", fake_update_status)
+    monkeypatch.setattr(executor, "_skip_disabled_next", lambda _video, status: status)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "ready_for_voice"
+    atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
+    assert len(atomic_replacements) == 1
+    args = atomic_replacements[0][1]
+    staged_rows = json.loads(args[2])
+    full_script = args[5]
+    assert [row["scene"] for row in staged_rows] == [1, 2]
+    assert len(staged_rows) == len(roster)
+    assert full_script == "\n\n".join(row["scene_text"] for row in staged_rows)
+    assert full_script.count("\n\n") == len(roster) - 1
+    assert "in conclusion" not in full_script.lower()
+    assert "to summarize" not in full_script.lower()
+    assert "what have we learned" not in full_script.lower()
 
 
 def test_script_hold_refuses_missing_machine_card_before_touching_scripts(monkeypatch):
