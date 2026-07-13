@@ -4808,6 +4808,62 @@ def test_machine_preview_readiness_passes_with_verified_card_and_package(monkeyp
     assert result["warnings"] == []
 
 
+def test_machine_preview_readiness_does_not_touch_generation_side_effects(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _evidence_segments()
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [_valid_research_card("Boeing XB-15", segments)],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": payload,
+        }
+
+    async def fake_load(_video_id, current_payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(current_payload)
+
+    async def forbidden_prompt_overrides(*_args, **_kwargs):
+        raise AssertionError("readiness preflight must not load prompt overrides")
+
+    async def forbidden_static_hold(*_args, **_kwargs):
+        raise AssertionError("readiness preflight must not run script hold")
+
+    async def forbidden_execute(*_args, **_kwargs):
+        raise AssertionError("readiness preflight must not write database rows")
+
+    async def forbidden_fetch_all(*_args, **_kwargs):
+        raise AssertionError("readiness preflight must not look up voice/script rows")
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_load_prompt_overrides", forbidden_prompt_overrides)
+    monkeypatch.setattr(executor, "_run_static_script_hold", forbidden_static_hold)
+    monkeypatch.setattr(pe, "execute", forbidden_execute)
+    monkeypatch.setattr(pe, "fetch_all", forbidden_fetch_all)
+
+    result = asyncio.run(
+        executor.check_machine_script_preview_readiness("video-test", "Boeing XB-15")
+    )
+
+    assert result["ready"] is True
+    assert result["status"] == "completed"
+
+
 def test_machine_preview_readiness_route_returns_review_status(monkeypatch):
     import routes.pipeline as route
 
