@@ -2596,6 +2596,30 @@ class PipelineExecutor:
                 raise
             _logger.warning("[machine-research] compact write unavailable; legacy checkpoint retained: %s", str(exc)[:150])
 
+    async def _checkpoint_machine_raw_source_package(
+        self, video_id: str, machine_key: str, source_package: dict, locked_roster_snapshot: str
+    ) -> Any:
+        """Persist fetched exact excerpts before any LLM research-card work."""
+        import json
+
+        if not machine_key:
+            raise ValueError("raw source package checkpoint requires a non-empty machine key")
+        return await execute(
+            """UPDATE videos SET research_payload = jsonb_set(
+                   COALESCE(research_payload::jsonb, '{}'::jsonb),
+                   '{machine_raw_source_packages}',
+                   COALESCE(research_payload::jsonb->'machine_raw_source_packages', '{}'::jsonb)
+                     || jsonb_build_object($1::text, $2::jsonb),
+                   true
+               ), updated_at = now()
+               WHERE id = $3 AND tenant_id = $4
+                 AND (
+                     research_payload->'unit_roster' IS NULL
+                     OR research_payload->'unit_roster' = $5::jsonb
+                 )""",
+            machine_key, json.dumps(source_package), video_id, self.tenant_id, locked_roster_snapshot,
+        )
+
     @staticmethod
     def _enabled_stages(video: Optional[dict]) -> Optional[list]:
         """The video's per-video stage plan (list of enabled stage keys), or
@@ -3704,6 +3728,20 @@ class PipelineExecutor:
                 title, target_machine or "", payload
             )
             payload.setdefault("machine_raw_source_packages", {})[target_code] = verified_source_package
+            checkpoint_result = await self._checkpoint_machine_raw_source_package(
+                video_id, target_code, verified_source_package, locked_roster_snapshot
+            )
+            if isinstance(checkpoint_result, str) and checkpoint_result.strip().upper() == "UPDATE 0":
+                conflict = "persisted unit_roster changed concurrently; raw source package checkpoint refused"
+                payload["unit_research_hold_validation"] = {
+                    "passed": False,
+                    "in_progress": False,
+                    "target_machine": target_machine,
+                    "units": [{"machine": target_machine, "passed": False, "warnings": [conflict]}],
+                    "warnings": [conflict],
+                }
+                await self._log_activity(bot_name, video_id, "failed", conflict)
+                return payload
             source_package_errors = _verified_machine_source_package_quality_errors(verified_source_package)
             if not _verified_machine_source_package_ready(verified_source_package) or source_package_errors:
                 messages = [

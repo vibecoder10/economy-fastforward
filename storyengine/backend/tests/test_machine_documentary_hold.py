@@ -1531,12 +1531,14 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
         "engineering_thesis": "B-52 demonstrates one specific source-grounded engineering tradeoff.",
         "evidence_segments": b52_segments,
     }
+    writes = []
 
     class FakeAnthropic:
         def __init__(self):
             self.prompts = []
 
         async def generate(self, **kwargs):
+            assert any("machine_raw_source_packages" in query for query, _args in writes)
             self.prompts.append(kwargs["prompt"])
             return json.dumps(b52_card)
 
@@ -1546,7 +1548,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": fake_anthropic})()
     fetch_calls = []
 
-    async def fake_execute(*_args, **_kwargs):
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
         return None
 
     async def fake_fetch_all(*args, **_kwargs):
@@ -1608,8 +1611,12 @@ def test_target_machine_research_requires_verified_source_package_before_llm(mon
     async def fake_fetch_all(*_args, **_kwargs):
         return []
 
-    async def fake_execute(*_args, **_kwargs):
-        raise AssertionError("failed source gathering should not checkpoint a card")
+    writes = []
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        if "INSERT INTO machine_research_cards" in query:
+            raise AssertionError("failed source gathering should not checkpoint a card")
 
     async def fake_log(*_args, **_kwargs):
         return None
@@ -1641,6 +1648,8 @@ def test_target_machine_research_requires_verified_source_package_before_llm(mon
 
     assert result["unit_research_hold_validation"]["passed"] is False
     assert result["unit_research_hold_validation"]["warnings"] == ["no verified excerpts"]
+    assert any("machine_raw_source_packages" in query for query, _args in writes)
+    assert not any("INSERT INTO machine_research_cards" in query for query, _args in writes)
 
 
 def test_target_machine_research_rejects_thin_source_package_before_llm(monkeypatch):
@@ -1658,8 +1667,12 @@ def test_target_machine_research_rejects_thin_source_package_before_llm(monkeypa
     async def fake_fetch_all(*_args, **_kwargs):
         return []
 
-    async def fake_execute(*_args, **_kwargs):
-        raise AssertionError("thin source package should not checkpoint a card")
+    writes = []
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        if "INSERT INTO machine_research_cards" in query:
+            raise AssertionError("thin source package should not checkpoint a card")
 
     async def fake_log(*_args, **_kwargs):
         return None
@@ -1687,6 +1700,8 @@ def test_target_machine_research_rejects_thin_source_package_before_llm(monkeypa
 
     assert result["unit_research_hold_validation"]["passed"] is False
     assert "two distinct source URLs" in result["unit_research_hold_validation"]["warnings"][0]
+    assert any("machine_raw_source_packages" in query for query, _args in writes)
+    assert not any("INSERT INTO machine_research_cards" in query for query, _args in writes)
 
 
 def test_research_hold_contract_persists_each_card_and_never_reopens_roster():
@@ -1887,3 +1902,39 @@ def test_compact_write_persists_full_schema_v3_card_json(monkeypatch):
     assert captured["args"][:5] == ("tenant-a", "video-a", "XB15", "Boeing XB-15", 1)
     assert json.loads(captured["args"][5]) == card
     assert json.loads(captured["args"][6]) == validation
+
+
+def test_raw_source_package_checkpoint_updates_single_machine_cell(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+    package = {
+        "passed": True,
+        "machine": "Boeing XB-15",
+        "candidate_excerpts": [{"excerpt_id": "S1-E1", "text": "Exact fetched text."}],
+    }
+    captured = {}
+
+    async def fake_execute(query, *args):
+        captured["query"] = query
+        captured["args"] = args
+        return "UPDATE 1"
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    result = asyncio.run(
+        executor._checkpoint_machine_raw_source_package(
+            "video-a", "XB15", package, '["Boeing XB-15"]'
+        )
+    )
+
+    assert result == "UPDATE 1"
+    assert "machine_raw_source_packages" in captured["query"]
+    assert "jsonb_build_object($1::text, $2::jsonb)" in captured["query"]
+    assert "research_payload->'unit_roster' = $5::jsonb" in captured["query"]
+    assert captured["args"] == (
+        "XB15",
+        json.dumps(package),
+        "video-a",
+        "tenant-a",
+        '["Boeing XB-15"]',
+    )

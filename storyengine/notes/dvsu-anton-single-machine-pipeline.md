@@ -41,6 +41,8 @@ Research runs one locked roster machine at a time. The model may use only fetche
 
 The fetch stage uses a cost-bounded eight-query set for the locked machine: official history, USAF/museum sources, manufacturer/design history, specifications, production/service reality, design tradeoffs/lessons, and human or unusual-fact accounts. This is how the raw package gathers the material needed for the four beats plus any sourced memorable fact.
 
+The raw source package is checkpointed into `research_payload.machine_raw_source_packages[<machine_key>]` immediately after fetch/verification and before the research-card LLM call. A failed or blocked card generation can therefore still be reviewed from the exact gathered excerpts instead of disappearing with the failed model pass.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
