@@ -403,6 +403,29 @@ function sourceCaptureMethodForEvidence(segment: any, sourcePackage: any): strin
   return String(match?.source_capture_method || segment?.source_capture_method || "legacy_unmarked");
 }
 
+function sourceVariantSelectionForEvidence(segment: any, sourcePackage: any): any | null {
+  const match = sourceCandidateForEvidence(segment, sourcePackage);
+  return match?.source_variant_selection || segment?.source_variant_selection || null;
+}
+
+function sourceVariantSelectionLabel(selection: any): string {
+  if (!selection || typeof selection !== "object") return "";
+  const variants = Array.isArray(selection?.evaluated_variants) ? selection.evaluated_variants : [];
+  const selectedMethod = String(selection?.selected_capture_method || selection?.selected_variant?.source_capture_method || "").trim();
+  const selectedVariant = selection?.selected_variant || variants.find((variant: any) => String(variant?.source_capture_method || "").trim() === selectedMethod);
+  const compared = variants
+    .map((variant: any) => String(variant?.source_capture_method || "").trim())
+    .filter(Boolean);
+  const score = selectedVariant && Number.isFinite(Number(selectedVariant?.covered_slot_count))
+    ? `${Number(selectedVariant.covered_slot_count)} slots/${Number(selectedVariant?.distinct_slot_excerpt_count || 0)} distinct`
+    : "";
+  return [
+    selectedMethod ? `selected ${selectedMethod}` : "",
+    score,
+    compared.length > 1 ? `compared ${compared.join("/")}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
 function canonicalAntonSourceSlot(slot: unknown): string {
   const normalized = String(slot || "").trim().toLowerCase();
   const slotMap: Record<string, string[]> = {
@@ -2043,6 +2066,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       source_excerpt_hash?: string;
       source_tier?: string;
       source_capture_method?: string;
+      source_variant_selection?: any;
       source_slot_hints?: string[];
     }> = {};
     const slots = Array.isArray((activeMachinePreview?.story_plan as any)?.slots)
@@ -2065,6 +2089,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           source_excerpt_hash: String(segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.text_hash || ""),
           source_tier: sourceTierForEvidence(segment, activePreviewSourcePackage)?.label,
           source_capture_method: sourceCaptureMethodForEvidence(segment, activePreviewSourcePackage),
+          source_variant_selection: sourceVariantSelectionForEvidence(segment, activePreviewSourcePackage),
           source_slot_hints: sourceSlotHintsForEvidence(segment, activePreviewSourcePackage),
         };
       }
@@ -2295,7 +2320,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                             {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                               <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                 <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                  {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
+                                  {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, sourceVariantSelectionLabel(evidence?.source_variant_selection), Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                 </p>
                                 {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
                               </div>
@@ -2347,7 +2372,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                                 <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                   <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
+                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, sourceVariantSelectionLabel(evidence?.source_variant_selection), Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                   </p>
                                   {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
                                   {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}

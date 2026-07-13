@@ -366,14 +366,23 @@ def test_research_tab_surfaces_source_capture_method():
     text = _research_tab().read_text()
 
     assert "function sourceCaptureMethodForEvidence" in text
+    assert "function sourceVariantSelectionForEvidence" in text
+    assert "function sourceVariantSelectionLabel" in text
     assert "match?.source_capture_method || segment?.source_capture_method" in text
+    assert "match?.source_variant_selection || segment?.source_variant_selection" in text
     assert '"legacy_unmarked"' in text
     assert "source_capture_method?: string" in text
+    assert "source_variant_selection?: any" in text
     assert "source_excerpt_id?: string" in text
     assert "source_excerpt_hash?: string" in text
     assert "segment?.source_excerpt_id || sourceCandidateForEvidence(segment, selectedSourcePackage)?.excerpt_id" in text
     assert "segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, selectedSourcePackage)?.text_hash" in text
     assert "sourceCaptureMethodForEvidence(segment, selectedSourcePackage)" in text
+    assert "sourceVariantSelectionForEvidence(segment, selectedSourcePackage)" in text
+    assert "sourceVariantSelectionLabel(candidate?.source_variant_selection)" in text
+    assert "sourceVariantSelectionLabel(evidence?.source_variant_selection)" in text
+    assert "selected ${selectedMethod}" in text
+    assert "compared ${compared.join(\"/\")}" in text
     assert "evidence?.source_capture_method" in text
     assert "evidence?.source_excerpt_id || evidence?.locator" in text
     assert "evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : \"\"" in text

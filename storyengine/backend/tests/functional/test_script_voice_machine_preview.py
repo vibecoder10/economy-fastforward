@@ -290,8 +290,16 @@ def test_script_voice_preview_surfaces_source_capture_method():
     assert "sourceTierNumber(match)" in text
     assert "sourceTierForUrl(segment?.source_url, segment?.source_title)" in text
     assert "function sourceCaptureMethodForEvidence" in text
+    assert "function sourceVariantSelectionForEvidence" in text
+    assert "function sourceVariantSelectionLabel" in text
     assert "match?.source_capture_method || segment?.source_capture_method" in text
+    assert "match?.source_variant_selection || segment?.source_variant_selection" in text
     assert '"legacy_unmarked"' in text
     assert "source_capture_method?: string" in text
+    assert "source_variant_selection?: any" in text
     assert "sourceCaptureMethodForEvidence(segment, activePreviewSourcePackage)" in text
+    assert "sourceVariantSelectionForEvidence(segment, activePreviewSourcePackage)" in text
+    assert "sourceVariantSelectionLabel(evidence?.source_variant_selection)" in text
+    assert "selected ${selectedMethod}" in text
+    assert "compared ${compared.join(\"/\")}" in text
     assert "evidence?.source_capture_method" in text
