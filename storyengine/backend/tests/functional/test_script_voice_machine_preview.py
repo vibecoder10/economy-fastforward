@@ -177,6 +177,9 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "previewEvidenceById" in text
     assert "previewFormulaSentences" in text
     assert "previewFormulaRows" in text
+    assert "const spanMatchesSentence = span && (span === sentence || sentence.includes(span));" in text
+    assert "return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));" in text
+    assert "span.includes(sentence)" not in text
     assert "Sentence assembly" in text
     assert '["problem", "decision", "tradeoff", "reality"][index] : "conclusion"' in text
     assert "Editorial thesis" in text

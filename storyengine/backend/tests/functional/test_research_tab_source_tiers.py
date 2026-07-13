@@ -264,6 +264,9 @@ def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
     assert "selectedPreviewClaimMap" in text
     assert "selectedPreviewFormulaSentences" in text
     assert "selectedPreviewFormulaRows" in text
+    assert "const spanMatchesSentence = span && (span === sentence || sentence.includes(span));" in text
+    assert "return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));" in text
+    assert "span.includes(sentence)" not in text
     assert "Sentence assembly" in text
     assert '["problem", "decision", "tradeoff", "reality"][index] : "conclusion"' in text
     assert "selectedPreviewEvidenceById" in text

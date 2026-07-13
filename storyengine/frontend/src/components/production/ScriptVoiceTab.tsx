@@ -1906,7 +1906,8 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       ? previewClaimMap.filter((row: any) => {
           const span = String(row?.span || "").trim();
           const slot = String(row?.slot || "").trim();
-          return slot === expectedSlot || (span && (span === sentence || sentence.includes(span) || span.includes(sentence)));
+          const spanMatchesSentence = span && (span === sentence || sentence.includes(span));
+          return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));
         })
       : [];
     const evidenceIds = Array.from(new Set(
