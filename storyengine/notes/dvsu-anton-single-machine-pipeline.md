@@ -3,9 +3,12 @@
 ## Source Materials Mapped
 
 - Anton reference script: `/Users/ryanayler/Desktop/Designed vs used/TOP VIDEO SCRIPTS/Every US Strategic Bomber Ever Built.docx`
+- Channel identity: `/Users/ryanayler/Desktop/Designed vs used/DvsU_Channel_Identity.md`
 - Writing system: `/Users/ryanayler/Desktop/Designed vs used/DvsU_Script_Writing_System.md`
 - Research standard: `/Users/ryanayler/Desktop/Designed vs used/DvsU_Research_Fact_Verification_Standard.md`
-- Producer/voice standards: `/Users/ryanayler/Desktop/Designed vs used/DvsU_Producer_File_Standard.md`, `/Users/ryanayler/Desktop/Designed vs used/DvsU_Voiceover_File_Standard.md`
+- Example paragraphs: `/Users/ryanayler/Desktop/Designed vs used/DvsU_Example_Paragraphs.md`
+- Producer/voice standards: `/Users/ryanayler/Desktop/Designed vs used/DvsU_Producer_File_Standard.md`, `/Users/ryanayler/Desktop/Designed vs used/DvsU_Voiceover_File_Standard.md`, `/Users/ryanayler/Desktop/Designed vs used/DvsU_ElevenLabs_Settings.md`
+- Downstream visual/packaging standards to apply after the script proof passes: `/Users/ryanayler/Desktop/Designed vs used/DvsU_Image_Generation_Standard.md`, `/Users/ryanayler/Desktop/Designed vs used/DvsU_Image_Quality_Checklist.md`, `/Users/ryanayler/Desktop/Designed vs used/DvsU_Thumbnail_Standard.md`, `/Users/ryanayler/Desktop/Designed vs used/DvsU_Thumbnail_AB_Testing_Standard.md`, `/Users/ryanayler/Desktop/Designed vs used/DvsU_Ryan_Handoff_README.md`
 
 ## Anton Paragraph Pattern From First Three Strategic Bombers
 
@@ -16,7 +19,7 @@
 5. Editorial thesis: the single engineering decision, tradeoff, or contrast that tells the writer why these facts belong together.
 6. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
 
-The paragraph is still one natural 90-120 word unit for this proof. Anton's general DVsU standard says 95-120 words, but the actual first XB-15 benchmark paragraph is 94 words; the validator keeps a narrow 90-word floor so the system can imitate the real bomber reference shape instead of rejecting it. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
+The paragraph is one natural 95-120 word unit for this proof, matching Anton's current DVsU writing and voiceover standards. The extracted XB-15 benchmark paragraph remains shape-only reference metadata; it can guide rhythm, sentence jobs, and final-line job, but it no longer lowers the hard production floor. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
 Anton's desktop writing standards add two quality locks to this formula:
 
@@ -118,7 +121,7 @@ The script preview writer returns JSON:
 
 Validation requires:
 
-- one paragraph, 90-120 words, 4-7 sentences
+- one paragraph, 95-120 words, 4-7 sentences
 - locked machine designation present
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
 - claim-map spans copied exactly from the paragraph
@@ -128,10 +131,11 @@ Validation requires:
 - final sentence is a paragraph-derived conclusion, not a researched meaning beat, and is not included in `claim_map`
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
+- voice-ready number wording is preferred for years and quantities; designations/model names such as B-52, XB-15, and F-86 remain designations
 - unsupported designations, high-risk terms, hype, list transitions, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
-The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 90-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
 
 ## Isolation Rule
 
