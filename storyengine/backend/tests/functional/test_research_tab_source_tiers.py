@@ -118,6 +118,9 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "sourceUrls.size < 2" in text
     assert "nonCautionUrls.size < 1" in text
     assert "authoritativeUrls.size < 1" in text
+    assert "function tierFourOnlyAntonSourceSlots" in text
+    assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
+    assert "Raw source package Tier 4-only Anton slots ·" in text
     assert "selectedResearchStatusMessage" in text
     assert "queryClient.setQueryData([\"video\", video.id]" in text
     assert "{ ...current, research_payload: result.research_payload }" in text
@@ -153,6 +156,9 @@ def test_script_voice_tab_blocks_preview_without_authoritative_source():
     assert "Raw source package needs Tier 1-2 source · preview blocked" in text
     assert "authoritativeUrls.size < 1" in text
     assert "sourceTierNumber(candidate) <= 2" in text
+    assert "function tierFourOnlyAntonSourceSlots" in text
+    assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
+    assert "Raw source package Tier 4-only Anton slots ·" in text
 
 
 def test_research_tab_counts_only_verified_machine_cards():

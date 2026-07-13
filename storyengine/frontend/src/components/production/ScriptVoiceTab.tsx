@@ -414,6 +414,18 @@ function sourceSlotEvidenceBySlot(excerpts: any[]): Record<string, string[]> {
   }, {});
 }
 
+function tierFourOnlyAntonSourceSlots(excerpts: any[]): string[] {
+  return REQUIRED_ANTON_SOURCE_SLOTS.filter((slot) => {
+    const slotCandidates = excerpts.filter((candidate: any) => {
+      const hints = Array.isArray(candidate?.anton_slot_hints)
+        ? candidate.anton_slot_hints.map((hint: any) => String(hint || "").trim()).filter(Boolean)
+        : Array.from(antonSourceSlotHints(candidate?.text));
+      return hints.includes(slot);
+    });
+    return slotCandidates.length > 0 && slotCandidates.every((candidate: any) => sourceTierNumber(candidate) >= 4);
+  });
+}
+
 function excerptTextsOverlap(left: unknown, right: unknown): boolean {
   const leftText = normalizedSourceText(left);
   const rightText = normalizedSourceText(right);
@@ -525,6 +537,10 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     );
     if (savedNeedsDistinct || Object.keys(distinctAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
       return { ready: false, message: "Raw source package needs distinct Anton excerpts · preview blocked" };
+    }
+    const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts);
+    if (cautionOnlySlots.length > 0) {
+      return { ready: false, message: `Raw source package Tier 4-only Anton slots · ${cautionOnlySlots.join(", ")} · preview blocked` };
     }
   }
   const sourceUrls = new Set(
