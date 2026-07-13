@@ -225,6 +225,34 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
   return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
+function machineResearchCardStatus(card: any, machine: string = ""): { ready: boolean; message: string } {
+  if (!card) return { ready: false, message: "Research card missing · preview blocked" };
+  const visualIdentity = String(card?.visual_identity || "").trim();
+  const visualIdentityEvidenceIds = Array.isArray(card?.visual_identity_evidence_ids)
+    ? card.visual_identity_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (visualIdentity.split(/\s+/).filter(Boolean).length < 8 || visualIdentityEvidenceIds.length < 1) {
+    return { ready: false, message: "Visual identity missing · preview blocked" };
+  }
+  const evidenceIds = new Set(
+    (Array.isArray(card?.evidence_segments) ? card.evidence_segments : [])
+      .map((segment: any) => String(segment?.evidence_id || "").trim())
+      .filter(Boolean)
+  );
+  const unknownEvidenceIds = visualIdentityEvidenceIds.filter((id: string) => !evidenceIds.has(id));
+  if (unknownEvidenceIds.length > 0) {
+    return { ready: false, message: `Visual identity evidence missing · ${unknownEvidenceIds.join(", ")} · preview blocked` };
+  }
+  if (machine && !machineLabelMatches(cardLabel(card), machine)) {
+    return { ready: false, message: "Research card machine mismatch · preview blocked" };
+  }
+  return { ready: true, message: "Research card ready · visual identity grounded" };
+}
+
+function machineResearchCardReady(card: any, machine: string = ""): boolean {
+  return machineResearchCardStatus(card, machine).ready;
+}
+
 function sourcePackageForMachine(packages: any, machine: string): any | null {
   if (!packages || typeof packages !== "object" || Array.isArray(packages) || !machine) return null;
   const key = normalizedUnitCode(machine);
@@ -572,12 +600,17 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   }, [research, selectedMachineLabel]);
   const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage, selectedMachineLabel);
   const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage, selectedMachineLabel);
+  const selectedResearchCardStatus = machineResearchCardStatus(selectedResearchCard, selectedMachineLabel);
+  const selectedResearchReady = selectedResearchCardStatus.ready && selectedSourcePackageReady;
+  const selectedResearchStatusMessage = selectedResearchCardStatus.ready
+    ? selectedSourcePackageStatus.message
+    : selectedResearchCardStatus.message;
   const verifiedMachineResearchCount = useMemo(() => {
     if (!research) return 0;
     return research.unit_roster.filter((item: any) => {
       const label = machineLabel(item);
       const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-      return Boolean(card) && sourcePackageReady(sourcePackageForMachine(research.machine_raw_source_packages, label), label);
+      return machineResearchCardReady(card, label) && sourcePackageReady(sourcePackageForMachine(research.machine_raw_source_packages, label), label);
     }).length;
   }, [research]);
 
@@ -825,15 +858,15 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   variant="filled"
                   icon={singlePreviewRunning ? Loader2 : ShieldCheck}
                   onClick={handleOneMachinePreview}
-                  disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchCard || !selectedSourcePackageReady}
+                  disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchReady}
                 >
                   {singlePreviewRunning ? "Previewing..." : selectedMachinePreview ? "Preview selected" : "Script preview"}
                 </ActionButton>
               </div>
               {selectedResearchCard && (
-                <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedSourcePackageReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedSourcePackageReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedSourcePackageReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
+                <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
                   <ShieldCheck size={12} />
-                  {selectedSourcePackageStatus.message}
+                  {selectedResearchStatusMessage}
                 </div>
               )}
             </div>
@@ -994,11 +1027,15 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               const label = machineLabel(item);
               const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
               const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
+              const cardReady = machineResearchCardReady(card, label);
+              const cardSourceReady = sourcePackageReady(cardSourcePackage, label);
+              const cardVerified = cardReady && cardSourceReady;
+              const cardStatusLabel = cardVerified ? "Verified" : card ? (cardReady ? "Needs source" : "Needs visual") : "Waiting";
               return (
                 <details key={`${label}-${index}`} className="rounded-lg" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.06)" }}>
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">
                     <span style={{ color: card ? "var(--text-primary)" : "var(--text-tertiary)" }}>{index + 1}. {label}</span>
-                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider" style={{ color: card ? "var(--green)" : "var(--text-tertiary)" }}>{card ? "Researched" : "Waiting"}</span>
+                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider" style={{ color: cardVerified ? "var(--green)" : card ? "var(--orange)" : "var(--text-tertiary)" }}>{cardStatusLabel}</span>
                   </summary>
                   {card && (
                     <div className="space-y-3 border-t px-3 py-3" style={{ borderColor: "rgba(255,255,255,.06)" }}>

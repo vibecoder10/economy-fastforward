@@ -63,7 +63,11 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "selectedSourcePackageReady" in text
     assert "sourcePackageStatus(selectedSourcePackage, selectedMachineLabel)" in text
     assert "sourcePackageReady(selectedSourcePackage, selectedMachineLabel)" in text
-    assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchCard || !selectedSourcePackageReady}" in text
+    assert "function machineResearchCardStatus" in text
+    assert "Visual identity missing · preview blocked" in text
+    assert "Visual identity evidence missing ·" in text
+    assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text
+    assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchReady}" in text
     assert "Raw source package missing · preview blocked" in text
     assert "Raw source package target-thin ·" in text
     assert "Raw source package thin ·" in text
@@ -78,13 +82,16 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "sourceUrls.size < 2" in text
     assert "nonCautionUrls.size < 1" in text
     assert "authoritativeUrls.size < 1" in text
-    assert "selectedSourcePackageStatus.message" in text
+    assert "selectedResearchStatusMessage" in text
 
 
 def test_script_voice_tab_blocks_preview_without_authoritative_source():
     text = _script_voice_tab().read_text()
 
     assert "function sourcePackageStatus" in text
+    assert "function machineResearchCardStatus" in text
+    assert "Visual identity missing · preview blocked" in text
+    assert "activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady" in text
     assert "Raw source package needs Tier 1-2 source · preview blocked" in text
     assert "authoritativeUrls.size < 1" in text
     assert "sourceTierNumber(candidate) <= 2" in text
@@ -95,6 +102,7 @@ def test_research_tab_counts_only_verified_machine_cards():
 
     assert "function sourcePackageForMachine" in text
     assert "const verifiedMachineResearchCount = useMemo" in text
+    assert "machineResearchCardReady(card, label)" in text
     assert "sourcePackageReady(sourcePackageForMachine(research.machine_raw_source_packages, label), label)" in text
     assert "verified machines researched" in text
     assert "verifiedMachineResearchCount / research.unit_roster.length" in text

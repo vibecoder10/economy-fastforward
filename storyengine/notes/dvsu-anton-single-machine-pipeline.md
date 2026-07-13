@@ -80,6 +80,8 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - Optional when directly sourced: `memorable_fact`, `role_category`, `human_detail`, `transition_hook`, `onscreen_label`, or narrow context slots
 
+Research cards also require `visual_identity` and `visual_identity_evidence_ids`. This is Producer File/image-brief basis only, not spoken narration. It must name the exact visible features that make the locked machine unmistakable and cite evidence IDs whose copied excerpts support those features. It must not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions.
+
 Research cards may also include `narrative_weight` as `major`, `standard`, or `transitional`. If the card does not provide it, StoryEngine infers a conservative advisory profile from the locked evidence and stores it in `machine_story_plans[*].contract.narrative_weight`. The compiler follows that target inside the hard 95-120 word range instead of forcing equal paragraph weight.
 
 `why_this_unit_deserves_a_paragraph` is required and must state the unique engineering idea this locked machine contributes to the video. Generic fame, importance, existence, or "this machine mattered" wording fails card validation because Anton's rule is that no other roster machine should be able to replace the unit's reason for inclusion. It may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence segments.

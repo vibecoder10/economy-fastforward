@@ -73,11 +73,18 @@ def _problem_opening_story_bundle(machine: str, words_per_sentence: int = 19) ->
     return json.dumps(bundle)
 
 
+def _visual_identity_fields(machine: str) -> dict:
+    return {
+        "visual_identity": f"{machine} identified by its wing, engine, tail, nose, and fuselage features.",
+        "visual_identity_evidence_ids": ["E-DECISION"],
+    }
+
+
 def _evidence_segments() -> list[dict]:
     rows = [
         ("E-PROBLEM", "original_problem", "Original problem claim grounded in the supplied source."),
         ("E-ROLE", "role_category", "Role category claim grounded in the supplied source."),
-        ("E-DECISION", "engineering_decision", "Engineering decision claim grounded in the supplied source."),
+        ("E-DECISION", "engineering_decision", "Engineering decision claim grounded in the supplied source with wing, engine, tail, nose, and fuselage features."),
         ("E-TRADEOFF", "tradeoff", "Tradeoff claim grounded in the supplied source."),
         ("E-REALITY", "reality", "Reality claim grounded in the supplied source."),
         ("E-MEMORABLE", "memorable_fact", "Memorable fact claim grounded in the supplied source."),
@@ -451,6 +458,50 @@ def test_paragraph_worth_rejects_unsupported_numbers_and_designations():
 
     assert any("why_this_unit_deserves_a_paragraph introduced unsupported numerical detail(s): 1939" in warning for warning in warnings)
     assert any("why_this_unit_deserves_a_paragraph introduced unsupported designation(s): B29" in warning for warning in warnings)
+
+
+def test_visual_identity_requires_concrete_source_grounded_image_basis():
+    machine = "Boeing XB-15"
+    evidence, errors = pe._normalize_machine_evidence(
+        {"evidence_segments": _evidence_segments()},
+        machine,
+    )
+    assert errors == []
+
+    assert pe._visual_identity_warnings(machine, "", evidence, [])
+    assert any(
+        "generic" in warning
+        for warning in pe._visual_identity_warnings(
+            machine,
+            "Hero image of the machine that looks realistic and visually distinct.",
+            evidence,
+            ["E-DECISION"],
+        )
+    )
+    assert any(
+        "camera/editing/text" in warning
+        for warning in pe._visual_identity_warnings(
+            machine,
+            "Boeing XB-15 camera zoom over wing, engine, tail, nose, and fuselage features.",
+            evidence,
+            ["E-DECISION"],
+        )
+    )
+    assert any(
+        "not grounded" in warning
+        for warning in pe._visual_identity_warnings(
+            machine,
+            "Boeing XB-15 identified by delta wing, twin boom, radar dish, and canard features.",
+            evidence,
+            ["E-DECISION"],
+        )
+    )
+    assert pe._visual_identity_warnings(
+        machine,
+        _visual_identity_fields(machine)["visual_identity"],
+        evidence,
+        _visual_identity_fields(machine)["visual_identity_evidence_ids"],
+    ) == []
 
 
 def test_verified_source_validation_requires_matching_locator():
@@ -839,6 +890,8 @@ def test_inventory_story_brief_hides_exhaustive_card_fields():
             "engineering_response": "DIMENSIONS ENGINES PAYLOAD SPEED RANGE",
             "source_notes": ["EXHAUSTIVE SOURCE NOTES"],
             "script_beats": ["FIVE PREWRITTEN BEATS"],
+            "visual_identity": "CAMERA PAN OVER WING ENGINE TAIL NOSE FUSELAGE TEXT OVERLAY",
+            "visual_identity_evidence_ids": ["E-DECISION"],
         }],
     }
 
@@ -852,6 +905,8 @@ def test_inventory_story_brief_hides_exhaustive_card_fields():
     assert "DIMENSIONS ENGINES" not in serialized
     assert "EXHAUSTIVE SOURCE NOTES" not in serialized
     assert "FIVE PREWRITTEN BEATS" not in serialized
+    assert "CAMERA PAN" not in serialized
+    assert "TEXT OVERLAY" not in serialized
 
 
 def test_story_plan_locks_research_into_anton_slots():
@@ -2707,6 +2762,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
         "include": True,
         "engineering_thesis": "B-52 demonstrates one specific source-grounded engineering tradeoff.",
         "why_this_unit_deserves_a_paragraph": "B-52 proves how a long-range payload requirement created a bomber built around endurance rather than short-lived speed.",
+        **_visual_identity_fields("Boeing B-52 Stratofortress"),
         "evidence_segments": b52_segments,
     }
     writes = []
@@ -2767,6 +2823,9 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "why_this_unit_deserves_a_paragraph must state the unique engineering idea" in prompt
     assert "no other roster machine could replace it" in prompt
     assert "may not introduce dates, numbers, other machine designations" in prompt
+    assert "visual_identity, visual_identity_evidence_ids" in prompt
+    assert "visual_identity is Producer File/image-brief basis only, never spoken narration" in prompt
+    assert "camera movement, animation, transitions, thumbnail copy, on-screen text" in prompt
     assert "Optional key: narrative_weight with one of major, standard, or transitional" in prompt
     assert "Use major for pivotal machines" in prompt
     assert "memorable_fact should be returned when the verified excerpts support" in prompt
@@ -3013,6 +3072,7 @@ def test_target_machine_research_marks_full_hold_complete_after_final_verified_c
             "why_this_unit_deserves_a_paragraph": f"{machine} proves a source-grounded engineering decision where the bomber's problem, tradeoff, and consequence cannot be replaced by another roster machine.",
             "surprising_fact": "Memorable fact claim grounded in the supplied source.",
             "source_notes": ["https://example.test/source"],
+            **_visual_identity_fields(machine),
             "evidence_segments": _evidence_segments(),
         }
         existing_cards.append(card)
@@ -3022,6 +3082,7 @@ def test_target_machine_research_marks_full_hold_complete_after_final_verified_c
         "unit": roster_names[2],
         "engineering_thesis": "B-24 demonstrates a sufficiently detailed source-grounded engineering thesis.",
         "why_this_unit_deserves_a_paragraph": "B-24 proves a distinct production-and-range compromise where industrial output answered a bomber problem differently from the other roster machines.",
+        **_visual_identity_fields(roster_names[2]),
         "evidence_segments": target_segments,
     }
     payload = {
@@ -3198,6 +3259,9 @@ def test_research_card_repair_prompt_requires_source_url_and_locator():
     assert "source_url or locator" not in prompt
     assert "Be precise or be silent" in prompt
     assert "never pick the higher or more dramatic claim" in prompt
+    assert "Return visual_identity plus visual_identity_evidence_ids" in prompt
+    assert "visual_identity is Producer File/image-brief basis only, never spoken narration" in prompt
+    assert "camera movement, animation, transitions, thumbnail copy, on-screen text" in prompt
     assert "onscreen_label is metadata for Producer File/on-screen text, never spoken narration" in prompt
     assert "return it as reality, not historical_meaning" in prompt
 
@@ -3317,7 +3381,8 @@ def test_compact_write_unavailable_reuses_legacy_without_generation(monkeypatch)
     roster = ["B-52"]
     card = {"unit": "B-52", "engineering_thesis": "A sufficiently detailed source-grounded engineering thesis.",
             "why_this_unit_deserves_a_paragraph": "B-52 proves how range and payload requirements created an endurance-first bomber that outlasted replacement plans.",
-            "surprising_fact": "A fact", "source_notes": ["source"], "evidence_segments": _evidence_segments()}
+            "surprising_fact": "A fact", "source_notes": ["source"],
+            **_visual_identity_fields("B-52"), "evidence_segments": _evidence_segments()}
     payload = {
         "unit_roster": roster,
         "unit_research_cards": [card],

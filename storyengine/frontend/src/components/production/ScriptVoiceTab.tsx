@@ -324,6 +324,34 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
   return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
+function machineResearchCardStatus(card: any, machine: string = ""): { ready: boolean; message: string } {
+  if (!card) return { ready: false, message: "Research card missing · preview blocked" };
+  const visualIdentity = String(card?.visual_identity || "").trim();
+  const visualIdentityEvidenceIds = Array.isArray(card?.visual_identity_evidence_ids)
+    ? card.visual_identity_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (visualIdentity.split(/\s+/).filter(Boolean).length < 8 || visualIdentityEvidenceIds.length < 1) {
+    return { ready: false, message: "Visual identity missing · preview blocked" };
+  }
+  const evidenceIds = new Set(
+    (Array.isArray(card?.evidence_segments) ? card.evidence_segments : [])
+      .map((segment: any) => String(segment?.evidence_id || "").trim())
+      .filter(Boolean)
+  );
+  const unknownEvidenceIds = visualIdentityEvidenceIds.filter((id: string) => !evidenceIds.has(id));
+  if (unknownEvidenceIds.length > 0) {
+    return { ready: false, message: `Visual identity evidence missing · ${unknownEvidenceIds.join(", ")} · preview blocked` };
+  }
+  if (machine && !machineLabelMatches(cardLabel(card), machine)) {
+    return { ready: false, message: "Research card machine mismatch · preview blocked" };
+  }
+  return { ready: true, message: "Research card ready · visual identity grounded" };
+}
+
+function machineResearchCardReady(card: any, machine: string = ""): boolean {
+  return machineResearchCardStatus(card, machine).ready;
+}
+
 function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
   const sorted = [...apiScenes].sort((a, b) => (a.scene || 0) - (b.scene || 0));
   const total = sorted.length;
@@ -1474,7 +1502,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     return machineRoster.filter((item: any) => {
       const label = machineLabel(item);
       const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-      return Boolean(card) && sourcePackageReady(sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label), label);
+      return machineResearchCardReady(card, label) && sourcePackageReady(sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label), label);
     }).length;
   }, [machineRoster, researchPayload]);
   const machineResearchGate = (() => {
@@ -1500,10 +1528,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
   const activePreviewSourcePackageStatus = sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine);
   const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage, activePreviewMachine);
-  const activePreviewReady = Boolean(activePreviewResearchCard) && activePreviewSourcePackageReady;
-  const activePreviewStatusMessage = activePreviewResearchCard
+  const activePreviewResearchCardStatus = machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine);
+  const activePreviewReady = activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady;
+  const activePreviewStatusMessage = activePreviewResearchCardStatus.ready
     ? activePreviewSourcePackageStatus.message
-    : "Research card missing · preview blocked";
+    : activePreviewResearchCardStatus.message;
   const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
     ? machinePreview.claim_bundle.claim_map
     : [];

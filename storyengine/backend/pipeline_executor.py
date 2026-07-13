@@ -1420,6 +1420,107 @@ def _paragraph_worth_warnings(machine: str, paragraph_worth: str) -> list[str]:
     return warnings
 
 
+def _visual_identity_warnings(
+    machine: str,
+    visual_identity: str,
+    evidence: list[dict],
+    evidence_ids: Any,
+) -> list[str]:
+    """Validate Producer File image-brief basis without leaking it into narration."""
+    import re as _re
+
+    text = " ".join(str(visual_identity or "").split())
+    lower = text.lower()
+    warnings: list[str] = []
+    if _spoken_word_count(text) < 8:
+        return ["missing/weak visual_identity"]
+
+    generic_patterns = (
+        r"\b(?:image|picture|photo|shot)\s+of\s+(?:the\s+)?(?:machine|aircraft|bomber|unit)\b",
+        r"\b(?:hero\s+image|hero\s+shot|visual(?:ly)?\s+distinct|make\s+it\s+look\s+realistic)\b",
+        r"\b(?:recognizable|unmistakable|distinctive)\b(?![^.]{0,80}\b(?:wing|wings|engine|engines|nose|tail|fuselage|cockpit|canopy|turret|gun|propeller|landing gear|pod|pods|bay|silhouette)\b)",
+    )
+    if any(_re.search(pattern, lower) for pattern in generic_patterns):
+        warnings.append("visual_identity is generic; name concrete visible features that identify the locked machine")
+
+    production_patterns = (
+        r"\b(?:camera|shot|pan|zoom|dolly|tilt|motion|animate|animation|transition|edit|editing|b-roll|thumbnail)\b",
+        r"\b(?:on-screen text|onscreen text|text overlay|caption|lower third)\b",
+    )
+    if any(_re.search(pattern, lower) for pattern in production_patterns):
+        warnings.append("visual_identity must describe visible machine features only, not camera/editing/text directions")
+
+    visible_feature_pattern = (
+        r"\b(?:wing|wings|engine|engines|nose|tail|fuselage|cockpit|canopy|turret|gun|guns|propeller|propellers|"
+        r"landing gear|pod|pods|bay|swept|delta|straight|silhouette|profile|intake|intakes|exhaust|boom|booms)\b"
+    )
+    if not _re.search(visible_feature_pattern, lower):
+        warnings.append("visual_identity must include concrete visible machine features")
+
+    machine_code = _normalized_unit_code(machine)
+    normalized_text = _normalized_unit_code(text)
+    if machine_code and machine_code not in normalized_text and _unit_display_name(machine).split()[-1].lower() not in lower:
+        warnings.append("visual_identity must be specific to the locked machine")
+
+    if not isinstance(evidence_ids, list) or not [item for item in evidence_ids if str(item).strip()]:
+        warnings.append("visual_identity_evidence_ids must cite source-backed evidence IDs")
+        return warnings
+
+    evidence_by_id = {
+        str(segment.get("evidence_id") or "").strip(): segment
+        for segment in evidence or []
+        if isinstance(segment, dict) and str(segment.get("evidence_id") or "").strip()
+    }
+    cited_ids = [str(item).strip() for item in evidence_ids if str(item).strip()]
+    unknown_ids = [item for item in cited_ids if item not in evidence_by_id]
+    if unknown_ids:
+        warnings.append("visual_identity_evidence_ids reference unknown evidence ID(s): " + ", ".join(unknown_ids))
+        return warnings
+
+    cited_text = " ".join(
+        f"{evidence_by_id[item].get('claim', '')} {evidence_by_id[item].get('source_excerpt', '')}"
+        for item in cited_ids
+    )
+    extra_stopwords = {
+        "appearance", "brief", "cited", "configuration", "exact", "feature", "features",
+        "identifiable", "identified", "identify", "image", "must", "recognizable",
+        "show", "shown", "shows", "source", "unmistakable", "visible",
+    }
+    ungrounded = _ungrounded_factual_words(text, cited_text, machine, extra_stopwords=extra_stopwords)
+    if ungrounded:
+        warnings.append(
+            "visual_identity contains detail(s) not grounded in cited evidence: "
+            + ", ".join(ungrounded[:8])
+        )
+
+    identity_for_numbers = text
+    cited_for_numbers = cited_text
+    for designation in _re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()):
+        identity_for_numbers = _re.sub(
+            rf"\b{_re.escape(designation)}(?:s)?\b",
+            "",
+            identity_for_numbers,
+            flags=_re.IGNORECASE,
+        )
+        cited_for_numbers = _re.sub(
+            rf"\b{_re.escape(designation)}(?:s)?\b",
+            "",
+            cited_for_numbers,
+            flags=_re.IGNORECASE,
+        )
+    cited_number_keys = {_numeric_token_key(token) for token in _numeric_tokens_from_text(cited_for_numbers)}
+    unsupported_numbers = [
+        mention["raw"] for mention in _numeric_mentions_from_text(identity_for_numbers)
+        if mention["key"] not in cited_number_keys
+    ]
+    if unsupported_numbers:
+        warnings.append(
+            "visual_identity introduced unsupported numerical detail(s): "
+            + ", ".join(unsupported_numbers)
+        )
+    return warnings
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -4127,12 +4228,20 @@ class PipelineExecutor:
                     str(card.get("why_this_unit_deserves_a_paragraph") or "").strip(),
                 )
             )
+            evidence, evidence_errors = _normalize_machine_evidence(card, machine)
+            warnings.extend(
+                _visual_identity_warnings(
+                    machine,
+                    str(card.get("visual_identity") or "").strip(),
+                    evidence,
+                    card.get("visual_identity_evidence_ids"),
+                )
+            )
             if not str(card.get("surprising_fact") or "").strip():
                 warnings.append("missing surprising_fact")
             source_notes = card.get("source_notes")
             if not isinstance(source_notes, list) or not source_notes:
                 warnings.append("missing source_notes")
-            _, evidence_errors = _normalize_machine_evidence(card, machine)
             warnings.extend(evidence_errors)
             if source_package is not None or require_source_package:
                 warnings.extend(_verified_machine_source_package_quality_errors(source_package, machine))
@@ -4315,9 +4424,11 @@ class PipelineExecutor:
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
-                "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
+                "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, visual_identity, visual_identity_evidence_ids, evidence_segments.\n"
                 "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it. Do not say it mattered, was famous, or deserves a paragraph.\n"
                 "why_this_unit_deserves_a_paragraph may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence_segments.\n"
+                "visual_identity is Producer File/image-brief basis only, never spoken narration: state the exact visible machine features that make the locked unit unmistakable, and cite them with visual_identity_evidence_ids.\n"
+                "visual_identity may describe only what is visible on the machine; do not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
@@ -4372,8 +4483,10 @@ class PipelineExecutor:
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it; do not use generic fame/importance wording. "
                     "It may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence_segments. "
+                    "Return visual_identity plus visual_identity_evidence_ids; visual_identity is Producer File/image-brief basis only, never spoken narration. "
+                    "It must state exact visible machine features from cited evidence IDs and must not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions. "
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
-                    "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
+                    "Do not return legacy prose fields, source_notes, high_risk_claims, unrelated visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
                     "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "
