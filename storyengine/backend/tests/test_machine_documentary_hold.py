@@ -524,6 +524,24 @@ def test_story_paragraph_validator_requires_every_sentence_claim_mapped():
     assert not any("paragraph missing required Anton slot evidence" in warning for warning in warnings)
 
 
+def test_story_paragraph_validator_requires_sentence_numbers_inside_claim_map_span():
+    evidence = _evidence_segments()
+    evidence[2]["numeric_tokens"] = ["1950"]
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    old_sentence = bundle["claim_map"][1]["span"]
+    mapped_span = old_sentence.rstrip(".")
+    new_sentence = mapped_span + " in 1950."
+    bundle["claim_map"][1]["span"] = mapped_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_sentence, new_sentence)
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("sentence 2 numerical detail(s) outside claim_map span coverage: 1950" in warning for warning in warnings)
+    assert not any("paragraph introduced unsupported numerical detail" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     evidence = [
         {

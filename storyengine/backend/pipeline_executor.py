@@ -890,6 +890,9 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         claim_rows = []
     used_ids: list[str] = []
     claim_span_roles: list[tuple[str, set[str]]] = []
+    claim_span_details: list[dict[str, Any]] = []
+    high_risk_terms = {"first", "only", "largest", "fastest", "most", "never"}
+    designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
     for index, row in enumerate(claim_rows, start=1):
         if not isinstance(row, dict):
             warnings.append(f"claim_map row {index} must be an object")
@@ -916,9 +919,10 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             warnings.append(f"claim_map row {index} declares slot {declared_slot} but uses {', '.join(sorted(row_slots))}")
         if span and row_ids:
             span_for_numbers = span
-            for designation in set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper())):
+            for designation in designation_tokens:
                 span_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", span_for_numbers, flags=re.IGNORECASE)
             row_mentions = _numeric_mentions_from_text(span_for_numbers)
+            span_number_keys = {mention["key"] for mention in row_mentions}
             row_number_keys = {
                 _numeric_token_key(token)
                 for evidence_id in row_ids
@@ -934,7 +938,18 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                     + ", ".join(row_unsupported_numbers)
                 )
             span_lower = span.lower()
-            has_high_risk_term = bool(re.search(r"\b(first|only|largest|fastest|most|never)\b", span_lower))
+            span_risk_terms = {
+                term for term in high_risk_terms
+                if re.search(rf"\b{re.escape(term)}\b", span_lower)
+            }
+            if row_slots:
+                claim_span_details.append({
+                    "span": span,
+                    "roles": row_slots,
+                    "number_keys": span_number_keys,
+                    "risk_terms": span_risk_terms,
+                })
+            has_high_risk_term = bool(span_risk_terms)
             hedged = bool(re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", span_lower))
             if (row_mentions or has_high_risk_term) and not hedged:
                 row_source_keys = {
@@ -960,7 +975,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if len(covered_roles) < 4:
         warnings.append("paragraph must use evidence from at least four Anton slots")
 
-    designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
     paragraph_for_numbers = paragraph
     for designation in designation_tokens:
         paragraph_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", paragraph_for_numbers, flags=re.IGNORECASE)
@@ -1002,12 +1016,45 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     last_sentence = ""
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
     for sentence_index, sentence in enumerate(sentence_parts, start=1):
-        sentence_has_evidence = any(
-            span and (span in sentence or sentence in span)
-            for span, _row_slots in claim_span_roles
-        )
-        if not sentence_has_evidence:
+        sentence_claim_spans = [
+            detail for detail in claim_span_details
+            if detail.get("span") and (detail["span"] in sentence or sentence in detail["span"])
+        ]
+        if not sentence_claim_spans:
             warnings.append(f"sentence {sentence_index} is not covered by claim_map evidence")
+            continue
+        sentence_for_numbers = sentence
+        for designation in designation_tokens:
+            sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", sentence_for_numbers, flags=re.IGNORECASE)
+        span_number_keys = {
+            key
+            for detail in sentence_claim_spans
+            for key in detail.get("number_keys", set())
+        }
+        uncovered_sentence_numbers = [
+            mention["raw"] for mention in _numeric_mentions_from_text(sentence_for_numbers)
+            if mention["key"] not in span_number_keys
+        ]
+        if uncovered_sentence_numbers:
+            warnings.append(
+                f"sentence {sentence_index} numerical detail(s) outside claim_map span coverage: "
+                + ", ".join(uncovered_sentence_numbers)
+            )
+        sentence_lower = sentence.lower()
+        span_risk_terms = {
+            term
+            for detail in sentence_claim_spans
+            for term in detail.get("risk_terms", set())
+        }
+        uncovered_risk_terms = sorted(
+            term for term in high_risk_terms
+            if re.search(rf"\b{re.escape(term)}\b", sentence_lower) and term not in span_risk_terms
+        )
+        if uncovered_risk_terms:
+            warnings.append(
+                f"sentence {sentence_index} high-risk term(s) outside claim_map span coverage: "
+                + ", ".join(uncovered_risk_terms)
+            )
     if sentence_parts:
         last_sentence = sentence_parts[-1]
         last_wc = _spoken_word_count(last_sentence)
@@ -1026,7 +1073,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if ";" in paragraph:
         warnings.append("paragraph may not use semicolons")
 
-    high_risk_terms = {"first", "only", "largest", "fastest", "most", "never"}
     evidence_text = allowed_evidence_text.lower()
     unsupported_risk_terms = sorted(
         term for term in high_risk_terms
