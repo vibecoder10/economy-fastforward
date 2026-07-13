@@ -97,6 +97,9 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "nonCautionUrls.size < 1" in text
     assert "authoritativeUrls.size < 1" in text
     assert "selectedResearchStatusMessage" in text
+    assert "Raw source package missing Anton slots ·" in text
+    assert "sourcePackage?.source_slot_coverage?.missing_slots" in text
+    assert "antonSourceSlotHints(candidate?.text)" in text
 
 
 def test_script_voice_tab_blocks_preview_without_authoritative_source():
@@ -132,6 +135,23 @@ def test_research_tab_counts_only_verified_machine_cards():
     assert "verifiedMachineResearchCount / research.unit_roster.length" in text
     assert "verified cards finished" in text
     assert "unit_research_cards?.length || 0" not in text
+
+
+def test_research_tab_shows_raw_source_beat_coverage():
+    text = _research_tab().read_text()
+
+    assert "function sourceSlotCoverageRows" in text
+    assert "sourcePackage?.source_slot_coverage" in text
+    assert "savedEvidenceBySlot" in text
+    assert "candidate?.anton_slot_hints" in text
+    assert "const selectedSourceCoverageRows = sourceSlotCoverageRows(selectedSourcePackage, selectedMachineLabel)" in text
+    assert "selectedSourceCoverageRows.map" in text
+    assert 'original_problem: "Problem"' in text
+    assert 'engineering_decision: "Decision"' in text
+    assert 'tradeoff: "Tradeoff"' in text
+    assert 'reality: "Reality"' in text
+    assert "row.evidenceIds.slice(0, 3).join" in text
+    assert "row.evidenceIds.join" in text
 
 
 def test_research_tab_does_not_offer_bulk_machine_research_action():

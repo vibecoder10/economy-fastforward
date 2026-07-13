@@ -63,6 +63,9 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "Raw source package target-thin ·" in text
     assert "Raw source package thin ·" in text
     assert "Raw source package caution-only · preview blocked" in text
+    assert "Raw source package missing Anton slots ·" in text
+    assert "sourcePackage?.source_slot_coverage?.missing_slots" in text
+    assert "antonSourceSlotHints(candidate?.text)" in text
     assert "Raw source package missing capture method ·" in text
     assert "Raw source package unsupported capture ·" in text
     assert 'new Set(["fetched_page", "tavily_raw_content"])' in text
@@ -84,6 +87,23 @@ def test_script_voice_research_gate_counts_only_verified_cards():
     assert "sourcePackageReady(sourcePackage, label)" in text
     assert "verified cards finished" in text
     assert "unit_research_cards?.length || 0" not in text
+
+
+def test_script_voice_preview_shows_raw_source_beat_coverage():
+    text = _script_voice_tab().read_text()
+
+    assert "function sourceSlotCoverageRows" in text
+    assert "sourcePackage?.source_slot_coverage" in text
+    assert "savedEvidenceBySlot" in text
+    assert "candidate?.anton_slot_hints" in text
+    assert "const activePreviewSourceCoverageRows = sourceSlotCoverageRows(activePreviewSourcePackage, activePreviewMachine)" in text
+    assert "activePreviewSourceCoverageRows.map" in text
+    assert 'original_problem: "Problem"' in text
+    assert 'engineering_decision: "Decision"' in text
+    assert 'tradeoff: "Tradeoff"' in text
+    assert 'reality: "Reality"' in text
+    assert "row.evidenceIds.slice(0, 3).join" in text
+    assert "row.evidenceIds.join" in text
 
 
 def test_script_voice_preview_visible_after_one_verified_machine():
