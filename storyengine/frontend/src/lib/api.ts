@@ -688,6 +688,7 @@ export type MachineScriptPreview = {
   };
   claim_bundle?: {
     editorial_thesis?: string;
+    formula_sentences?: string[];
     paragraph?: string;
     onscreen_label?: string;
     claim_map?: Array<{

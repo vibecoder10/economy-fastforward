@@ -1604,6 +1604,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
     ? machinePreview.claim_bundle.claim_map
     : [];
+  const previewFormulaSentences = Array.isArray(machinePreview?.claim_bundle?.formula_sentences)
+    ? machinePreview.claim_bundle.formula_sentences
+    : [];
   const previewEvidenceById = (() => {
     const rows: Record<string, {
       slot?: string;
@@ -1761,6 +1764,22 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 ) : (
                   <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     Preview stopped before a paragraph was generated.
+                  </div>
+                )}
+                {previewFormulaSentences.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                      <ShieldCheck size={13} />
+                      Sentence assembly
+                    </div>
+                    {previewFormulaSentences.map((sentence: string, index: number) => (
+                      <div key={`formula-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
+                        <span className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: index < 4 ? "var(--turquoise)" : "var(--orange)", background: index < 4 ? "rgba(79,214,198,.1)" : "rgba(255,120,73,.1)" }}>
+                          {index < 4 ? ["problem", "decision", "tradeoff", "reality"][index] : "conclusion"}
+                        </span>
+                        <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{sentence}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
                 {!!machinePreview.quality_audit?.checks?.length && (

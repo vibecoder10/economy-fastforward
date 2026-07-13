@@ -1346,6 +1346,24 @@ def _parse_machine_story_sentences(raw: str) -> dict:
             parsed["paragraph"] = parsed[key]
     if isinstance(parsed.get("paragraph"), str):
         parsed["paragraph"] = " ".join(parsed.get("paragraph", "").split())
+    if not isinstance(parsed.get("formula_sentences"), list):
+        for key in ("sentences", "sentence_assembly", "assembly"):
+            if isinstance(parsed.get(key), list):
+                parsed["formula_sentences"] = parsed[key]
+                break
+    if isinstance(parsed.get("formula_sentences"), list):
+        normalized_sentences: list[str] = []
+        for item in parsed.get("formula_sentences") or []:
+            if isinstance(item, str):
+                text = item
+            elif isinstance(item, dict):
+                text = str(item.get("sentence") or item.get("span") or item.get("text") or "")
+            else:
+                text = ""
+            text = " ".join(text.split())
+            if text:
+                normalized_sentences.append(text)
+        parsed["formula_sentences"] = normalized_sentences
     if not isinstance(parsed.get("claim_map"), list):
         for key in ("claims", "evidence_map", "source_map"):
             if isinstance(parsed.get(key), list):
@@ -1823,6 +1841,10 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     if not paragraph:
         return "", ["story distiller must return a paragraph string"]
+    formula_sentences = bundle.get("formula_sentences")
+    if not isinstance(formula_sentences, list):
+        formula_sentences = []
+    formula_sentences = [" ".join(str(item or "").split()) for item in formula_sentences if str(item or "").strip()]
     opening_assignment = str(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("opening_assignment") or "")
     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_assignment))
     narrative_warning = _narrative_weight_target_warning(paragraph, plan)
@@ -2044,6 +2066,12 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             f"paragraph must follow Anton formula: {_ANTON_PARAGRAPH_FORMULA} ({_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences)"
         )
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
+    if len(formula_sentences) != _ANTON_PARAGRAPH_FORMULA_SENTENCES:
+        warnings.append(
+            f"formula_sentences must contain {_ANTON_PARAGRAPH_FORMULA_SENTENCES} assembled sentences: {_ANTON_PARAGRAPH_FORMULA}"
+        )
+    elif " ".join(formula_sentences) != paragraph:
+        warnings.append("formula_sentences must assemble exactly into paragraph")
     last_sentence = sentence_parts[-1] if sentence_parts else ""
     final_sentence_index = len(sentence_parts)
     formula_roles = ["original_problem", "engineering_decision", "tradeoff", "reality"]
@@ -2172,6 +2200,8 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
     claim_rows = bundle.get("claim_map") if isinstance(bundle, dict) else []
     claim_rows = claim_rows if isinstance(claim_rows, list) else []
+    formula_sentences = bundle.get("formula_sentences") if isinstance(bundle, dict) else []
+    formula_sentences = formula_sentences if isinstance(formula_sentences, list) else []
     used_ids = list(dict.fromkeys(
         str(evidence_id)
         for row in claim_rows if isinstance(row, dict)
@@ -2209,6 +2239,9 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "raw numeric digit",
         "written unit abbreviation",
         "semicolon",
+    ]
+    assembly_warnings = [
+        "formula_sentences",
     ]
     rhythm_warnings = [
         "three consecutive long sentences",
@@ -2252,6 +2285,14 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             f"{_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula sentences",
             len(sentence_parts) == _ANTON_PARAGRAPH_FORMULA_SENTENCES,
             f"{len(sentence_parts)} sentences; {_ANTON_PARAGRAPH_FORMULA}",
+        ),
+        check(
+            "sentence_assembly",
+            "Sentence assembly",
+            len(formula_sentences) == _ANTON_PARAGRAPH_FORMULA_SENTENCES
+            and " ".join(" ".join(str(item or "").split()) for item in formula_sentences) == paragraph
+            and not any(token in warning_text for token in assembly_warnings),
+            "formula_sentences assemble into paragraph" if not any(token in warning_text for token in assembly_warnings) else "formula_sentences mismatch",
         ),
         check(
             "four_evidence_beats",
@@ -5372,9 +5413,10 @@ class PipelineExecutor:
                     "The target movement is four evidence-backed sentences from original_problem, engineering_decision, tradeoff, and reality, then one paragraph-derived conclusion.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
-                    '{"editorial_thesis":"single engineering decision or contrast","paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
+                    '{"editorial_thesis":"single engineering decision or contrast","formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"],"paragraph":"same five sentences joined with spaces","claim_map":[{"span":"exact paragraph words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
                     f"- paragraph must be final spoken narration: exactly one paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words, exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} natural sentences following {_ANTON_PARAGRAPH_FORMULA}.\n"
+                    "- formula_sentences must contain those exact five final sentences in order. Joining formula_sentences with spaces must reproduce paragraph exactly.\n"
                     "- Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
                     "- Follow NARRATIVE WEIGHT as the target inside the hard range: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. Do not pad with orphan facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
@@ -5452,9 +5494,10 @@ class PipelineExecutor:
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         f"OPENING ASSIGNMENT: {opening_brief}\n"
                         f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
-                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
+                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"formula_sentences\":[\"original_problem sentence\",\"engineering_decision sentence\",\"tradeoff sentence\",\"reality sentence\",\"paragraph-derived conclusion\"],\"paragraph\":\"same five sentences joined with spaces\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
                         f"Write exactly one paragraph inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} word range and exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences following {_ANTON_PARAGRAPH_FORMULA}. Follow NARRATIVE WEIGHT as the target: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. "
+                        "formula_sentences must contain those exact five final sentences in order and must join with spaces to reproduce paragraph exactly. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "

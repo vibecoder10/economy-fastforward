@@ -17,6 +17,10 @@ def _words(machine: str, count: int) -> str:
     return " ".join(tokens)
 
 
+def _formula_sentences_from_paragraph(paragraph: str) -> list[str]:
+    return [part if part.endswith(".") else part + "." for part in paragraph.split(". ") if part]
+
+
 def _story_bundle(machine: str, words_per_sentence: int) -> str:
     target_words = max(5, words_per_sentence * 5)
     sentences = [
@@ -39,6 +43,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
     ]
     return json.dumps({
         "editorial_thesis": f"{machine} mattered because its design promise had to survive real operating limits.",
+        "formula_sentences": sentences,
         "paragraph": " ".join(sentences),
         "claim_map": [
             {"slot": slot, "span": sentence, "used_evidence_ids": evidence_ids}
@@ -65,11 +70,13 @@ def _problem_opening_story_bundle(machine: str, words_per_sentence: int = 19) ->
     old_final = "Together, those choices made the machine matter beyond its own service."
     new_final = f"Together, those choices made the {machine} matter beyond its own service."
     bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final, 1)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
     while pe._spoken_word_count(bundle["paragraph"]) < 95:
         old_decision = bundle["claim_map"][1]["span"]
         new_decision = old_decision.rstrip(".") + " clear."
         bundle["claim_map"][1]["span"] = new_decision
         bundle["paragraph"] = bundle["paragraph"].replace(old_decision, new_decision, 1)
+        bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
     return json.dumps(bundle)
 
 
@@ -1413,6 +1420,7 @@ def test_story_paragraph_validator_accepts_anton_benchmark_shape():
     while pe._spoken_word_count(" ".join(sentences)) < 116:
         sentences[1] = sentences[1].rstrip(".") + " clear."
     bundle["paragraph"] = " ".join(sentences)
+    bundle["formula_sentences"] = sentences
     bundle["claim_map"] = [
         {"slot": "original_problem", "span": sentences[0], "used_evidence_ids": ["E-PROBLEM"]},
         {"slot": "engineering_decision", "span": sentences[1], "used_evidence_ids": ["E-DECISION"]},
@@ -1469,6 +1477,24 @@ def test_story_paragraph_validator_requires_available_memorable_fact():
     assert any("must use sourced memorable_fact" in warning for warning in warnings)
 
 
+def test_story_paragraph_validator_requires_formula_sentence_assembly():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+
+    missing_bundle = copy.deepcopy(bundle)
+    missing_bundle.pop("formula_sentences", None)
+    _paragraph, missing_warnings = pe._validate_machine_story_sentences("B-52", plan, missing_bundle)
+
+    mismatch_bundle = copy.deepcopy(bundle)
+    mismatch_bundle["formula_sentences"] = list(mismatch_bundle["formula_sentences"])
+    mismatch_bundle["formula_sentences"][1] = "This sentence does not assemble into the paragraph."
+    _paragraph, mismatch_warnings = pe._validate_machine_story_sentences("B-52", plan, mismatch_bundle)
+
+    assert any("formula_sentences must contain 5 assembled sentences" in warning for warning in missing_warnings)
+    assert any("formula_sentences must assemble exactly into paragraph" in warning for warning in mismatch_warnings)
+
+
 def test_story_paragraph_validator_requires_memorable_fact_in_story_plan():
     evidence = [
         segment for segment in _evidence_segments()
@@ -1502,6 +1528,7 @@ def test_anton_preview_quality_audit_reports_passed_checks():
     assert [check["name"] for check in audit["checks"]] == [
         "word_range",
         "sentence_shape",
+        "sentence_assembly",
         "four_evidence_beats",
         "memorable_fact",
         "editorial_thesis",
@@ -1513,6 +1540,7 @@ def test_anton_preview_quality_audit_reports_passed_checks():
         "not_catalog_copy",
     ]
     assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
+    assert next(check for check in audit["checks"] if check["name"] == "sentence_assembly")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "clean_voiceover")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "spoken_rhythm")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "opening_assignment")["passed"] is True
@@ -1950,6 +1978,13 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     )
     bundle = {
         "editorial_thesis": "The XB-15 mattered because size and range outpaced bomber-engine maturity.",
+        "formula_sentences": [
+            "The Boeing XB-15 first flew in nineteen thirty-seven as America's experimental leap into long-range strategic bombing.",
+            "With a one hundred and forty-nine-foot wingspan and four Pratt & Whitney engines of eight hundred and fifty horsepower, it could carry two thousand, five hundred pounds of bombs over five thousand, one hundred and thirty miles.",
+            "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances.",
+            "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
+            "That made it proof that size, range, and power had to mature together.",
+        ],
         "paragraph": (
             "The Boeing XB-15 first flew in nineteen thirty-seven as America's experimental leap into long-range strategic bombing. "
             "With a one hundred and forty-nine-foot wingspan and four Pratt & Whitney engines of eight hundred and fifty horsepower, it could carry two thousand, five hundred pounds of bombs over five thousand, one hundred and thirty miles. "
@@ -2019,6 +2054,7 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
     new_span = old_span.replace("clear.", "clear five thousand miles.", 1)
     bundle["claim_map"][1]["span"] = new_span
     bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
 
@@ -2170,6 +2206,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[0]
+    assert '"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"]' in fake_anthropic.prompts[0]
+    assert "formula_sentences must contain those exact five final sentences in order" in fake_anthropic.prompts[0]
     assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
@@ -2197,6 +2235,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes" in fake_anthropic.prompts[0]
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
+    assert '"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"]' in fake_anthropic.prompts[1]
+    assert "formula_sentences must contain those exact five final sentences in order" in fake_anthropic.prompts[1]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[1]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[1]
     assert "NARRATIVE WEIGHT: standard / target 100-112 words" in fake_anthropic.prompts[1]
@@ -2537,8 +2577,8 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert [check["name"] for check in result["preview"]["quality_audit"]["checks"]][:4] == [
         "word_range",
         "sentence_shape",
+        "sentence_assembly",
         "four_evidence_beats",
-        "memorable_fact",
     ]
     reference_check = next(check for check in result["preview"]["quality_audit"]["checks"] if check["name"] == "reference_shape")
     assert reference_check["advisory"] is True
@@ -2552,6 +2592,9 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
     assert not any("script_validation" in query or "SET script =" in query for query, _args in writes)
     assert saved_preview_rows and saved_preview_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
+    saved_preview = json.loads(saved_preview_rows[0][1][1])
+    assert saved_preview["claim_bundle"]["formula_sentences"]
+    assert " ".join(saved_preview["claim_bundle"]["formula_sentences"]) == saved_preview["paragraph"]
     assert saved_brief_rows and saved_brief_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert saved_plan_rows and saved_plan_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert load_calls == [("video-test", roster, "Boeing XB-15")]

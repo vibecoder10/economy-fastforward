@@ -138,6 +138,13 @@ The script preview writer returns JSON:
 ```json
 {
   "editorial_thesis": "single engineering decision or contrast",
+  "formula_sentences": [
+    "original_problem sentence",
+    "engineering_decision sentence",
+    "tradeoff sentence",
+    "reality sentence",
+    "paragraph-derived conclusion"
+  ],
   "paragraph": "final spoken narration",
   "claim_map": [
     {
@@ -153,6 +160,7 @@ The script preview writer returns JSON:
 Validation requires:
 
 - one paragraph, 95-120 words, exactly five formula sentences
+- `formula_sentences` contains those exact five final sentences and joins with spaces to reproduce `paragraph`
 - narrative weight target followed inside that hard range: major machines closer to 120 words, transitional machines closer to 95 words, with no padding
 - locked machine designation present
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
@@ -169,7 +177,7 @@ Validation requires:
 - unsupported designations, high-risk terms, hype, ranked-list connectors, timeline-biography structure, production cues, bracketed notes, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
-The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, five formula sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, opening assignment, narrative weight, and no catalog/spec-dump pattern. The audit also carries a hard `validator_warnings` row whenever any backend validator warning remains, so the UI cannot show a passing Anton audit for a paragraph the backend rejected. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, five formula sentences, exact sentence assembly, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, opening assignment, narrative weight, and no catalog/spec-dump pattern. The audit also carries a hard `validator_warnings` row whenever any backend validator warning remains, so the UI cannot show a passing Anton audit for a paragraph the backend rejected. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
 
 ## Isolation Rule
 
