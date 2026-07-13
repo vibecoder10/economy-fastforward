@@ -1073,7 +1073,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "maximum_numerical_details": 8,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
             "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
-            "early_human_detail_rule": "for the first three machines, prefer sourced human_detail, named decision, or official finding when available; never invent one",
+            "early_human_detail_rule": "for the first three machines, use sourced human_detail, named decision, or official finding when available; never invent one",
             "conclusion_rule": "final sentence is editorial synthesis from the assembled paragraph only; no new sourced meaning beat, dates, specs, or numbers",
             "onscreen_label": "derive only from onscreen_label evidence or sourced role/operator/build/date slots; metadata for Producer File/on-screen text, never spoken narration",
         },
@@ -1258,6 +1258,21 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append("story plan missing sourced memorable_fact for Anton paragraph")
     elif not any(evidence_id in used_ids for evidence_id in memorable_ids):
         warnings.append("paragraph must use sourced memorable_fact when the story plan provides one")
+    reference_benchmark = plan.get("reference_benchmark") if isinstance(plan, dict) else None
+    try:
+        reference_order = int((reference_benchmark or {}).get("reference_order") or 0)
+    except Exception:
+        reference_order = 0
+    human_detail_ids = [
+        evidence_id
+        for slot in (plan.get("slots", []) if isinstance(plan, dict) else [])
+        if str(slot.get("slot") or "") == "human_detail"
+        for evidence_id in (slot.get("evidence_ids") or [])
+    ]
+    if 1 <= reference_order <= 3 and human_detail_ids and not any(
+        evidence_id in used_ids for evidence_id in human_detail_ids
+    ):
+        warnings.append("first-three Anton paragraph must use sourced human_detail when the story plan provides one")
     missing_required = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
     if missing_required:
         warnings.append("paragraph missing required Anton slot evidence: " + ", ".join(missing_required))
@@ -1550,16 +1565,19 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
                 if str(slot.get("slot") or "") == "human_detail"
                 for evidence_id in (slot.get("evidence_ids") or [])
             ]
+            human_detail_used = [evidence_id for evidence_id in human_detail_ids if evidence_id in used_ids]
+            if human_detail_used:
+                human_detail = "used " + ", ".join(human_detail_used[:3])
+            elif human_detail_ids:
+                human_detail = "available but unused: " + ", ".join(human_detail_ids[:3])
+            else:
+                human_detail = "no sourced human_detail, named decision, or official finding in locked slots"
             checks.append(check(
                 "early_human_detail",
                 "Early human detail",
-                bool(human_detail_ids),
-                (
-                    "sourced " + ", ".join(human_detail_ids[:3])
-                    if human_detail_ids
-                    else "no sourced human_detail, named decision, or official finding in locked slots"
-                ),
-                advisory=True,
+                bool(human_detail_used),
+                human_detail,
+                advisory=not bool(human_detail_ids),
             ))
     hard_checks_passed = all(item["passed"] or item.get("advisory") for item in checks)
     return {
@@ -4482,7 +4500,7 @@ class PipelineExecutor:
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
                     "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
-                    "- If the plan provides a human_detail slot for one of the first three benchmark machines, use it only when it strengthens the four-beat story. Do not add a separate anecdote sentence.\n"
+                    "- If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat. Do not add a separate anecdote sentence.\n"
                     "- The final sentence is editorial synthesis from the assembled paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
@@ -4551,7 +4569,7 @@ class PipelineExecutor:
                         f"Write exactly one paragraph, target {_ANTON_PARAGRAPH_TARGET_WORDS} words, absolute range {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
-                        "If the plan provides a human_detail slot for one of the first three benchmark machines, use it only when it strengthens the four-beat story; do not add a separate anecdote sentence. "
+                        "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "

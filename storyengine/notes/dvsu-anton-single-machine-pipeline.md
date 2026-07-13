@@ -23,7 +23,7 @@ Anton's desktop writing standards add two quality locks to this formula:
 - The paragraph is about the engineering decision, not the machine's existence. The audience already knows the machine exists; the script has to reveal why it mattered.
 - Every paragraph needs one memorable sourced fact for serious enthusiasts. This is not a fifth required research sentence. If a `memorable_fact` excerpt exists, the compiler folds it into the strongest of the four evidence-backed beats.
 - Technical specifications are allowed when they prove the decision, tradeoff, or reality. The compiler should select the 2-4 useful technical facts instead of either dumping every spec or stripping the paragraph until it loses the Anton inventory feel.
-- For the first three machines, a verified human account, named decision, or official finding is preferred when available because the desktop DVsU standard uses it to build early trust. This is advisory only; the system must never invent a human detail.
+- For the first three machines, a verified human account, named decision, or official finding is required when the locked story plan contains one because the desktop DVsU standard uses it to build early trust. The system must never invent a human detail.
 
 ## First Three Machines Broken Into Reusable Slots
 
@@ -120,6 +120,7 @@ Validation requires:
 - claim-map spans copied exactly from the paragraph
 - required Anton evidence slots covered: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - sourced `memorable_fact` used when the story plan provides one
+- sourced `human_detail` used for the first three benchmark machines when the story plan provides one
 - final sentence is a paragraph-derived conclusion, not a researched `historical_meaning` beat, and is not included in `claim_map`
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed

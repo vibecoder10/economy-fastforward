@@ -870,15 +870,42 @@ def test_first_three_anton_audit_reports_human_detail_advisory():
         "Boeing XB-15",
     )
     audit_with_human = pe._anton_preview_quality_audit(
-        "Boeing XB-15", plan_with_human, bundle, paragraph, warnings
+        "Boeing XB-15", plan_with_human, bundle, paragraph,
+        pe._validate_machine_story_sentences("Boeing XB-15", plan_with_human, bundle)[1],
     )
     human_check_with_source = next(
         check for check in audit_with_human["checks"] if check["name"] == "early_human_detail"
     )
 
-    assert human_check_with_source["advisory"] is True
-    assert human_check_with_source["passed"] is True
-    assert "E-HUMAN" in human_check_with_source["detail"]
+    assert "advisory" not in human_check_with_source
+    assert human_check_with_source["passed"] is False
+    assert "available but unused: E-HUMAN" in human_check_with_source["detail"]
+    assert audit_with_human["passed"] is False
+
+    human_bundle = copy.deepcopy(bundle)
+    human_sentence = "A named pilot account grounded in the supplied source."
+    human_bundle["paragraph"] = human_bundle["paragraph"].replace(
+        "Together, those choices",
+        f"{human_sentence} Together, those choices",
+    )
+    human_bundle["claim_map"].append({
+        "slot": "human_detail",
+        "span": human_sentence,
+        "used_evidence_ids": ["E-HUMAN"],
+    })
+    human_paragraph, human_warnings = pe._validate_machine_story_sentences(
+        "Boeing XB-15", plan_with_human, human_bundle
+    )
+    human_audit = pe._anton_preview_quality_audit(
+        "Boeing XB-15", plan_with_human, human_bundle, human_paragraph, human_warnings
+    )
+    used_human_check = next(
+        check for check in human_audit["checks"] if check["name"] == "early_human_detail"
+    )
+
+    assert not any("must use sourced human_detail" in warning for warning in human_warnings)
+    assert used_human_check["passed"] is True
+    assert used_human_check["detail"] == "used E-HUMAN"
 
 
 def test_story_paragraph_validator_requires_editorial_thesis():
