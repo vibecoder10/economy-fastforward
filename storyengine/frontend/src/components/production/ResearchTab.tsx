@@ -32,6 +32,39 @@ function cardLabel(card: any): string {
   return [card?.machine_name, card?.unit, card?.machine, card?.name, card?.designation].filter(Boolean)[0] || "";
 }
 
+function unitCode(text: string): string {
+  const upper = String(text || "").toUpperCase().replace(/[–—]/g, "-");
+  const designation = upper.match(/\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b/) || upper.match(/\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b/);
+  if (designation?.[0]) return designation[0].replace(/\s+/g, "");
+  return (upper.match(/[A-Z0-9]+/g) || []).slice(0, 4).join(" ");
+}
+
+function normalizedUnitCode(text: string): string {
+  return unitCode(text).replace(/[^A-Z0-9]/g, "");
+}
+
+function normalizedSourceText(text: unknown): string {
+  return String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number; label: string } | null {
+  const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  const sourceUrl = String(segment?.source_url || "").trim();
+  const excerpt = normalizedSourceText(segment?.source_excerpt || "");
+  if (!sourceUrl || !excerpt) return null;
+  const match = excerpts.find((candidate: any) => {
+    const candidateUrl = String(candidate?.source_url || "").trim();
+    const candidateText = normalizedSourceText(candidate?.text || "");
+    return candidateUrl === sourceUrl && candidateText.includes(excerpt);
+  });
+  const rawTier = Number(match?.source_tier || segment?.source_tier || 0);
+  if (!rawTier) return null;
+  return {
+    tier: rawTier,
+    label: String(match?.source_tier_label || segment?.source_tier_label || `Tier ${rawTier}`),
+  };
+}
+
 function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
   label: string; borderColor?: string; children: React.ReactNode; defaultOpen?: boolean;
 }) {
@@ -330,6 +363,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         : null),
       unit_research_cards: Array.isArray(payload.unit_research_cards) ? payload.unit_research_cards : [],
       unit_research_hold_validation: payload.unit_research_hold_validation || null,
+      machine_raw_source_packages: payload.machine_raw_source_packages && typeof payload.machine_raw_source_packages === "object" && !Array.isArray(payload.machine_raw_source_packages)
+        ? payload.machine_raw_source_packages
+        : {},
       machine_script_previews: payload.machine_script_previews && typeof payload.machine_script_previews === "object" && !Array.isArray(payload.machine_script_previews)
         ? payload.machine_script_previews
         : {},
@@ -350,12 +386,24 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     return research?.machine_script_previews?.[selectedMachineLabel] || null;
   }, [localMachinePreview, research?.machine_script_previews, selectedMachineLabel]);
 
+  const selectedSourcePackage = useMemo(() => {
+    if (!research || !selectedMachineLabel) return null;
+    const packages = research.machine_raw_source_packages || {};
+    const key = normalizedUnitCode(selectedMachineLabel);
+    if (key && packages[key]) return packages[key];
+    return Object.values(packages).find((candidate: any) => {
+      const machine = String(candidate?.machine || "");
+      const machineKey = String(candidate?.machine_key || "");
+      return normalizedUnitCode(machine) === key || normalizedUnitCode(machineKey) === key;
+    }) || null;
+  }, [research, selectedMachineLabel]);
+
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map
     : [];
 
   const selectedPreviewEvidenceById = useMemo(() => {
-    const rows: Record<string, { slot?: string; claim?: string; source_title?: string }> = {};
+    const rows: Record<string, { slot?: string; claim?: string; source_title?: string; source_tier?: string }> = {};
     const slots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
       ? (selectedMachinePreview?.story_plan as any).slots
       : [];
@@ -369,11 +417,12 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           slot: slotName,
           claim: String(segment?.claim || ""),
           source_title: String(segment?.source_title || ""),
+          source_tier: sourceTierForEvidence(segment, selectedSourcePackage)?.label,
         };
       }
     }
     return rows;
-  }, [selectedMachinePreview?.story_plan]);
+  }, [selectedMachinePreview?.story_plan, selectedSourcePackage]);
 
   const selectedPreviewSlots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
     ? (selectedMachinePreview?.story_plan as any).slots
@@ -681,7 +730,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                           ? row.used_evidence_ids
                           : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
                         const sources = evidenceIds
-                          .map((id: string) => selectedPreviewEvidenceById[id]?.source_title || id)
+                          .map((id: string) => {
+                            const evidence = selectedPreviewEvidenceById[id];
+                            if (!evidence) return id;
+                            return [evidence.source_title || id, evidence.source_tier].filter(Boolean).join(" · ");
+                          })
                           .filter(Boolean);
                         return (
                           <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
@@ -736,22 +789,30 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                             Exact evidence segments
                           </div>
                           <div className="space-y-2">
-                            {card.evidence_segments.slice(0, 12).map((segment: any, segmentIndex: number) => (
-                              <div key={`${segment.evidence_id || segment.kind || "evidence"}-${segmentIndex}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
-                                <div className="mb-1 flex flex-wrap items-center gap-2">
-                                  <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{segment.kind || "slot"}</span>
-                                  {segment.evidence_id && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{segment.evidence_id}</span>}
-                                  {segment.confidence && <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{segment.confidence}</span>}
+                            {card.evidence_segments.slice(0, 12).map((segment: any, segmentIndex: number) => {
+                              const sourceTier = sourceTierForEvidence(segment, selectedSourcePackage);
+                              return (
+                                <div key={`${segment.evidence_id || segment.kind || "evidence"}-${segmentIndex}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                                    <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{segment.kind || "slot"}</span>
+                                    {segment.evidence_id && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{segment.evidence_id}</span>}
+                                    {sourceTier && (
+                                      <span className="rounded px-1.5 py-0.5 text-[10px] font-mono" style={{ color: sourceTier.tier >= 4 ? "var(--orange)" : "var(--green)", background: sourceTier.tier >= 4 ? "rgba(255,166,77,.12)" : "rgba(0,230,138,.1)" }}>
+                                        Tier {sourceTier.tier}
+                                      </span>
+                                    )}
+                                    {segment.confidence && <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{segment.confidence}</span>}
+                                  </div>
+                                  {segment.claim && <p className="text-xs leading-5" style={{ color: "var(--text-primary)" }}>{segment.claim}</p>}
+                                  {segment.source_excerpt && <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{segment.source_excerpt}</p>}
+                                  {(segment.source_title || sourceTier || segment.source_url || segment.locator) && (
+                                    <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                      {[segment.source_title, sourceTier?.label, segment.source_url, segment.locator].filter(Boolean).join(" · ")}
+                                    </p>
+                                  )}
                                 </div>
-                                {segment.claim && <p className="text-xs leading-5" style={{ color: "var(--text-primary)" }}>{segment.claim}</p>}
-                                {segment.source_excerpt && <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{segment.source_excerpt}</p>}
-                                {(segment.source_title || segment.source_url || segment.locator) && (
-                                  <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[segment.source_title, segment.source_url, segment.locator].filter(Boolean).join(" · ")}
-                                  </p>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}
