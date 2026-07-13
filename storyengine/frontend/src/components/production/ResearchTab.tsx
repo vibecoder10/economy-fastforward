@@ -77,12 +77,19 @@ function normalizedSourceText(text: unknown): string {
 function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number; label: string } | null {
   const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const sourceUrl = String(segment?.source_url || "").trim();
+  const locator = String(segment?.locator || "").trim();
   const excerpt = normalizedSourceText(segment?.source_excerpt || "");
   if (!sourceUrl || !excerpt) return null;
   const match = excerpts.find((candidate: any) => {
     const candidateUrl = String(candidate?.source_url || "").trim();
+    const candidateLocator = String(candidate?.locator || "").trim();
+    const candidateExcerptId = String(candidate?.excerpt_id || "").trim();
     const candidateText = normalizedSourceText(candidate?.text || "");
-    return candidateUrl === sourceUrl && candidateText.includes(excerpt);
+    const locatorMatches = !locator
+      || locator === candidateLocator
+      || locator === candidateExcerptId
+      || Boolean(candidateLocator && candidateLocator.startsWith(`${locator};`));
+    return candidateUrl === sourceUrl && locatorMatches && candidateText.includes(excerpt);
   });
   const rawTier = Number(match?.source_tier || segment?.source_tier || 0);
   if (!rawTier) return null;
