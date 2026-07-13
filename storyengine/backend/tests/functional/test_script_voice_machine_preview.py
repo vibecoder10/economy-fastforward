@@ -30,10 +30,17 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
 
     assert "function sourcePackageForMachine" in text
     assert "function sourcePackageReady" in text
+    assert "function sourcePackageStatus" in text
+    assert "function sourceTierNumber" in text
     assert "activePreviewSourcePackageReady" in text
     assert "disabled={previewGenerating || !activePreviewSourcePackageReady}" in text
     assert "Raw source package missing · preview blocked" in text
+    assert "Raw source package thin ·" in text
+    assert "Raw source package caution-only · preview blocked" in text
     assert "Raw source package ready ·" in text
+    assert "sourceUrls.size < 2" in text
+    assert "nonCautionUrls.size < 1" in text
+    assert "activePreviewSourcePackageStatus.message" in text
 
 
 def test_script_voice_preview_keeps_failed_reason_visible():

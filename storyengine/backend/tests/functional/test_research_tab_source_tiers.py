@@ -36,10 +36,17 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     text = _research_tab().read_text()
 
     assert "function sourcePackageReady" in text
+    assert "function sourcePackageStatus" in text
+    assert "function sourceTierNumber" in text
     assert "selectedSourcePackageReady" in text
     assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchCard || !selectedSourcePackageReady}" in text
     assert "Raw source package missing · preview blocked" in text
+    assert "Raw source package thin ·" in text
+    assert "Raw source package caution-only · preview blocked" in text
     assert "Raw source package ready ·" in text
+    assert "sourceUrls.size < 2" in text
+    assert "nonCautionUrls.size < 1" in text
+    assert "selectedSourcePackageStatus.message" in text
 
 
 def test_source_tier_helper_matches_excerpt_locator_not_card_claims():

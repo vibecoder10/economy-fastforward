@@ -171,13 +171,38 @@ function sourcePackageForMachine(packages: any, machine: string): any | null {
   return null;
 }
 
-function sourcePackageReady(sourcePackage: any): boolean {
-  return Boolean(
-    sourcePackage
-      && sourcePackage.passed !== false
-      && Array.isArray(sourcePackage.candidate_excerpts)
-      && sourcePackage.candidate_excerpts.length >= 6
+function sourceTierNumber(candidate: any): number {
+  const rawTier = Number(candidate?.source_tier || candidate?.tier || 0);
+  if (rawTier) return rawTier;
+  const label = String(candidate?.source_tier_label || candidate?.label || "");
+  const match = label.match(/tier\s*(\d+)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function sourcePackageStatus(sourcePackage: any): { ready: boolean; message: string } {
+  const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
+    return { ready: false, message: "Raw source package missing · preview blocked" };
+  }
+  const sourceUrls = new Set(
+    excerpts.map((candidate: any) => String(candidate?.source_url || "").trim()).filter(Boolean)
   );
+  const nonCautionUrls = new Set(
+    excerpts
+      .filter((candidate: any) => String(candidate?.source_url || "").trim() && sourceTierNumber(candidate) > 0 && sourceTierNumber(candidate) <= 3)
+      .map((candidate: any) => String(candidate?.source_url || "").trim())
+  );
+  if (sourceUrls.size < 2) {
+    return { ready: false, message: `Raw source package thin · ${excerpts.length} excerpts / ${sourceUrls.size} source URL · preview blocked` };
+  }
+  if (nonCautionUrls.size < 1) {
+    return { ready: false, message: "Raw source package caution-only · preview blocked" };
+  }
+  return { ready: true, message: `Raw source package ready · ${excerpts.length} excerpts · ${sourceUrls.size} sources` };
+}
+
+function sourcePackageReady(sourcePackage: any): boolean {
+  return sourcePackageStatus(sourcePackage).ready;
 }
 
 function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
@@ -1307,10 +1332,8 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
   const activePreviewMachine = previewMachine || machineRosterLabels[0] || "";
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
+  const activePreviewSourcePackageStatus = sourcePackageStatus(activePreviewSourcePackage);
   const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage);
-  const activePreviewSourceExcerptCount = Array.isArray(activePreviewSourcePackage?.candidate_excerpts)
-    ? activePreviewSourcePackage.candidate_excerpts.length
-    : 0;
   const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
     ? machinePreview.claim_bundle.claim_map
     : [];
@@ -1447,7 +1470,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             </div>
             <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: activePreviewSourcePackageReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: activePreviewSourcePackageReady ? "var(--green)" : "var(--orange)", border: `1px solid ${activePreviewSourcePackageReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
               <ShieldCheck size={12} />
-              {activePreviewSourcePackageReady ? `Raw source package ready · ${activePreviewSourceExcerptCount} excerpts` : "Raw source package missing · preview blocked"}
+              {activePreviewSourcePackageStatus.message}
             </div>
             {machinePreview && (
               <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreview.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>

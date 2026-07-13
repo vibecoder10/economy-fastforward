@@ -99,13 +99,38 @@ function sourceTierForEvidence(segment: any, sourcePackage: any): { tier: number
   };
 }
 
-function sourcePackageReady(sourcePackage: any): boolean {
-  return Boolean(
-    sourcePackage
-      && sourcePackage.passed !== false
-      && Array.isArray(sourcePackage.candidate_excerpts)
-      && sourcePackage.candidate_excerpts.length >= 6
+function sourceTierNumber(candidate: any): number {
+  const rawTier = Number(candidate?.source_tier || candidate?.tier || 0);
+  if (rawTier) return rawTier;
+  const label = String(candidate?.source_tier_label || candidate?.label || "");
+  const match = label.match(/tier\s*(\d+)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function sourcePackageStatus(sourcePackage: any): { ready: boolean; message: string } {
+  const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
+    return { ready: false, message: "Raw source package missing · preview blocked" };
+  }
+  const sourceUrls = new Set(
+    excerpts.map((candidate: any) => String(candidate?.source_url || "").trim()).filter(Boolean)
   );
+  const nonCautionUrls = new Set(
+    excerpts
+      .filter((candidate: any) => String(candidate?.source_url || "").trim() && sourceTierNumber(candidate) > 0 && sourceTierNumber(candidate) <= 3)
+      .map((candidate: any) => String(candidate?.source_url || "").trim())
+  );
+  if (sourceUrls.size < 2) {
+    return { ready: false, message: `Raw source package thin · ${excerpts.length} excerpts / ${sourceUrls.size} source URL · preview blocked` };
+  }
+  if (nonCautionUrls.size < 1) {
+    return { ready: false, message: "Raw source package caution-only · preview blocked" };
+  }
+  return { ready: true, message: `Raw source package ready · ${excerpts.length} excerpts · ${sourceUrls.size} sources` };
+}
+
+function sourcePackageReady(sourcePackage: any): boolean {
+  return sourcePackageStatus(sourcePackage).ready;
 }
 
 function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
@@ -454,10 +479,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       return normalizedUnitCode(machine) === key || normalizedUnitCode(machineKey) === key;
     }) || null;
   }, [research, selectedMachineLabel]);
+  const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage);
   const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage);
-  const selectedSourceExcerptCount = Array.isArray((selectedSourcePackage as any)?.candidate_excerpts)
-    ? (selectedSourcePackage as any).candidate_excerpts.length
-    : 0;
 
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map
@@ -709,7 +732,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               {selectedResearchCard && (
                 <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedSourcePackageReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedSourcePackageReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedSourcePackageReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
                   <ShieldCheck size={12} />
-                  {selectedSourcePackageReady ? `Raw source package ready · ${selectedSourceExcerptCount} excerpts` : "Raw source package missing · preview blocked"}
+                  {selectedSourcePackageStatus.message}
                 </div>
               )}
             </div>
