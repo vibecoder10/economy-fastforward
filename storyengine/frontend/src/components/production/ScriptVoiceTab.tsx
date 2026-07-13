@@ -419,6 +419,48 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
   return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
+function sourceSlotCoverageRows(sourcePackage: any, machine: string = "") {
+  const requiredSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
+  const savedCoverage = sourcePackage?.source_slot_coverage;
+  const savedEvidenceBySlot = savedCoverage && typeof savedCoverage === "object" && !Array.isArray(savedCoverage?.evidence_by_slot)
+    ? savedCoverage.evidence_by_slot
+    : {};
+  const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  const targetExcerpts = machine ? rawExcerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : rawExcerpts;
+  const computedEvidenceBySlot = targetExcerpts.reduce((rows: Record<string, string[]>, candidate: any) => {
+    const excerptId = String(candidate?.excerpt_id || candidate?.locator || "").trim();
+    const hints = Array.isArray(candidate?.anton_slot_hints)
+      ? candidate.anton_slot_hints.map((slot: any) => String(slot || "").trim()).filter(Boolean)
+      : Array.from(antonSourceSlotHints(candidate?.text));
+    hints.forEach((slot: string) => {
+      if (!excerptId) return;
+      rows[slot] = rows[slot] || [];
+      if (!rows[slot].includes(excerptId)) rows[slot].push(excerptId);
+    });
+    return rows;
+  }, {});
+
+  const labelBySlot: Record<string, string> = {
+    original_problem: "Problem",
+    engineering_decision: "Decision",
+    tradeoff: "Tradeoff",
+    reality: "Reality",
+  };
+
+  return requiredSlots.map((slot) => {
+    const savedIds = Array.isArray(savedEvidenceBySlot?.[slot])
+      ? savedEvidenceBySlot[slot].map((id: any) => String(id || "").trim()).filter(Boolean)
+      : [];
+    const evidenceIds = savedIds.length > 0 ? savedIds : (computedEvidenceBySlot[slot] || []);
+    return {
+      slot,
+      label: labelBySlot[slot] || slot,
+      covered: evidenceIds.length > 0,
+      evidenceIds,
+    };
+  });
+}
+
 function machineResearchCardStatus(card: any, machine: string = "", sourcePackage: any = null): { ready: boolean; message: string } {
   if (!card) return { ready: false, message: "Research card missing · preview blocked" };
   const timeframe = String(card?.timeframe || "").trim();
@@ -1677,6 +1719,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
   const activePreviewSourcePackageStatus = sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine);
   const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage, activePreviewMachine);
+  const activePreviewSourceCoverageRows = sourceSlotCoverageRows(activePreviewSourcePackage, activePreviewMachine);
   const activePreviewResearchCardStatus = machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage);
   const activePreviewReady = activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady;
   const activePreviewStatusMessage = activePreviewResearchCardStatus.ready
@@ -1857,6 +1900,27 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               <ShieldCheck size={12} />
               {activePreviewStatusMessage}
             </div>
+            {activePreviewSourcePackage && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {activePreviewSourceCoverageRows.map((row) => (
+                  <span
+                    key={row.slot}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{
+                      background: row.covered ? "rgba(0,230,138,.08)" : "rgba(255,120,73,.08)",
+                      color: row.covered ? "var(--green)" : "var(--orange)",
+                      border: `1px solid ${row.covered ? "rgba(0,230,138,.18)" : "rgba(255,120,73,.2)"}`,
+                    }}
+                    title={row.evidenceIds.join(", ") || "Missing"}
+                  >
+                    <span>{row.label}</span>
+                    <span className="font-mono normal-case tracking-normal" style={{ color: "var(--text-tertiary)" }}>
+                      {row.evidenceIds.slice(0, 3).join(", ") || "missing"}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
             {machinePreview && (
               <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreview.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
                 <div className="mb-2 flex items-center justify-between gap-2">

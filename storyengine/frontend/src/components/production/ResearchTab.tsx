@@ -310,6 +310,48 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
   return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
+function sourceSlotCoverageRows(sourcePackage: any, machine: string = "") {
+  const requiredSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
+  const savedCoverage = sourcePackage?.source_slot_coverage;
+  const savedEvidenceBySlot = savedCoverage && typeof savedCoverage === "object" && !Array.isArray(savedCoverage?.evidence_by_slot)
+    ? savedCoverage.evidence_by_slot
+    : {};
+  const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
+  const targetExcerpts = machine ? rawExcerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : rawExcerpts;
+  const computedEvidenceBySlot = targetExcerpts.reduce((rows: Record<string, string[]>, candidate: any) => {
+    const excerptId = String(candidate?.excerpt_id || candidate?.locator || "").trim();
+    const hints = Array.isArray(candidate?.anton_slot_hints)
+      ? candidate.anton_slot_hints.map((slot: any) => String(slot || "").trim()).filter(Boolean)
+      : Array.from(antonSourceSlotHints(candidate?.text));
+    hints.forEach((slot: string) => {
+      if (!excerptId) return;
+      rows[slot] = rows[slot] || [];
+      if (!rows[slot].includes(excerptId)) rows[slot].push(excerptId);
+    });
+    return rows;
+  }, {});
+
+  const labelBySlot: Record<string, string> = {
+    original_problem: "Problem",
+    engineering_decision: "Decision",
+    tradeoff: "Tradeoff",
+    reality: "Reality",
+  };
+
+  return requiredSlots.map((slot) => {
+    const savedIds = Array.isArray(savedEvidenceBySlot?.[slot])
+      ? savedEvidenceBySlot[slot].map((id: any) => String(id || "").trim()).filter(Boolean)
+      : [];
+    const evidenceIds = savedIds.length > 0 ? savedIds : (computedEvidenceBySlot[slot] || []);
+    return {
+      slot,
+      label: labelBySlot[slot] || slot,
+      covered: evidenceIds.length > 0,
+      evidenceIds,
+    };
+  });
+}
+
 function machineResearchCardStatus(card: any, machine: string = "", sourcePackage: any = null): { ready: boolean; message: string } {
   if (!card) return { ready: false, message: "Research card missing · preview blocked" };
   const timeframe = String(card?.timeframe || "").trim();
@@ -738,6 +780,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   }, [research, selectedMachineLabel]);
   const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage, selectedMachineLabel);
   const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage, selectedMachineLabel);
+  const selectedSourceCoverageRows = sourceSlotCoverageRows(selectedSourcePackage, selectedMachineLabel);
   const selectedResearchCardStatus = machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage);
   const selectedResearchReady = selectedResearchCardStatus.ready && selectedSourcePackageReady;
   const selectedResearchStatusMessage = selectedResearchCardStatus.ready
@@ -1007,10 +1050,33 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 </ActionButton>
               </div>
               {selectedResearchCard && (
-                <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
-                  <ShieldCheck size={12} />
-                  {selectedResearchStatusMessage}
-                </div>
+                <>
+                  <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
+                    <ShieldCheck size={12} />
+                    {selectedResearchStatusMessage}
+                  </div>
+                  {selectedSourcePackage && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {selectedSourceCoverageRows.map((row) => (
+                        <span
+                          key={row.slot}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
+                          style={{
+                            background: row.covered ? "rgba(0,230,138,.08)" : "rgba(255,120,73,.08)",
+                            color: row.covered ? "var(--green)" : "var(--orange)",
+                            border: `1px solid ${row.covered ? "rgba(0,230,138,.18)" : "rgba(255,120,73,.2)"}`,
+                          }}
+                          title={row.evidenceIds.join(", ") || "Missing"}
+                        >
+                          <span>{row.label}</span>
+                          <span className="font-mono normal-case tracking-normal" style={{ color: "var(--text-tertiary)" }}>
+                            {row.evidenceIds.slice(0, 3).join(", ") || "missing"}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
