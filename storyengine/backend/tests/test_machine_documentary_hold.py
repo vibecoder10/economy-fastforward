@@ -1983,6 +1983,19 @@ def test_story_paragraph_validator_blocks_missing_slots_and_unsupported_numbers(
     assert any("unsupported numerical detail" in warning for warning in warnings)
 
 
+def test_story_sentence_parser_marks_invalid_json_for_review():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+
+    bundle = pe._parse_machine_story_sentences("not json")
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert paragraph == ""
+    assert bundle["_parse_error"] == "story distiller must return valid JSON matching the Anton paragraph schema"
+    assert any("valid JSON matching the Anton paragraph schema" in warning for warning in warnings)
+    assert any("paragraph string" in warning for warning in warnings)
+
+
 def test_machine_preview_has_no_deterministic_story_fallback():
     source = open(pe.__file__, encoding="utf-8").read()
 
@@ -3513,6 +3526,89 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
     assert "If the plan provides a human_detail slot for one of the first three benchmark machines" in fake_anthropic.prompts[0]
+
+
+def test_target_machine_preview_saves_invalid_story_json_as_review_artifact(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = _evidence_segments()
+    card = _valid_research_card(
+        "Boeing XB-15",
+        segments,
+        engineering_thesis="XB-15 source-grounded engineering thesis.",
+        surprising_fact="XB-15 source-grounded fact.",
+        source_notes=["xb15-source"],
+    )
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    class InvalidJsonAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            return "not json"
+
+    fake_anthropic = InvalidJsonAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": fake_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    assert result["status"] == "completed"
+    assert fake_anthropic.calls == 2
+    assert result["preview"]["passed"] is False
+    assert result["preview"]["paragraph"] == ""
+    assert result["preview"]["claim_bundle"]["_parse_error"] == (
+        "story distiller must return valid JSON matching the Anton paragraph schema"
+    )
+    assert any("valid JSON matching the Anton paragraph schema" in warning for warning in result["preview"]["warnings"])
+    assert result["preview"]["quality_audit"]["passed"] is False
+    validator_check = next(
+        check for check in result["preview"]["quality_audit"]["checks"]
+        if check["name"] == "validator_warnings"
+    )
+    assert "valid JSON" in validator_check["detail"]
+    saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
+    assert saved_preview_rows
+    assert json.loads(saved_preview_rows[0][1][1]) == result["preview"]
+    assert not any("DELETE FROM scripts" in query or "INSERT INTO scripts" in query for query, _args in writes)
+    assert not any("script_validation" in query or "SET script =" in query for query, _args in writes)
 
 
 def test_target_machine_preview_pass_state_follows_anton_quality_audit(monkeypatch):

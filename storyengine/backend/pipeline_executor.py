@@ -1699,9 +1699,9 @@ def _parse_machine_story_sentences(raw: str) -> dict:
     try:
         parsed = json.loads(text)
     except (TypeError, ValueError):
-        return {}
+        return {"_parse_error": "story distiller must return valid JSON matching the Anton paragraph schema"}
     if not isinstance(parsed, dict):
-        return {}
+        return {"_parse_error": "story distiller must return a JSON object matching the Anton paragraph schema"}
 
     for key in ("paragraph", "voiceover", "narration"):
         if isinstance(parsed.get(key), str) and not isinstance(parsed.get("paragraph"), str):
@@ -2200,9 +2200,13 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     warnings: list[str] = []
     if not isinstance(bundle, dict):
         return "", ["story distiller must return a JSON object"]
+    parse_error = " ".join(str(bundle.get("_parse_error") or "").split())
+    if parse_error:
+        warnings.append(parse_error)
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     if not paragraph:
-        return "", ["story distiller must return a paragraph string"]
+        warnings.append("story distiller must return a paragraph string")
+        return "", list(dict.fromkeys(warnings))
     formula_sentences = bundle.get("formula_sentences")
     if not isinstance(formula_sentences, list):
         formula_sentences = []
