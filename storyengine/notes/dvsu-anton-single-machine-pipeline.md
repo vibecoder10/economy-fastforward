@@ -37,6 +37,15 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.
 
+Fetched source packages also carry `SOURCE_TIER` metadata:
+
+- Tier 1: primary or official sources
+- Tier 2: museum or authoritative secondary sources
+- Tier 3: reference or secondary sources
+- Tier 4: caution/general sources such as Wikipedia, YouTube, social pages, forums, or wiki mirrors
+
+Required Anton slots cannot be supported only by Tier 4 evidence. Tier 3 remains acceptable when official or museum sources do not contain the needed fact, but high-risk exact facts still need cross-checking or hedging.
+
 ## Script Contract
 
 The script preview writer returns JSON:
@@ -62,6 +71,7 @@ Validation requires:
 - claim-map spans copied exactly from the paragraph
 - required Anton slots covered
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
+- exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
 - unsupported designations, high-risk terms, hype, list transitions, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 

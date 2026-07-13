@@ -7,6 +7,7 @@ Current DVsU bomber proof state:
 - `fc73860c-a9af-444f-95a5-7f86d60503e0` has a locked 23-machine roster.
 - The old four-beat evidence-sentence preview shape is intentionally retired. It was fact-safe but visibly unlike Anton.
 - Current StoryEngine machine research cards use Anton schema-v3 evidence slots: required `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `memorable_fact`, `historical_meaning`; optional `engineering_intent`, `role_category`, `combat_reality`, `tradeoff_or_limit`, `human_detail`, `transition_hook`, `onscreen_label`.
+- Verified raw source packages now label each fetched excerpt with `SOURCE_TIER`; required Anton slots can use Tier 1-3 support, but Tier 4 caution/general sources cannot carry required evidence by themselves.
 - Current StoryEngine machine script preview expects one 95-120 word paragraph plus `claim_map` spans. Validation checks exact span presence, required slot coverage, per-span/paragraph number support, unsupported designations, high-risk terms, sentence count, final-line length, and static DVsU paragraph rules.
 - The deterministic extractive fallback is disabled. If the model cannot produce an Anton-quality claim-mapped paragraph after repair, the preview must fail for review instead of saving safe filler.
 - Target-machine preview now filters the hydrated compact/legacy card set back to only the requested machine before building the story plan, so other roster cards are not loaded into the proof prompt.

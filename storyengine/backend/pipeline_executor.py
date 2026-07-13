@@ -20,6 +20,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Optional, Any
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Add pipeline to path BEFORE any pipeline imports
 PIPELINE_PATH = Path(__file__).parent.parent.parent / "skills" / "video-pipeline"
@@ -311,6 +312,57 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     return isinstance(excerpts, list) and len(excerpts) >= 6
 
 
+def _source_tier_for_url(url: str, title: str = "") -> dict[str, Any]:
+    """Classify fetched sources using the DVsU verification hierarchy."""
+    host = urlparse(str(url or "")).netloc.lower()
+    host = host[4:] if host.startswith("www.") else host
+    title_l = str(title or "").lower()
+    host_l = host.lower()
+    caution_hosts = (
+        "wikipedia.org", "youtube.com", "youtu.be", "facebook.com", "instagram.com",
+        "tiktok.com", "x.com", "twitter.com", "reddit.com", "quora.com",
+        "fandom.com", "pinterest.com",
+    )
+    if any(host_l == item or host_l.endswith(f".{item}") for item in caution_hosts):
+        return {"tier": 4, "label": "Tier 4 caution/general"}
+    if "forum" in host_l or "wiki" in host_l:
+        return {"tier": 4, "label": "Tier 4 caution/general"}
+    primary_hosts = (
+        "boeing.com", "lockheedmartin.com", "northropgrumman.com", "rtx.com",
+        "prattwhitney.com", "geaerospace.com", "defense.gov", "af.mil",
+        "army.mil", "navy.mil", "marines.mil", "usafa.edu", "nasa.gov",
+        "archives.gov", "congress.gov",
+    )
+    if host_l.endswith(".gov") or host_l.endswith(".mil") or any(
+        host_l == item or host_l.endswith(f".{item}") for item in primary_hosts
+    ):
+        return {"tier": 1, "label": "Tier 1 primary/official"}
+    authoritative_hosts = (
+        "si.edu", "airandspace.si.edu", "nationalww2museum.org", "iwm.org.uk",
+        "imperialwarmuseums.org.uk", "rafmuseum.org.uk", "aerospace.org",
+        "historynet.com", "aviation-history.com",
+    )
+    if any(host_l == item or host_l.endswith(f".{item}") for item in authoritative_hosts):
+        return {"tier": 2, "label": "Tier 2 museum/authoritative secondary"}
+    if "museum" in host_l or "museum" in title_l or "archive" in host_l:
+        return {"tier": 2, "label": "Tier 2 museum/authoritative secondary"}
+    return {"tier": 3, "label": "Tier 3 reference/secondary"}
+
+
+def _source_tier_number(item: dict) -> int:
+    try:
+        tier = int(item.get("source_tier") or item.get("tier") or 0)
+    except Exception:
+        tier = 0
+    if tier:
+        return tier
+    inferred = _source_tier_for_url(
+        str(item.get("source_url") or item.get("url") or ""),
+        str(item.get("source_title") or item.get("title") or ""),
+    )
+    return int(inferred["tier"])
+
+
 _ANTON_SLOT_SPECS = (
     ("identity_origin", ("identity_origin", "design_problem", "design_intent"), "Identify what this machine was and the origin/date that made it enter the story."),
     ("engineering_intent", ("engineering_intent", "design_requirement", "doctrinal_problem"), "Capture the engineering problem, requirement, or doctrine the machine was meant to answer."),
@@ -333,6 +385,7 @@ _ANTON_REQUIRED_SLOT_ROLES = {
     "scale_specs",
     "build_reality",
     "service_reality",
+    "memorable_fact",
     "historical_meaning",
 }
 
@@ -353,11 +406,17 @@ def _format_verified_machine_source_package(package: dict) -> str:
     for item in (package.get("candidate_excerpts") or [])[:60]:
         if not isinstance(item, dict):
             continue
+        tier = _source_tier_number(item)
+        tier_label = item.get("source_tier_label") or _source_tier_for_url(
+            str(item.get("source_url") or ""),
+            str(item.get("source_title") or ""),
+        ).get("label")
         lines.extend([
             "",
             f"EXCERPT_ID: {item.get('excerpt_id')}",
             f"SOURCE_TITLE: {item.get('source_title')}",
             f"SOURCE_URL: {item.get('source_url')}",
+            f"SOURCE_TIER: {tier} - {tier_label}",
             f"LOCATOR: {item.get('locator')}",
             f"EXACT_TEXT: {item.get('text')}",
         ])
@@ -373,6 +432,7 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
         if isinstance(item, dict) and str(item.get("text") or "").strip()
     ]
     warnings: list[str] = []
+    required_tier4_segments: list[str] = []
     for segment in (card.get("evidence_segments") if isinstance(card, dict) else []) or []:
         if not isinstance(segment, dict):
             continue
@@ -391,11 +451,18 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
             url_matches = candidate_url == source_url
             if url_matches and excerpt in candidate_text:
                 matched = True
+                role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
+                if role in _ANTON_REQUIRED_SLOT_ROLES and _source_tier_number(candidate) >= 4:
+                    required_tier4_segments.append(evidence_id)
                 break
         if not matched:
             warnings.append(
                 f"evidence segment {evidence_id} source_excerpt was not found in verified fetched source text"
             )
+    for evidence_id in required_tier4_segments:
+        warnings.append(
+            f"evidence segment {evidence_id} uses Tier 4/caution source for a required Anton slot"
+        )
     return warnings
 
 
@@ -2003,10 +2070,13 @@ class PipelineExecutor:
                     continue
                 source_id = f"S{len(sources) + 1}"
                 source_hash = _source_text_fingerprint(source_text)
+                source_tier = _source_tier_for_url(url, title_text)
                 sources.append({
                     "source_id": source_id,
                     "title": title_text,
                     "url": url,
+                    "source_tier": source_tier["tier"],
+                    "source_tier_label": source_tier["label"],
                     "query": item.get("_query"),
                     "text_hash": source_hash,
                     "text_chars": len(source_text),
@@ -2018,6 +2088,8 @@ class PipelineExecutor:
                         "source_id": source_id,
                         "source_title": title_text,
                         "source_url": url,
+                        "source_tier": source_tier["tier"],
+                        "source_tier_label": source_tier["label"],
                         "locator": f"{excerpt_id}; query={item.get('_query')}",
                         "text": excerpt,
                         "text_hash": _source_text_fingerprint(excerpt),
@@ -2029,7 +2101,7 @@ class PipelineExecutor:
 
         package = {
             "passed": len(candidate_excerpts) >= 6,
-            "schema_version": 2,
+            "schema_version": 3,
             "machine": machine,
             "machine_key": cache_key,
             "search_queries": queries,
@@ -3324,6 +3396,7 @@ class PipelineExecutor:
                 "- Return 7-10 atomic evidence segments using Anton slot kinds only.\n"
                 "- Required slot kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact, historical_meaning.\n"
                 "- memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia.\n"
+                "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
                 "- Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when directly supported by exact excerpts.\n"
                 "- Each claim must be one concise factual proposition, maximum 35 words. A scale_specs claim may bundle 2-4 related specifications only if the source excerpt contains them together.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
@@ -3360,8 +3433,9 @@ class PipelineExecutor:
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
-                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, historical_meaning. "
+                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact, historical_meaning. "
                     "memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia. "
+                    "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
                     "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below. "

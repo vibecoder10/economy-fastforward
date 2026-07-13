@@ -113,6 +113,40 @@ def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
     }
 
 
+def test_verified_source_package_format_exposes_source_tier():
+    segments = _evidence_segments()
+    segments[0]["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+
+    formatted = pe._format_verified_machine_source_package(package)
+
+    assert "SOURCE_TIER: 4 - Tier 4 caution/general" in formatted
+
+
+def test_required_anton_slots_reject_tier_four_only_source_support():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("Tier 4/caution source" in warning for warning in warnings)
+
+
+def test_required_anton_slots_accept_authoritative_source_support():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert warnings == []
+
+
 def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
     card = {
         "unit": "Boeing XB-15",
