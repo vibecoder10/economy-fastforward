@@ -90,7 +90,7 @@ def _evidence_segments() -> list[dict]:
             "kind": kind,
             "claim": claim,
             "source_excerpt": claim,
-            "source_url": f"https://example.test/{kind}",
+            "source_url": f"https://airandspace.si.edu/test/{kind}",
             "source_title": "Test source",
             "locator": f"S{index}-E1",
             "numeric_tokens": [],
@@ -179,6 +179,15 @@ def test_verified_source_package_quality_rejects_single_source_and_caution_only(
     diverse_package = _verified_package_for_segments("Boeing XB-15", diverse_segments)
 
     assert pe._verified_machine_source_package_quality_errors(diverse_package) == []
+
+    secondary_segments = _evidence_segments()
+    for index, segment in enumerate(secondary_segments):
+        segment["source_url"] = f"https://example-secondary.test/boeing-xb-15-{index}"
+    secondary_package = _verified_package_for_segments("Boeing XB-15", secondary_segments)
+
+    secondary_errors = pe._verified_machine_source_package_quality_errors(secondary_package)
+
+    assert any("Tier 1-2 primary/authoritative source" in error for error in secondary_errors)
 
     caution_segments = _evidence_segments()
     for index, segment in enumerate(caution_segments):

@@ -505,6 +505,11 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         for item in quality_candidates
         if str(item.get("source_url") or "").strip() and _source_tier_number(item) <= 3
     }
+    authoritative_urls = {
+        str(item.get("source_url") or "").strip()
+        for item in quality_candidates
+        if str(item.get("source_url") or "").strip() and 1 <= _source_tier_number(item) <= 2
+    }
     unsupported_capture_methods = sorted({
         str(item.get("source_capture_method") or "").strip()
         for item in quality_candidates
@@ -519,6 +524,8 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         errors.append("Verified source package needs excerpts from at least two distinct source URLs.")
     if not non_caution_urls:
         errors.append("Verified source package needs at least one non-caution source before Claude can write a card.")
+    if not authoritative_urls:
+        errors.append("Verified source package needs at least one Tier 1-2 primary/authoritative source before Claude can write a card.")
     if missing_capture_method_count:
         errors.append(
             f"Verified source package has {missing_capture_method_count} exact excerpt(s) without source capture method."

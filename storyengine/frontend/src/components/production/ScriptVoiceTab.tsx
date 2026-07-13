@@ -303,11 +303,19 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
       .filter((candidate: any) => String(candidate?.source_url || "").trim() && sourceTierNumber(candidate) > 0 && sourceTierNumber(candidate) <= 3)
       .map((candidate: any) => String(candidate?.source_url || "").trim())
   );
+  const authoritativeUrls = new Set(
+    targetExcerpts
+      .filter((candidate: any) => String(candidate?.source_url || "").trim() && sourceTierNumber(candidate) > 0 && sourceTierNumber(candidate) <= 2)
+      .map((candidate: any) => String(candidate?.source_url || "").trim())
+  );
   if (sourceUrls.size < 2) {
     return { ready: false, message: `Raw source package thin · ${targetExcerpts.length} excerpts / ${sourceUrls.size} source URL · preview blocked` };
   }
   if (nonCautionUrls.size < 1) {
     return { ready: false, message: "Raw source package caution-only · preview blocked" };
+  }
+  if (authoritativeUrls.size < 1) {
+    return { ready: false, message: "Raw source package needs Tier 1-2 source · preview blocked" };
   }
   return { ready: true, message: `Raw source package ready · ${targetExcerpts.length} excerpts · ${sourceUrls.size} sources` };
 }

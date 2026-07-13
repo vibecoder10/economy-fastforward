@@ -21,6 +21,17 @@ def _research_tab() -> Path:
     )
 
 
+def _script_voice_tab() -> Path:
+    return (
+        Path(__file__).resolve().parents[3]
+        / "frontend"
+        / "src"
+        / "components"
+        / "production"
+        / "ScriptVoiceTab.tsx"
+    )
+
+
 def test_research_tab_reads_verified_raw_source_packages():
     text = _research_tab().read_text()
 
@@ -57,6 +68,7 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Raw source package target-thin ·" in text
     assert "Raw source package thin ·" in text
     assert "Raw source package caution-only · preview blocked" in text
+    assert "Raw source package needs Tier 1-2 source · preview blocked" in text
     assert "Raw source package missing capture method ·" in text
     assert "Raw source package unsupported capture ·" in text
     assert 'new Set(["fetched_page", "tavily_raw_content"])' in text
@@ -65,7 +77,17 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Raw source package ready ·" in text
     assert "sourceUrls.size < 2" in text
     assert "nonCautionUrls.size < 1" in text
+    assert "authoritativeUrls.size < 1" in text
     assert "selectedSourcePackageStatus.message" in text
+
+
+def test_script_voice_tab_blocks_preview_without_authoritative_source():
+    text = _script_voice_tab().read_text()
+
+    assert "function sourcePackageStatus" in text
+    assert "Raw source package needs Tier 1-2 source · preview blocked" in text
+    assert "authoritativeUrls.size < 1" in text
+    assert "sourceTierNumber(candidate) <= 2" in text
 
 
 def test_research_tab_counts_only_verified_machine_cards():
