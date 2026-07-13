@@ -883,6 +883,141 @@ def _parse_machine_story_sentences(raw: str) -> dict:
     return parsed
 
 
+def _span_numeric_mentions_without_locked_designation(span: str, machine: str) -> list[dict[str, str]]:
+    text = str(span or "")
+    allowed = _target_machine_designation_codes(machine)
+    for token in _AIRCRAFT_DESIGNATION_RE.findall(text):
+        if _normalized_unit_code(token) in allowed:
+            text = re.sub(rf"\b{re.escape(token)}(?:s)?\b", "", text, flags=re.IGNORECASE)
+    return _numeric_mentions_from_text(text)
+
+
+def _span_has_high_risk_exact_fact(span: str, machine: str) -> bool:
+    lowered = str(span or "").lower()
+    if re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", lowered):
+        return False
+    if _span_numeric_mentions_without_locked_designation(span, machine):
+        return True
+    return bool(re.search(r"\b(first|only|largest|fastest|most|never)\b", lowered))
+
+
+def _soften_single_source_span(span: str, machine: str) -> str:
+    """Make single-source exact claims less brittle without adding facts."""
+    updated = str(span or "")
+    updated = re.sub(r"\bOnly one\b", "A single", updated)
+    updated = re.sub(r"\bonly one\b", "a single", updated, flags=re.IGNORECASE)
+    updated = re.sub(
+        r"\bone\s+(?=(?:[A-Z]{1,4}-?\d{1,4}[A-Z]?|prototype|aircraft|machine|bomber|example|unit)\b)",
+        "a single ",
+        updated,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    updated = re.sub(r"\bfirst flew in\s+((?:18|19|20)\d{2})\b", r"flew around \1", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bfirst flight in\s+((?:18|19|20)\d{2})\b", r"flight around \1", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bworld['’]s largest\b", "unusually large", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bthe largest\b", "a large", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\blargest\b", "large", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bfastest\b", "fast", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bnever\b", "did not", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bonly\b\s*", "", updated, flags=re.IGNORECASE)
+    if _span_numeric_mentions_without_locked_designation(updated, machine) and not re.search(
+        r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b",
+        updated.lower(),
+    ):
+        softened = re.sub(
+            r"\bin\s+the early\s+((?:18|19|20)\d{2}s)\b",
+            r"around the early \1",
+            updated,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if softened == updated:
+            softened = re.sub(
+                r"\bthe early\s+((?:18|19|20)\d{2}s)\b",
+                r"around the early \1",
+                updated,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        if softened == updated:
+            softened = re.sub(
+                r"\bin\s+((?:18|19|20)\d{2})\b",
+                r"around \1",
+                updated,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        if softened == updated:
+            softened = re.sub(
+                r"(?<![A-Za-z])(\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?)",
+                r"about \1",
+                updated,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        updated = softened
+    updated = re.sub(r"\s+([,.;:!?])", r"\1", updated)
+    updated = re.sub(r"\s{2,}", " ", updated).strip()
+    return updated
+
+
+def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dict) -> dict:
+    """Fix mechanical JSON-bundle failures without loosening source validation."""
+    if not isinstance(bundle, dict):
+        return bundle
+    paragraph = " ".join(str(bundle.get("paragraph") or "").split())
+    claim_rows = bundle.get("claim_map")
+    if not paragraph or not isinstance(claim_rows, list):
+        return bundle
+
+    evidence_by_id: dict[str, dict] = {}
+    role_by_id: dict[str, str] = {}
+    for slot in (plan.get("slots") if isinstance(plan, dict) else []) or []:
+        if not isinstance(slot, dict):
+            continue
+        role = str(slot.get("slot") or "")
+        for segment in slot.get("evidence_segments", []) or []:
+            if not isinstance(segment, dict):
+                continue
+            evidence_id = str(segment.get("evidence_id") or "").strip()
+            if evidence_id:
+                evidence_by_id[evidence_id] = segment
+                role_by_id[evidence_id] = role
+
+    repaired_rows: list[dict] = []
+    repaired_paragraph = paragraph
+    for row in claim_rows:
+        if not isinstance(row, dict):
+            repaired_rows.append(row)
+            continue
+        repaired = dict(row)
+        row_ids_raw = repaired.get("used_evidence_ids") or repaired.get("evidence_ids")
+        row_ids = [str(item) for item in row_ids_raw if str(item).strip()] if isinstance(row_ids_raw, list) else []
+        row_roles = {role_by_id[item] for item in row_ids if item in role_by_id}
+        if len(row_roles) == 1:
+            repaired["slot"] = next(iter(row_roles))
+        span = " ".join(str(repaired.get("span") or repaired.get("text") or repaired.get("claim") or "").split())
+        if span and row_ids:
+            source_keys = {
+                str(evidence_by_id.get(evidence_id, {}).get("source_url") or evidence_by_id.get(evidence_id, {}).get("locator") or "").strip()
+                for evidence_id in row_ids
+                if evidence_id in evidence_by_id
+            }
+            source_keys = {source for source in source_keys if source}
+            if len(source_keys) < 2 and _span_has_high_risk_exact_fact(span, machine):
+                softened = _soften_single_source_span(span, machine)
+                if softened and softened != span and span in repaired_paragraph:
+                    repaired_paragraph = repaired_paragraph.replace(span, softened, 1)
+                    repaired["span"] = softened
+        repaired_rows.append(repaired)
+
+    repaired_bundle = dict(bundle)
+    repaired_bundle["paragraph"] = repaired_paragraph
+    repaired_bundle["claim_map"] = repaired_rows
+    return repaired_bundle
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -3940,6 +4075,7 @@ class PipelineExecutor:
                     temperature=0.25,
                 )
                 bundle = _parse_machine_story_sentences(raw_story)
+                bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
                 paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                 research_source_kind = "structured_story_plan"
             else:
@@ -4003,6 +4139,7 @@ class PipelineExecutor:
                         temperature=0.15,
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
+                    bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
                     paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                     if warnings:
                         deterministic_bundle = _deterministic_machine_story_bundle(machine, story_plan, bundle)

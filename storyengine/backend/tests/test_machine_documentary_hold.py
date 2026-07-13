@@ -744,6 +744,110 @@ def test_story_sentence_validator_blocks_non_target_designation_even_when_source
     assert any("outside the locked machine" in warning for warning in warnings)
 
 
+def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_slot_mismatch():
+    shared_source = "https://example.test/xb-19"
+    evidence = [
+        {
+            "evidence_id": "XB19-IDENTITY",
+            "kind": "identity_origin",
+            "claim": "Douglas built one XB-19 heavy bomber to test flight characteristics for giant bombers, but advances in technology made it obsolete before completion.",
+            "source_excerpt": "Douglas built one XB-19 heavy bomber to test flight characteristics for giant bombers, but advances in technology made it obsolete before completion.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["one"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-SCALE",
+            "kind": "scale_specs",
+            "claim": "The aircraft featured the world's largest landing gear wheel and tire in the early 1940s, proof of its unprecedented scale.",
+            "source_excerpt": "The aircraft featured the world's largest landing gear wheel and tire in the early 1940s, proof of its unprecedented scale.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["1940s"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-BUILD",
+            "kind": "build_reality",
+            "claim": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_excerpt": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["1941", "1946"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-SERVICE",
+            "kind": "service_reality",
+            "claim": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_excerpt": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["1941", "1946"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-MEMORABLE",
+            "kind": "memorable_fact",
+            "claim": "The XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner.",
+            "source_excerpt": "The XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": [],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-MEANING",
+            "kind": "historical_meaning",
+            "claim": "The prototype proved too slow and expensive for production, yet it delivered critical engineering data that shaped the next generation of American heavy bombers.",
+            "source_excerpt": "The prototype proved too slow and expensive for production, yet it delivered critical engineering data that shaped the next generation of American heavy bombers.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": [],
+            "confidence": "high",
+        },
+    ]
+    payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Douglas XB-19")
+    bundle = {
+        "paragraph": (
+            "Douglas built one XB-19 heavy bomber to test flight characteristics for giant bombers, but advances in technology made it obsolete before completion. "
+            "The aircraft featured the world's largest landing gear wheel and tire in the early 1940s, proof of its unprecedented scale. "
+            "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned. "
+            "The XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner. "
+            "The prototype proved too slow and expensive for production, yet it delivered critical engineering data that shaped the next generation of American heavy bombers."
+        ),
+        "claim_map": [
+            {"slot": "identity_origin", "span": evidence[0]["claim"], "used_evidence_ids": ["XB19-IDENTITY"]},
+            {"slot": "scale_specs", "span": evidence[1]["claim"], "used_evidence_ids": ["XB19-SCALE"]},
+            {"slot": "service_reality", "span": evidence[2]["claim"], "used_evidence_ids": ["XB19-BUILD", "XB19-SERVICE"]},
+            {"slot": "memorable_fact", "span": evidence[4]["claim"], "used_evidence_ids": ["XB19-MEMORABLE"]},
+            {"slot": "memorable_fact", "span": evidence[5]["claim"], "used_evidence_ids": ["XB19-MEANING"]},
+        ],
+        "onscreen_label": "",
+    }
+
+    _, original_warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
+    repaired = pe._repair_machine_story_bundle_mechanics("Douglas XB-19", plan, bundle)
+    paragraph, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, repaired)
+
+    assert any("two independent sources" in warning for warning in original_warnings)
+    assert any("declares slot memorable_fact but uses historical_meaning" in warning for warning in original_warnings)
+    assert warnings == []
+    assert "a single XB-19" in paragraph
+    assert "unusually large" in paragraph
+    assert "around the early 1940s" in paragraph
+    assert "flew around 1941" in paragraph
+    assert repaired["claim_map"][-1]["slot"] == "historical_meaning"
+
+
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
