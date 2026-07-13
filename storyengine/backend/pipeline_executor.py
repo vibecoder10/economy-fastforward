@@ -1300,6 +1300,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             detail for detail in claim_span_details
             if detail.get("span") and (detail["span"] in sentence or sentence in detail["span"])
         ]
+        if sentence_index == final_sentence_index and sentence_claim_spans:
+            warnings.append("final sentence must be paragraph-derived synthesis, not source-backed claim_map evidence")
         if not sentence_claim_spans:
             if sentence_index != final_sentence_index:
                 warnings.append(f"sentence {sentence_index} is not covered by claim_map evidence")
@@ -4337,7 +4339,7 @@ class PipelineExecutor:
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
                     "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
                     "- If the plan provides a human_detail slot for one of the first three benchmark machines, use it only when it strengthens the four-beat story. Do not add a separate anecdote sentence.\n"
-                    "- The final sentence is editorial synthesis from the assembled paragraph only. It may be omitted from claim_map if it contains no new facts.\n"
+                    "- The final sentence is editorial synthesis from the assembled paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
@@ -4404,7 +4406,7 @@ class PipelineExecutor:
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it only when it strengthens the four-beat story; do not add a separate anecdote sentence. "
-                        "The final sentence must be editorial synthesis from the rebuilt paragraph only; it may be omitted from claim_map if it contains no new facts. "
+                        "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "

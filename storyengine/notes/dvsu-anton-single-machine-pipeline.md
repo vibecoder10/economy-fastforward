@@ -94,7 +94,7 @@ Validation requires:
 - claim-map spans copied exactly from the paragraph
 - required Anton evidence slots covered: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - sourced `memorable_fact` used when the story plan provides one
-- final sentence is a paragraph-derived conclusion, not a researched `historical_meaning` beat
+- final sentence is a paragraph-derived conclusion, not a researched `historical_meaning` beat, and is not included in `claim_map`
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
 - unsupported designations, high-risk terms, hype, list transitions, and semicolons rejected

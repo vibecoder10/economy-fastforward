@@ -765,6 +765,22 @@ def test_story_paragraph_validator_allows_unmapped_final_synthesis_without_histo
     assert warnings == []
 
 
+def test_story_paragraph_validator_blocks_claim_mapped_final_synthesis():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    final_sentence = bundle["paragraph"].split(". ")[-1]
+    bundle["claim_map"].append({
+        "slot": "historical_meaning",
+        "span": final_sentence,
+        "used_evidence_ids": ["E-MEANING"],
+    })
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("final sentence must be paragraph-derived synthesis" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_blocks_fact_heavy_final_synthesis():
     evidence = _evidence_segments()
     evidence[2]["numeric_tokens"] = ["1950"]
@@ -1135,6 +1151,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "original_problem, engineering_decision, tradeoff, and reality" in fake_anthropic.prompts[0]
     assert "at least one claim_map row must use a memorable_fact evidence ID" in fake_anthropic.prompts[0]
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
+    assert "Do not include it in claim_map" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
     assert "90-120 words, 4-7 natural sentences" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
@@ -1146,6 +1163,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
+    assert "Do not include it in claim_map" in fake_anthropic.prompts[1]
     assert "28 words or fewer" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("You are a source-grounded Anton/DVsU paragraph compiler")
     assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
