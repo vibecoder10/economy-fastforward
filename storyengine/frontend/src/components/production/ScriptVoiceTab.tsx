@@ -247,8 +247,30 @@ function sourceCandidateForEvidence(segment: any, sourcePackage: any): any | nul
   const excerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const sourceUrl = String(segment?.source_url || "").trim();
   const locator = String(segment?.locator || "").trim();
+  const sourceExcerptId = String(segment?.source_excerpt_id || segment?.excerpt_id || "").trim();
+  const sourceExcerptHash = String(segment?.source_excerpt_hash || "").trim();
   const excerpt = normalizedSourceText(segment?.source_excerpt || "");
-  if (!sourceUrl || !excerpt) return null;
+  if (!sourceUrl) return null;
+  if (sourceExcerptId) {
+    const exactIdMatch = excerpts.find((candidate: any) => {
+      const candidateUrl = String(candidate?.source_url || "").trim();
+      const candidateExcerptId = String(candidate?.excerpt_id || "").trim();
+      const candidateHash = String(candidate?.text_hash || "").trim();
+      return candidateUrl === sourceUrl
+        && candidateExcerptId === sourceExcerptId
+        && (!sourceExcerptHash || candidateHash === sourceExcerptHash);
+    });
+    if (exactIdMatch) return exactIdMatch;
+  }
+  if (sourceExcerptHash) {
+    const exactHashMatch = excerpts.find((candidate: any) => {
+      const candidateUrl = String(candidate?.source_url || "").trim();
+      const candidateHash = String(candidate?.text_hash || "").trim();
+      return candidateUrl === sourceUrl && candidateHash === sourceExcerptHash;
+    });
+    if (exactHashMatch) return exactHashMatch;
+  }
+  if (!excerpt) return null;
   return excerpts.find((candidate: any) => {
     const candidateUrl = String(candidate?.source_url || "").trim();
     const candidateLocator = String(candidate?.locator || "").trim();

@@ -129,7 +129,7 @@ The saved research card itself must select at least one Tier 1-2 source-backed e
 
 The Research and Script/Voice tabs also check that the card's selected `source_excerpt` + `source_url` + `locator` rows still match the saved raw package before showing the selected machine as ready. This keeps stale card locators, cards that ignored Tier 1-2 sources, and Tier 4-only timeframe or visual identity evidence from appearing preview-ready in the UI.
 
-When a selected evidence segment validates against a fetched raw candidate, the backend enriches it with `source_excerpt_id`, `source_id`, `source_excerpt_hash`, `source_tier`, `source_tier_label`, and `source_capture_method`. The UI shows those fields beside the raw excerpt so review is tied to an exact fetched row, not a loose paraphrase.
+When a selected evidence segment validates against a fetched raw candidate, the backend enriches it with `source_excerpt_id`, `source_id`, `source_excerpt_hash`, `source_tier`, `source_tier_label`, and `source_capture_method`. The UI uses `source_excerpt_id` and `source_excerpt_hash` as the primary match before falling back to URL/locator/text matching, then shows those fields beside the raw excerpt so review is tied to an exact fetched row, not a loose paraphrase.
 
 After a selected-machine research or preview run, the UI invalidates the saved video state so the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` can be reviewed without relying on a manual browser refresh.
 

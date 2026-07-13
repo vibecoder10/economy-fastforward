@@ -150,6 +150,12 @@ def test_source_tier_helper_matches_excerpt_locator_not_card_claims():
 
     assert "normalizedSourceText(segment?.source_excerpt" in helper
     assert "normalizedSourceText(candidate?.text" in helper
+    assert "String(segment?.source_excerpt_id || segment?.excerpt_id" in helper
+    assert "String(segment?.source_excerpt_hash" in helper
+    assert "exactIdMatch" in helper
+    assert "exactHashMatch" in helper
+    assert "candidateExcerptId === sourceExcerptId" in helper
+    assert "candidateHash === sourceExcerptHash" in helper
     assert "String(segment?.locator" in helper
     assert "String(candidate?.locator" in helper
     assert "String(candidate?.excerpt_id" in helper
@@ -197,6 +203,10 @@ def test_script_voice_preview_surfaces_raw_excerpt_identity():
     assert "source_excerpt_hash?: string" in text
     assert "segment?.source_excerpt_id || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.excerpt_id" in text
     assert "segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.text_hash" in text
+    assert "const sourceExcerptId = String(segment?.source_excerpt_id || segment?.excerpt_id || \"\").trim()" in text
+    assert "const sourceExcerptHash = String(segment?.source_excerpt_hash || \"\").trim()" in text
+    assert "exactIdMatch" in text
+    assert "exactHashMatch" in text
     assert "evidence?.source_excerpt_id || evidence?.locator" in text
     assert "evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : \"\"" in text
 
