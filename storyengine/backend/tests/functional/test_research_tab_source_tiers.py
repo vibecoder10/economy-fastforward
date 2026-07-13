@@ -242,6 +242,8 @@ def test_research_tab_does_not_offer_bulk_machine_research_action():
     assert "Start machine research" not in text
     assert "Continue machine research" not in text
     assert "Research selected" in text
+    assert "const machineResearchIsolatedMode = (research?.unit_roster?.length || 0) > 0" in text
+    assert "{!machineResearchIsolatedMode && (" in text
 
 
 def test_source_tier_helper_matches_excerpt_locator_not_card_claims():

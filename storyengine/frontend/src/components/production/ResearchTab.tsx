@@ -1053,6 +1053,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     verifiedMachineResearchCount,
     research?.unit_roster?.length || 0
   );
+  const machineResearchIsolatedMode = (research?.unit_roster?.length || 0) > 0;
 
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map
@@ -1751,15 +1752,17 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       <div className="flex gap-3 justify-end flex-wrap">
         {!approved && (
           <>
-            <button
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-              style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
-              onClick={handleReResearch}
-              disabled={isResearching || taskRunning}
-            >
-              {(isResearching || taskRunning) ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-              {taskRunning ? (taskMessage || "Researching...") : isResearching ? "Starting..." : "Regenerate Research"}
-            </button>
+            {!machineResearchIsolatedMode && (
+              <button
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+                style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
+                onClick={handleReResearch}
+                disabled={isResearching || taskRunning}
+              >
+                {(isResearching || taskRunning) ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                {taskRunning ? (taskMessage || "Researching...") : isResearching ? "Starting..." : "Regenerate Research"}
+              </button>
+            )}
             <button
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"
               style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
