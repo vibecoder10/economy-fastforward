@@ -432,7 +432,7 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
         if isinstance(item, dict) and str(item.get("text") or "").strip()
     ]
     warnings: list[str] = []
-    required_tier4_segments: list[str] = []
+    required_slot_sources: dict[str, list[tuple[str, int]]] = {}
     for segment in (card.get("evidence_segments") if isinstance(card, dict) else []) or []:
         if not isinstance(segment, dict):
             continue
@@ -452,17 +452,19 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
             if url_matches and excerpt in candidate_text:
                 matched = True
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
-                if role in _ANTON_REQUIRED_SLOT_ROLES and _source_tier_number(candidate) >= 4:
-                    required_tier4_segments.append(evidence_id)
+                if role in _ANTON_REQUIRED_SLOT_ROLES:
+                    required_slot_sources.setdefault(role, []).append((evidence_id, _source_tier_number(candidate)))
                 break
         if not matched:
             warnings.append(
                 f"evidence segment {evidence_id} source_excerpt was not found in verified fetched source text"
             )
-    for evidence_id in required_tier4_segments:
-        warnings.append(
-            f"evidence segment {evidence_id} uses Tier 4/caution source for a required Anton slot"
-        )
+    for role, source_rows in required_slot_sources.items():
+        if source_rows and all(tier >= 4 for _evidence_id, tier in source_rows):
+            evidence_ids = ", ".join(evidence_id for evidence_id, _tier in source_rows)
+            warnings.append(
+                f"required Anton slot {role} uses only Tier 4/caution sources: {evidence_ids}"
+            )
     return warnings
 
 

@@ -135,6 +135,22 @@ def test_required_anton_slots_reject_tier_four_only_source_support():
     assert any("Tier 4/caution source" in warning for warning in warnings)
 
 
+def test_required_anton_slots_accept_tier_four_when_cross_checked_by_better_source():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    wiki_identity = copy.deepcopy(segments[0])
+    wiki_identity["evidence_id"] = "E-IDENTITY-WIKI"
+    wiki_identity["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    segments.append(wiki_identity)
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert warnings == []
+
+
 def test_required_anton_slots_accept_authoritative_source_support():
     segments = _evidence_segments()
     for segment in segments:
