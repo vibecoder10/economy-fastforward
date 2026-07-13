@@ -988,6 +988,17 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 selected_source_tiers[evidence_id] = _source_tier_number(candidate)
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
                 if role in _ANTON_REQUIRED_SLOT_ROLES:
+                    candidate_hints = {
+                        str(hint or "").strip()
+                        for hint in (candidate.get("anton_slot_hints") or [])
+                        if str(hint or "").strip()
+                    }
+                    if candidate_hints and role not in candidate_hints:
+                        warnings.append(
+                            f"evidence segment {evidence_id} maps {role} to raw excerpt "
+                            f"{candidate_excerpt_id or candidate_locator} hinted for "
+                            + ", ".join(sorted(candidate_hints))
+                        )
                     excerpt_identity = candidate_excerpt_id or candidate_locator
                     if excerpt_identity:
                         selected_excerpt_text_by_id[excerpt_identity] = candidate_text
@@ -5146,6 +5157,7 @@ class PipelineExecutor:
                 "EVIDENCE SEGMENT CONTRACT:\n"
                 "- Return 6-9 atomic evidence segments using Anton slot kinds only.\n"
                 "- Required four-beat slot kinds at least once: original_problem, engineering_decision, tradeoff, reality.\n"
+                "- Use ANTON_SLOT_HINTS as the first-pass map for required slots. Do not relabel an excerpt hinted for one required beat as a different required beat unless the copied source text plainly supports that slot.\n"
                 "- The required four-beat slot kinds must use four distinct EXCERPT_ID rows. Do not map original_problem, engineering_decision, tradeoff, and reality to the same broad excerpt.\n"
                 "- original_problem = raw excerpt for the situation, requirement, or need that created the machine.\n"
                 "- engineering_decision = raw excerpt for the design/procurement/engineering answer.\n"
@@ -5202,6 +5214,7 @@ class PipelineExecutor:
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, unrelated visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
+                    "Use ANTON_SLOT_HINTS as the first-pass map for required slots; do not relabel an excerpt hinted for one required beat as a different required beat unless the copied source text plainly supports that slot. "
                     "The required four-beat kinds must use four distinct EXCERPT_ID rows; do not map multiple required slots to the same broad excerpt. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
                     "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "

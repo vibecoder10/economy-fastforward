@@ -852,6 +852,19 @@ def test_research_card_required_slots_reject_overlapping_raw_excerpts():
     assert any("distinct raw source excerpts for required Anton slots" in warning for warning in warnings)
 
 
+def test_research_card_required_slots_must_match_raw_excerpt_hints():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"][0]["anton_slot_hints"] = ["engineering_decision"]
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("maps original_problem to raw excerpt S1-E1 hinted for engineering_decision" in warning for warning in warnings)
+
+
 def test_verified_card_validation_backfills_raw_excerpt_identity():
     segments = _evidence_segments()
     for segment in segments:
@@ -4143,6 +4156,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "source_excerpt_id must equal that row's EXCERPT_ID" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt
+    assert "Use ANTON_SLOT_HINTS as the first-pass map for required slots" in prompt
+    assert "Do not relabel an excerpt hinted for one required beat as a different required beat" in prompt
     assert "why_this_unit_deserves_a_paragraph must state the unique engineering idea" in prompt
     assert "no other roster machine could replace it" in prompt
     assert "may not introduce dates, numbers, other machine designations" in prompt
