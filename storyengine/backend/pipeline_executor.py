@@ -754,7 +754,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "evidence_slot_roles": role_by_id,
         "contract": {
             "paragraph_shape": "one Anton/DVsU paragraph, 4-6 natural sentences",
-            "movement": "identity/origin hook -> scale/spec proof -> prototype/build reality -> service/combat reality -> optional memorable fact -> historical meaning",
+            "movement": "identity/origin hook -> scale/spec proof -> prototype/build reality -> service/combat reality -> memorable fact -> historical meaning",
             "paragraph_words": "95-120",
             "maximum_numerical_details": 8,
             "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
@@ -3675,7 +3675,7 @@ class PipelineExecutor:
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
-                    "The target movement is identity/origin hook, scale proof, build reality, service/combat reality, optional memorable fact, and historical meaning.\n\n"
+                    "The target movement is identity/origin hook, scale proof, build reality, service/combat reality, one memorable fact, and historical meaning.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
                     '{"paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"identity_origin","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
@@ -3743,7 +3743,7 @@ class PipelineExecutor:
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         "Return only the exact JSON shape: {\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"identity_origin\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
-                        "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, and historical_meaning. "
+                        "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: origin/range, one scale proof, one performance or service reality, and one meaning proof. "

@@ -674,7 +674,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"paragraph":"..."' in fake_anthropic.prompts[0]
-    assert "identity_origin, scale_specs, build_reality, service_reality, and historical_meaning" in fake_anthropic.prompts[0]
+    assert "identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
     assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]

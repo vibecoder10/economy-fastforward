@@ -6,7 +6,7 @@ Current DVsU bomber proof state:
 
 - `fc73860c-a9af-444f-95a5-7f86d60503e0` has a locked 23-machine roster.
 - The old four-beat evidence-sentence preview shape is intentionally retired. It was fact-safe but visibly unlike Anton.
-- Current StoryEngine machine research cards use Anton schema-v3 evidence slots: required `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `historical_meaning`; optional `engineering_intent`, `role_category`, `combat_reality`, `tradeoff_or_limit`, `memorable_fact`, `human_detail`, `transition_hook`, `onscreen_label`.
+- Current StoryEngine machine research cards use Anton schema-v3 evidence slots: required `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `memorable_fact`, `historical_meaning`; optional `engineering_intent`, `role_category`, `combat_reality`, `tradeoff_or_limit`, `human_detail`, `transition_hook`, `onscreen_label`.
 - Current StoryEngine machine script preview expects one 95-120 word paragraph plus `claim_map` spans. Validation checks exact span presence, required slot coverage, per-span/paragraph number support, unsupported designations, high-risk terms, sentence count, final-line length, and static DVsU paragraph rules.
 - The deterministic extractive fallback is disabled. If the model cannot produce an Anton-quality claim-mapped paragraph after repair, the preview must fail for review instead of saving safe filler.
 - Target-machine preview now filters the hydrated compact/legacy card set back to only the requested machine before building the story plan, so other roster cards are not loaded into the proof prompt.
@@ -1873,4 +1873,4 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 ## Handoff (2026-07-13 - First DVsU machine pass UI lock)
 - XB-15 is the first single-machine research + script preview pass. Keep the workflow scoped to one selected machine until the operator approves moving forward.
 - Research UI now needs to show the saved machine research card, script preview paragraph, pass status, word count, on-screen label, slot counts, warnings, and claim-map evidence before full script generation.
-- Required Anton slots are five core story slots; `memorable_fact` is optional and should not block machines that have a sourced identity/scale/build/service/meaning arc.
+- Required Anton slots include `memorable_fact`; if verified one-machine research cannot source a memorable fact that supports the engineering story, the preview should fail for formula adjustment instead of producing a generic catalog paragraph.

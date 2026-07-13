@@ -32,8 +32,8 @@ Research runs one locked roster machine at a time. The model may use only fetche
 
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
-- Required: `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `historical_meaning`
-- Optional when sourced: `engineering_intent`, `role_category`, `combat_reality`, `tradeoff_or_limit`, `memorable_fact`, `human_detail`, `transition_hook`, `onscreen_label`
+- Required: `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `memorable_fact`, `historical_meaning`
+- Optional when sourced: `engineering_intent`, `role_category`, `combat_reality`, `tradeoff_or_limit`, `human_detail`, `transition_hook`, `onscreen_label`
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.
 
