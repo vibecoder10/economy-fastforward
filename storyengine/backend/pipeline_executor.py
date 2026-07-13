@@ -168,6 +168,20 @@ def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
     return None
 
 
+def _locked_roster_item_for_machine(roster: list[str], machine: str) -> Optional[str]:
+    """Return the canonical locked-roster item matching a user/UI machine label."""
+    target_name = _unit_display_name(machine).strip().lower()
+    target_code = _normalized_unit_code(_unit_display_name(machine))
+    for item in roster or []:
+        roster_name = _unit_display_name(item).strip().lower()
+        roster_code = _normalized_unit_code(item)
+        if target_code and roster_code == target_code:
+            return item
+        if target_name and roster_name == target_name:
+            return item
+    return None
+
+
 def _research_source_for_machine(payload: dict, machine: str) -> tuple[str, str]:
     """Prefer one-machine card context; fall back to legacy video-level research."""
     import json
@@ -2874,8 +2888,7 @@ class PipelineExecutor:
         if not isinstance(payload, dict):
             return {"status": "failed", "error": "Research payload is missing or invalid"}
         roster = _machine_documentary_hold_roster(video)
-        target_code = _normalized_unit_code(_unit_display_name(machine))
-        matched = next((item for item in roster if _normalized_unit_code(item) == target_code), None)
+        matched = _locked_roster_item_for_machine(roster, machine)
         if not matched:
             return {"status": "failed", "error": f"Machine is not in the locked roster: {machine}"}
         title = video.get("video_title") or video.get("headline") or "Untitled documentary"
@@ -3606,6 +3619,11 @@ class PipelineExecutor:
 
         bot_name = "Script Bot"
         title = video.get("video_title") or video.get("headline") or ""
+        if target_machine:
+            matched_target = _locked_roster_item_for_machine(roster, target_machine)
+            if not matched_target:
+                return {"status": "failed", "error": f"Machine is not in the locked roster: {target_machine}"}
+            target_machine = matched_target
         rp = video.get("research_payload") or {}
         if isinstance(rp, str):
             try:
@@ -3656,8 +3674,6 @@ class PipelineExecutor:
         # The machine writer is not allowed to fall back to the global fact
         # sheet. Research and script are separate artifacts, and every locked
         # machine must have its own persisted card before any script rows change.
-        if target_machine and target_machine not in roster:
-            return {"status": "failed", "error": f"Machine is not in the locked roster: {target_machine}"}
         selected_units = (
             [(roster.index(target_machine) + 1, target_machine)]
             if target_machine else list(enumerate(roster, start=1))
@@ -4379,7 +4395,10 @@ separate scenes."""
         roster = _machine_documentary_hold_roster(video)
         if not roster:
             return {"status": "failed", "error": "No locked machine roster found"}
-        return await self._run_static_script_hold(video_id, video, roster, target_machine=machine)
+        matched = _locked_roster_item_for_machine(roster, machine)
+        if not matched:
+            return {"status": "failed", "error": f"Machine is not in the locked roster: {machine}"}
+        return await self._run_static_script_hold(video_id, video, roster, target_machine=matched)
 
     async def run_script(self, video_id: str) -> dict:
         """Generate script for a video.

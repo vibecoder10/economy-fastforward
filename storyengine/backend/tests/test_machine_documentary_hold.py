@@ -894,7 +894,7 @@ def test_script_hold_refuses_missing_machine_card_before_touching_scripts(monkey
     assert writes == [], "missing card must fail before deleting or inserting scripts"
 
 
-def test_target_machine_preview_filters_unrelated_loaded_cards(monkeypatch):
+def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loaded_cards(monkeypatch):
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
     xb15_card = {
         "unit": "Boeing XB-15",
@@ -955,11 +955,12 @@ def test_target_machine_preview_filters_unrelated_loaded_cards(monkeypatch):
 
     result = asyncio.run(
         executor._run_static_script_hold(
-            "video-test", video, roster, target_machine="Boeing XB-15"
+            "video-test", video, roster, target_machine="XB-15 — Boeing XB-15"
         )
     )
 
     assert result["preview"]["passed"] is True
+    assert result["preview"]["machine"] == "Boeing XB-15"
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
