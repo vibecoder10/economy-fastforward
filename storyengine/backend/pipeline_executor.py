@@ -1551,6 +1551,7 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
     catalog_warnings = [
         "wikipedia-style",
         "list/spec-dump",
+        "timeline/chronology",
         "hype or list-transition",
         "orphan facts",
     ]
@@ -4364,6 +4365,21 @@ class PipelineExecutor:
         ]
         if len(list_starts) >= 2:
             warnings.append("contains list/spec-dump sentence pattern instead of an engineering argument")
+        timeline_starts = [
+            part for part in sentence_parts
+            if (
+                re.match(
+                    r"^(?:the\s+)?[A-Z0-9][A-Za-z0-9 .'\-]{0,90}\s+"
+                    r"(?:first\s+flew|entered\s+service|was\s+(?:designed|developed|modified|retired|built|produced)|"
+                    r"served\s+(?:in|during|until)|transferred\s+to)\b",
+                    part,
+                    flags=re.IGNORECASE,
+                )
+                or re.match(r"^(?:in|by|between|from)\s+(?:18|19|20)\d{2}\b", part, flags=re.IGNORECASE)
+            )
+        ]
+        if len(timeline_starts) >= 3:
+            warnings.append("contains timeline/chronology structure instead of an engineering argument")
         written_connector_starts = [
             part for part in sentence_parts
             if re.match(r"^(?:however|nevertheless|furthermore|moreover|additionally|in addition)\b", part, flags=re.IGNORECASE)
@@ -4631,6 +4647,7 @@ class PipelineExecutor:
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
+                    "- Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
                     "- Avoid written-language connector sentence starts: However, Nevertheless, Furthermore, Moreover, Additionally, In addition.\n"
                     "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
@@ -4667,6 +4684,7 @@ class PipelineExecutor:
                     f"{structure_brief}"
                     "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
                     "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
+                    "- Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality.\n"
                     "- Avoid written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition.\n"
                     "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
                     f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
@@ -4699,6 +4717,7 @@ class PipelineExecutor:
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "
                         "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. "
                         "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
+                        "Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality. "
                         "Remove written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition. "
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
@@ -4721,6 +4740,7 @@ class PipelineExecutor:
                         f"Return exactly ONE spoken paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS} and cut any result above {_ANTON_PARAGRAPH_MAX_WORDS}. "
                         "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
                         "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
+                        "Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality. "
                         "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
                         "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this research source.\n\n"
                         f"RESEARCH SOURCE:\n{research_source}"

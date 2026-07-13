@@ -687,6 +687,25 @@ def test_static_validator_blocks_three_consecutive_long_sentences():
     assert any("three consecutive long sentences" in warning for warning in validate("B-52", paragraph))
 
 
+def test_static_validator_blocks_timeline_biography_structure():
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    filler = " ".join(f"argument{i}" for i in range(1, 48))
+
+    timeline = (
+        "The B-52 was designed by Boeing in the nineteen fifties. "
+        "The B-52 entered service with Strategic Air Command in nineteen fifty-five. "
+        "The aircraft served during Vietnam and later campaigns before replacement plans changed. "
+        f"The engineering point is buried under a sequence of dates rather than a decision. {filler}."
+    )
+    anton_anchor = (
+        "The B-52 entered service because the Air Force needed a bomber that could make distance matter more than speed. "
+        f"{filler}."
+    )
+
+    assert any("timeline/chronology" in warning for warning in validate("B-52", timeline))
+    assert not any("timeline/chronology" in warning for warning in validate("B-52", anton_anchor))
+
+
 def test_card_matching_never_confuses_prefix_designations():
     payload = {"unit_research_cards": [{"unit": "B-21", "engineering_thesis": "wrong machine"}]}
     assert pe._research_card_for_machine(payload, "B-2") is None
@@ -992,6 +1011,26 @@ def test_anton_preview_quality_audit_flags_flat_spoken_rhythm():
     assert audit["passed"] is False
     assert rhythm_check["passed"] is False
     assert rhythm_check["detail"] == "three long sentences in a row"
+
+
+def test_anton_preview_quality_audit_flags_timeline_structure():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    paragraph, _warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit(
+        "B-52",
+        plan,
+        bundle,
+        paragraph,
+        ["contains timeline/chronology structure instead of an engineering argument"],
+    )
+    catalog_check = next(check for check in audit["checks"] if check["name"] == "not_catalog_copy")
+
+    assert audit["passed"] is False
+    assert catalog_check["passed"] is False
+    assert catalog_check["detail"] == "catalog pattern flagged"
 
 
 def test_first_three_anton_audit_reports_human_detail_advisory():
@@ -1491,12 +1530,14 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Prefer voice-ready spoken number words" in fake_anthropic.prompts[0]
     assert "Keep designations/model names like B-52, XB-15, and F-86 as designations" in fake_anthropic.prompts[0]
     assert "Vary sentence length for spoken delivery. Do not write three long sentences in a row" in fake_anthropic.prompts[0]
+    assert "Do not write a chronological biography" in fake_anthropic.prompts[0]
     assert "No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes" in fake_anthropic.prompts[0]
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
     assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
     assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
     assert "Vary sentence length for spoken delivery; do not write three long sentences in a row" in fake_anthropic.prompts[1]
+    assert "Do not write a chronological biography" in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]

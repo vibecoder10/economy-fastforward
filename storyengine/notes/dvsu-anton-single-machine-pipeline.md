@@ -85,6 +85,8 @@ The voiceover-clean gate rejects Producer File artifacts inside narration: unit 
 
 The spoken-rhythm gate rejects three consecutive long sentences. Anton's voiceover standard allows long sentences for momentum, but they must be broken by shorter emphasis or landing sentences so the paragraph reads cleanly in ElevenLabs.
 
+The timeline-structure gate rejects paragraphs that stack dated biography sentences. A single dated anchor is allowed when it proves the engineering problem, decision, tradeoff, or reality; a sequence of "designed, entered service, modified, retired" facts triggers review.
+
 `memorable_fact` must not be invented. The research prompt asks for it when exact excerpts support one; the script preview audit will mark the machine as needing review if the story plan has no sourced memorable fact or if the paragraph ignores the one research found.
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.
@@ -137,7 +139,7 @@ Validation requires:
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
 - voice-ready number wording is preferred for years and quantities; designations/model names such as B-52, XB-15, and F-86 remain designations
 - sentence length varies for spoken delivery; three consecutive long sentences trigger review
-- unsupported designations, high-risk terms, hype, list transitions, production cues, bracketed notes, written-language connector sentence starts, and semicolons rejected
+- unsupported designations, high-risk terms, hype, list transitions, timeline-biography structure, production cues, bracketed notes, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
 The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
