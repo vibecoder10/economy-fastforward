@@ -856,7 +856,7 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
         if isinstance(item, dict) and str(item.get("text") or "").strip()
     ]
     warnings: list[str] = []
-    required_slot_sources: dict[str, list[tuple[str, int]]] = {}
+    required_slot_sources: dict[str, list[tuple[str, int, str]]] = {}
     selected_source_tiers: dict[str, int] = {}
     for segment in (card.get("evidence_segments") if isinstance(card, dict) else []) or []:
         if not isinstance(segment, dict):
@@ -911,17 +911,40 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 selected_source_tiers[evidence_id] = _source_tier_number(candidate)
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
                 if role in _ANTON_REQUIRED_SLOT_ROLES:
-                    required_slot_sources.setdefault(role, []).append((evidence_id, _source_tier_number(candidate)))
+                    excerpt_identity = candidate_excerpt_id or candidate_locator
+                    required_slot_sources.setdefault(role, []).append((
+                        evidence_id,
+                        _source_tier_number(candidate),
+                        excerpt_identity,
+                    ))
                 break
         if not matched:
             warnings.append(
                 f"evidence segment {evidence_id} source_excerpt/locator was not found in verified fetched source text"
             )
     for role, source_rows in required_slot_sources.items():
-        if source_rows and all(tier >= 4 for _evidence_id, tier in source_rows):
-            evidence_ids = ", ".join(evidence_id for evidence_id, _tier in source_rows)
+        if source_rows and all(tier >= 4 for _evidence_id, tier, _excerpt_id in source_rows):
+            evidence_ids = ", ".join(evidence_id for evidence_id, _tier, _excerpt_id in source_rows)
             warnings.append(
                 f"required Anton slot {role} uses only Tier 4/caution sources: {evidence_ids}"
+            )
+    required_slots = [
+        role for role, _accepted_kinds, _job in _ANTON_SLOT_SPECS
+        if role in _ANTON_REQUIRED_SLOT_ROLES
+    ]
+    if all(required_slot_sources.get(role) for role in required_slots):
+        selected_excerpts_by_slot = {
+            role: [
+                excerpt_id for _evidence_id, _tier, excerpt_id in required_slot_sources.get(role, [])
+                if excerpt_id
+            ]
+            for role in required_slots
+        }
+        distinct_assignment = _distinct_anton_slot_assignment(selected_excerpts_by_slot, required_slots)
+        if len(distinct_assignment) < len(required_slots):
+            warnings.append(
+                "research card must select distinct raw source excerpts for required Anton slots: "
+                + ", ".join(required_slots)
             )
     if selected_source_tiers and all(tier > 2 for tier in selected_source_tiers.values()):
         warnings.append("research card evidence needs at least one selected Tier 1-2 primary/authoritative source")
@@ -5016,6 +5039,7 @@ class PipelineExecutor:
                 "EVIDENCE SEGMENT CONTRACT:\n"
                 "- Return 6-9 atomic evidence segments using Anton slot kinds only.\n"
                 "- Required four-beat slot kinds at least once: original_problem, engineering_decision, tradeoff, reality.\n"
+                "- The required four-beat slot kinds must use four distinct EXCERPT_ID rows. Do not map original_problem, engineering_decision, tradeoff, and reality to the same broad excerpt.\n"
                 "- original_problem = raw excerpt for the situation, requirement, or need that created the machine.\n"
                 "- engineering_decision = raw excerpt for the design/procurement/engineering answer.\n"
                 "- tradeoff = raw excerpt for the sacrifice, limitation, compromise, or unintended consequence.\n"
@@ -5071,6 +5095,7 @@ class PipelineExecutor:
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, unrelated visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
+                    "The required four-beat kinds must use four distinct EXCERPT_ID rows; do not map multiple required slots to the same broad excerpt. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
                     "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "
                     "For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it; never invent a human account. "

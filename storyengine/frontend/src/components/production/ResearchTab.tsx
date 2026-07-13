@@ -275,6 +275,17 @@ function distinctAntonSlotAssignment(evidenceBySlot: Record<string, string[]>, r
   }, {});
 }
 
+function antonSlotRoleForEvidenceKind(kind: unknown): string {
+  const normalized = String(kind || "").trim().toLowerCase();
+  const kindMap: Record<string, string[]> = {
+    original_problem: ["original_problem", "design_problem", "engineering_intent", "design_requirement", "doctrinal_problem", "identity_origin", "design_intent"],
+    engineering_decision: ["engineering_decision", "engineering_response", "design_response", "scale_specs", "validated_concept"],
+    tradeoff: ["tradeoff", "tradeoff_or_limit", "limitation", "failure_mode"],
+    reality: ["reality", "actual_reality", "actual_outcome", "service_reality", "operational_reality", "combat_reality", "test_result", "build_reality", "production_reality", "prototype_reality", "historical_meaning", "legacy"],
+  };
+  return Object.entries(kindMap).find(([, kinds]) => kinds.includes(normalized))?.[0] || "";
+}
+
 function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
   const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const excerpts = rawExcerpts.filter((candidate: any) => String(candidate?.text || "").trim());
@@ -445,6 +456,24 @@ function machineResearchCardStatus(card: any, machine: string = "", sourcePackag
     if (staleSegment) {
       const evidenceId = String(staleSegment?.evidence_id || "unknown evidence").trim();
       return { ready: false, message: `Evidence source mismatch · ${evidenceId} · preview blocked` };
+    }
+    const requiredSourceIdsBySlot = sourcedSegments.reduce((rows: Record<string, string[]>, segment: any) => {
+      const role = antonSlotRoleForEvidenceKind(segment?.kind);
+      if (!REQUIRED_ANTON_SOURCE_SLOTS.includes(role)) return rows;
+      const match = sourceCandidateForEvidence(segment, sourcePackage);
+      const excerptId = String(match?.excerpt_id || segment?.source_excerpt_id || match?.locator || segment?.locator || "").trim();
+      if (!excerptId) return rows;
+      rows[role] = rows[role] || [];
+      if (!rows[role].includes(excerptId)) rows[role].push(excerptId);
+      return rows;
+    }, {});
+    const missingRequiredSlots = REQUIRED_ANTON_SOURCE_SLOTS.filter((slot) => !(requiredSourceIdsBySlot[slot]?.length));
+    if (missingRequiredSlots.length > 0) {
+      return { ready: false, message: `Research card missing Anton slots · ${missingRequiredSlots.join(", ")} · preview blocked` };
+    }
+    const requiredAssignment = distinctAntonSlotAssignment(requiredSourceIdsBySlot);
+    if (Object.keys(requiredAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
+      return { ready: false, message: "Research card needs distinct Anton excerpts · preview blocked" };
     }
     const selectedTiers = sourcedSegments
       .map((segment: any) => sourceTierForEvidence(segment, sourcePackage)?.tier || 0)

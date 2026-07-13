@@ -53,10 +53,13 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "activePreviewReady" in text
     assert "Research card missing · preview blocked" in text
     assert "Evidence source mismatch ·" in text
+    assert "Research card missing Anton slots ·" in text
+    assert "Research card needs distinct Anton excerpts · preview blocked" in text
     assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
     assert "Timeframe evidence Tier 4-only · preview blocked" in text
     assert "Visual identity evidence Tier 4-only · preview blocked" in text
     assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
+    assert "function antonSlotRoleForEvidenceKind" in text
     assert "machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage)" in text
     assert "disabled={previewGenerating || !activePreviewReady}" in text
     assert "Raw source package missing · preview blocked" in text
@@ -97,6 +100,7 @@ def test_script_voice_preview_shows_raw_source_beat_coverage():
     assert "function sourceSlotCoverageRows" in text
     assert "function distinctAntonSlotAssignment" in text
     assert "function sourceSlotEvidenceBySlot" in text
+    assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
     assert "sourcePackage?.source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text

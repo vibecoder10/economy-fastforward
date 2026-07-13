@@ -130,6 +130,8 @@ Before Claude writes the card, the raw package must also contain exact fetched e
 
 The saved research card itself must select at least one Tier 1-2 source-backed evidence segment. A raw package is not considered enough if it contains an authoritative source but the model ignores that source when building the card. `timeframe` and `visual_identity` evidence cannot be supported only by Tier 4/caution sources.
 
+The saved research card must also select distinct raw excerpt rows for the four required Anton slots. If `original_problem`, `engineering_decision`, `tradeoff`, and `reality` all point back to one broad excerpt, the card is rejected even when the raw package contains enough other usable rows. This keeps the later sentence compiler aligned with Ryan's approved flow: one raw excerpt per beat, then one grounded sentence from each.
+
 The Research and Script/Voice tabs also check that the card's selected `source_excerpt` + `source_url` + `locator` rows still match the saved raw package before showing the selected machine as ready. This keeps stale card locators, cards that ignored Tier 1-2 sources, and Tier 4-only timeframe or visual identity evidence from appearing preview-ready in the UI.
 
 When a selected evidence segment validates against a fetched raw candidate, the backend enriches it with `source_excerpt_id`, `source_id`, `source_excerpt_hash`, `source_tier`, `source_tier_label`, and `source_capture_method`. The UI uses `source_excerpt_id` and `source_excerpt_hash` as the primary match before falling back to URL/locator/text matching, then shows those fields beside the raw excerpt so review is tied to an exact fetched row, not a loose paraphrase.

@@ -618,6 +618,34 @@ def test_required_anton_slots_accept_authoritative_source_support():
     assert warnings == []
 
 
+def test_research_card_required_slots_must_select_distinct_raw_excerpts():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    broad_candidate = package["candidate_excerpts"][0]
+    broad_candidate["text"] = (
+        "Boeing XB-15 was required for a long-range bomber program, built with "
+        "large wing and engine choices, but underpowered, and later served as a "
+        "World War II transport."
+    )
+    required_kinds = ["original_problem", "engineering_decision", "tradeoff", "reality"]
+    for index, kind in enumerate(required_kinds):
+        segments[index].update({
+            "kind": kind,
+            "source_excerpt": broad_candidate["text"],
+            "source_excerpt_id": broad_candidate["excerpt_id"],
+            "source_url": broad_candidate["source_url"],
+            "source_title": broad_candidate["source_title"],
+            "locator": broad_candidate["locator"],
+        })
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("distinct raw source excerpts for required Anton slots" in warning for warning in warnings)
+
+
 def test_verified_card_validation_backfills_raw_excerpt_identity():
     segments = _evidence_segments()
     for segment in segments:

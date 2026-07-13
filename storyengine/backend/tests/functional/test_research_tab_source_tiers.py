@@ -73,10 +73,13 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Visual identity evidence missing ·" in text
     assert "Memorable fact missing · preview blocked" in text
     assert "Evidence source mismatch ·" in text
+    assert "Research card missing Anton slots ·" in text
+    assert "Research card needs distinct Anton excerpts · preview blocked" in text
     assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
     assert "Timeframe evidence Tier 4-only · preview blocked" in text
     assert "Visual identity evidence Tier 4-only · preview blocked" in text
     assert "sourceCandidateForEvidence(segment, sourcePackage)" in text
+    assert "function antonSlotRoleForEvidenceKind" in text
     assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
     assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text
     assert "machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage)" in text
@@ -145,6 +148,7 @@ def test_research_tab_shows_raw_source_beat_coverage():
     assert "function sourceSlotCoverageRows" in text
     assert "function distinctAntonSlotAssignment" in text
     assert "function sourceSlotEvidenceBySlot" in text
+    assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
     assert "sourcePackage?.source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text
