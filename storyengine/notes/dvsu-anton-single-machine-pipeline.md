@@ -152,7 +152,7 @@ The UI also mirrors the per-beat caution-source gate: if any required Anton sour
 
 The UI mirrors the traceability gate too: if a required Anton slot is covered only by untraceable rows, both tabs show `Raw source package untraceable Anton slots` and keep preview disabled.
 
-The UI mirrors the provenance gate as well: if a machine-matching raw excerpt lacks `source_variant_selection`, both tabs show `Raw source package missing provenance` and keep preview disabled. That prevents older capture-method-only packages from entering the paid preview path without a visible direct-fetch-versus-Tavily-raw-content decision.
+The UI mirrors the provenance gate as well: if a machine-matching raw excerpt lacks `source_variant_selection`, both tabs show `Raw source package missing provenance` and keep preview disabled. The no-spend readiness preflight uses the same raw-package quality gate, so missing `source_variant_selection` returns `readiness_preflight` instead of paying for preview. That prevents older capture-method-only packages from entering the paid preview path without a visible direct-fetch-versus-Tavily-raw-content decision.
 
 Before Claude writes or previews a machine card, the raw package must also include at least one Tier 1 primary/official or Tier 2 museum/authoritative secondary source. Tier 3 reference sources may support individual details when they are the best available evidence, but a Tier 3-only package is not enough for Anton-quality DVsU research confidence.
 

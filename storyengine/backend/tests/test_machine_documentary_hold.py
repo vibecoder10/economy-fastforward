@@ -4959,6 +4959,55 @@ def test_machine_preview_readiness_reports_missing_package_without_provider(monk
     assert "Anthropic client" not in result["warnings"][0]
 
 
+def test_machine_preview_readiness_blocks_source_package_without_selection_provenance(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _evidence_segments()
+    raw_package = _verified_package_for_segments("Boeing XB-15", segments)
+    raw_package["candidate_excerpts"][0].pop("source_variant_selection")
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [_valid_research_card("Boeing XB-15", segments)],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): raw_package,
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": payload,
+        }
+
+    async def fake_load(_video_id, current_payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(current_payload)
+
+    async def forbidden_static_hold(*_args, **_kwargs):
+        raise AssertionError("readiness preflight must not run paid script preview")
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_run_static_script_hold", forbidden_static_hold)
+
+    result = asyncio.run(
+        executor.check_machine_script_preview_readiness("video-test", "Boeing XB-15")
+    )
+
+    assert result["status"] == "needs_review"
+    assert result["ready"] is False
+    assert result["machine"] == "Boeing XB-15"
+    assert result["scene"] == 1
+    assert "without source selection provenance" in result["warnings"][0]
+
+
 def test_machine_preview_readiness_passes_with_verified_card_and_package(monkeypatch):
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
     segments = _evidence_segments()
