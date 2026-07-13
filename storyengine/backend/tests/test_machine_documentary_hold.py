@@ -221,6 +221,7 @@ def test_verified_source_package_quality_rejects_single_source_and_caution_only(
     diverse_package = _verified_package_for_segments("Boeing XB-15", diverse_segments)
 
     assert pe._verified_machine_source_package_quality_errors(diverse_package) == []
+    assert pe._verified_machine_source_package_quality_errors(diverse_package, "Boeing XB-15") == []
 
     secondary_segments = _evidence_segments()
     for index, segment in enumerate(secondary_segments):
@@ -256,6 +257,25 @@ def test_verified_source_package_quality_rejects_single_source_and_caution_only(
     missing_capture_errors = pe._verified_machine_source_package_quality_errors(missing_capture_package)
 
     assert any("without source capture method" in error for error in missing_capture_errors)
+
+
+def test_verified_source_package_quality_requires_anton_slot_coverage():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    for candidate in package["candidate_excerpts"]:
+        candidate["text"] = (
+            "Boeing XB-15 exact fetched source describes wing, engine, fuselage, "
+            "range, speed, payload, and horsepower specifications."
+        )
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    slot_error = next(
+        error for error in errors
+        if "exact excerpts plausibly covering Anton slot(s)" in error
+    )
+    assert "original_problem" in slot_error
+    assert "tradeoff" in slot_error
+    assert "reality" in slot_error
 
 
 def test_verified_source_package_ready_requires_exact_text_excerpts():

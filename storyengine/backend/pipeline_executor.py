@@ -480,6 +480,42 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     return len(text_excerpts) >= 6
 
 
+def _anton_source_slot_hints(text: str) -> set[str]:
+    """Heuristic pre-LLM check that raw excerpts can support Anton's four beats."""
+    lower = _normalized_source_text(text)
+    hints: set[str] = set()
+    slot_patterns = {
+        "original_problem": (
+            r"\bproblem\b",
+            r"\b(?:requirement|required|called for|needed?|wanted|demanded|requested|specified)\b",
+            r"\b(?:project|program|contract|mission|specification)\b",
+            r"\b(?:designed|developed|intended)\s+to\b",
+            r"\basked\s+whether\b",
+        ),
+        "engineering_decision": (
+            r"\b(?:design|decision|built|developed|configured|equipped|mounted|carried|powered)\b",
+            r"\b(?:wing|wingspan|fuselage|engine|engines|payload|range|speed|horsepower|propulsion)\b",
+            r"\b(?:model|prototype|airframe|structure|configuration|feature|features)\b",
+        ),
+        "tradeoff": (
+            r"\btrade[- ]?off\b",
+            r"\b(?:limitation|limited|underpowered|slow|sluggish|obsolete|problem|failed|failure)\b",
+            r"\b(?:could not|couldn['’]?t|unable|too\s+(?:slow|heavy|large|expensive|costly))\b",
+            r"\b(?:sacrificed|compromise|drawback|despite|but|however|stranded|cancelled|canceled)\b",
+        ),
+        "reality": (
+            r"\breality\b",
+            r"\b(?:served|service|assigned|used|flew|operated|converted|transport|missions?)\b",
+            r"\b(?:production|produced|built|prototype|prototypes|delivered|scrapped|retired)\b",
+            r"\b(?:combat|war|world war|record|lost|losses|cancelled|canceled|operational)\b",
+        ),
+    }
+    for slot, patterns in slot_patterns.items():
+        if any(re.search(pattern, lower) for pattern in patterns):
+            hints.add(slot)
+    return hints
+
+
 def _verified_machine_source_package_quality_errors(package: Any, machine: str = "") -> list[str]:
     """Reject thin raw-source packages before spending an LLM call."""
     if not _verified_machine_source_package_ready(package):
@@ -497,6 +533,17 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         ]
         if len(quality_candidates) < 6:
             errors.append("Verified source package needs at least six exact excerpts mentioning the locked machine.")
+        covered_slots = {
+            slot
+            for item in quality_candidates
+            for slot in _anton_source_slot_hints(str(item.get("text") or ""))
+        }
+        missing_slots = sorted(_ANTON_REQUIRED_SLOT_ROLES - covered_slots)
+        if missing_slots:
+            errors.append(
+                "Verified source package needs exact excerpts plausibly covering Anton slot(s): "
+                + ", ".join(missing_slots)
+            )
     source_urls = {
         str(item.get("source_url") or "").strip()
         for item in quality_candidates

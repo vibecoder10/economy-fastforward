@@ -302,6 +302,41 @@ function sourceCaptureMethodForEvidence(segment: any, sourcePackage: any): strin
   return String(match?.source_capture_method || segment?.source_capture_method || "legacy_unmarked");
 }
 
+function antonSourceSlotHints(text: unknown): Set<string> {
+  const lower = normalizedSourceText(text);
+  const slotPatterns: Record<string, RegExp[]> = {
+    original_problem: [
+      /\bproblem\b/,
+      /\b(?:requirement|required|called for|needed?|wanted|demanded|requested|specified)\b/,
+      /\b(?:project|program|contract|mission|specification)\b/,
+      /\b(?:designed|developed|intended)\s+to\b/,
+      /\basked\s+whether\b/,
+    ],
+    engineering_decision: [
+      /\b(?:design|decision|built|developed|configured|equipped|mounted|carried|powered)\b/,
+      /\b(?:wing|wingspan|fuselage|engine|engines|payload|range|speed|horsepower|propulsion)\b/,
+      /\b(?:model|prototype|airframe|structure|configuration|feature|features)\b/,
+    ],
+    tradeoff: [
+      /\btrade[- ]?off\b/,
+      /\b(?:limitation|limited|underpowered|slow|sluggish|obsolete|problem|failed|failure)\b/,
+      /\b(?:could not|couldn['’]?t|unable|too\s+(?:slow|heavy|large|expensive|costly))\b/,
+      /\b(?:sacrificed|compromise|drawback|despite|but|however|stranded|cancelled|canceled)\b/,
+    ],
+    reality: [
+      /\breality\b/,
+      /\b(?:served|service|assigned|used|flew|operated|converted|transport|missions?)\b/,
+      /\b(?:production|produced|built|prototype|prototypes|delivered|scrapped|retired)\b/,
+      /\b(?:combat|war|world war|record|lost|losses|cancelled|canceled|operational)\b/,
+    ],
+  };
+  const hints = new Set<string>();
+  Object.entries(slotPatterns).forEach(([slot, patterns]) => {
+    if (patterns.some((pattern) => pattern.test(lower))) hints.add(slot);
+  });
+  return hints;
+}
+
 function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
   const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const excerpts = rawExcerpts.filter((candidate: any) => String(candidate?.text || "").trim());
@@ -330,6 +365,17 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   const targetExcerpts = machine ? excerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : excerpts;
   if (machine && targetExcerpts.length < 6) {
     return { ready: false, message: `Raw source package target-thin · ${targetExcerpts.length}/${excerpts.length} matching excerpts · preview blocked` };
+  }
+  if (machine) {
+    const coveredSlots = new Set<string>();
+    targetExcerpts.forEach((candidate: any) => {
+      antonSourceSlotHints(candidate?.text).forEach((slot) => coveredSlots.add(slot));
+    });
+    const missingSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"]
+      .filter((slot) => !coveredSlots.has(slot));
+    if (missingSlots.length > 0) {
+      return { ready: false, message: `Raw source package missing Anton slots · ${missingSlots.join(", ")} · preview blocked` };
+    }
   }
   const sourceUrls = new Set(
     targetExcerpts.map((candidate: any) => String(candidate?.source_url || "").trim()).filter(Boolean)
