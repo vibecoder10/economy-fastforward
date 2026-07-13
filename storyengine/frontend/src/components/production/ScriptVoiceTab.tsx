@@ -257,6 +257,15 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
     return { ready: false, message: "Raw source package missing · preview blocked" };
   }
+  const allowedCaptureMethods = new Set(["fetched_page", "tavily_raw_content"]);
+  const unsupportedCaptureMethods = new Set(
+    excerpts
+      .map((candidate: any) => String(candidate?.source_capture_method || "").trim())
+      .filter((method: string) => method && !allowedCaptureMethods.has(method))
+  );
+  if (unsupportedCaptureMethods.size > 0) {
+    return { ready: false, message: `Raw source package unsupported capture · ${Array.from(unsupportedCaptureMethods).join(", ")} · preview blocked` };
+  }
   const targetCode = normalizedUnitCode(machine);
   const packageCode = normalizedUnitCode(String(sourcePackage?.machine_key || sourcePackage?.machine || ""));
   if (targetCode && (!packageCode || packageCode !== targetCode)) {
