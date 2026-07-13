@@ -4374,6 +4374,10 @@ class PipelineExecutor:
             if not isinstance(source_notes, list) or not source_notes:
                 warnings.append("missing source_notes")
             warnings.extend(evidence_errors)
+            if not evidence_errors and not any(
+                segment.get("slot_role") == "memorable_fact" for segment in evidence
+            ):
+                warnings.append("missing sourced memorable_fact evidence segment")
             if source_package is not None or require_source_package:
                 warnings.extend(_verified_machine_source_package_quality_errors(source_package, machine))
                 warnings.extend(_verified_machine_source_package_identity_errors(source_package, machine))

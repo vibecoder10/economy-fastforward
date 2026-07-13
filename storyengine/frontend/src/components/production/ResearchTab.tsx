@@ -241,8 +241,15 @@ function machineResearchCardStatus(card: any, machine: string = ""): { ready: bo
   if (visualIdentity.split(/\s+/).filter(Boolean).length < 8 || visualIdentityEvidenceIds.length < 1) {
     return { ready: false, message: "Visual identity missing · preview blocked" };
   }
+  const evidenceSegments = Array.isArray(card?.evidence_segments) ? card.evidence_segments : [];
+  const hasMemorableFact = evidenceSegments.some((segment: any) => (
+    ["memorable_fact", "surprising_fact", "retention_fact"].includes(String(segment?.kind || "").trim().toLowerCase())
+  ));
+  if (!hasMemorableFact) {
+    return { ready: false, message: "Memorable fact missing · preview blocked" };
+  }
   const evidenceIds = new Set(
-    (Array.isArray(card?.evidence_segments) ? card.evidence_segments : [])
+    evidenceSegments
       .map((segment: any) => String(segment?.evidence_id || "").trim())
       .filter(Boolean)
   );

@@ -606,6 +606,56 @@ def test_timeframe_requires_source_grounded_date_or_service_period():
     ) == []
 
 
+def test_card_validation_requires_sourced_memorable_fact_slot(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = [
+        segment for segment in _evidence_segments()
+        if segment["kind"] != "memorable_fact"
+    ]
+    card = {
+        "unit": "Boeing XB-15",
+        "engineering_thesis": "Boeing XB-15 has a sufficiently detailed source-grounded engineering thesis.",
+        "why_this_unit_deserves_a_paragraph": "Boeing XB-15 proves how a range and payload problem created a bomber tradeoff with consequences no other roster machine replaces.",
+        "surprising_fact": "Legacy compatibility fact should not pass without a sourced segment.",
+        "source_notes": ["https://airandspace.si.edu/test"],
+        **_timeframe_fields("Boeing XB-15"),
+        **_visual_identity_fields("Boeing XB-15"),
+        "evidence_segments": segments,
+    }
+    payload = {
+        "unit_roster": roster,
+        "unit_research_cards": [card],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("invalid card must not be reused")
+
+    executor.__dict__["_pipeline"] = type("Pipeline", (), {"anthropic": ForbiddenAnthropic()})()
+
+    async def no_compact_rows(*_args, **_kwargs):
+        return []
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "fetch_all", no_compact_rows)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+
+    result = asyncio.run(executor._run_unit_research_hold("video-a", "Title", payload, roster))
+
+    assert result["unit_research_hold_validation"]["passed"] is False
+    assert any(
+        "missing sourced memorable_fact evidence segment" in warning
+        for warning in result["unit_research_hold_validation"]["units"][0]["warnings"]
+    )
+
+
 def test_verified_source_validation_requires_matching_locator():
     segments = _evidence_segments()
     package = _verified_package_for_segments("Boeing XB-15", segments)

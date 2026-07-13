@@ -68,6 +68,7 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Timeframe evidence missing ·" in text
     assert "Visual identity missing · preview blocked" in text
     assert "Visual identity evidence missing ·" in text
+    assert "Memorable fact missing · preview blocked" in text
     assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text
     assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchReady}" in text
     assert "Raw source package missing · preview blocked" in text
@@ -94,6 +95,7 @@ def test_script_voice_tab_blocks_preview_without_authoritative_source():
     assert "function machineResearchCardStatus" in text
     assert "Timeframe missing · preview blocked" in text
     assert "Visual identity missing · preview blocked" in text
+    assert "Memorable fact missing · preview blocked" in text
     assert "activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady" in text
     assert "Raw source package needs Tier 1-2 source · preview blocked" in text
     assert "authoritativeUrls.size < 1" in text
