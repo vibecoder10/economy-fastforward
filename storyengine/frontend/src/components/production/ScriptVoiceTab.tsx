@@ -110,6 +110,45 @@ function stripStyleDirectives(text: string): string {
     .trim();
 }
 
+function machineLabel(item: any): string {
+  if (typeof item === "string") return item;
+  return [item?.designation, item?.name || item?.unit || item?.machine].filter(Boolean).join(" — ");
+}
+
+function unitCode(text: string): string {
+  const upper = String(text || "").toUpperCase().replace(/[–—]/g, "-");
+  const designation = upper.match(/\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b/) || upper.match(/\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b/);
+  if (designation?.[0]) return designation[0].replace(/\s+/g, "");
+  return (upper.match(/[A-Z0-9]+/g) || []).slice(0, 4).join(" ");
+}
+
+function normalizedUnitCode(text: string): string {
+  return unitCode(text).replace(/[^A-Z0-9]/g, "");
+}
+
+function machineLabelMatches(left: unknown, right: unknown): boolean {
+  const leftText = String(left || "").trim();
+  const rightText = String(right || "").trim();
+  if (!leftText || !rightText) return false;
+  const leftCode = normalizedUnitCode(leftText);
+  const rightCode = normalizedUnitCode(rightText);
+  if (leftCode && rightCode && leftCode === rightCode) return true;
+  return leftText.toLowerCase() === rightText.toLowerCase();
+}
+
+function previewMatchesMachine(preview: any, machine: string): boolean {
+  return machineLabelMatches(preview?.machine, machine);
+}
+
+function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
+  if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
+  if (previews[machine]) return previews[machine] as MachineScriptPreview;
+  const match = Object.entries(previews).find(([key, preview]: [string, any]) => (
+    machineLabelMatches(key, machine) || previewMatchesMachine(preview, machine)
+  ));
+  return match ? match[1] as MachineScriptPreview : null;
+}
+
 function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
   const sorted = [...apiScenes].sort((a, b) => (a.scene || 0) - (b.scene || 0));
   const total = sorted.length;
@@ -1234,11 +1273,19 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   })();
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
+  const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
   const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
     ? machinePreview.claim_bundle.claim_map
     : [];
   const previewEvidenceById = (() => {
-    const rows: Record<string, { slot?: string; claim?: string; source_title?: string }> = {};
+    const rows: Record<string, {
+      slot?: string;
+      claim?: string;
+      source_excerpt?: string;
+      source_title?: string;
+      source_url?: string;
+      locator?: string;
+    }> = {};
     const slots = Array.isArray((machinePreview?.story_plan as any)?.slots)
       ? (machinePreview?.story_plan as any).slots
       : [];
@@ -1251,7 +1298,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         rows[id] = {
           slot: slotName,
           claim: String(segment?.claim || ""),
+          source_excerpt: String(segment?.source_excerpt || ""),
           source_title: String(segment?.source_title || ""),
+          source_url: String(segment?.source_url || ""),
+          locator: String(segment?.locator || ""),
         };
       }
     }
@@ -1259,7 +1309,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   })();
 
   const handleMachinePreview = async () => {
-    const machine = previewMachine || machineRoster[0];
+    const machine = previewMachine || machineRosterLabels[0];
     if (!machine) return;
     setPreviewGenerating(true);
     try {
@@ -1272,7 +1322,18 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         toast.error(`${machine} preview needs review. Production script unchanged.`);
       }
     } catch (err) {
-      toast.error(`Preview failed: ${(err as Error).message}`);
+      const message = (err as Error).message || "Unknown error";
+      setMachinePreview({
+        machine,
+        scene: 0,
+        paragraph: "",
+        word_count: 0,
+        passed: false,
+        warnings: [message],
+        research_source: "preview_error",
+        claim_bundle: { claim_map: [] },
+      });
+      toast.error(`Preview failed: ${message}`);
     } finally {
       setPreviewGenerating(false);
     }
@@ -1330,12 +1391,12 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             <p className="text-xs mb-3" style={{ color: "var(--text-tertiary)" }}>Generate one isolated paragraph for calibration. This does not create scenes, advance the video, or touch the full script.</p>
             <div className="flex flex-col sm:flex-row gap-2">
               <select
-                value={previewMachine || machineRoster[0] || ""}
-                onChange={(e) => { setPreviewMachine(e.target.value); setMachinePreview(researchPayload?.machine_script_previews?.[e.target.value] || null); }}
+                value={previewMachine || machineRosterLabels[0] || ""}
+                onChange={(e) => { setPreviewMachine(e.target.value); setMachinePreview(previewForMachine(researchPayload?.machine_script_previews, e.target.value)); }}
                 className="flex-1 rounded-lg px-3 py-2 text-sm"
                 style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
               >
-                {machineRoster.map((machine: string, i: number) => <option key={machine} value={machine}>{i + 1}. {machine}</option>)}
+                {machineRosterLabels.map((machine: string, i: number) => <option key={machine} value={machine}>{i + 1}. {machine}</option>)}
               </select>
               <button
                 onClick={handleMachinePreview}
@@ -1353,7 +1414,13 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                   <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{machinePreview.machine}</span>
                   <span className="text-xs font-mono" style={{ color: machinePreview.passed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreview.passed ? "Passed" : "Needs review"}</span>
                 </div>
-                <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machinePreview.paragraph}</p>
+                {machinePreview.paragraph ? (
+                  <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machinePreview.paragraph}</p>
+                ) : (
+                  <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                    Preview stopped before a paragraph was generated.
+                  </div>
+                )}
                 {previewClaimMap.length > 0 && (
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
@@ -1364,9 +1431,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       const evidenceIds = Array.isArray(row.used_evidence_ids)
                         ? row.used_evidence_ids
                         : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
-                      const sources = evidenceIds
-                        .map((id) => previewEvidenceById[id]?.source_title || id)
-                        .filter(Boolean);
+                      const evidenceRows = evidenceIds
+                        .map((id) => ({ id, evidence: previewEvidenceById[id] }))
+                        .filter((item: { id: string; evidence?: any }) => item.id);
                       return (
                         <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
                           <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -1374,7 +1441,19 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                             <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{evidenceIds.join(", ")}</span>
                           </div>
                           <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>
-                          {sources.length > 0 && <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>{sources.join(" · ")}</p>}
+                          {evidenceRows.length > 0 && (
+                            <div className="mt-2 space-y-2">
+                              {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
+                                <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
+                                  <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                    {[evidence?.source_title || id, evidence?.locator].filter(Boolean).join(" · ")}
+                                  </p>
+                                  {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
+                                  {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
