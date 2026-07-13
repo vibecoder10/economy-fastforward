@@ -539,6 +539,54 @@ def _machine_source_variant_selection_metadata(
     }
 
 
+def _source_variant_selection_summary(selection: Any) -> str:
+    """Compact source-choice provenance for the verified-source prompt block."""
+    if not isinstance(selection, dict):
+        return ""
+    selected_method = str(
+        selection.get("selected_capture_method")
+        or (selection.get("selected_variant") or {}).get("source_capture_method")
+        or ""
+    ).strip()
+    variants = selection.get("evaluated_variants")
+    variants = variants if isinstance(variants, list) else []
+    selected_variant = selection.get("selected_variant") if isinstance(selection.get("selected_variant"), dict) else {}
+    if not selected_variant and selected_method:
+        selected_variant = next(
+            (
+                variant for variant in variants
+                if isinstance(variant, dict)
+                and str(variant.get("source_capture_method") or "").strip() == selected_method
+            ),
+            {},
+        )
+    compared = [
+        str(variant.get("source_capture_method") or "").strip()
+        for variant in variants
+        if isinstance(variant, dict) and str(variant.get("source_capture_method") or "").strip()
+    ]
+    score = ""
+    if isinstance(selected_variant, dict) and selected_variant:
+        try:
+            covered = int(selected_variant.get("covered_slot_count") or 0)
+            distinct = int(selected_variant.get("distinct_slot_excerpt_count") or 0)
+            score = f"{covered} slots/{distinct} distinct"
+        except (TypeError, ValueError):
+            score = ""
+    selected_hash = str((selected_variant or {}).get("text_hash") or "").strip()
+    rule = " ".join(str(selection.get("selection_rule") or "").split())
+    return "; ".join(
+        part for part in [
+            f"selected={selected_method}" if selected_method else "",
+            f"score={score}" if score else "",
+            f"selected_text_hash={selected_hash[:12]}" if selected_hash else "",
+            f"compared={'/'.join(compared)}" if len(compared) > 1 else "",
+            f"rule={rule}" if rule else "",
+        ]
+        if part
+    )
+
+
 def _verified_machine_source_package_ready(package: Any) -> bool:
     if not isinstance(package, dict) or package.get("passed") is False:
         return False
@@ -1018,6 +1066,7 @@ def _format_verified_machine_source_package(package: dict, machine: str = "") ->
             str(item.get("source_url") or ""),
             str(item.get("source_title") or ""),
         ).get("label")
+        source_selection = _source_variant_selection_summary(item.get("source_variant_selection"))
         lines.extend([
             "",
             f"EXCERPT_ID: {item.get('excerpt_id')}",
@@ -1025,7 +1074,9 @@ def _format_verified_machine_source_package(package: dict, machine: str = "") ->
             f"SOURCE_URL: {item.get('source_url')}",
             f"SOURCE_TIER: {tier} - {tier_label}",
             f"SOURCE_CAPTURE_METHOD: {item.get('source_capture_method') or 'legacy_unmarked'}",
+            f"SOURCE_SELECTION: {source_selection or 'missing'}",
             f"ANTON_SLOT_HINTS: {', '.join(item.get('anton_slot_hints') or []) or 'none'}",
+            f"EXCERPT_TEXT_HASH: {item.get('text_hash') or ''}",
             f"LOCATOR: {item.get('locator')}",
             f"EXACT_TEXT: {item.get('text')}",
         ])

@@ -18,6 +18,8 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     assert "`source_variant_selection`" in text
     assert "the evaluated capture methods, selected method, coverage counts, exact-text hashes, and the tie-break rule" in text
     assert "and to carry `source_variant_selection`" in text
+    assert "compact `SOURCE_SELECTION`, `EXCERPT_TEXT_HASH`, `ANTON_SLOT_HINTS`" in text
+    assert "provenance is supplied for grounding and then backfilled by validation" in text
     assert "`Raw source package missing provenance`" in text
     assert "`source_capture_method`, and `source_variant_selection`" in text
     assert "The story plan and preview artifact preserve that provenance" in text

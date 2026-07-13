@@ -293,6 +293,9 @@ def test_verified_source_package_format_exposes_source_tier():
 
     assert "SOURCE_TIER: 4 - Tier 4 caution/general" in formatted
     assert "SOURCE_CAPTURE_METHOD: fetched_page" in formatted
+    assert "SOURCE_SELECTION: selected=fetched_page" in formatted
+    assert "score=4 slots/4 distinct" in formatted
+    assert "EXCERPT_TEXT_HASH: test" in formatted
     assert "ANTON_SLOT_HINTS:" in formatted
 
 
@@ -319,6 +322,8 @@ def test_verified_source_package_format_hides_untraceable_or_wrong_machine_rows(
 
     assert "Only approved-capture, source_url/locator-traceable rows" in formatted
     assert "SOURCE_CAPTURE_METHOD: fetched_page" in formatted
+    assert "SOURCE_SELECTION: selected=fetched_page" in formatted
+    assert "EXCERPT_TEXT_HASH: test" in formatted
     assert "Original problem claim grounded in the supplied source" in formatted
     assert "search-result snippet" not in formatted
     assert "legacy_unmarked" not in formatted
@@ -5394,6 +5399,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
     assert "EXACT_TEXT: Boeing B-52 Stratofortress Original problem claim grounded in the supplied source." in prompt
+    assert "SOURCE_SELECTION: selected=fetched_page" in prompt
+    assert "EXCERPT_TEXT_HASH: test" in prompt
     assert "source_excerpt_id, source_url, source_title, locator" in prompt
     assert "source_excerpt_id must equal that row's EXCERPT_ID" in prompt
     assert "source_url and locator must match" in prompt
