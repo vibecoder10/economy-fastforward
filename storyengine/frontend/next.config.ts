@@ -1,4 +1,8 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const appDir = path.dirname(fileURLToPath(import.meta.url));
 
 // Security headers. These apply to every response.
 // NOTE: the CSP here is deliberately the *non-resource* subset (frame-ancestors,
@@ -21,7 +25,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   turbopack: {
-    root: process.cwd(),
+    root: appDir,
   },
   // Removed "output: export" to support dynamic routes like /pipeline/[videoId]/storyboards
   // For production deployment, use a Node.js server or edge runtime
