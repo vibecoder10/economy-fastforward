@@ -55,6 +55,8 @@ Single-machine preview artifacts are saved under the same normalized machine key
 
 Every selected-machine research checkpoint and final save is guarded by the original locked `unit_roster` snapshot. If the roster changes while a one-machine run is in flight, the save is refused rather than overwriting the newer roster state.
 
+All machine-research saves and script-preview reads/writes are tenant-scoped. The legacy full-roster route now saves with `video_id + tenant_id` and refuses zero-row saves; the single-machine script preview reads the existing `voice_id` with the same tenant boundary before writing preview artifacts.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
@@ -76,6 +78,8 @@ Fetched source packages also carry `SOURCE_TIER` metadata:
 Required Anton slots cannot be supported only by Tier 4 evidence. Tier 3 remains acceptable when official or museum sources do not contain the needed fact, but high-risk exact facts still need cross-checking or hedging.
 
 StoryEngine's Research and Script/Voice tabs mirror the backend source-package gate before enabling single-machine preview: matching machine identity, at least six excerpts, at least two distinct source URLs, and at least one non-caution source. Thin, wrong-machine, or caution-only packages show a blocked badge instead of a misleading ready state. If an older raw package lacks explicit `source_tier`, the UI infers tier from source URL using the same official/museum/caution hierarchy as the backend.
+
+After a selected-machine research or preview run, the UI invalidates the saved video state so the freshly persisted `machine_raw_source_packages`, `machine_script_previews`, `machine_script_briefs`, and `machine_story_plans` can be reviewed without relying on a manual browser refresh.
 
 ## Script Contract
 
@@ -122,5 +126,6 @@ For the current proof, only the selected first machine is researched or previewe
 2. In StoryEngine, run one-machine research for `Boeing XB-15` only if the existing locked research card needs refresh.
 3. Run only the single-machine script preview for `Boeing XB-15`.
 4. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
-5. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
-6. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
+5. Confirm the saved preview remains visible after switching between Research and Script/Voice; this proves the UI is reading persisted machine artifacts, not only local component state.
+6. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
+7. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
