@@ -4557,6 +4557,85 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
     assert result["research_payload"]["machine_script_previews"]["XB15"]["passed"] is False
 
 
+def test_run_machine_script_preview_refuses_non_roster_machine_before_hold(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": {
+                "documentary_style": "designed_vs_used",
+                "unit_roster": ["Boeing XB-15", "Boeing B-17", "Consolidated B-24"],
+            },
+        }
+
+    async def fake_load_prompt_overrides(_video):
+        return None
+
+    async def forbidden_hold(*_args, **_kwargs):
+        raise AssertionError("non-roster machine must stop before script hold")
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_prompt_overrides)
+    monkeypatch.setattr(executor, "_run_static_script_hold", forbidden_hold)
+
+    result = asyncio.run(
+        executor.run_machine_script_preview("video-test", "Boeing B-52 Stratofortress")
+    )
+
+    assert result["status"] == "failed"
+    assert result["error"] == "Machine is not in the locked roster: Boeing B-52 Stratofortress"
+
+
+def test_run_machine_script_preview_canonicalizes_label_to_locked_roster(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    calls = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": {
+                "documentary_style": "designed_vs_used",
+                "unit_roster": ["Boeing XB-15", "Boeing B-17", "Consolidated B-24"],
+            },
+        }
+
+    async def fake_load_prompt_overrides(_video):
+        return None
+
+    async def fake_hold(video_id, video, roster, target_machine=None):
+        calls.append((video_id, video, roster, target_machine))
+        return {
+            "status": "completed",
+            "video_id": video_id,
+            "preview": {"machine": target_machine, "passed": False},
+            "research_payload": {},
+        }
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_prompt_overrides)
+    monkeypatch.setattr(executor, "_run_static_script_hold", fake_hold)
+
+    result = asyncio.run(
+        executor.run_machine_script_preview("video-test", "XB-15 — Boeing XB-15")
+    )
+
+    assert result["status"] == "completed"
+    assert calls[0][2] == ["Boeing XB-15", "Boeing B-17", "Consolidated B-24"]
+    assert calls[0][3] == "Boeing XB-15"
+    assert result["preview"]["machine"] == "Boeing XB-15"
+
+
 def test_machine_research_route_humanizes_unexpected_exception(monkeypatch):
     import routes.pipeline as route
 
