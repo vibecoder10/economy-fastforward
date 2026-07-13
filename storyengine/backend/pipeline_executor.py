@@ -317,6 +317,26 @@ def _verified_source_cache_key(machine: str) -> str:
     return _normalized_unit_code(_unit_display_name(machine))
 
 
+def _clear_machine_preview_artifacts(payload: dict, machine_key: str) -> None:
+    """Drop preview artifacts that were generated from older research for this machine."""
+    if not isinstance(payload, dict) or not machine_key:
+        return
+    import json as _json_clear
+
+    for field_name in ("machine_script_previews", "machine_script_briefs", "machine_story_plans"):
+        artifacts = payload.get(field_name)
+        if isinstance(artifacts, str):
+            try:
+                artifacts = _json_clear.loads(artifacts)
+            except Exception:
+                artifacts = {}
+        if not isinstance(artifacts, dict):
+            continue
+        updated = dict(artifacts)
+        updated.pop(machine_key, None)
+        payload[field_name] = updated
+
+
 def _verified_source_package_for_machine(payload: dict, machine: str) -> Optional[dict]:
     """Find the fetched raw-source package for one locked machine."""
     if not isinstance(payload, dict):
@@ -3926,10 +3946,25 @@ class PipelineExecutor:
             raise ValueError("raw source package checkpoint requires a non-empty machine key")
         return await execute(
             """UPDATE videos SET research_payload = jsonb_set(
-                   COALESCE(research_payload::jsonb, '{}'::jsonb),
-                   '{machine_raw_source_packages}',
-                   COALESCE(research_payload::jsonb->'machine_raw_source_packages', '{}'::jsonb)
-                     || jsonb_build_object($1::text, $2::jsonb),
+                   jsonb_set(
+                     jsonb_set(
+                       jsonb_set(
+                         COALESCE(research_payload::jsonb, '{}'::jsonb),
+                         '{machine_raw_source_packages}',
+                         COALESCE(research_payload::jsonb->'machine_raw_source_packages', '{}'::jsonb)
+                           || jsonb_build_object($1::text, $2::jsonb),
+                         true
+                       ),
+                       '{machine_script_previews}',
+                       COALESCE(research_payload::jsonb->'machine_script_previews', '{}'::jsonb) - $1::text,
+                       true
+                     ),
+                     '{machine_script_briefs}',
+                     COALESCE(research_payload::jsonb->'machine_script_briefs', '{}'::jsonb) - $1::text,
+                     true
+                   ),
+                   '{machine_story_plans}',
+                   COALESCE(research_payload::jsonb->'machine_story_plans', '{}'::jsonb) - $1::text,
                    true
                ), updated_at = now()
                WHERE id = $3 AND tenant_id = $4
@@ -5097,6 +5132,7 @@ class PipelineExecutor:
                 title, target_machine or "", payload
             )
             payload.setdefault("machine_raw_source_packages", {})[target_code] = verified_source_package
+            _clear_machine_preview_artifacts(payload, target_code)
             checkpoint_result = await self._checkpoint_machine_raw_source_package(
                 video_id, target_code, verified_source_package, locked_roster_snapshot
             )

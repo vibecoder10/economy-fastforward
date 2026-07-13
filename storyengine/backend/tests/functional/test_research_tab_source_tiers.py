@@ -122,6 +122,8 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "queryClient.setQueryData([\"video\", video.id]" in text
     assert "{ ...current, research_payload: result.research_payload }" in text
     assert text.count("{ ...current, research_payload: result.research_payload }") >= 2
+    research_handler = text[text.index("const handleOneMachineResearch"):text.index("const handleOneMachinePreview")]
+    assert "setLocalMachinePreview(null)" in research_handler
     assert "Raw source package saved. Machine card needs review." in text
     assert "Raw source package missing Anton slots ·" in text
     assert "sourcePackage?.source_slot_coverage?.missing_slots" in text

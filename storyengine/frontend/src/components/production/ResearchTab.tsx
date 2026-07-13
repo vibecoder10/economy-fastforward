@@ -797,6 +797,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         throw new Error("No locked machine selected.");
       }
       const result = await runOneMachineResearch(video.id, machine);
+      setLocalMachinePreview(null);
       if (result.research_payload) {
         queryClient.setQueryData(["video", video.id], (current: any) => (
           current ? { ...current, research_payload: result.research_payload } : current

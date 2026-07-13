@@ -4747,7 +4747,13 @@ def test_target_machine_research_marks_full_hold_complete_after_final_verified_c
 
 def test_target_machine_research_requires_verified_source_package_before_llm(monkeypatch):
     roster_names = ["Boeing XB-15", "Boeing B-52 Stratofortress", "Convair B-36"]
-    payload = {"unit_roster": roster_names}
+    stale_key = pe._verified_source_cache_key("Boeing B-52 Stratofortress")
+    payload = {
+        "unit_roster": roster_names,
+        "machine_script_previews": {stale_key: {"paragraph": "Old B-52 preview."}},
+        "machine_script_briefs": {stale_key: {"old": "brief"}},
+        "machine_story_plans": {stale_key: {"old": "plan"}},
+    }
 
     class ForbiddenAnthropic:
         async def generate(self, **_kwargs):
@@ -4797,7 +4803,15 @@ def test_target_machine_research_requires_verified_source_package_before_llm(mon
 
     assert result["unit_research_hold_validation"]["passed"] is False
     assert result["unit_research_hold_validation"]["warnings"] == ["no verified excerpts"]
+    assert stale_key not in result["machine_script_previews"]
+    assert stale_key not in result["machine_script_briefs"]
+    assert stale_key not in result["machine_story_plans"]
     assert any("machine_raw_source_packages" in query for query, _args in writes)
+    raw_checkpoint = next(query for query, _args in writes if "machine_raw_source_packages" in query)
+    assert "machine_script_previews" in raw_checkpoint
+    assert "machine_script_briefs" in raw_checkpoint
+    assert "machine_story_plans" in raw_checkpoint
+    assert "- $1::text" in raw_checkpoint
     assert not any("INSERT INTO machine_research_cards" in query for query, _args in writes)
 
 
