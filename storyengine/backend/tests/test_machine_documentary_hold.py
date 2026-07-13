@@ -2433,6 +2433,17 @@ def test_story_paragraph_validator_requires_every_sentence_claim_mapped():
     assert not any("paragraph missing required Anton slot evidence" in warning for warning in warnings)
 
 
+def test_story_paragraph_validator_rejects_multi_sentence_claim_map_span():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["claim_map"][0]["span"] = f"{bundle['formula_sentences'][0]} {bundle['formula_sentences'][1]}"
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("claim_map row 1 must map inside one formula sentence" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_requires_sentence_numbers_inside_claim_map_span():
     evidence = _evidence_segments()
     evidence[2]["numeric_tokens"] = ["1950"]

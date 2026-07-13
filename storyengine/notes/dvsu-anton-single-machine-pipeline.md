@@ -175,7 +175,7 @@ Validation requires:
 - narrative weight target followed inside that hard range: major machines closer to 120 words, transitional machines closer to 95 words, with no padding
 - locked machine designation present
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
-- claim-map spans copied exactly from the paragraph
+- claim-map spans copied exactly from the paragraph, with each span contained inside exactly one formula sentence
 - required Anton evidence slots covered: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - sourced `memorable_fact` used when the story plan provides one
 - sourced `human_detail` used for the first three benchmark machines when the story plan provides one

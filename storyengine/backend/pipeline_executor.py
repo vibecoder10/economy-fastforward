@@ -2096,6 +2096,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if not isinstance(formula_sentences, list):
         formula_sentences = []
     formula_sentences = [" ".join(str(item or "").split()) for item in formula_sentences if str(item or "").strip()]
+    sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
+    sentence_count = len(sentence_parts)
     opening_assignment = str(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("opening_assignment") or "")
     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_assignment))
     narrative_warning = _narrative_weight_target_warning(paragraph, plan)
@@ -2149,6 +2151,19 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             warnings.append(f"claim_map row {index} missing span")
         elif span not in paragraph:
             warnings.append(f"claim_map row {index} span is not present in paragraph")
+        elif sentence_parts:
+            span_sentence_indexes = [
+                sentence_index
+                for sentence_index, sentence in enumerate(sentence_parts, start=1)
+                if span == sentence or span in sentence
+            ]
+            broad_sentence_indexes = [
+                sentence_index
+                for sentence_index, sentence in enumerate(sentence_parts, start=1)
+                if sentence and sentence in span and span != sentence
+            ]
+            if len(span_sentence_indexes) != 1 or broad_sentence_indexes:
+                warnings.append(f"claim_map row {index} must map inside one formula sentence")
         row_ids_raw = row.get("used_evidence_ids") or row.get("evidence_ids")
         if not isinstance(row_ids_raw, list) or not row_ids_raw:
             warnings.append(f"claim_map row {index} must declare used_evidence_ids")
@@ -2335,7 +2350,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if unsupported_designations:
         warnings.append("paragraph introduced unsupported designation(s): " + ", ".join(unsupported_designations))
 
-    sentence_count = len([part for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()])
     if sentence_count < _ANTON_PARAGRAPH_MIN_SENTENCES or sentence_count > _ANTON_PARAGRAPH_MAX_SENTENCES:
         warnings.append(
             f"paragraph sentence count {sentence_count} outside Anton {_ANTON_PARAGRAPH_SENTENCE_RANGE} range"
@@ -2344,7 +2358,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append(
             f"paragraph must follow Anton formula: {_ANTON_PARAGRAPH_FORMULA} ({_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences)"
         )
-    sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
     if len(formula_sentences) != _ANTON_PARAGRAPH_FORMULA_SENTENCES:
         warnings.append(
             f"formula_sentences must contain {_ANTON_PARAGRAPH_FORMULA_SENTENCES} assembled sentences: {_ANTON_PARAGRAPH_FORMULA}"
@@ -2357,7 +2370,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     for sentence_index, sentence in enumerate(sentence_parts, start=1):
         sentence_claim_spans = [
             detail for detail in claim_span_details
-            if detail.get("span") and (detail["span"] in sentence or sentence in detail["span"])
+            if detail.get("span") and (detail["span"] == sentence or detail["span"] in sentence)
         ]
         if sentence_index == final_sentence_index and sentence_claim_spans:
             warnings.append("final sentence must be paragraph-derived synthesis, not source-backed claim_map evidence")
@@ -5785,6 +5798,7 @@ class PipelineExecutor:
                     "- If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat. Do not add a separate anecdote sentence.\n"
                     "- The final sentence is editorial synthesis from the assembled paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
+                    "- Each claim_map span must sit inside exactly one formula sentence. Never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries.\n"
                     "- Every unhedged exact number, specification, production count, date, or superlative must be supported by two independent evidence IDs that both contain that exact numeric detail; otherwise hedge the claim or remove it.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
@@ -5860,6 +5874,7 @@ class PipelineExecutor:
                         "formula_sentences must contain those exact five final sentences in order and must join with spaces to reproduce paragraph exactly. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
+                        "Each claim_map span must sit inside exactly one formula sentence; never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
