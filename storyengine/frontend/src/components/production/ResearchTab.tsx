@@ -5,7 +5,16 @@ import { RefreshCw, FileText, Search, Loader2, Check, ChevronDown, ChevronRight,
 import { useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage, advanceVideo, updateVideo, resetPipeline, clearStaleTask, runOneMachineResearch } from "@/lib/api";
+import {
+  runPipelineStage,
+  advanceVideo,
+  updateVideo,
+  resetPipeline,
+  clearStaleTask,
+  runOneMachineResearch,
+  runMachineScriptPreview,
+} from "@/lib/api";
+import type { MachineScriptPreview } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 
@@ -146,6 +155,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [taskMode, setTaskMode] = useState<"research" | "machines">("research");
   const [selectedMachine, setSelectedMachine] = useState("");
   const [singleMachineRunning, setSingleMachineRunning] = useState(false);
+  const [singlePreviewRunning, setSinglePreviewRunning] = useState(false);
+  const [localMachinePreview, setLocalMachinePreview] = useState<MachineScriptPreview | null>(null);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -217,6 +228,30 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       toast.error(`Machine research failed: ${(err as Error).message || "Unknown error"}`);
     } finally {
       setSingleMachineRunning(false);
+    }
+  }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
+
+  const handleOneMachinePreview = useCallback(async () => {
+    setSinglePreviewRunning(true);
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
+      const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+      const machine = selectedMachine || machineLabel(roster[0]);
+      if (!machine) {
+        throw new Error("No locked machine selected.");
+      }
+      const result = await runMachineScriptPreview(video.id, machine);
+      setLocalMachinePreview(result.preview);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      if (result.preview.passed) {
+        toast.success("Single-machine preview passed.");
+      } else {
+        toast.error("Single-machine preview needs review.");
+      }
+    } catch (err: unknown) {
+      toast.error(`Script preview failed: ${(err as Error).message || "Unknown error"}`);
+    } finally {
+      setSinglePreviewRunning(false);
     }
   }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
 
@@ -295,8 +330,54 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         : null),
       unit_research_cards: Array.isArray(payload.unit_research_cards) ? payload.unit_research_cards : [],
       unit_research_hold_validation: payload.unit_research_hold_validation || null,
+      machine_script_previews: payload.machine_script_previews && typeof payload.machine_script_previews === "object" && !Array.isArray(payload.machine_script_previews)
+        ? payload.machine_script_previews
+        : {},
     };
   }, [video]);
+
+  const selectedMachineLabel = useMemo(() => {
+    return selectedMachine || machineLabel(research?.unit_roster?.[0]) || "";
+  }, [research?.unit_roster, selectedMachine]);
+
+  const selectedResearchCard = useMemo(() => {
+    if (!research || !selectedMachineLabel) return null;
+    return research.unit_research_cards.find((candidate: any) => cardLabel(candidate).toLowerCase() === selectedMachineLabel.toLowerCase()) || null;
+  }, [research, selectedMachineLabel]);
+
+  const selectedMachinePreview = useMemo(() => {
+    if (localMachinePreview?.machine === selectedMachineLabel) return localMachinePreview;
+    return research?.machine_script_previews?.[selectedMachineLabel] || null;
+  }, [localMachinePreview, research?.machine_script_previews, selectedMachineLabel]);
+
+  const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
+    ? selectedMachinePreview.claim_bundle.claim_map
+    : [];
+
+  const selectedPreviewEvidenceById = useMemo(() => {
+    const rows: Record<string, { slot?: string; claim?: string; source_title?: string }> = {};
+    const slots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
+      ? (selectedMachinePreview?.story_plan as any).slots
+      : [];
+    for (const slot of slots) {
+      const slotName = String(slot?.slot || "");
+      const segments = Array.isArray(slot?.evidence_segments) ? slot.evidence_segments : [];
+      for (const segment of segments) {
+        const id = String(segment?.evidence_id || "");
+        if (!id) continue;
+        rows[id] = {
+          slot: slotName,
+          claim: String(segment?.claim || ""),
+          source_title: String(segment?.source_title || ""),
+        };
+      }
+    }
+    return rows;
+  }, [selectedMachinePreview?.story_plan]);
+
+  const selectedPreviewSlots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
+    ? (selectedMachinePreview?.story_plan as any).slots
+    : [];
 
   if (!research || !research.headline) {
     return (
@@ -475,7 +556,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <select
                   value={selectedMachine || machineLabel(research.unit_roster[0]) || ""}
-                  onChange={(e) => setSelectedMachine(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedMachine(e.target.value);
+                    setLocalMachinePreview(null);
+                  }}
                   className="flex-1 rounded-lg px-3 py-2 text-sm"
                   style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
                 >
@@ -491,6 +575,14 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   disabled={singleMachineRunning || isResearching || taskRunning}
                 >
                   {singleMachineRunning ? "Researching..." : "Research selected"}
+                </ActionButton>
+                <ActionButton
+                  variant="filled"
+                  icon={singlePreviewRunning ? Loader2 : ShieldCheck}
+                  onClick={handleOneMachinePreview}
+                  disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchCard}
+                >
+                  {singlePreviewRunning ? "Previewing..." : selectedMachinePreview ? "Preview selected" : "Script preview"}
                 </ActionButton>
               </div>
             </div>
@@ -516,6 +608,105 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 <li key={i} className="text-xs" style={{ color: "var(--orange)" }}>• {warning}</li>
               ))}
             </ul>
+          )}
+
+          {selectedResearchCard && (
+            <div
+              className="mt-4 rounded-lg p-4"
+              style={{
+                background: "rgba(0,0,0,.18)",
+                border: `1px solid ${selectedMachinePreview?.passed ? "rgba(74,222,128,.28)" : "rgba(255,255,255,.09)"}`,
+              }}
+            >
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={14} style={{ color: selectedMachinePreview?.passed ? "var(--green)" : "var(--turquoise)" }} />
+                    <h4 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                      Single-machine script preview
+                    </h4>
+                  </div>
+                  <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>{selectedMachineLabel}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedMachinePreview?.passed ? "rgba(0,230,138,.12)" : "rgba(255,255,255,.06)", color: selectedMachinePreview?.passed ? "var(--green)" : "var(--text-tertiary)" }}>
+                    {selectedMachinePreview ? (selectedMachinePreview.passed ? "Passed" : "Needs review") : "Not previewed"}
+                  </span>
+                  {selectedMachinePreview?.word_count !== undefined && (
+                    <span className="rounded-md px-2 py-1 text-[10px] font-mono" style={{ background: "rgba(255,255,255,.06)", color: "var(--text-tertiary)" }}>
+                      {selectedMachinePreview.word_count} words
+                    </span>
+                  )}
+                  {selectedMachinePreview?.research_source && (
+                    <span className="rounded-md px-2 py-1 text-[10px] font-mono" style={{ background: "rgba(255,255,255,.06)", color: "var(--text-tertiary)" }}>
+                      {selectedMachinePreview.research_source}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {selectedMachinePreview ? (
+                <div className="space-y-4">
+                  {(selectedMachinePreview.onscreen_label || selectedMachinePreview.claim_bundle?.onscreen_label) && (
+                    <div className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>On-screen label</div>
+                      <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
+                        {selectedMachinePreview.onscreen_label || selectedMachinePreview.claim_bundle?.onscreen_label}
+                      </p>
+                    </div>
+                  )}
+                  <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{selectedMachinePreview.paragraph}</p>
+
+                  {selectedPreviewSlots.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedPreviewSlots.map((slot: any) => {
+                        const evidenceCount = Array.isArray(slot?.evidence_ids) ? slot.evidence_ids.length : 0;
+                        return (
+                          <span key={slot.slot} className="rounded-md px-2 py-1 text-[10px] font-mono" style={{ background: slot.required ? "rgba(79,214,198,.1)" : "rgba(255,255,255,.055)", color: slot.required ? "var(--turquoise)" : "var(--text-tertiary)", border: "1px solid rgba(255,255,255,.08)" }}>
+                            {slot.slot}: {evidenceCount}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {selectedPreviewClaimMap.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                        <ShieldCheck size={12} />
+                        Evidence map
+                      </div>
+                      {selectedPreviewClaimMap.slice(0, 10).map((row: any, index: number) => {
+                        const evidenceIds = Array.isArray(row.used_evidence_ids)
+                          ? row.used_evidence_ids
+                          : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
+                        const sources = evidenceIds
+                          .map((id: string) => selectedPreviewEvidenceById[id]?.source_title || id)
+                          .filter(Boolean);
+                        return (
+                          <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                            <div className="mb-1 flex flex-wrap items-center gap-2">
+                              <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{row.slot || "slot"}</span>
+                              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{evidenceIds.join(", ")}</span>
+                            </div>
+                            {row.span && <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>}
+                            {sources.length > 0 && <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>{sources.join(" · ")}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {!!selectedMachinePreview.warnings?.length && (
+                    <p className="text-xs" style={{ color: "var(--orange)" }}>{selectedMachinePreview.warnings.join(" · ")}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,255,255,.035)", color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  Research card saved. Script preview pending.
+                </div>
+              )}
+            </div>
           )}
 
           <div className="mt-4 space-y-2">

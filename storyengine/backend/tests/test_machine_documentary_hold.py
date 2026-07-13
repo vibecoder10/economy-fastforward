@@ -24,6 +24,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "Scale specs claim grounded in the supplied source.",
         "Build reality claim grounded in the supplied source.",
         "Service reality claim grounded in the supplied source.",
+        "Memorable fact claim grounded in the supplied source.",
         "Historical meaning claim grounded in the supplied source.",
     ]
     fill_index = 0
@@ -36,6 +37,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "E-SCALE",
         "E-BUILD",
         "E-SERVICE",
+        "E-MEMORABLE",
         "E-MEANING",
     ]
     return json.dumps({
@@ -43,7 +45,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "claim_map": [
             {"slot": slot, "span": sentence, "used_evidence_ids": [evidence_id]}
             for slot, sentence, evidence_id in zip(
-                ["identity_origin", "scale_specs", "build_reality", "service_reality", "historical_meaning"],
+                ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact", "historical_meaning"],
                 sentences,
                 ids,
             )
@@ -59,6 +61,7 @@ def _evidence_segments() -> list[dict]:
         ("E-SCALE", "scale_specs", "Scale specs claim grounded in the supplied source."),
         ("E-BUILD", "build_reality", "Build reality claim grounded in the supplied source."),
         ("E-SERVICE", "service_reality", "Service reality claim grounded in the supplied source."),
+        ("E-MEMORABLE", "memorable_fact", "Memorable fact claim grounded in the supplied source."),
         ("E-COMBAT", "combat_reality", "Combat reality claim grounded in the supplied source."),
         ("E-MEANING", "historical_meaning", "Historical meaning claim grounded in the supplied source."),
         ("E-LABEL", "onscreen_label", "Onscreen label claim grounded in the supplied source."),
@@ -352,6 +355,7 @@ def test_story_plan_locks_research_into_anton_slots():
     assert by_slot["scale_specs"] == ["E-SCALE"]
     assert by_slot["build_reality"] == ["E-BUILD"]
     assert by_slot["service_reality"] == ["E-SERVICE"]
+    assert by_slot["memorable_fact"] == ["E-MEMORABLE"]
     assert by_slot["historical_meaning"] == ["E-MEANING"]
     assert "must not enter the plan" not in json.dumps(plan)
     assert plan["contract"]["maximum_numerical_details"] == 8
@@ -409,7 +413,7 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
     assert warnings == []
     assert pe._spoken_word_count(paragraph) == 95
     assert [row["used_evidence_ids"][0] for row in bundle["claim_map"]] == [
-        "E-IDENTITY", "E-SCALE", "E-BUILD", "E-SERVICE", "E-MEANING"
+        "E-IDENTITY", "E-SCALE", "E-BUILD", "E-SERVICE", "E-MEMORABLE", "E-MEANING"
     ]
 
 
@@ -440,6 +444,17 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
         {
             "evidence_id": "XB15-BUILD",
             "kind": "build_reality",
+            "claim": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
+            "source_excerpt": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
+            "source_url": "https://example.test/xb-15",
+            "source_title": "Anton source fixture",
+            "locator": "paragraph-1",
+            "numeric_tokens": ["one"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB15-MEMORABLE",
+            "kind": "memorable_fact",
             "claim": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
             "source_excerpt": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
             "source_url": "https://example.test/xb-15",
@@ -498,6 +513,11 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
                 "slot": "build_reality",
                 "span": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
                 "used_evidence_ids": ["XB15-BUILD"],
+            },
+            {
+                "slot": "memorable_fact",
+                "span": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
+                "used_evidence_ids": ["XB15-MEMORABLE"],
             },
             {
                 "slot": "service_reality",
@@ -655,6 +675,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"paragraph":"..."' in fake_anthropic.prompts[0]
     assert "identity_origin, scale_specs, build_reality, service_reality, and historical_meaning" in fake_anthropic.prompts[0]
+    assert "No orphan facts" in fake_anthropic.prompts[1]
     assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
     assert "final sentence must be 28 words or fewer" in fake_anthropic.prompts[0]

@@ -672,9 +672,12 @@ export type MachineScriptPreview = {
   word_count: number;
   passed: boolean;
   warnings: string[];
+  onscreen_label?: string;
+  research_source?: string;
   story_plan?: Record<string, unknown>;
   claim_bundle?: {
     paragraph?: string;
+    onscreen_label?: string;
     claim_map?: Array<{
       span?: string;
       slot?: string;

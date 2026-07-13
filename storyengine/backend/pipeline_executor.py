@@ -318,8 +318,10 @@ _ANTON_SLOT_SPECS = (
     ("scale_specs", ("scale_specs", "engineering_response"), "Select the few scale/capability details that prove the machine's ambition."),
     ("build_reality", ("build_reality", "production_reality", "prototype_reality"), "Show the prototype, production, or build-count reality."),
     ("service_reality", ("service_reality", "operational_reality", "actual_outcome", "test_result"), "Show what actually happened in service, testing, or institutional use."),
+    ("memorable_fact", ("memorable_fact", "surprising_fact", "retention_fact"), "Capture one sourced fact that serious viewers are unlikely to know, and that supports the engineering story."),
     ("combat_reality", ("combat_reality",), "Clarify combat or non-combat reality when that contrast matters."),
     ("tradeoff_or_limit", ("tradeoff_or_limit", "tradeoff", "limitation", "failure_mode"), "Explain the limitation, sacrifice, or unexpected consequence when it is central to the machine."),
+    ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced."),
     ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "State the sourced meaning: what concept, doctrine, trade-off, or future path the machine proved."),
     ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
     ("onscreen_label", ("onscreen_label",), "On-screen label ingredients: name, concise role, build count, and service/date range."),
@@ -752,7 +754,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "evidence_slot_roles": role_by_id,
         "contract": {
             "paragraph_shape": "one Anton/DVsU paragraph, 4-6 natural sentences",
-            "movement": "identity/origin hook -> scale/spec proof -> prototype/build reality -> service/combat reality -> historical meaning",
+            "movement": "identity/origin hook -> scale/spec proof -> prototype/build reality -> service/combat reality -> optional memorable fact -> historical meaning",
             "paragraph_words": "95-120",
             "maximum_numerical_details": 8,
             "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
@@ -3068,7 +3070,11 @@ class PipelineExecutor:
             card.setdefault("onscreen_label", by_kind.get("onscreen_label") or "")
             card.setdefault(
                 "surprising_fact",
-                card.get("surprising_fact")
+                by_kind.get("memorable_fact")
+                or by_kind.get("surprising_fact")
+                or by_kind.get("retention_fact")
+                or by_kind.get("human_detail")
+                or card.get("surprising_fact")
                 or by_kind.get("build_reality")
                 or by_kind.get("combat_reality")
                 or by_kind.get("service_reality")
@@ -3224,9 +3230,10 @@ class PipelineExecutor:
                 "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
-                "- Return 6-9 atomic evidence segments using Anton slot kinds only.\n"
-                "- Required slot kinds at least once: identity_origin, scale_specs, build_reality, service_reality, historical_meaning.\n"
-                "- Add engineering_intent, combat_reality, tradeoff_or_limit, role_category, transition_hook, and onscreen_label only when directly supported by exact excerpts.\n"
+                "- Return 7-10 atomic evidence segments using Anton slot kinds only.\n"
+                "- Required slot kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact, historical_meaning.\n"
+                "- memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia.\n"
+                "- Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when directly supported by exact excerpts.\n"
                 "- Each claim must be one concise factual proposition, maximum 35 words. A scale_specs claim may bundle 2-4 related specifications only if the source excerpt contains them together.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one research slot. Do not write narration or pre-assemble the paragraph.\n"
@@ -3262,8 +3269,9 @@ class PipelineExecutor:
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
-                    "Return 6-9 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, historical_meaning. "
-                    "Add engineering_intent, combat_reality, tradeoff_or_limit, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
+                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact, historical_meaning. "
+                    "memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia. "
+                    "Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
                     "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
@@ -3667,14 +3675,14 @@ class PipelineExecutor:
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
-                    "The target movement is identity/origin hook, scale proof, build reality, service/combat reality, and historical meaning.\n\n"
+                    "The target movement is identity/origin hook, scale proof, build reality, service/combat reality, optional memorable fact, and historical meaning.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
                     '{"paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"identity_origin","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- paragraph must be final spoken narration: exactly one paragraph, 95-120 words, 4-6 natural sentences.\n"
                     "- Target 105-110 words. If you are above 110 words, remove the least important sourced detail instead of compressing more facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or historical meaning.\n"
-                    "- claim_map used_evidence_ids must cover identity_origin, scale_specs, build_reality, service_reality, and historical_meaning.\n"
+                    "- claim_map used_evidence_ids must cover identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
@@ -3684,6 +3692,7 @@ class PipelineExecutor:
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
+                    "- Include the sourced memorable_fact when it strengthens the paragraph, but make it prove the decision, trade-off, outcome, or meaning. No orphan facts.\n"
                     "- End with a short verdict, paradox, irony, or reversal grounded in historical_meaning evidence. The final sentence must be 28 words or fewer.\n"
                     "- onscreen_label must be empty unless onscreen_label evidence or sourced role/build/date slots support it.\n"
                     "- No citations, headings, markdown, commentary, hype, or list transitions.\n\n"
@@ -3738,6 +3747,7 @@ class PipelineExecutor:
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: origin/range, one scale proof, one performance or service reality, and one meaning proof. "
+                        "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
                         "Delete every unsupported high-risk term named in the validation warnings unless that exact word appears in the selected source evidence. "
@@ -3787,6 +3797,7 @@ class PipelineExecutor:
                     "word_count": _spoken_word_count(paragraph),
                     "passed": not warnings,
                     "warnings": warnings,
+                    "onscreen_label": str(bundle.get("onscreen_label") or "").strip(),
                     "research_source": research_source_kind,
                     "story_plan": story_plan,
                     "claim_bundle": bundle,

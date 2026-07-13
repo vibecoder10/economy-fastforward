@@ -3,7 +3,7 @@
 > Review this file at the start of every session. These are hard-won patterns.
 
 ## Session 2026-07-12 — DVsU one-machine research and script-preview gate
-- **Do not let the anti-hallucination scaffold become the visible script shape.** The old XB-15 proof was fact-safe but sounded nothing like Anton because it forced four 19-24 word evidence sentences plus a conclusion. The correct DVsU machine contract is schema-v3 Anton slots (`identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `historical_meaning`) feeding one natural 95-120 word paragraph with a `claim_map`.
+- **Do not let the anti-hallucination scaffold become the visible script shape.** The old XB-15 proof was fact-safe but sounded nothing like Anton because it forced four 19-24 word evidence sentences plus a conclusion. The correct DVsU machine contract is schema-v3 Anton slots (`identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `historical_meaning`) plus optional sourced support slots feeding one natural 95-120 word paragraph with a `claim_map`.
 - **A passing preview must carry its own evidence map.** The StoryEngine preview writer now returns `paragraph` plus `claim_map` spans; validation checks each span's evidence IDs, numbers, designations, high-risk terms, and required slot coverage. This catches the real failure mode: a good-sounding paragraph that floats a number or claim away from its source.
 - **Target-machine preview must filter loaded cards after compact-store hydration.** The live DB can contain legacy/compact cards for other roster machines. Hydrating the compact store is fine, but the in-memory preview payload must be filtered back to the selected machine before building the story plan, or old cards can leak into proof prompts.
 - **A passing research gate is not the same as a passing script gate.** The XB-15 one-machine DVsU research path passed with a verified Tavily source package and four source-addressable evidence beats, but the first script-preview call failed before any narration could be produced because Anthropic returned "credit balance is too low." Treat this as a provider/billing blocker, not a roster or research-quality failure.
@@ -482,3 +482,8 @@ _After each session, add a one-line summary of what was done and any new lessons
 - Prompting the model to "never spell numbers" over-constrains the voice and causes false rejects. The safer contract is: numbers may be numerals or words, but every number must map back to the locked beat's `numeric_tokens` and source excerpt.
 - Claude may return a compact `evidence_sentences` array even after being asked for keyed `sentences`; canonicalize that shape before validation, then let the strict beat/order/evidence checks decide pass/fail.
 - Do not use a deterministic extractive fallback for DVsU machine script previews. If the model cannot produce a natural Anton-style paragraph whose `claim_map` validates against the locked evidence slots, fail the preview for review instead of saving safe filler.
+
+### DVsU Anton slots: memorable facts are optional proof, not a hard gate (2026-07-13)
+- Required single-machine script slots are `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, and `historical_meaning`.
+- `memorable_fact` can improve a paragraph when it proves the engineering story, but requiring it blocks legitimate machines where the source-grounded arc is already complete.
+- Keep the validator, research prompt, script prompt, and tests aligned so the model is not asked to cover a slot the code silently treats differently.
