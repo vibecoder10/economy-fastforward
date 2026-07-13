@@ -473,6 +473,21 @@ def _format_verified_machine_source_package(package: dict) -> str:
     return "\n".join(lines)[:32000]
 
 
+def _verified_machine_source_queries(title: str, machine: str) -> list[str]:
+    """Cost-bounded query set for one machine's exact raw-source package."""
+    manufacturer = " ".join(_unit_display_name(machine).split()[:1]).strip()
+    return list(dict.fromkeys([
+        f'"{machine}" official history',
+        f'"{machine}" USAF fact sheet',
+        f'"{machine}" National Museum of the United States Air Force',
+        f'"{machine}" {manufacturer} development design history'.strip(),
+        f'"{machine}" specifications range payload wingspan engines',
+        f'"{machine}" production prototype built service operational history',
+        f'"{machine}" design tradeoff limitation lessons learned',
+        f'"{machine}" pilot crew engineer account unusual fact test report',
+    ]))[:8]
+
+
 def _validate_card_against_verified_sources(card: dict, package: Optional[dict]) -> list[str]:
     """Require each evidence source excerpt to be text fetched before the LLM call."""
     if not _verified_machine_source_package_ready(package):
@@ -2057,17 +2072,7 @@ class PipelineExecutor:
                 "sources": [],
             }
 
-        manufacturer = " ".join(_unit_display_name(machine).split()[:1]).strip()
-        queries = list(dict.fromkeys([
-            f'"{machine}" official history',
-            f'"{machine}" USAF fact sheet',
-            f'"{machine}" National Museum of the United States Air Force',
-            f'"{machine}" {manufacturer} development operational history'.strip(),
-            f'"{machine}" specifications range payload wingspan engines',
-            f'"{machine}" production prototype built service history',
-            f'"{machine}" combat service transport cargo World War II',
-            f'"{machine}" legacy strategic bomber development',
-        ]))[:8]
+        queries = _verified_machine_source_queries(title, machine)
 
         import httpx as _httpx
 

@@ -110,6 +110,25 @@ def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
     }
 
 
+def test_verified_machine_source_queries_cover_anton_research_slots():
+    queries = pe._verified_machine_source_queries(
+        "Every US Strategic Bomber Ever Built",
+        "Boeing XB-15",
+    )
+    joined = " ".join(queries).lower()
+
+    assert len(queries) == 8
+    assert len(queries) == len(set(queries))
+    assert all('"Boeing XB-15"' in query for query in queries)
+    assert "official history" in joined
+    assert "usaf fact sheet" in joined
+    assert "national museum" in joined
+    assert "specifications range payload wingspan engines" in joined
+    assert "production prototype built service operational history" in joined
+    assert "design tradeoff limitation lessons learned" in joined
+    assert "pilot crew engineer account unusual fact test report" in joined
+
+
 def test_verified_source_package_format_exposes_source_tier():
     segments = _evidence_segments()
     segments[0]["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
