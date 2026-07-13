@@ -16,7 +16,7 @@
 5. Editorial thesis: the single engineering decision, tradeoff, or contrast that tells the writer why these facts belong together.
 6. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
 
-The paragraph is still one natural 90-120 word unit. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
+The paragraph is still one natural 90-120 word unit for this proof. Anton's general DVsU standard says 95-120 words, but the actual first XB-15 benchmark paragraph is 94 words; the validator keeps a narrow 90-word floor so the system can imitate the real bomber reference shape instead of rejecting it. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
 Anton's desktop writing standards add two quality locks to this formula:
 
@@ -80,6 +80,8 @@ Fetched source packages also carry `SOURCE_TIER` metadata:
 - Tier 4: caution/general sources such as Wikipedia, YouTube, social pages, forums, or wiki mirrors
 
 Required Anton slots cannot be supported only by Tier 4 evidence. Tier 3 remains acceptable when official or museum sources do not contain the needed fact, but high-risk exact facts still need cross-checking or hedging.
+
+The desktop research standard's accuracy rule is enforced in the card prompts: be precise or be silent. If exact excerpts conflict or cannot verify a number, date, superlative, or specification, the card must use the more conservative supported wording, hedge it, or omit it rather than choosing the higher or more dramatic claim.
 
 StoryEngine's Research and Script/Voice tabs mirror the backend source-package gate before enabling single-machine preview: matching machine identity, at least six excerpts, at least two distinct source URLs, and at least one non-caution source. Thin, wrong-machine, or caution-only packages show a blocked badge instead of a misleading ready state. If an older raw package lacks explicit `source_tier`, the UI infers tier from source URL using the same official/museum/caution hierarchy as the backend.
 

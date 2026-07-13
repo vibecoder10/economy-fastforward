@@ -3932,6 +3932,8 @@ class PipelineExecutor:
                 "- source_excerpt must be copied from EXACT_TEXT in the verified excerpt package; source_url and locator must match that excerpt.\n"
                 "- Do not use memory, training data, general knowledge, or unsupplied web facts.\n"
                 "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied excerpts cannot support a required slot, make that absence explicit in validation rather than guessing.\n"
+                "- Be precise or be silent: if the exact excerpts cannot verify a claim to reasonable confidence, soften it or omit it.\n"
+                "- If excerpts conflict on a number, date, superlative, or specification, use the more conservative supported wording, hedge it, or leave it out; never pick the higher or more dramatic claim.\n"
                 "- Research remains evidence, not prose composition. Do not return script_beats or a paragraph.\n\n"
                 f"{source_label}:\n{legacy_source}"
             )
@@ -3969,6 +3971,8 @@ class PipelineExecutor:
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url, source_title, locator, numeric_tokens, and confidence. "
                     "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below; source_url and locator must match the same fetched excerpt row. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
+                    "Be precise or be silent: if the exact excerpts cannot verify a claim to reasonable confidence, soften it or omit it. "
+                    "If excerpts conflict on a number, date, superlative, or specification, use the more conservative supported wording, hedge it, or leave it out; never pick the higher or more dramatic claim. "
                     "Do not create script_beats or a paragraph. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
                     f"BAD/RAW CARD:\n{raw}\n\n{source_label}:\n{legacy_source}"
                 )

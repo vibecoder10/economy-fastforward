@@ -1927,6 +1927,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "source_url or locator" not in prompt
     assert "memorable_fact should be returned when the verified excerpts support" in prompt
     assert "never invent one" in prompt
+    assert "Be precise or be silent" in prompt
+    assert "never pick the higher or more dramatic claim" in prompt
     assert "For machines 1-3, prefer one verified human_detail" in prompt
     assert "Never invent a human account" in prompt
     assert "XB-15 leak" not in prompt
@@ -2345,6 +2347,8 @@ def test_research_card_repair_prompt_requires_source_url_and_locator():
     assert "source_url, source_title, locator" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt
+    assert "Be precise or be silent" in prompt
+    assert "never pick the higher or more dramatic claim" in prompt
 
 
 def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(monkeypatch):
