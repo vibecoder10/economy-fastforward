@@ -45,7 +45,7 @@ The raw source package is checkpointed into `research_payload.machine_raw_source
 
 Cached raw source packages are reused only when their saved `machine_key`/`machine` identity still matches the locked target machine. A package stored under the right JSON key but internally belonging to another machine is ignored for research and rejected for script preview before any paid script call.
 
-A successful selected-machine research pass sets `unit_research_hold_validation.target_machine_passed`, but it does not set the full `unit_research_hold_validation.passed` flag unless the entire locked roster is complete. The UI progress count likewise counts only cards that have a matching ready raw source package, so older legacy cards cannot make the new one-machine proof appear complete.
+A successful selected-machine research pass sets `unit_research_hold_validation.target_machine_passed`, but it does not set the full `unit_research_hold_validation.passed` flag unless the entire locked roster is complete. UI progress and incomplete-research messages likewise count only cards that have a matching ready raw source package, so older legacy cards cannot make the new one-machine proof appear complete.
 
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 

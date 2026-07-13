@@ -53,6 +53,16 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "activePreviewSourcePackageStatus.message" in text
 
 
+def test_script_voice_research_gate_counts_only_verified_cards():
+    text = _script_voice_tab().read_text()
+
+    assert "function cardMatchesMachine" in text
+    assert "const verifiedMachineResearchCount = useMemo" in text
+    assert "sourcePackageReady(sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label), label)" in text
+    assert "verified cards finished" in text
+    assert "unit_research_cards?.length || 0" not in text
+
+
 def test_script_voice_preview_keeps_failed_reason_visible():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]

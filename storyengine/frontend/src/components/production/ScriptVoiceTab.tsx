@@ -115,6 +115,10 @@ function machineLabel(item: any): string {
   return [item?.designation, item?.name || item?.unit || item?.machine].filter(Boolean).join(" — ");
 }
 
+function cardLabel(card: any): string {
+  return [card?.machine_name, card?.unit, card?.machine, card?.name, card?.designation].filter(Boolean)[0] || "";
+}
+
 function unitCode(text: string): string {
   const upper = String(text || "").toUpperCase().replace(/[–—]/g, "-");
   const designation = upper.match(/\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b/) || upper.match(/\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b/);
@@ -138,6 +142,10 @@ function machineLabelMatches(left: unknown, right: unknown): boolean {
 
 function previewMatchesMachine(preview: any, machine: string): boolean {
   return machineLabelMatches(preview?.machine, machine);
+}
+
+function cardMatchesMachine(card: any, machine: string): boolean {
+  return machineLabelMatches(cardLabel(card), machine);
 }
 
 function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
@@ -1356,6 +1364,14 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const isMachineDocumentary = video.render_mode === "static_docu" && machineRoster.length > 0;
   const scriptHold = parsedScriptValidation?.script_hold || null;
   const researchRosterGate = researchPayload?.unit_roster_validation || null;
+  const verifiedMachineResearchCount = useMemo(() => {
+    const cards = Array.isArray(researchPayload?.unit_research_cards) ? researchPayload.unit_research_cards : [];
+    return machineRoster.filter((item: any) => {
+      const label = machineLabel(item);
+      const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
+      return Boolean(card) && sourcePackageReady(sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label), label);
+    }).length;
+  }, [machineRoster, researchPayload]);
   const machineResearchGate = (() => {
     const roster = machineRoster;
     if (roster.length === 0) return null;
@@ -1366,7 +1382,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           passed: false,
           complete_title: true,
           roster_count: roster.length,
-          warnings: validation?.warnings || [`Machine research is incomplete: ${researchPayload?.unit_research_cards?.length || 0}/${roster.length} cards finished.`],
+          warnings: validation?.warnings || [`Machine research is incomplete: ${verifiedMachineResearchCount}/${roster.length} verified cards finished.`],
         };
   })();
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
