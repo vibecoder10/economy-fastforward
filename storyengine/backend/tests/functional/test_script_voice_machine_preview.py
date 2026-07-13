@@ -214,6 +214,21 @@ def test_script_voice_preview_refreshes_saved_video_state():
     assert "invalidateAll();" in handler
 
 
+def test_script_voice_preview_button_calls_only_isolated_preview_route():
+    text = _script_voice_tab().read_text()
+    handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]
+
+    assert "const machine = previewMachine || machineRosterLabels[0]" in handler
+    assert "runMachineScriptPreview(video.id, machine)" in handler
+    assert "setMachinePreview(result.preview)" in handler
+    assert "setPreviewMachine(machine)" in handler
+    assert "Production script unchanged." in handler
+    assert 'runPipelineStage(video.id, "script")' not in handler
+    assert "advanceVideo(" not in handler
+    assert "resetPipeline(" not in handler
+    assert "generateVoice(" not in handler
+
+
 def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     text = _script_voice_tab().read_text()
 

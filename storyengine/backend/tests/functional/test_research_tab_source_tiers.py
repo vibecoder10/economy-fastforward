@@ -32,6 +32,29 @@ def _script_voice_tab() -> Path:
     )
 
 
+def _frontend_api() -> Path:
+    return (
+        Path(__file__).resolve().parents[3]
+        / "frontend"
+        / "src"
+        / "lib"
+        / "api.ts"
+    )
+
+
+def test_one_machine_api_wrappers_use_isolated_endpoints():
+    text = _frontend_api().read_text()
+    research_wrapper = text[text.index("export const runOneMachineResearch"):text.index("export const runNextStep")]
+    preview_wrapper = text[text.index("export const runMachineScriptPreview"):text.index("export const runOneMachineResearch")]
+
+    assert "`/api/pipeline/machine-research-one/${videoId}`" in research_wrapper
+    assert "`/api/pipeline/machine-script-preview/${videoId}`" in preview_wrapper
+    assert "body: JSON.stringify({ machine })" in research_wrapper
+    assert "body: JSON.stringify({ machine })" in preview_wrapper
+    assert "/api/pipeline/machine-research/" not in research_wrapper
+    assert "/api/pipeline/script/" not in preview_wrapper
+
+
 def test_research_tab_reads_verified_raw_source_packages():
     text = _research_tab().read_text()
 
@@ -276,6 +299,27 @@ def test_research_tab_does_not_offer_bulk_machine_research_action():
     assert "Research selected" in text
     assert "const machineResearchIsolatedMode = (research?.unit_roster?.length || 0) > 0" in text
     assert "{!machineResearchIsolatedMode && (" in text
+
+
+def test_research_tab_one_machine_buttons_call_only_isolated_routes():
+    text = _research_tab().read_text()
+    research_handler = text[text.index("const handleOneMachineResearch"):text.index("const handleOneMachinePreview")]
+    preview_handler = text[text.index("const handleOneMachinePreview"):text.index("const handleApproveResearch")]
+
+    assert "const machine = selectedMachine || machineLabel(roster[0])" in research_handler
+    assert "runOneMachineResearch(video.id, machine)" in research_handler
+    assert "setLocalMachinePreview(null)" in research_handler
+    assert 'runPipelineStage(video.id, "machine-research")' not in research_handler
+    assert "advanceVideo(" not in research_handler
+    assert "resetPipeline(" not in research_handler
+
+    assert "machine = selectedMachine || machineLabel(roster[0])" in preview_handler
+    assert "runMachineScriptPreview(video.id, machine)" in preview_handler
+    assert "setLocalMachinePreview(result.preview)" in preview_handler
+    assert "Production script unchanged." in preview_handler
+    assert 'runPipelineStage(video.id, "script")' not in preview_handler
+    assert "advanceVideo(" not in preview_handler
+    assert "resetPipeline(" not in preview_handler
 
 
 def test_source_tier_helper_matches_excerpt_locator_not_card_claims():
