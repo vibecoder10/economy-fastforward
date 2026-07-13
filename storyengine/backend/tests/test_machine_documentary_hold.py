@@ -4378,6 +4378,8 @@ def test_research_hold_refuses_bulk_generation_for_missing_machine_cards(monkeyp
 
 def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(monkeypatch):
     roster_names = ["Boeing XB-15", "Boeing B-52 Stratofortress", "Convair B-36"]
+    legacy_xb15_card = {"unit": "Boeing XB-15", "engineering_thesis": "XB-15 stale legacy card leak."}
+    legacy_b36_card = {"unit": "Convair B-36", "engineering_thesis": "B-36 stale legacy card leak."}
     payload = {
         "unit_roster": roster_names,
         "fact_sheet": (
@@ -4386,8 +4388,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
             "Convair B-36 leak should never enter the B-52 proof."
         ),
         "unit_research_cards": [
-            {"unit": "Boeing XB-15", "engineering_thesis": "XB-15 stale legacy card leak."},
-            {"unit": "Convair B-36", "engineering_thesis": "B-36 stale legacy card leak."},
+            legacy_xb15_card,
+            legacy_b36_card,
         ],
     }
     b52_segments = _evidence_segments()
@@ -4482,6 +4484,23 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert result["unit_research_hold_validation"]["passed"] is False
     assert result["unit_research_hold_validation"]["target_machine_passed"] is True
     assert result["unit_research_hold_validation"]["target_machine"] == "Boeing B-52 Stratofortress"
+    by_machine = {
+        unit["machine"]: unit for unit in result["unit_research_hold_validation"]["units"]
+    }
+    assert by_machine["Boeing XB-15"]["warnings"] == ["missing saved one-machine research card"]
+    assert by_machine["Convair B-36"]["warnings"] == ["missing saved one-machine research card"]
+    assert result["unit_research_cards"][0] == legacy_xb15_card
+    assert result["unit_research_cards"][1] == legacy_b36_card
+    assert result["unit_research_cards"][2]["unit"] == "Boeing B-52 Stratofortress"
+    saved_payloads = [
+        json.loads(args[0])
+        for query, args in writes
+        if "UPDATE videos" in query and "SET research_payload = $1" in query
+    ]
+    assert saved_payloads
+    assert saved_payloads[-1]["unit_research_cards"][0] == legacy_xb15_card
+    assert saved_payloads[-1]["unit_research_cards"][1] == legacy_b36_card
+    assert saved_payloads[-1]["unit_research_cards"][2]["unit"] == "Boeing B-52 Stratofortress"
 
 
 def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(monkeypatch):

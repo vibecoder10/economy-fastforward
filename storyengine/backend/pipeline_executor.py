@@ -5046,6 +5046,11 @@ class PipelineExecutor:
         if not isinstance(payload, dict) or not roster:
             return payload
         target_code = _normalized_unit_code(_unit_display_name(target_machine or "")) if target_machine else ""
+        original_unit_research_cards = (
+            list(payload.get("unit_research_cards"))
+            if isinstance(payload.get("unit_research_cards"), list)
+            else []
+        )
         payload = await self._load_machine_research_cards(
             video_id, payload, roster, target_machine=target_machine if target_code else None
         )
@@ -5174,6 +5179,25 @@ class PipelineExecutor:
                         unit["passed"] = False
             return units, all(unit.get("passed") for unit in units)
 
+        def _merge_target_card_for_review(existing_cards: list[Any], target_card: dict, machine: str) -> list[Any]:
+            """Keep unrelated legacy cards unchanged while replacing only the target card."""
+            target_key = _normalized_unit_code(machine)
+            merged: list[Any] = []
+            replaced = False
+            for existing in existing_cards:
+                if isinstance(existing, dict):
+                    raw_unit = existing.get("unit") or existing.get("machine") or existing.get("name") or existing.get("designation") or ""
+                    existing_key = _normalized_unit_code(_unit_display_name(raw_unit) or str(raw_unit))
+                    if target_key and existing_key == target_key:
+                        if not replaced:
+                            merged.append(target_card)
+                            replaced = True
+                        continue
+                merged.append(existing)
+            if not replaced:
+                merged.append(target_card)
+            return merged
+
         anthropic_client = getattr(self._pipeline, "anthropic", None)
         if anthropic_client is None:
             msg = "Unit research-hold requires an Anthropic client, but none is configured."
@@ -5267,12 +5291,19 @@ class PipelineExecutor:
             source_label = "VIDEO-LEVEL RESEARCH / SOURCES"
         unit_cards: list[dict] = []
         if target_code:
-            unit_cards = [
-                cards_by_code[code]
-                for roster_machine in roster
-                for code in [_normalized_unit_code(roster_machine)]
-                if code and code != target_code and code in cards_by_code
-            ]
+            for roster_machine in roster:
+                code = _normalized_unit_code(roster_machine)
+                if not code or code == target_code or code not in cards_by_code:
+                    continue
+                existing_card = cards_by_code[code]
+                existing_warnings = _card_warnings(
+                    roster_machine,
+                    existing_card,
+                    _verified_source_package_for_machine(payload, roster_machine),
+                    require_source_package=True,
+                )
+                if not existing_warnings:
+                    unit_cards.append(existing_card)
         validation_units: list[dict] = []
         await self._log_activity(bot_name, video_id, "running", f"Unit research-hold active: enriching {1 if target_code else len(roster)} machine card(s) one at a time")
 
@@ -5430,7 +5461,11 @@ class PipelineExecutor:
             # failure cannot discard research cards already completed.
             roster_order = {_normalized_unit_code(item): index for index, item in enumerate(roster)}
             unit_cards.sort(key=lambda item: roster_order.get(_normalized_unit_code(_unit_display_name(item)), len(roster)))
-            payload["unit_research_cards"] = unit_cards
+            payload["unit_research_cards"] = (
+                _merge_target_card_for_review(original_unit_research_cards, card, machine)
+                if target_code else
+                unit_cards
+            )
             target_machine_passed = not warnings
             full_validation_units, full_hold_passed = (
                 _full_research_validation(unit_cards)
