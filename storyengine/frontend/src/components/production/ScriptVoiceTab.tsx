@@ -326,6 +326,13 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
 
 function machineResearchCardStatus(card: any, machine: string = ""): { ready: boolean; message: string } {
   if (!card) return { ready: false, message: "Research card missing · preview blocked" };
+  const timeframe = String(card?.timeframe || "").trim();
+  const timeframeEvidenceIds = Array.isArray(card?.timeframe_evidence_ids)
+    ? card.timeframe_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (timeframe.split(/\s+/).filter(Boolean).length < 5 || timeframeEvidenceIds.length < 1) {
+    return { ready: false, message: "Timeframe missing · preview blocked" };
+  }
   const visualIdentity = String(card?.visual_identity || "").trim();
   const visualIdentityEvidenceIds = Array.isArray(card?.visual_identity_evidence_ids)
     ? card.visual_identity_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
@@ -338,6 +345,10 @@ function machineResearchCardStatus(card: any, machine: string = ""): { ready: bo
       .map((segment: any) => String(segment?.evidence_id || "").trim())
       .filter(Boolean)
   );
+  const unknownTimeframeEvidenceIds = timeframeEvidenceIds.filter((id: string) => !evidenceIds.has(id));
+  if (unknownTimeframeEvidenceIds.length > 0) {
+    return { ready: false, message: `Timeframe evidence missing · ${unknownTimeframeEvidenceIds.join(", ")} · preview blocked` };
+  }
   const unknownEvidenceIds = visualIdentityEvidenceIds.filter((id: string) => !evidenceIds.has(id));
   if (unknownEvidenceIds.length > 0) {
     return { ready: false, message: `Visual identity evidence missing · ${unknownEvidenceIds.join(", ")} · preview blocked` };

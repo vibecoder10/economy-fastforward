@@ -227,6 +227,13 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
 
 function machineResearchCardStatus(card: any, machine: string = ""): { ready: boolean; message: string } {
   if (!card) return { ready: false, message: "Research card missing · preview blocked" };
+  const timeframe = String(card?.timeframe || "").trim();
+  const timeframeEvidenceIds = Array.isArray(card?.timeframe_evidence_ids)
+    ? card.timeframe_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (timeframe.split(/\s+/).filter(Boolean).length < 5 || timeframeEvidenceIds.length < 1) {
+    return { ready: false, message: "Timeframe missing · preview blocked" };
+  }
   const visualIdentity = String(card?.visual_identity || "").trim();
   const visualIdentityEvidenceIds = Array.isArray(card?.visual_identity_evidence_ids)
     ? card.visual_identity_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
@@ -239,6 +246,10 @@ function machineResearchCardStatus(card: any, machine: string = ""): { ready: bo
       .map((segment: any) => String(segment?.evidence_id || "").trim())
       .filter(Boolean)
   );
+  const unknownTimeframeEvidenceIds = timeframeEvidenceIds.filter((id: string) => !evidenceIds.has(id));
+  if (unknownTimeframeEvidenceIds.length > 0) {
+    return { ready: false, message: `Timeframe evidence missing · ${unknownTimeframeEvidenceIds.join(", ")} · preview blocked` };
+  }
   const unknownEvidenceIds = visualIdentityEvidenceIds.filter((id: string) => !evidenceIds.has(id));
   if (unknownEvidenceIds.length > 0) {
     return { ready: false, message: `Visual identity evidence missing · ${unknownEvidenceIds.join(", ")} · preview blocked` };
@@ -1027,10 +1038,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               const label = machineLabel(item);
               const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
               const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
-              const cardReady = machineResearchCardReady(card, label);
+              const cardStatus = machineResearchCardStatus(card, label);
+              const cardReady = cardStatus.ready;
               const cardSourceReady = sourcePackageReady(cardSourcePackage, label);
               const cardVerified = cardReady && cardSourceReady;
-              const cardStatusLabel = cardVerified ? "Verified" : card ? (cardReady ? "Needs source" : "Needs visual") : "Waiting";
+              const cardStatusLabel = cardVerified ? "Verified" : card ? (cardReady ? "Needs source" : "Needs card data") : "Waiting";
               return (
                 <details key={`${label}-${index}`} className="rounded-lg" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.06)" }}>
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">

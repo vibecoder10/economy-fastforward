@@ -80,6 +80,8 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - Optional when directly sourced: `memorable_fact`, `role_category`, `human_detail`, `transition_hook`, `onscreen_label`, or narrow context slots
 
+Research cards also require `timeframe` and `timeframe_evidence_ids`. This is the research-standard verified date/service-period basis. It must state the sourced date range, era, first-flight/service period, or prototype/operational period, and cite evidence IDs whose copied excerpts support it. It is metadata for research confidence and Producer/on-screen use; the spoken paragraph uses it only when the date or period proves one of the four Anton beats.
+
 Research cards also require `visual_identity` and `visual_identity_evidence_ids`. This is Producer File/image-brief basis only, not spoken narration. It must name the exact visible features that make the locked machine unmistakable and cite evidence IDs whose copied excerpts support those features. It must not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions.
 
 Research cards may also include `narrative_weight` as `major`, `standard`, or `transitional`. If the card does not provide it, StoryEngine infers a conservative advisory profile from the locked evidence and stores it in `machine_story_plans[*].contract.narrative_weight`. The compiler follows that target inside the hard 95-120 word range instead of forcing equal paragraph weight.

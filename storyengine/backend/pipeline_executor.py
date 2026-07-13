@@ -1524,6 +1524,96 @@ def _visual_identity_warnings(
     return warnings
 
 
+def _timeframe_warnings(
+    machine: str,
+    timeframe: str,
+    evidence: list[dict],
+    evidence_ids: Any,
+) -> list[str]:
+    """Validate the research-standard date/service-period basis."""
+    import re as _re
+
+    text = " ".join(str(timeframe or "").split())
+    lower = text.lower()
+    warnings: list[str] = []
+    if _spoken_word_count(text) < 5:
+        return ["missing/weak timeframe"]
+
+    if _re.search(r"\b(?:documented|verified|sourced)\s+(?:date|dates|timeframe|service period)\b", lower) and not _re.search(
+        r"\b(?:served|service|period|era|war|conflict|first flew|entered|retired|built|prototype|operational|from|between|during|in)\b",
+        lower,
+    ):
+        warnings.append("timeframe is generic; state the sourced date, era, or service period")
+
+    if not _re.search(
+        r"\b(?:\d{3,4}s?|\d{1,2}(?:st|nd|rd|th)?\s+century|served|service|period|era|war|conflict|first flew|entered|retired|built|prototype|operational|from|between|during)\b",
+        lower,
+    ):
+        warnings.append("timeframe must name a sourced date, era, or service period")
+
+    machine_code = _normalized_unit_code(machine)
+    normalized_text = _normalized_unit_code(text)
+    if machine_code and machine_code not in normalized_text and _unit_display_name(machine).split()[-1].lower() not in lower:
+        warnings.append("timeframe must be specific to the locked machine")
+
+    if not isinstance(evidence_ids, list) or not [item for item in evidence_ids if str(item).strip()]:
+        warnings.append("timeframe_evidence_ids must cite source-backed evidence IDs")
+        return warnings
+
+    evidence_by_id = {
+        str(segment.get("evidence_id") or "").strip(): segment
+        for segment in evidence or []
+        if isinstance(segment, dict) and str(segment.get("evidence_id") or "").strip()
+    }
+    cited_ids = [str(item).strip() for item in evidence_ids if str(item).strip()]
+    unknown_ids = [item for item in cited_ids if item not in evidence_by_id]
+    if unknown_ids:
+        warnings.append("timeframe_evidence_ids reference unknown evidence ID(s): " + ", ".join(unknown_ids))
+        return warnings
+
+    cited_text = " ".join(
+        f"{evidence_by_id[item].get('claim', '')} {evidence_by_id[item].get('source_excerpt', '')}"
+        for item in cited_ids
+    )
+    extra_stopwords = {
+        "confirmed", "date", "dates", "documented", "era", "period", "service",
+        "source", "sourced", "timeframe", "verified",
+    }
+    ungrounded = _ungrounded_factual_words(text, cited_text, machine, extra_stopwords=extra_stopwords)
+    if ungrounded:
+        warnings.append(
+            "timeframe contains detail(s) not grounded in cited evidence: "
+            + ", ".join(ungrounded[:8])
+        )
+
+    timeframe_for_numbers = text
+    cited_for_numbers = cited_text
+    for designation in _re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()):
+        timeframe_for_numbers = _re.sub(
+            rf"\b{_re.escape(designation)}(?:s)?\b",
+            "",
+            timeframe_for_numbers,
+            flags=_re.IGNORECASE,
+        )
+        cited_for_numbers = _re.sub(
+            rf"\b{_re.escape(designation)}(?:s)?\b",
+            "",
+            cited_for_numbers,
+            flags=_re.IGNORECASE,
+        )
+    cited_number_keys = {_numeric_token_key(token) for token in _numeric_tokens_from_text(cited_for_numbers)}
+    unsupported_numbers = [
+        mention["raw"] for mention in _numeric_mentions_from_text(timeframe_for_numbers)
+        if mention["key"] not in cited_number_keys
+    ]
+    if unsupported_numbers:
+        warnings.append(
+            "timeframe introduced unsupported numerical detail(s): "
+            + ", ".join(unsupported_numbers)
+        )
+    return warnings
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -4254,6 +4344,14 @@ class PipelineExecutor:
                     card.get("visual_identity_evidence_ids"),
                 )
             )
+            warnings.extend(
+                _timeframe_warnings(
+                    machine,
+                    str(card.get("timeframe") or "").strip(),
+                    evidence,
+                    card.get("timeframe_evidence_ids"),
+                )
+            )
             if not str(card.get("surprising_fact") or "").strip():
                 warnings.append("missing surprising_fact")
             source_notes = card.get("source_notes")
@@ -4441,9 +4539,10 @@ class PipelineExecutor:
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
-                "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, visual_identity, visual_identity_evidence_ids, evidence_segments.\n"
+                "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, timeframe, timeframe_evidence_ids, visual_identity, visual_identity_evidence_ids, evidence_segments.\n"
                 "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it. Do not say it mattered, was famous, or deserves a paragraph.\n"
                 "why_this_unit_deserves_a_paragraph may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence_segments.\n"
+                "timeframe is the research-standard date/service-period basis only: state the sourced date range, era, first-flight/service period, or prototype/operational period, and cite it with timeframe_evidence_ids. Do not invent dates.\n"
                 "visual_identity is Producer File/image-brief basis only, never spoken narration: state the exact visible machine features that make the locked unit unmistakable, and cite them with visual_identity_evidence_ids.\n"
                 "visual_identity may describe only what is visible on the machine; do not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
@@ -4500,6 +4599,7 @@ class PipelineExecutor:
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it; do not use generic fame/importance wording. "
                     "It may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence_segments. "
+                    "Return timeframe plus timeframe_evidence_ids; timeframe is the research-standard date/service-period basis only and must cite exact evidence IDs for the sourced date range, era, first-flight/service period, or prototype/operational period. "
                     "Return visual_identity plus visual_identity_evidence_ids; visual_identity is Producer File/image-brief basis only, never spoken narration. "
                     "It must state exact visible machine features from cited evidence IDs and must not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions. "
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "

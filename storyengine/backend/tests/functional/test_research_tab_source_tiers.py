@@ -64,6 +64,8 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "sourcePackageStatus(selectedSourcePackage, selectedMachineLabel)" in text
     assert "sourcePackageReady(selectedSourcePackage, selectedMachineLabel)" in text
     assert "function machineResearchCardStatus" in text
+    assert "Timeframe missing · preview blocked" in text
+    assert "Timeframe evidence missing ·" in text
     assert "Visual identity missing · preview blocked" in text
     assert "Visual identity evidence missing ·" in text
     assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text
@@ -90,6 +92,7 @@ def test_script_voice_tab_blocks_preview_without_authoritative_source():
 
     assert "function sourcePackageStatus" in text
     assert "function machineResearchCardStatus" in text
+    assert "Timeframe missing · preview blocked" in text
     assert "Visual identity missing · preview blocked" in text
     assert "activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady" in text
     assert "Raw source package needs Tier 1-2 source · preview blocked" in text
