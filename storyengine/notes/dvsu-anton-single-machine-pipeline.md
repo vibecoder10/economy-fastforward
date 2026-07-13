@@ -47,6 +47,8 @@ Cached raw source packages are reused only when their saved `machine_key`/`machi
 
 A successful selected-machine research pass sets `unit_research_hold_validation.target_machine_passed`, but it does not set the full `unit_research_hold_validation.passed` flag unless the entire locked roster is complete. UI progress and incomplete-research messages likewise count only cards that have a matching ready raw source package, so older legacy cards cannot make the new one-machine proof appear complete.
 
+The Script/Voice calibration panel may show the single-machine preview control once at least one machine has a verified card and ready raw source package. That does not unblock full script generation; it only lets the operator preview the selected machine paragraph before paying to continue the roster.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`

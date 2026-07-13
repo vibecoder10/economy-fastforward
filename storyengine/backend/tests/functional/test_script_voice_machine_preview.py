@@ -63,6 +63,14 @@ def test_script_voice_research_gate_counts_only_verified_cards():
     assert "unit_research_cards?.length || 0" not in text
 
 
+def test_script_voice_preview_visible_after_one_verified_machine():
+    text = _script_voice_tab().read_text()
+
+    assert "isMachineDocumentary && verifiedMachineResearchCount > 0" in text
+    assert "isMachineDocumentary && machineResearchGate?.passed" not in text
+    assert "Generate one machine" in text
+
+
 def test_script_voice_preview_keeps_failed_reason_visible():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]

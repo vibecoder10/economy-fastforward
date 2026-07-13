@@ -1500,7 +1500,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             </ul>
           </div>
         )}
-        {isMachineDocumentary && machineResearchGate?.passed && (
+        {isMachineDocumentary && verifiedMachineResearchCount > 0 && (
           <div className="mx-auto mb-6 max-w-2xl rounded-xl p-4 text-left" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.1)" }}>
             <div className="flex items-center gap-2 mb-1">
               <Wand2 size={16} style={{ color: "var(--turquoise)" }} />
