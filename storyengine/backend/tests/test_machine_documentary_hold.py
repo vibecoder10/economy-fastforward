@@ -4825,7 +4825,26 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
         return None
 
     async def fake_gather(_title, machine, _payload):
-        return _verified_package_for_segments(machine, b52_segments)
+        package = _verified_package_for_segments(machine, b52_segments)
+        package["candidate_excerpts"] = [
+            {
+                "excerpt_id": f"XB15-STALE-{index}",
+                "source_id": "XB15-STALE",
+                "source_title": "Stale wrong-machine cached source",
+                "source_url": "https://airandspace.si.edu/collection-objects/boeing-xb-15",
+                "locator": f"XB15-STALE-{index}",
+                "text": "Boeing XB-15 stale cached raw row should not enter the target proof.",
+                "source_capture_method": "fetched_page",
+            }
+            for index in range(65)
+        ] + package["candidate_excerpts"] + [{
+            "excerpt_id": "S99-E1",
+            "source_title": "Wrong-machine snippet row",
+            "source_url": "https://example.test/snippet",
+            "locator": "S99-E1",
+            "text": "Convair B-36 search-result snippet should not enter the target proof.",
+        }]
+        return package
 
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
@@ -4875,6 +4894,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "Never invent a human account" in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt
+    assert "Boeing XB-15 stale cached raw row" not in prompt
+    assert "search-result snippet should not enter" not in prompt
     assert result["unit_research_hold_validation"]["passed"] is False
     assert result["unit_research_hold_validation"]["target_machine_passed"] is True
     assert result["unit_research_hold_validation"]["target_machine"] == "Boeing B-52 Stratofortress"

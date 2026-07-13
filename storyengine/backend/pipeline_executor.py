@@ -965,13 +965,15 @@ def _format_verified_machine_source_package(package: dict, machine: str = "") ->
         "Every returned source_excerpt must be copied from one candidate below.",
         "Only approved-capture, source_url/locator-traceable rows for the locked machine are shown.",
     ]
-    for item in (package.get("candidate_excerpts") or [])[:60]:
+    shown_count = 0
+    for item in (package.get("candidate_excerpts") or []):
         if not isinstance(item, dict):
             continue
         if not _verified_source_candidate_traceable(item):
             continue
         if machine and not _mentions_machine(str(item.get("text") or ""), machine):
             continue
+        shown_count += 1
         tier = _source_tier_number(item)
         tier_label = item.get("source_tier_label") or _source_tier_for_url(
             str(item.get("source_url") or ""),
@@ -988,6 +990,8 @@ def _format_verified_machine_source_package(package: dict, machine: str = "") ->
             f"LOCATOR: {item.get('locator')}",
             f"EXACT_TEXT: {item.get('text')}",
         ])
+        if shown_count >= 60:
+            break
     return "\n".join(lines)[:32000]
 
 
