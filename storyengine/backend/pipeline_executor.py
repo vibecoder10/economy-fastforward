@@ -1703,14 +1703,22 @@ def _parse_machine_story_sentences(raw: str) -> dict:
     if not isinstance(parsed, dict):
         return {"_parse_error": "story distiller must return a JSON object matching the Anton paragraph schema"}
 
+    parse_warnings: list[str] = []
     for key in ("paragraph", "voiceover", "narration"):
         if isinstance(parsed.get(key), str) and not isinstance(parsed.get("paragraph"), str):
+            if key != "paragraph":
+                parse_warnings.append(
+                    f"story distiller used noncanonical key `{key}`; use exact key `paragraph`"
+                )
             parsed["paragraph"] = parsed[key]
     if isinstance(parsed.get("paragraph"), str):
         parsed["paragraph"] = " ".join(parsed.get("paragraph", "").split())
     if not isinstance(parsed.get("formula_sentences"), list):
         for key in ("sentences", "sentence_assembly", "assembly"):
             if isinstance(parsed.get(key), list):
+                parse_warnings.append(
+                    f"story distiller used noncanonical key `{key}`; use exact key `formula_sentences`"
+                )
                 parsed["formula_sentences"] = parsed[key]
                 break
     if isinstance(parsed.get("formula_sentences"), list):
@@ -1719,6 +1727,7 @@ def _parse_machine_story_sentences(raw: str) -> dict:
             if isinstance(item, str):
                 text = item
             elif isinstance(item, dict):
+                parse_warnings.append("formula_sentences must be an array of strings, not objects")
                 text = str(item.get("sentence") or item.get("span") or item.get("text") or "")
             else:
                 text = ""
@@ -1729,13 +1738,21 @@ def _parse_machine_story_sentences(raw: str) -> dict:
     if not isinstance(parsed.get("claim_map"), list):
         for key in ("claims", "evidence_map", "source_map"):
             if isinstance(parsed.get(key), list):
+                parse_warnings.append(
+                    f"story distiller used noncanonical key `{key}`; use exact key `claim_map`"
+                )
                 parsed["claim_map"] = parsed[key]
                 break
     if not isinstance(parsed.get("editorial_thesis"), str):
         for key in ("engineering_decision", "throughline", "contrast_axis"):
             if isinstance(parsed.get(key), str):
+                parse_warnings.append(
+                    f"story distiller used noncanonical key `{key}`; use exact key `editorial_thesis`"
+                )
                 parsed["editorial_thesis"] = parsed[key]
                 break
+    if parse_warnings:
+        parsed["_parse_warnings"] = list(dict.fromkeys(parse_warnings))
     return parsed
 
 
@@ -2203,6 +2220,9 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     parse_error = " ".join(str(bundle.get("_parse_error") or "").split())
     if parse_error:
         warnings.append(parse_error)
+    parse_warnings = bundle.get("_parse_warnings") if isinstance(bundle, dict) else None
+    if isinstance(parse_warnings, list):
+        warnings.extend(str(item) for item in parse_warnings if str(item).strip())
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     if not paragraph:
         warnings.append("story distiller must return a paragraph string")
