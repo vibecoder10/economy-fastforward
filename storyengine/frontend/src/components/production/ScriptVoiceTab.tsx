@@ -536,14 +536,15 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     return { ready: false, message: `Raw source package target-thin · ${targetExcerpts.length}/${excerpts.length} matching excerpts · preview blocked` };
   }
   if (machine) {
-    const savedMissingSlots = Array.isArray(sourcePackage?.source_slot_coverage?.missing_slots)
-      ? sourcePackage.source_slot_coverage.missing_slots.map((slot: any) => String(slot || "").trim()).filter(Boolean)
+    const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable);
+    const traceableEvidenceBySlot = sourceSlotEvidenceBySlot(traceableTargetExcerpts);
+    const savedMissingSlots = Array.isArray(sourcePackage?.traceable_source_slot_coverage?.missing_slots)
+      ? sourcePackage.traceable_source_slot_coverage.missing_slots.map((slot: any) => String(slot || "").trim()).filter(Boolean)
       : [];
-    const computedEvidenceBySlot = sourceSlotEvidenceBySlot(targetExcerpts);
     const missingSlots = savedMissingSlots.length > 0
       ? savedMissingSlots
       : (() => {
-          const coveredSlots = new Set(Object.keys(computedEvidenceBySlot));
+          const coveredSlots = new Set(Object.keys(traceableEvidenceBySlot));
           return REQUIRED_ANTON_SOURCE_SLOTS
             .filter((slot) => !coveredSlots.has(slot));
         })();
@@ -554,9 +555,7 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     if (untraceableSlots.length > 0) {
       return { ready: false, message: `Raw source package untraceable Anton slots · ${untraceableSlots.join(", ")} · preview blocked` };
     }
-    const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable);
-    const traceableEvidenceBySlot = sourceSlotEvidenceBySlot(traceableTargetExcerpts);
-    const savedNeedsDistinct = sourcePackage?.source_slot_coverage?.needs_distinct_slot_excerpts === true;
+    const savedNeedsDistinct = sourcePackage?.traceable_source_slot_coverage?.needs_distinct_slot_excerpts === true;
     const distinctAssignment = distinctAntonSlotAssignment(
       traceableEvidenceBySlot,
       REQUIRED_ANTON_SOURCE_SLOTS,

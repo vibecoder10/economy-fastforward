@@ -136,7 +136,7 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "setLocalMachinePreview(null)" in research_handler
     assert "Raw source package saved. Machine card needs review." in text
     assert "Raw source package missing Anton slots ·" in text
-    assert "sourcePackage?.source_slot_coverage?.missing_slots" in text
+    assert "sourcePackage?.traceable_source_slot_coverage?.missing_slots" in text
     assert "antonSourceSlotHints(candidate?.text)" in text
     assert "needs_distinct_slot_excerpts" in text
     assert "Raw source package needs distinct Anton excerpts" in text
@@ -213,7 +213,6 @@ def test_research_tab_shows_raw_source_beat_coverage():
     assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
     assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
     assert "requiredSourceTextById" in text
-    assert "sourcePackage?.source_slot_coverage" in text
     assert "sourcePackage?.traceable_source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text

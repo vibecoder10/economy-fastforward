@@ -132,7 +132,7 @@ Each required Anton beat must also have at least one traceable raw excerpt candi
 
 The distinct-excerpt gate is traceable-only as well. A package cannot satisfy the four-beat formula by using one citeable broad excerpt plus three separate untraceable rows; the required beats must be assignable to distinct raw excerpts that the later card and preview validators can cite.
 
-Raw packages now carry both broad hint coverage and traceable unlock coverage. `source_slot_coverage` remains a review map of all machine-matching hinted rows, while `traceable_source_slot_coverage` is the operator-facing unlock map used by the UI coverage chips. Older packages without `traceable_source_slot_coverage` are recomputed in the UI from traceable candidates only.
+Raw packages now carry both broad hint coverage and traceable unlock coverage. `source_slot_coverage` remains a review map of all machine-matching hinted rows, while `traceable_source_slot_coverage` is the operator-facing unlock map used by preview readiness and UI coverage chips. Older packages without `traceable_source_slot_coverage` are recomputed in the UI from traceable candidates only.
 
 The desktop research standard's accuracy rule is enforced in the card prompts: be precise or be silent. If exact excerpts conflict or cannot verify a number, date, superlative, or specification, the card must use the more conservative supported wording, hedge it, or omit it rather than choosing the higher or more dramatic claim.
 

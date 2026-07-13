@@ -87,7 +87,7 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "Raw source package thin ·" in text
     assert "Raw source package caution-only · preview blocked" in text
     assert "Raw source package missing Anton slots ·" in text
-    assert "sourcePackage?.source_slot_coverage?.missing_slots" in text
+    assert "sourcePackage?.traceable_source_slot_coverage?.missing_slots" in text
     assert "antonSourceSlotHints(candidate?.text)" in text
     assert "needs_distinct_slot_excerpts" in text
     assert "Raw source package needs distinct Anton excerpts" in text
@@ -142,7 +142,6 @@ def test_script_voice_preview_shows_raw_source_beat_coverage():
     assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
     assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
     assert "requiredSourceTextById" in text
-    assert "sourcePackage?.source_slot_coverage" in text
     assert "sourcePackage?.traceable_source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text
