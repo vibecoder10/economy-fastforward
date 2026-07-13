@@ -2064,6 +2064,11 @@ def _roster_validation(
     script_missing: list[str] = []
     script_extra: list[str] = []
     if script_units is not None and roster_codes:
+        if len(script_units) != len(roster):
+            warnings.append(
+                f"Script has {len(script_units)} paragraph(s) for {len(roster)} locked roster item(s); "
+                "static DVsU scripts must not add separate conclusion, transition, or non-machine rows."
+            )
         script_blob = "\n".join(script_units)
         script_codes = [_unit_code(u) for u in script_units if _unit_code(u)]
         for name, code in zip(roster, roster_codes):

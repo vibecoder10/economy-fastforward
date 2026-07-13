@@ -562,6 +562,25 @@ def test_anton_inventory_title_mode_accepts_ever_built_without_every():
     assert pe._anton_inventory_title_mode("Designed vs Used: Strategic Bomber Lessons") is False
 
 
+def test_roster_validation_blocks_extra_conclusion_paragraph_without_machine_code():
+    payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17 Flying Fortress"]}
+    script_units = [
+        "The Boeing XB-15 proved the bomber problem before the engines were ready.",
+        "The Boeing B-17 Flying Fortress made daylight bombing a survivable industrial gamble.",
+    ]
+
+    assert pe._roster_validation("Designed vs Used: Strategic Bomber Lessons", payload, script_units)["passed"] is True
+
+    extra = pe._roster_validation(
+        "Designed vs Used: Strategic Bomber Lessons",
+        payload,
+        script_units + ["So what have we learned today? The lesson is that strategy always changes."],
+    )
+
+    assert extra["passed"] is False
+    assert any("must not add separate conclusion" in warning for warning in extra["warnings"])
+
+
 def test_animated_video_with_roster_shape_still_runs_global_writer(monkeypatch):
     payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17", "Convair B-36"]}
     video = {

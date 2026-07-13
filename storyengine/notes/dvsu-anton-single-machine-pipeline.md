@@ -64,6 +64,8 @@ When the last locked machine is researched through the same selected-machine pat
 
 Full static-docu script generation revalidates that same source package/card contract for every locked machine before spending a script LLM call or replacing `scripts` rows. The final production replacement updates the tenant/video row first and only then deletes/inserts `scripts` rows, so a missed video update cannot create orphan replacement scenes. The UI gate is a convenience layer; the backend remains the authority.
 
+Static DVsU production scripts must have exactly one paragraph row per locked roster machine. The final unit's last sentence is where the thesis lands; the roster validator rejects extra conclusion, transition, or non-machine rows even when they do not mention an outside machine code.
+
 Single-machine preview artifacts are saved under the same normalized machine key as raw source packages, for example `XB15`, so retries from slightly different UI labels update the same preview slot instead of creating duplicate display-name keys.
 
 Every selected-machine research checkpoint and final save is guarded by the original locked `unit_roster` snapshot. If the roster changes while a one-machine run is in flight, the save is refused rather than overwriting the newer roster state.
