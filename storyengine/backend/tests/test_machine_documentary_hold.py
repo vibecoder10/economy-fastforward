@@ -836,6 +836,8 @@ def test_story_plan_locks_research_into_anton_slots():
     assert "historical_meaning" not in by_slot
     assert "must not enter the plan" not in json.dumps(plan)
     assert plan["contract"]["maximum_numerical_details"] == 8
+    assert plan["contract"]["narrative_weight"]["label"] == "standard"
+    assert plan["contract"]["narrative_weight"]["target_words"] == "100-112"
     assert "engineering decision" in plan["contract"]["movement"]
     assert "single engineering decision" in plan["contract"]["editorial_thesis"]
     assert "memorable_fact" in plan["contract"]["memorable_fact_rule"]
@@ -843,6 +845,36 @@ def test_story_plan_locks_research_into_anton_slots():
     assert "no new sourced meaning beat" in plan["contract"]["conclusion_rule"]
     assert "Producer File/on-screen text" in plan["contract"]["onscreen_label"]
     assert "never spoken narration" in plan["contract"]["onscreen_label"]
+
+
+def test_story_plan_sets_narrative_weight_for_major_and_transitional_machines():
+    major_plan = pe._machine_story_plan(
+        {
+            "unit_research_cards": [{
+                "unit": "B-17",
+                "narrative_weight": "major",
+                "engineering_thesis": "The bomber was a mainstay of daylight bombing.",
+                "evidence_segments": _evidence_segments(),
+            }]
+        },
+        "B-17",
+    )
+    transitional_plan = pe._machine_story_plan(
+        {
+            "unit_research_cards": [{
+                "unit": "XB-15",
+                "engineering_thesis": "The machine was a prototype that proved the problem before combat use.",
+                "why_this_unit_deserves_a_paragraph": "Only one experimental prototype was built and it was never used in combat.",
+                "evidence_segments": _evidence_segments(),
+            }]
+        },
+        "XB-15",
+    )
+
+    assert major_plan["contract"]["narrative_weight"]["label"] == "major"
+    assert major_plan["contract"]["narrative_weight"]["target_words"] == "112-120"
+    assert transitional_plan["contract"]["narrative_weight"]["label"] == "transitional"
+    assert transitional_plan["contract"]["narrative_weight"]["target_words"] == "95-103"
 
 
 def test_story_plan_attaches_first_three_anton_benchmark_profile():
@@ -1622,6 +1654,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
+    assert "NARRATIVE WEIGHT: standard / target 100-112 words" in fake_anthropic.prompts[0]
+    assert "Follow NARRATIVE WEIGHT as the target inside the hard range" in fake_anthropic.prompts[0]
     for required_slot in ["original_problem", "engineering_decision", "tradeoff", "reality"]:
         assert required_slot in fake_anthropic.prompts[0]
     assert "original_problem, engineering_decision, tradeoff, and reality" in fake_anthropic.prompts[0]
@@ -1644,6 +1678,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[1]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[1]
+    assert "NARRATIVE WEIGHT: standard / target 100-112 words" in fake_anthropic.prompts[1]
+    assert "Follow NARRATIVE WEIGHT as the target" in fake_anthropic.prompts[1]
     assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
     assert "Remove ranked-list connectors" in fake_anthropic.prompts[1]
     assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
@@ -1987,6 +2023,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "benchmark 94 words/5 sentences" in reference_check["detail"]
     assert result["preview"]["story_plan"]["reference_benchmark"]["reference_machine"] == "Boeing XB-15"
     assert result["preview"]["story_plan"]["contract"]["opening_assignment"].startswith("A machine-name opening is allowed")
+    assert result["preview"]["story_plan"]["contract"]["narrative_weight"]["target_words"] == "100-112"
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
     saved_brief_rows = [(query, args) for query, args in writes if "machine_script_briefs" in query]
     saved_plan_rows = [(query, args) for query, args in writes if "machine_story_plans" in query]
@@ -2643,6 +2680,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "source_url, source_title, locator" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt
+    assert "Optional key: narrative_weight with one of major, standard, or transitional" in prompt
+    assert "Use major for pivotal machines" in prompt
     assert "memorable_fact should be returned when the verified excerpts support" in prompt
     assert "never invent one" in prompt
     assert "Be precise or be silent" in prompt

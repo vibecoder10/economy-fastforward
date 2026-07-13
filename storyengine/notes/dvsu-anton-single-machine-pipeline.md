@@ -21,9 +21,10 @@
 
 The paragraph is one natural 95-120 word unit for this proof, matching Anton's current DVsU writing and voiceover standards. The extracted XB-15 benchmark paragraph remains shape-only reference metadata; it can guide rhythm, sentence jobs, and final-line job, but it no longer lowers the hard production floor. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
-Anton's desktop writing standards add two quality locks to this formula:
+Anton's desktop writing standards add these quality locks to this formula:
 
 - The paragraph is about the engineering decision, not the machine's existence. The audience already knows the machine exists; the script has to reveal why it mattered.
+- Narrative weight matters. Major or pivotal machines should aim toward the high end of the 95-120 word range; transitional, prototype, interim, or limited machines should aim toward the low end without losing the four grounded beats.
 - Every paragraph needs one memorable sourced fact for serious enthusiasts. This is not a fifth required research sentence. If a `memorable_fact` excerpt exists, the compiler folds it into the strongest of the four evidence-backed beats.
 - Technical specifications are allowed when they prove the decision, tradeoff, or reality. The compiler should select the 2-4 useful technical facts instead of either dumping every spec or stripping the paragraph until it loses the Anton inventory feel.
 - For the first three machines, a verified human account, named decision, or official finding is required when the locked story plan contains one because the desktop DVsU standard uses it to build early trust. The system must never invent a human detail.
@@ -78,6 +79,8 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - Optional when directly sourced: `memorable_fact`, `role_category`, `human_detail`, `transition_hook`, `onscreen_label`, or narrow context slots
+
+Research cards may also include `narrative_weight` as `major`, `standard`, or `transitional`. If the card does not provide it, StoryEngine infers a conservative advisory profile from the locked evidence and stores it in `machine_story_plans[*].contract.narrative_weight`. The compiler follows that target inside the hard 95-120 word range instead of forcing equal paragraph weight.
 
 `human_detail` must either name a person or cite an official finding/decision. Generic pilot, crew, or engineer claims are invalid even when they come from a fetched excerpt, because Anton's rule is about a documented perspective that builds trust without replacing the engineering thesis.
 
@@ -134,6 +137,7 @@ The script preview writer returns JSON:
 Validation requires:
 
 - one paragraph, 95-120 words, 4-7 sentences
+- narrative weight target followed inside that hard range: major machines closer to 120 words, transitional machines closer to 95 words, with no padding
 - locked machine designation present
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
 - claim-map spans copied exactly from the paragraph

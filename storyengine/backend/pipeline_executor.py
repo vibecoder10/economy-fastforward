@@ -1147,6 +1147,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
     """Compile source-addressable evidence into Anton-style paragraph slots."""
     card = _research_card_for_machine(payload, machine) or {}
     evidence, evidence_errors = _normalize_machine_evidence(card, machine)
+    narrative_weight = _anton_narrative_weight_profile(card, evidence)
     slots = []
     seen_ids: set[str] = set()
     for role, accepted_kinds, job in _ANTON_SLOT_SPECS:
@@ -1182,6 +1183,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "paragraph_shape": f"one Anton/DVsU paragraph, {_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences",
             "movement": "raw original problem -> raw engineering decision -> raw tradeoff -> raw reality -> short paragraph-derived conclusion",
             "paragraph_words": _ANTON_PARAGRAPH_WORD_RANGE,
+            "narrative_weight": narrative_weight,
             "maximum_numerical_details": 8,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
             "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
@@ -1223,6 +1225,78 @@ def _parse_machine_story_sentences(raw: str) -> dict:
                 parsed["editorial_thesis"] = parsed[key]
                 break
     return parsed
+
+
+def _anton_narrative_weight_profile(card: dict, evidence: list[dict]) -> dict:
+    """Advisory Anton paragraph weight: richer for pivotal machines, tighter for transitional ones."""
+    import re as _re
+
+    explicit = str(
+        (card or {}).get("narrative_weight")
+        or (card or {}).get("story_weight")
+        or (card or {}).get("paragraph_weight")
+        or ""
+    ).strip().lower()
+    text = " ".join(
+        str(value or "")
+        for value in [
+            (card or {}).get("engineering_thesis"),
+            (card or {}).get("why_this_unit_deserves_a_paragraph"),
+            (card or {}).get("surprising_fact"),
+            (card or {}).get("design_problem"),
+            (card or {}).get("engineering_response"),
+            (card or {}).get("tradeoff"),
+            (card or {}).get("actual_outcome"),
+            *[
+                f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+                for segment in evidence or []
+                if isinstance(segment, dict)
+            ],
+        ]
+    ).lower()
+    major_terms = (
+        "mass-produced", "most-produced", "mainstay", "workhorse", "backbone",
+        "served in every theater", "decisive", "defined", "dominant",
+        "large-scale combat", "heavy losses", "thousands",
+    )
+    transitional_terms = (
+        "prototype", "only one", "single prototype", "experimental", "testbed",
+        "never used in combat", "canceled", "cancelled", "too late",
+        "limited production", "interim",
+    )
+    explicit_major = any(term in explicit for term in ("major", "pivotal", "landmark", "central", "core"))
+    explicit_transitional = any(term in explicit for term in ("minor", "transitional", "brief", "prototype", "limited"))
+    major_score = sum(1 for term in major_terms if term in text)
+    transitional_score = sum(1 for term in transitional_terms if term in text)
+    if _re.search(r"\b\d{4,}\b", text) and any(term in text for term in ("built", "produced", "lost", "losses")):
+        major_score += 1
+    if explicit_major:
+        label = "major"
+    elif explicit_transitional:
+        label = "transitional"
+    elif major_score > transitional_score:
+        label = "major"
+    elif transitional_score > major_score:
+        label = "transitional"
+    else:
+        label = "standard"
+
+    if label == "major":
+        target_words = "112-120"
+        guidance = "richer paragraph; keep the required four beats, then use one extra sourced human, combat, production, or memorable detail only if it strengthens the thesis"
+    elif label == "transitional":
+        target_words = "95-103"
+        guidance = "shorter focused paragraph; prove the machine's role, cut secondary specs, and land the contrast quickly"
+    else:
+        target_words = _ANTON_PARAGRAPH_TARGET_WORDS
+        guidance = "balanced paragraph; do not pad or compress unless the sourced role clearly deserves it"
+    return {
+        "label": label,
+        "target_words": target_words,
+        "major_score": major_score,
+        "transitional_score": transitional_score,
+        "guidance": guidance,
+    }
 
 
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
@@ -4099,6 +4173,7 @@ class PipelineExecutor:
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
                 "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
+                "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
                 "- Return 6-9 atomic evidence segments using Anton slot kinds only.\n"
@@ -4150,6 +4225,7 @@ class PipelineExecutor:
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
+                    "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
@@ -4592,13 +4668,25 @@ class PipelineExecutor:
                 )
                 opening_brief = f"Do NOT open with the machine name. Open with {opening_modes[(i - 1) % len(opening_modes)]}."
             complete_inventory_mode = _anton_inventory_title_mode(title)
+            precomputed_story_plan = None
+            narrative_weight = {
+                "label": "standard",
+                "target_words": _ANTON_PARAGRAPH_TARGET_WORDS,
+                "guidance": "balanced paragraph",
+            }
             if complete_inventory_mode:
+                precomputed_story_plan = dict(_machine_story_plan(rp, machine))
+                narrative_weight = dict(
+                    ((precomputed_story_plan.get("contract") or {}).get("narrative_weight") or narrative_weight)
+                )
+                narrative_target_words = str(narrative_weight.get("target_words") or _ANTON_PARAGRAPH_TARGET_WORDS)
+                narrative_guidance = str(narrative_weight.get("guidance") or "").strip()
                 story_brief = _inventory_story_brief(rp, machine)
                 research_source = _json_sh.dumps(story_brief, ensure_ascii=False, indent=2)
                 research_source_kind = "compact_editorial_brief"
                 structure_brief = (
                     "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
-                    f"- TARGET {_ANTON_PARAGRAPH_TARGET_WORDS} words, while remaining inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} validator.\n"
+                    f"- NARRATIVE WEIGHT: {narrative_weight.get('label')}; target {narrative_target_words} words inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} validator. {narrative_guidance}\n"
                     "- Before writing, silently rank the Anton slots. Keep the details needed to explain: original problem, engineering decision, tradeoff, and reality. Omit everything else.\n"
                     f"- Use {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
                     "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, or historical meaning understandable.\n"
@@ -4621,11 +4709,11 @@ class PipelineExecutor:
                     "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
                     "Write a short Anton micro-story, not a compressed fact sheet and not a miniature engineering essay. "
                     "Silently cherry-pick only the details needed for one clear narrative: problem, decision, tradeoff, reality, and a paragraph-derived landing line. Omission is a feature. "
-                    f"Target {_ANTON_PARAGRAPH_TARGET_WORDS} words and {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. Use no more than six factual story beats. Never list research-card fields. "
+                    f"Use the NARRATIVE WEIGHT target while staying inside {_ANTON_PARAGRAPH_WORD_RANGE} words and {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. Use no more than six factual story beats. Never list research-card fields. "
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
                     "Use a sourced memorable_fact when the story plan provides one, but merge it into the strongest required beat instead of adding trivia. "
                     "The final line must land as a verdict, paradox, irony, or reversal; brevity decides which secondary facts to cut, not whether the paragraph has a point. "
-                    "Count the finished paragraph before returning it. If it exceeds 110 words, remove the least important fact rather than compressing more facts into longer sentences."
+                    "Count the finished paragraph before returning it. If it exceeds the narrative-weight target, remove the least important fact rather than compressing more facts into longer sentences."
                 )
             story_distiller_system_prompt = (
                 "You are a source-grounded Anton/DVsU paragraph compiler for a machine documentary. "
@@ -4634,9 +4722,10 @@ class PipelineExecutor:
             story_plan = None
             bundle = None
             if complete_inventory_mode:
-                story_plan = dict(_machine_story_plan(rp, machine))
+                story_plan = dict(precomputed_story_plan or _machine_story_plan(rp, machine))
                 story_plan["contract"] = dict(story_plan.get("contract") or {})
                 story_plan["contract"]["opening_assignment"] = opening_brief
+                story_plan["contract"]["narrative_weight"] = dict(narrative_weight)
                 machine_artifact_key = _verified_source_cache_key(machine)
                 plan_errors = list(story_plan.get("evidence_errors") or [])
                 missing_slots = [
@@ -4693,7 +4782,8 @@ class PipelineExecutor:
                     f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n"
-                    f"OPENING ASSIGNMENT: {opening_brief}\n\n"
+                    f"OPENING ASSIGNMENT: {opening_brief}\n"
+                    f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
                     "The target movement is four evidence-backed sentences from original_problem, engineering_decision, tradeoff, and reality, then one paragraph-derived conclusion.\n\n"
                     "HARD CONTRACT:\n"
@@ -4702,7 +4792,7 @@ class PipelineExecutor:
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
                     f"- paragraph must be final spoken narration: exactly one paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} natural sentences.\n"
                     "- Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
-                    f"- Target {_ANTON_PARAGRAPH_TARGET_WORDS} words. If you are above 112 words, remove the least important sourced detail instead of compressing more facts. Concise prototype entries may land below 100 only when all evidence beats are complete.\n"
+                    "- Follow NARRATIVE WEIGHT as the target inside the hard range: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. Do not pad with orphan facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
                     "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
@@ -4776,10 +4866,11 @@ class PipelineExecutor:
                     repair_prompt = (
                         "REBUILD THE ANTON-STYLE PARAGRAPH JSON FROM THE SAME LOCKED STORY PLAN.\n\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
-                        f"OPENING ASSIGNMENT: {opening_brief}\n\n"
+                        f"OPENING ASSIGNMENT: {opening_brief}\n"
+                        f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
                         "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
-                        f"Write exactly one paragraph, target {_ANTON_PARAGRAPH_TARGET_WORDS} words, absolute range {_ANTON_PARAGRAPH_WORD_RANGE} words, {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. "
+                        f"Write exactly one paragraph inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} word range and {_ANTON_PARAGRAPH_SENTENCE_RANGE} sentences. Follow NARRATIVE WEIGHT as the target: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
