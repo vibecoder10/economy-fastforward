@@ -2607,6 +2607,14 @@ class PipelineExecutor:
             "connection reset", "database is unavailable",
         ))
 
+    @staticmethod
+    def _db_write_missed(result: Any) -> bool:
+        """True when asyncpg reports a write matched no rows."""
+        if not isinstance(result, str):
+            return False
+        tag = " ".join(result.strip().upper().split())
+        return tag in {"UPDATE 0", "INSERT 0 0"}
+
     async def _upsert_machine_research_card(
         self, video_id: str, machine: str, roster_index: int, card: dict, validation: dict
     ) -> None:
@@ -2616,7 +2624,7 @@ class PipelineExecutor:
         if not machine_key:
             raise ValueError("compact machine research card requires a non-empty machine key")
         try:
-            await execute(
+            result = await execute(
                 """INSERT INTO machine_research_cards
                  (tenant_id, video_id, machine_key, machine_name, roster_index, card, validation)
                SELECT $1, v.id, $3, $4, $5, $6::jsonb, $7::jsonb
@@ -2630,6 +2638,8 @@ class PipelineExecutor:
                 self.tenant_id, video_id, machine_key, machine,
                 roster_index, json.dumps(card), json.dumps(validation),
             )
+            if self._db_write_missed(result):
+                raise RuntimeError("compact machine research card checkpoint refused because the video is no longer available for this tenant")
         except Exception as exc:
             if not self._compact_store_unavailable(exc):
                 raise
@@ -3409,7 +3419,7 @@ class PipelineExecutor:
                  )""",
             _json_one.dumps(payload), original_status, video_id, self.tenant_id, locked_roster_snapshot,
         )
-        if isinstance(final_save_result, str) and final_save_result.strip().upper() == "UPDATE 0":
+        if self._db_write_missed(final_save_result):
             return {
                 "status": "failed",
                 "video_id": video_id,
@@ -3454,7 +3464,7 @@ class PipelineExecutor:
                 "UPDATE videos SET research_payload = $1, status = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
                 _json.dumps(payload), next_status, video_id, self.tenant_id,
             )
-            if isinstance(save_result, str) and save_result.strip().upper() == "UPDATE 0":
+            if self._db_write_missed(save_result):
                 warning = "Machine research save refused because the video is no longer available for this tenant"
                 await self._log_activity(bot_name, video_id, "failed", warning)
                 return {"status": "failed", "video_id": video_id, "error": warning}
@@ -3827,7 +3837,7 @@ class PipelineExecutor:
             checkpoint_result = await self._checkpoint_machine_raw_source_package(
                 video_id, target_code, verified_source_package, locked_roster_snapshot
             )
-            if isinstance(checkpoint_result, str) and checkpoint_result.strip().upper() == "UPDATE 0":
+            if self._db_write_missed(checkpoint_result):
                 conflict = "persisted unit_roster changed concurrently; raw source package checkpoint refused"
                 payload["unit_research_hold_validation"] = {
                     "passed": False,
@@ -4041,7 +4051,7 @@ class PipelineExecutor:
                      )""",
                 _json_uh.dumps(payload), video_id, self.tenant_id, locked_roster_snapshot,
             )
-            if isinstance(checkpoint_result, str) and checkpoint_result.strip().upper() == "UPDATE 0":
+            if self._db_write_missed(checkpoint_result):
                 conflict = "persisted unit_roster changed concurrently; stale research checkpoint refused"
                 validation_units[-1] = {"machine": machine, "passed": False, "warnings": [conflict]}
                 payload["unit_research_hold_validation"] = {
@@ -4258,6 +4268,7 @@ class PipelineExecutor:
         rp = await self._load_machine_research_cards(
             video_id, rp, roster, target_machine=target_machine if target_machine else None
         )
+        locked_roster_snapshot = _json_sh.dumps(rp.get("unit_roster"), sort_keys=True, ensure_ascii=False)
         if target_machine:
             target_key = _normalized_unit_code(target_machine)
             rp = dict(rp)
@@ -4410,7 +4421,7 @@ class PipelineExecutor:
                     msg = "Story compiler evidence gate failed: " + "; ".join(plan_errors)
                     await self._log_activity(bot_name, video_id, "failed", msg)
                     return {"status": "failed", "error": msg, "video_id": video_id}
-                await execute(
+                brief_save_result = await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
                            COALESCE(research_payload::jsonb, '{}'::jsonb),
                            '{machine_script_briefs}',
@@ -4418,10 +4429,18 @@ class PipelineExecutor:
                              || jsonb_build_object($1::text, $2::jsonb),
                            true
                        ), updated_at = now()
-                       WHERE id = $3 AND tenant_id = $4""",
-                    machine_artifact_key, _json_sh.dumps(story_brief), video_id, self.tenant_id,
+                       WHERE id = $3 AND tenant_id = $4
+                         AND (
+                             research_payload->'unit_roster' IS NULL
+                             OR research_payload->'unit_roster' = $5::jsonb
+                         )""",
+                    machine_artifact_key, _json_sh.dumps(story_brief), video_id, self.tenant_id, locked_roster_snapshot,
                 )
-                await execute(
+                if self._db_write_missed(brief_save_result):
+                    msg = "persisted unit_roster changed concurrently; script preview brief save refused"
+                    await self._log_activity(bot_name, video_id, "failed", msg)
+                    return {"status": "failed", "error": msg, "video_id": video_id}
+                plan_save_result = await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
                            COALESCE(research_payload::jsonb, '{}'::jsonb),
                            '{machine_story_plans}',
@@ -4429,9 +4448,17 @@ class PipelineExecutor:
                              || jsonb_build_object($1::text, $2::jsonb),
                            true
                        ), updated_at = now()
-                       WHERE id = $3 AND tenant_id = $4""",
-                    machine_artifact_key, _json_sh.dumps(story_plan), video_id, self.tenant_id,
+                       WHERE id = $3 AND tenant_id = $4
+                         AND (
+                             research_payload->'unit_roster' IS NULL
+                             OR research_payload->'unit_roster' = $5::jsonb
+                         )""",
+                    machine_artifact_key, _json_sh.dumps(story_plan), video_id, self.tenant_id, locked_roster_snapshot,
                 )
+                if self._db_write_missed(plan_save_result):
+                    msg = "persisted unit_roster changed concurrently; script preview story-plan save refused"
+                    await self._log_activity(bot_name, video_id, "failed", msg)
+                    return {"status": "failed", "error": msg, "video_id": video_id}
                 prompt = (
                     "WRITE ONE ANTON-STYLE PARAGRAPH FROM LOCKED SOURCE SLOTS.\n\n"
                     f"VIDEO TITLE: {title}\n"
@@ -4586,7 +4613,7 @@ class PipelineExecutor:
                     "claim_bundle": bundle,
                     "quality_audit": quality_audit,
                 }
-                await execute(
+                preview_save_result = await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
                            COALESCE(research_payload::jsonb, '{}'::jsonb),
                            '{machine_script_previews}',
@@ -4594,9 +4621,17 @@ class PipelineExecutor:
                              || jsonb_build_object($1::text, $2::jsonb),
                            true
                        ), updated_at = now()
-                       WHERE id = $3 AND tenant_id = $4""",
-                    _verified_source_cache_key(machine), _json_sh.dumps(preview), video_id, self.tenant_id,
+                       WHERE id = $3 AND tenant_id = $4
+                         AND (
+                             research_payload->'unit_roster' IS NULL
+                             OR research_payload->'unit_roster' = $5::jsonb
+                         )""",
+                    _verified_source_cache_key(machine), _json_sh.dumps(preview), video_id, self.tenant_id, locked_roster_snapshot,
                 )
+                if self._db_write_missed(preview_save_result):
+                    msg = "persisted unit_roster changed concurrently; script preview save refused"
+                    await self._log_activity(bot_name, video_id, "failed", msg)
+                    return {"status": "failed", "error": msg, "video_id": video_id}
                 await self._log_activity(
                     bot_name, video_id, "completed" if not warnings else "failed",
                     f"Single-machine script preview {'passed' if not warnings else 'needs review'}: {machine}",

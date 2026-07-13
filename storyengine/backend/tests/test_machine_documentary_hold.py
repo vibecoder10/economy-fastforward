@@ -1586,6 +1586,151 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "If the plan provides a human_detail slot for one of the first three benchmark machines" in fake_anthropic.prompts[0]
 
 
+def test_target_machine_preview_refuses_brief_save_miss_before_llm(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = _evidence_segments()
+    card = {
+        "unit": "Boeing XB-15",
+        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
+        "surprising_fact": "XB-15 source-grounded fact.",
+        "source_notes": ["xb15-source"],
+        "evidence_segments": segments,
+    }
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    class ForbiddenAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("missed preview artifact save must stop before Claude")
+
+    forbidden_anthropic = ForbiddenAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": forbidden_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        if "machine_script_briefs" in query:
+            return "UPDATE 0"
+        return "UPDATE 1"
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    assert result["status"] == "failed"
+    assert "script preview brief save refused" in result["error"]
+    assert forbidden_anthropic.calls == 0
+    assert sum("machine_script_briefs" in query for query, _args in writes) == 1
+    assert not any("machine_story_plans" in query or "machine_script_previews" in query for query, _args in writes)
+    assert "research_payload->'unit_roster' = $5::jsonb" in writes[-1][0]
+    assert json.loads(writes[-1][1][4]) == roster
+
+
+def test_target_machine_preview_refuses_zero_row_preview_save(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = _evidence_segments()
+    card = {
+        "unit": "Boeing XB-15",
+        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
+        "surprising_fact": "XB-15 source-grounded fact.",
+        "source_notes": ["xb15-source"],
+        "evidence_segments": segments,
+    }
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    class FakeAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            return _story_bundle("Boeing XB-15", 19)
+
+    fake_anthropic = FakeAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": fake_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        if "machine_script_previews" in query:
+            return "UPDATE 0"
+        return "UPDATE 1"
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    assert result["status"] == "failed"
+    assert "script preview save refused" in result["error"]
+    assert fake_anthropic.calls == 1
+    saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
+    assert saved_preview_rows and json.loads(saved_preview_rows[0][1][4]) == roster
+    assert "preview" not in result
+
+
 def test_target_machine_preview_requires_verified_raw_source_package_before_llm(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
@@ -2665,6 +2810,29 @@ def test_compact_write_rejects_empty_canonical_key():
         assert "non-empty machine key" in str(exc)
     else:
         raise AssertionError("empty canonical key was accepted")
+
+
+def test_compact_write_refuses_zero_row_video_lookup(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+
+    async def fake_execute(*_args):
+        return "INSERT 0 0"
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    try:
+        asyncio.run(executor._upsert_machine_research_card(
+            "video-a",
+            "Boeing XB-15",
+            1,
+            {"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()},
+            {"machine": "Boeing XB-15", "passed": True, "warnings": []},
+        ))
+    except RuntimeError as exc:
+        assert "checkpoint refused" in str(exc)
+    else:
+        raise AssertionError("zero-row compact-card write was accepted")
 
 
 def test_compact_write_persists_full_schema_v3_card_json(monkeypatch):

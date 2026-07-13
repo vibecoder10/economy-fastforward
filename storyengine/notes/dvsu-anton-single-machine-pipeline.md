@@ -63,6 +63,8 @@ Every selected-machine research checkpoint and final save is guarded by the orig
 
 All machine-research saves and script-preview reads/writes are tenant-scoped. The legacy full-roster route now saves with `video_id + tenant_id` and refuses zero-row saves; the single-machine script preview reads the existing `voice_id` with the same tenant boundary before writing preview artifacts.
 
+Single-machine preview artifact writes also carry the locked `unit_roster` snapshot and refuse zero-row updates. A missed `machine_script_briefs` or `machine_story_plans` save stops before the paragraph LLM call; a missed `machine_script_previews` save returns failure instead of a false completed preview.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
