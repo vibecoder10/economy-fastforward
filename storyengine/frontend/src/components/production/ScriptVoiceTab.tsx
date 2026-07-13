@@ -340,7 +340,7 @@ function antonSourceSlotHints(text: unknown): Set<string> {
 function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready: boolean; message: string } {
   const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const excerpts = rawExcerpts.filter((candidate: any) => String(candidate?.text || "").trim());
-  if (!sourcePackage || sourcePackage.passed === false || excerpts.length < 6) {
+  if (!sourcePackage || excerpts.length < 6) {
     return { ready: false, message: "Raw source package missing · preview blocked" };
   }
   const allowedCaptureMethods = new Set(["fetched_page", "tavily_raw_content"]);
@@ -367,12 +367,19 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     return { ready: false, message: `Raw source package target-thin · ${targetExcerpts.length}/${excerpts.length} matching excerpts · preview blocked` };
   }
   if (machine) {
-    const coveredSlots = new Set<string>();
-    targetExcerpts.forEach((candidate: any) => {
-      antonSourceSlotHints(candidate?.text).forEach((slot) => coveredSlots.add(slot));
-    });
-    const missingSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"]
-      .filter((slot) => !coveredSlots.has(slot));
+    const savedMissingSlots = Array.isArray(sourcePackage?.source_slot_coverage?.missing_slots)
+      ? sourcePackage.source_slot_coverage.missing_slots.map((slot: any) => String(slot || "").trim()).filter(Boolean)
+      : [];
+    const missingSlots = savedMissingSlots.length > 0
+      ? savedMissingSlots
+      : (() => {
+          const coveredSlots = new Set<string>();
+          targetExcerpts.forEach((candidate: any) => {
+            antonSourceSlotHints(candidate?.text).forEach((slot) => coveredSlots.add(slot));
+          });
+          return ["original_problem", "engineering_decision", "tradeoff", "reality"]
+            .filter((slot) => !coveredSlots.has(slot));
+        })();
     if (missingSlots.length > 0) {
       return { ready: false, message: `Raw source package missing Anton slots · ${missingSlots.join(", ")} · preview blocked` };
     }
@@ -398,6 +405,12 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   }
   if (authoritativeUrls.size < 1) {
     return { ready: false, message: "Raw source package needs Tier 1-2 source · preview blocked" };
+  }
+  if (sourcePackage.passed === false) {
+    const errors = Array.isArray(sourcePackage?.errors)
+      ? sourcePackage.errors.map((error: any) => String(error || "").trim()).filter(Boolean)
+      : [];
+    return { ready: false, message: `Raw source package failed · ${errors[0] || "preview blocked"}` };
   }
   return { ready: true, message: `Raw source package ready · ${targetExcerpts.length} excerpts · ${sourceUrls.size} sources` };
 }

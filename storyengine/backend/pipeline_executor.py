@@ -516,6 +516,39 @@ def _anton_source_slot_hints(text: str) -> set[str]:
     return hints
 
 
+def _anton_source_slot_coverage(candidates: list[dict], machine: str = "") -> dict:
+    """Summarize raw-source coverage before the card-writing LLM runs."""
+    coverage_by_slot: dict[str, list[str]] = {}
+    checked_excerpt_count = 0
+    for item in candidates or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text or (machine and not _mentions_machine(text, machine)):
+            continue
+        checked_excerpt_count += 1
+        hints = sorted(_anton_source_slot_hints(text))
+        item["anton_slot_hints"] = hints
+        excerpt_id = str(item.get("excerpt_id") or item.get("locator") or "").strip()
+        for slot in hints:
+            if excerpt_id:
+                coverage_by_slot.setdefault(slot, [])
+                if excerpt_id not in coverage_by_slot[slot]:
+                    coverage_by_slot[slot].append(excerpt_id)
+    required_slots = sorted(_ANTON_REQUIRED_SLOT_ROLES)
+    covered_slots = sorted(slot for slot in coverage_by_slot if slot in _ANTON_REQUIRED_SLOT_ROLES)
+    return {
+        "required_slots": required_slots,
+        "covered_slots": covered_slots,
+        "missing_slots": sorted(set(required_slots) - set(covered_slots)),
+        "checked_excerpt_count": checked_excerpt_count,
+        "evidence_by_slot": {
+            slot: coverage_by_slot.get(slot, [])[:10]
+            for slot in sorted(coverage_by_slot)
+        },
+    }
+
+
 def _verified_machine_source_package_quality_errors(package: Any, machine: str = "") -> list[str]:
     """Reject thin raw-source packages before spending an LLM call."""
     if not _verified_machine_source_package_ready(package):
@@ -533,12 +566,8 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         ]
         if len(quality_candidates) < 6:
             errors.append("Verified source package needs at least six exact excerpts mentioning the locked machine.")
-        covered_slots = {
-            slot
-            for item in quality_candidates
-            for slot in _anton_source_slot_hints(str(item.get("text") or ""))
-        }
-        missing_slots = sorted(_ANTON_REQUIRED_SLOT_ROLES - covered_slots)
+        coverage = _anton_source_slot_coverage(quality_candidates, machine)
+        missing_slots = coverage.get("missing_slots") or []
         if missing_slots:
             errors.append(
                 "Verified source package needs exact excerpts plausibly covering Anton slot(s): "
@@ -753,6 +782,7 @@ def _format_verified_machine_source_package(package: dict) -> str:
             f"SOURCE_URL: {item.get('source_url')}",
             f"SOURCE_TIER: {tier} - {tier_label}",
             f"SOURCE_CAPTURE_METHOD: {item.get('source_capture_method') or 'legacy_unmarked'}",
+            f"ANTON_SLOT_HINTS: {', '.join(item.get('anton_slot_hints') or []) or 'none'}",
             f"LOCATOR: {item.get('locator')}",
             f"EXACT_TEXT: {item.get('text')}",
         ])
@@ -3543,6 +3573,7 @@ class PipelineExecutor:
             "errors": errors,
             "gathered_at": datetime.now(timezone.utc).isoformat(),
         }
+        package["source_slot_coverage"] = _anton_source_slot_coverage(candidate_excerpts, machine)
         quality_errors = _verified_machine_source_package_quality_errors(package, machine)
         if quality_errors:
             package["passed"] = False

@@ -198,11 +198,13 @@ def test_verified_source_package_format_exposes_source_tier():
     segments[0]["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
     package = _verified_package_for_segments("Boeing XB-15", segments)
     package["candidate_excerpts"][0]["source_capture_method"] = "fetched_page"
+    pe._anton_source_slot_coverage(package["candidate_excerpts"], "Boeing XB-15")
 
     formatted = pe._format_verified_machine_source_package(package)
 
     assert "SOURCE_TIER: 4 - Tier 4 caution/general" in formatted
     assert "SOURCE_CAPTURE_METHOD: fetched_page" in formatted
+    assert "ANTON_SLOT_HINTS:" in formatted
 
 
 def test_verified_source_package_quality_rejects_single_source_and_caution_only():
@@ -276,6 +278,22 @@ def test_verified_source_package_quality_requires_anton_slot_coverage():
     assert "original_problem" in slot_error
     assert "tradeoff" in slot_error
     assert "reality" in slot_error
+
+
+def test_anton_source_slot_coverage_records_excerpt_ids():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+
+    coverage = pe._anton_source_slot_coverage(package["candidate_excerpts"], "Boeing XB-15")
+
+    assert coverage["missing_slots"] == []
+    assert set(coverage["covered_slots"]) == {
+        "engineering_decision",
+        "original_problem",
+        "reality",
+        "tradeoff",
+    }
+    assert coverage["evidence_by_slot"]["original_problem"] == ["S1-E1"]
+    assert "original_problem" in package["candidate_excerpts"][0]["anton_slot_hints"]
 
 
 def test_verified_source_package_ready_requires_exact_text_excerpts():
@@ -453,6 +471,82 @@ def test_source_gathering_tags_tavily_raw_content_fallback(monkeypatch):
     assert result["sources"][0]["source_capture_method"] == "tavily_raw_content"
     assert result["candidate_excerpts"][0]["source_capture_method"] == "tavily_raw_content"
     assert "Boeing XB-15" in result["candidate_excerpts"][0]["text"]
+
+
+def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
+    import httpx
+
+    source_text = (
+        "Boeing XB-15 came from a Project A requirement that called for long-range bombing. "
+        "Boeing XB-15 was designed to answer a mission that needed unusual range. "
+        "Boeing XB-15 used a large wing, four engines, and a deep fuselage as the engineering decision. "
+        "Boeing XB-15 carried payload and range features in a prototype airframe. "
+        "Boeing XB-15 was underpowered and too slow for the combat bomber role. "
+        "Boeing XB-15 could not meet the intended performance without better propulsion. "
+        "Boeing XB-15 served as a transport during World War II. "
+        "Boeing XB-15 was converted and used for wartime cargo missions."
+    )
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "results": [
+                    {
+                        "url": "https://www.af.mil/About-Us/Fact-Sheets/Display/Article/104509/boeing-xb-15/",
+                        "title": "Boeing XB-15 official fact sheet",
+                        "raw_content": source_text,
+                    },
+                    {
+                        "url": "https://airandspace.si.edu/collection-objects/boeing-xb-15",
+                        "title": "Boeing XB-15 museum source",
+                        "raw_content": source_text,
+                    },
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_fetch_source_text(_client, _url):
+        return ""
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(executor, "_fetch_source_text", fake_fetch_source_text)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    assert result["passed"] is True
+    assert result["source_slot_coverage"]["missing_slots"] == []
+    assert set(result["source_slot_coverage"]["covered_slots"]) == {
+        "engineering_decision",
+        "original_problem",
+        "reality",
+        "tradeoff",
+    }
+    assert result["candidate_excerpts"][0]["anton_slot_hints"]
 
 
 def test_required_anton_slots_reject_tier_four_only_source_support():
