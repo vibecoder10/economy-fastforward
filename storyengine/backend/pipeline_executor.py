@@ -959,13 +959,18 @@ def _anton_slot_role_for_kind(kind: str) -> Optional[str]:
     return None
 
 
-def _format_verified_machine_source_package(package: dict) -> str:
+def _format_verified_machine_source_package(package: dict, machine: str = "") -> str:
     lines = [
         "Verified source package. The model may use ONLY these fetched excerpts.",
         "Every returned source_excerpt must be copied from one candidate below.",
+        "Only approved-capture, source_url/locator-traceable rows for the locked machine are shown.",
     ]
     for item in (package.get("candidate_excerpts") or [])[:60]:
         if not isinstance(item, dict):
+            continue
+        if not _verified_source_candidate_traceable(item):
+            continue
+        if machine and not _mentions_machine(str(item.get("text") or ""), machine):
             continue
         tier = _source_tier_number(item)
         tier_label = item.get("source_tier_label") or _source_tier_for_url(
@@ -5405,7 +5410,7 @@ class PipelineExecutor:
                     return payload
                 await self._log_activity(bot_name, video_id, "failed", msg)
                 return payload
-            legacy_source = _format_verified_machine_source_package(verified_source_package)
+            legacy_source = _format_verified_machine_source_package(verified_source_package, target_machine or "")
             source_label = "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE"
         else:
             legacy_source = "\n\n".join(

@@ -265,6 +265,35 @@ def test_verified_source_package_format_exposes_source_tier():
     assert "ANTON_SLOT_HINTS:" in formatted
 
 
+def test_verified_source_package_format_hides_untraceable_or_wrong_machine_rows():
+    segments = _evidence_segments()
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"].append({
+        "excerpt_id": "S99-E1",
+        "source_title": "Snippet-like row",
+        "source_url": "https://example.test/snippet",
+        "text": "The Boeing XB-15 appears in a search-result snippet with no capture method.",
+        "locator": "S99-E1",
+    })
+    package["candidate_excerpts"].append({
+        "excerpt_id": "S98-E1",
+        "source_title": "Wrong machine row",
+        "source_url": "https://airandspace.si.edu/collection-objects/b-17",
+        "text": "The Boeing B-17 Flying Fortress source talks about a different bomber.",
+        "locator": "S98-E1",
+        "source_capture_method": "fetched_page",
+    })
+
+    formatted = pe._format_verified_machine_source_package(package, "Boeing XB-15")
+
+    assert "Only approved-capture, source_url/locator-traceable rows" in formatted
+    assert "SOURCE_CAPTURE_METHOD: fetched_page" in formatted
+    assert "Original problem claim grounded in the supplied source" in formatted
+    assert "search-result snippet" not in formatted
+    assert "legacy_unmarked" not in formatted
+    assert "B-17 Flying Fortress" not in formatted
+
+
 def test_verified_source_package_quality_rejects_single_source_and_caution_only():
     single_source_segments = _evidence_segments()
     for segment in single_source_segments:
