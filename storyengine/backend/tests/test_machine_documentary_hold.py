@@ -688,9 +688,9 @@ def test_story_plan_locks_research_into_anton_slots():
     assert by_slot["original_problem"] == ["E-PROBLEM"]
     assert by_slot["engineering_decision"] == ["E-DECISION"]
     assert by_slot["tradeoff"] == ["E-TRADEOFF"]
-    assert by_slot["reality"] == ["E-REALITY"]
+    assert by_slot["reality"] == ["E-REALITY", "E-MEANING"]
     assert by_slot["memorable_fact"] == ["E-MEMORABLE"]
-    assert by_slot["historical_meaning"] == ["E-MEANING"]
+    assert "historical_meaning" not in by_slot
     assert "must not enter the plan" not in json.dumps(plan)
     assert plan["contract"]["maximum_numerical_details"] == 8
     assert "engineering decision" in plan["contract"]["movement"]
@@ -985,7 +985,7 @@ def test_story_paragraph_validator_blocks_claim_mapped_final_synthesis():
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
     final_sentence = bundle["paragraph"].split(". ")[-1]
     bundle["claim_map"].append({
-        "slot": "historical_meaning",
+        "slot": "reality",
         "span": final_sentence,
         "used_evidence_ids": ["E-MEANING"],
     })
@@ -2369,6 +2369,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "onscreen_label is metadata for Producer File/on-screen text, never spoken narration" in prompt
     assert "For machines 1-3, prefer one verified human_detail" in prompt
     assert "A human_detail segment must be attributed to a named person" in prompt
+    assert "return it as reality, not historical_meaning" in prompt
     assert "Never invent a human account" in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt
@@ -2789,6 +2790,7 @@ def test_research_card_repair_prompt_requires_source_url_and_locator():
     assert "Be precise or be silent" in prompt
     assert "never pick the higher or more dramatic claim" in prompt
     assert "onscreen_label is metadata for Producer File/on-screen text, never spoken narration" in prompt
+    assert "return it as reality, not historical_meaning" in prompt
 
 
 def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(monkeypatch):
@@ -2861,7 +2863,8 @@ def test_compact_card_read_preserves_schema_v3_four_beat_evidence(monkeypatch):
     assert by_slot["original_problem"] == ["E-PROBLEM"]
     assert by_slot["engineering_decision"] == ["E-DECISION"]
     assert by_slot["tradeoff"] == ["E-TRADEOFF"]
-    assert by_slot["reality"] == ["E-REALITY"]
+    assert by_slot["reality"] == ["E-REALITY", "E-MEANING"]
+    assert "historical_meaning" not in by_slot
 
 
 def test_compact_card_read_falls_back_to_legacy_payload(monkeypatch):

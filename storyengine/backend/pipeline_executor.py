@@ -541,7 +541,7 @@ _ANTON_SLOT_SPECS = (
     ("original_problem", ("original_problem", "design_problem", "engineering_intent", "design_requirement", "doctrinal_problem", "identity_origin", "design_intent"), "Raw excerpt for the problem, requirement, or need that made this machine enter the story."),
     ("engineering_decision", ("engineering_decision", "engineering_response", "design_response", "scale_specs", "validated_concept"), "Raw excerpt for the design or engineering decision made in response to that problem."),
     ("tradeoff", ("tradeoff", "tradeoff_or_limit", "limitation", "failure_mode"), "Raw excerpt for the sacrifice, limitation, or tradeoff created by the decision."),
-    ("reality", ("reality", "actual_reality", "actual_outcome", "service_reality", "operational_reality", "combat_reality", "test_result", "build_reality", "production_reality", "prototype_reality"), "Raw excerpt for what happened in testing, production, service, or combat reality."),
+    ("reality", ("reality", "actual_reality", "actual_outcome", "service_reality", "operational_reality", "combat_reality", "test_result", "build_reality", "production_reality", "prototype_reality", "historical_meaning", "legacy"), "Raw excerpt for what happened in testing, production, service, or combat reality, including exact downstream consequences when sourced."),
     ("identity_origin", ("identity_origin_context",), "Optional concise identity context when it is not already covered by original_problem."),
     ("scale_specs", ("scale_specs_context",), "Optional supporting scale/capability detail when it proves the engineering decision."),
     ("build_reality", ("build_reality_context",), "Optional supporting build or production detail when it is not the main reality beat."),
@@ -549,7 +549,6 @@ _ANTON_SLOT_SPECS = (
     ("memorable_fact", ("memorable_fact", "surprising_fact", "retention_fact"), "Optional sourced fact serious viewers are unlikely to know; embed it only when it strengthens one of the four beats."),
     ("role_category", ("role_category", "classification"), "Name the role or category only when it helps the viewer understand the engineering lane."),
     ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced and attributed."),
-    ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "Optional sourced downstream consequence; do not use this as a pre-written conclusion beat."),
     ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
     ("onscreen_label", ("onscreen_label",), "On-screen metadata ingredients: full name, concise role, operator or build count, and service/date range; never spoken narration."),
 )
@@ -4001,7 +4000,7 @@ class PipelineExecutor:
                 "- memorable_fact should be returned when the verified excerpts support a fact serious viewers are unlikely to know; it will be required for Anton-quality script preview, but never invent one.\n"
                 "- For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it. Never invent a human account.\n"
                 "- A human_detail segment must be attributed to a named person or cite an official finding/decision. Generic pilot, crew, or engineer claims are invalid.\n"
-                "- Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence.\n"
+                "- Do not create a pre-written meaning, legacy, or conclusion beat. If an exact excerpt states a concrete downstream consequence, return it as reality, not historical_meaning.\n"
                 "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
                 "- Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when directly supported by exact excerpts.\n"
                 "- onscreen_label is metadata for Producer File/on-screen text, never spoken narration; use only sourced full name, concise role, operator or build count, and service/date range.\n"
@@ -4047,7 +4046,7 @@ class PipelineExecutor:
                     "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "
                     "For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it; never invent a human account. "
                     "A human_detail segment must be attributed to a named person or cite an official finding/decision; generic pilot, crew, or engineer claims are invalid. "
-                    "Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence. "
+                    "Do not create a pre-written meaning, legacy, or conclusion beat. If an exact excerpt states a concrete downstream consequence, return it as reality, not historical_meaning. "
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "
                     "onscreen_label is metadata for Producer File/on-screen text, never spoken narration; use only sourced full name, concise role, operator or build count, and service/date range. "
