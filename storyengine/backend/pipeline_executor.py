@@ -458,6 +458,23 @@ def _verified_machine_source_package_quality_errors(package: Any) -> list[str]:
     return errors
 
 
+def _verified_machine_source_package_identity_errors(package: Any, machine: str) -> list[str]:
+    """Reject stale raw-source packages saved under the wrong machine key."""
+    if not _verified_machine_source_package_ready(package):
+        return []
+    target_code = _verified_source_cache_key(machine)
+    package_key = _normalized_unit_code(str((package or {}).get("machine_key") or ""))
+    package_machine = _normalized_unit_code(_unit_display_name((package or {}).get("machine") or ""))
+    errors: list[str] = []
+    if not package_key and not package_machine:
+        errors.append("Verified source package missing machine identity.")
+    if package_key and package_key != target_code:
+        errors.append(f"Verified source package machine_key {package_key} does not match locked machine {target_code}.")
+    if package_machine and package_machine != target_code:
+        errors.append(f"Verified source package machine {package_machine} does not match locked machine {target_code}.")
+    return errors
+
+
 def _source_tier_for_url(url: str, title: str = "") -> dict[str, Any]:
     """Classify fetched sources using the DVsU verification hierarchy."""
     host = urlparse(str(url or "")).netloc.lower()
@@ -2370,7 +2387,11 @@ class PipelineExecutor:
         """
         cache_key = _verified_source_cache_key(machine)
         cached = ((payload or {}).get("machine_raw_source_packages") or {}).get(cache_key)
-        if _verified_machine_source_package_ready(cached) and not _verified_machine_source_package_quality_errors(cached):
+        if (
+            _verified_machine_source_package_ready(cached)
+            and not _verified_machine_source_package_quality_errors(cached)
+            and not _verified_machine_source_package_identity_errors(cached, machine)
+        ):
             return cached
 
         tavily_key = await get_secret("tavily_api_key", self.tenant_id)
@@ -3742,7 +3763,10 @@ class PipelineExecutor:
                 }
                 await self._log_activity(bot_name, video_id, "failed", conflict)
                 return payload
-            source_package_errors = _verified_machine_source_package_quality_errors(verified_source_package)
+            source_package_errors = (
+                _verified_machine_source_package_quality_errors(verified_source_package)
+                + _verified_machine_source_package_identity_errors(verified_source_package, target_machine or "")
+            )
             if not _verified_machine_source_package_ready(verified_source_package) or source_package_errors:
                 messages = [
                     str(item) for item in (verified_source_package.get("errors") or [])
@@ -4182,6 +4206,7 @@ class PipelineExecutor:
             source_package = _verified_source_package_for_machine(rp, target_machine)
             source_errors = (
                 _verified_machine_source_package_quality_errors(source_package)
+                + _verified_machine_source_package_identity_errors(source_package, target_machine)
                 + _validate_card_against_verified_sources(selected_card, source_package)
             )
             if source_errors:

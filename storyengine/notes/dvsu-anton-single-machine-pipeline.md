@@ -43,6 +43,8 @@ The fetch stage uses a cost-bounded eight-query set for the locked machine: offi
 
 The raw source package is checkpointed into `research_payload.machine_raw_source_packages[<machine_key>]` immediately after fetch/verification and before the research-card LLM call. A failed or blocked card generation can therefore still be reviewed from the exact gathered excerpts instead of disappearing with the failed model pass.
 
+Cached raw source packages are reused only when their saved `machine_key`/`machine` identity still matches the locked target machine. A package stored under the right JSON key but internally belonging to another machine is ignored for research and rejected for script preview before any paid script call.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
