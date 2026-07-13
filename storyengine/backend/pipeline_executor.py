@@ -691,6 +691,10 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         normalized_number_keys = {_numeric_token_key(token) for token in normalized_numbers}
         missing_number_support = [token for token in claim_numbers if _numeric_token_key(token) not in excerpt_number_keys]
         undeclared_numbers = [token for token in claim_numbers if _numeric_token_key(token) not in normalized_number_keys]
+        if undeclared_numbers and not missing_number_support:
+            normalized_numbers = list(dict.fromkeys(normalized_numbers + undeclared_numbers))
+            normalized_number_keys = {_numeric_token_key(token) for token in normalized_numbers}
+            undeclared_numbers = [token for token in claim_numbers if _numeric_token_key(token) not in normalized_number_keys]
         invented_numeric_tokens = [
             token
             for token in normalized_numbers
@@ -3329,8 +3333,8 @@ class PipelineExecutor:
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one research slot. Do not write narration or pre-assemble the paragraph.\n"
                 "- claim must be a concise restatement of source_excerpt using no factual noun, verb, adjective, or number absent from that excerpt.\n"
-                "- numeric_tokens must list every number used by claim and may contain only numbers present in claim or source_excerpt.\n"
-                "- source_excerpt must be copied from EXACT_TEXT in the verified excerpt package; source_url and locator must match that excerpt.\n"
+                "- numeric_tokens must list every number-like token used by claim, including years, model numbers, counts, speeds, ranges, decades like 1940s, and spelled numbers. Tokens may contain only numbers present in claim or source_excerpt.\n"
+                "- source_excerpt must be copied character-for-character from one EXACT_TEXT row in the verified excerpt package. Do not paraphrase, trim together multiple rows, or synthesize a source_excerpt; source_url and locator must match that same excerpt row.\n"
                 "- Do not use memory, training data, general knowledge, or unsupplied web facts.\n"
                 "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied excerpts cannot support a required slot, make that absence explicit in validation rather than guessing.\n"
                 "- Research remains evidence, not prose composition. Do not return script_beats or a paragraph.\n\n"
@@ -3364,7 +3368,8 @@ class PipelineExecutor:
                     "memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia. "
                     "Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
-                    "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below. "
+                    "numeric_tokens must include every number-like token used by claim, including years, model numbers, counts, speeds, ranges, decades like 1940s, and spelled numbers. "
+                    "Each source_excerpt must be copied character-for-character from one EXACT_TEXT row in the verified source package below. Do not paraphrase, merge, trim across rows, or synthesize source_excerpt. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
                     "Do not create script_beats or a paragraph. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
                     f"BAD/RAW CARD:\n{raw}\n\n{source_label}:\n{legacy_source}"
