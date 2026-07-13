@@ -127,7 +127,7 @@ def _spoken_word_count(text: str) -> int:
     return len(re.findall(r"\b[\w]+(?:[-'][\w]+)*\b", str(text or "")))
 
 
-_ANTON_PARAGRAPH_MIN_WORDS = 90
+_ANTON_PARAGRAPH_MIN_WORDS = 95
 _ANTON_PARAGRAPH_MAX_WORDS = 120
 _ANTON_PARAGRAPH_MIN_SENTENCES = 4
 _ANTON_PARAGRAPH_MAX_SENTENCES = 7

@@ -596,16 +596,16 @@ def test_animated_video_with_roster_shape_still_runs_global_writer(monkeypatch):
     assert pipeline.global_writer_calls == 1
 
 
-def test_hard_word_bounds_are_90_through_120_inclusive():
+def test_hard_word_bounds_are_95_through_120_inclusive():
     validate = pe.PipelineExecutor._validate_static_unit_paragraph
 
-    assert any("word count 89" in warning for warning in validate("XB-15", _words("XB-15", 89)))
-    assert validate("XB-15", _words("XB-15", 90)) == []
+    assert any("word count 94" in warning for warning in validate("XB-15", _words("XB-15", 94)))
+    assert validate("XB-15", _words("XB-15", 95)) == []
     assert validate("XB-15", _words("XB-15", 120)) == []
     assert any("word count 121" in warning for warning in validate("XB-15", _words("XB-15", 121)))
     two_paragraphs = _words("XB-15", 48) + "\n\n" + _words("XB-15", 47)
     assert "must be exactly one paragraph" in validate("XB-15", two_paragraphs)
-    assert validate("B52", _words("B-52", 90)) == []
+    assert validate("B52", _words("B-52", 95)) == []
 
 
 def test_meta_validator_does_not_match_as_an_ai_inside_was_an_aircraft():
@@ -1412,7 +1412,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
-    assert "90-120 words, 4-7 natural sentences" in fake_anthropic.prompts[0]
+    assert "95-120 words, 4-7 natural sentences" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
     assert "final sentence must be 28 words or fewer" in fake_anthropic.prompts[0]
     assert "End with a short verdict" in fake_anthropic.prompts[0]
@@ -2131,7 +2131,7 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
                     "paragraph": "Reviewable paragraph.",
                     "word_count": 2,
                     "passed": False,
-                    "warnings": ["word count 2 outside 90-120 script-hold range"],
+                    "warnings": ["word count 2 outside 95-120 script-hold range"],
                     "claim_bundle": {"claim_map": []},
                 },
             }

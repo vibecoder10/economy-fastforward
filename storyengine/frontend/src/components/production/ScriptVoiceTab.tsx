@@ -1982,7 +1982,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       const hasVoice = sceneHasVoice(scene);
                       const isPlayingThis = false;
                       const isGeneratingThisVoice = generatingVoiceScene === scene.sceneNumber;
-                      // Per-scene word count. The wand rewrite enforces 90-120
+                      // Per-scene word count. The wand rewrite enforces 95-120
                       // words per scene (routes/videos.py rewrite contract), but
                       // without a visible count over-cap scenes are invisible
                       // until the voice runs long.
@@ -2034,7 +2034,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               title={
                                 overCap
                                   ? "Over the 120-word scene cap — wand-rewrite this scene to shorten it"
-                                  : "Scene word count (target 90-120)"
+                                  : "Scene word count (target 95-120)"
                               }
                             >
                               {wordCount} words{overCap ? " · OVER CAP" : ""}
