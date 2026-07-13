@@ -4267,6 +4267,7 @@ def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(mo
     assert result["status"] == "completed"
     assert result["machine"] == "Boeing XB-15"
     assert result["research_card"] == card
+    assert result["research_payload"]["unit_research_hold_validation"]["target_machine_passed"] is True
     assert json.loads(writes[0][1][0])["unit_research_hold_validation"]["passed"] is False
     assert "research_payload->'unit_roster' = $5::jsonb" in writes[0][0]
     assert json.loads(writes[0][1][4]) == roster_names

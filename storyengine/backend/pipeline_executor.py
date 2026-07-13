@@ -4685,7 +4685,13 @@ class PipelineExecutor:
                 "error": "persisted unit_roster changed concurrently; final one-machine research save refused",
             }
         card = _research_card_for_machine(payload, matched)
-        return {"status": "completed", "video_id": video_id, "machine": matched, "research_card": card}
+        return {
+            "status": "completed",
+            "video_id": video_id,
+            "machine": matched,
+            "research_card": card,
+            "research_payload": payload,
+        }
 
     async def run_unit_research(self, video_id: str) -> dict:
         """Continue the locked-roster machine research hold without rediscovering the roster."""
