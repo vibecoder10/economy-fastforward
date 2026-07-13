@@ -25,7 +25,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "Build reality claim grounded in the supplied source.",
         "Service reality claim grounded in the supplied source.",
         "Memorable fact claim grounded in the supplied source.",
-        "Historical meaning claim grounded in the supplied source.",
+        "Together, those choices made the machine matter beyond its own service.",
     ]
     fill_index = 0
     while pe._spoken_word_count(" ".join(sentences)) < target_words:
@@ -38,14 +38,13 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "E-BUILD",
         "E-SERVICE",
         "E-MEMORABLE",
-        "E-MEANING",
     ]
     return json.dumps({
         "paragraph": " ".join(sentences),
         "claim_map": [
             {"slot": slot, "span": sentence, "used_evidence_ids": [evidence_id]}
             for slot, sentence, evidence_id in zip(
-                ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact", "historical_meaning"],
+                ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact"],
                 sentences,
                 ids,
             )
@@ -432,7 +431,8 @@ def test_story_plan_locks_research_into_anton_slots():
     assert by_slot["historical_meaning"] == ["E-MEANING"]
     assert "must not enter the plan" not in json.dumps(plan)
     assert plan["contract"]["maximum_numerical_details"] == 8
-    assert "identity/origin hook" in plan["contract"]["movement"]
+    assert "paragraph-derived conclusion" in plan["contract"]["movement"]
+    assert "no new sourced meaning beat" in plan["contract"]["conclusion_rule"]
 
 
 def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
@@ -494,22 +494,35 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
     assert warnings == []
     assert pe._spoken_word_count(paragraph) == 95
     assert [row["used_evidence_ids"][0] for row in bundle["claim_map"]] == [
-        "E-IDENTITY", "E-SCALE", "E-BUILD", "E-SERVICE", "E-MEMORABLE", "E-MEANING"
+        "E-IDENTITY", "E-SCALE", "E-BUILD", "E-SERVICE", "E-MEMORABLE"
     ]
 
 
-def test_story_paragraph_validator_requires_final_sentence_historical_meaning():
+def test_story_paragraph_validator_allows_unmapped_final_synthesis_without_historical_meaning():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
-    bundle["claim_map"][0]["used_evidence_ids"] = ["E-IDENTITY", "E-MEANING"]
-    bundle["claim_map"][-1]["slot"] = "service_reality"
-    bundle["claim_map"][-1]["used_evidence_ids"] = ["E-SERVICE"]
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert any("final sentence must be grounded in historical_meaning" in warning for warning in warnings)
-    assert not any("paragraph missing required Anton slot evidence" in warning for warning in warnings)
+    assert warnings == []
+
+
+def test_story_paragraph_validator_blocks_fact_heavy_final_synthesis():
+    evidence = _evidence_segments()
+    evidence[2]["numeric_tokens"] = ["1950"]
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    sentence_parts = [part for part in bundle["paragraph"].split(". ") if part]
+    old_final = sentence_parts[-1]
+    new_final = old_final.rstrip(".") + " in 1950."
+    bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final)
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("final sentence must be paragraph-derived synthesis without new numerical detail" in warning for warning in warnings)
+    assert not any("paragraph introduced unsupported numerical detail" in warning for warning in warnings)
 
 
 def test_story_paragraph_validator_requires_every_sentence_claim_mapped():
@@ -627,7 +640,7 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles. "
             "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances. "
             "The aircraft served as a transport during World War II, hauling cargo across the Pacific. "
-            "Though never used in combat as a bomber, the XB-15 clearly validated concepts that would define American strategic aviation for the next eight decades."
+            "That made the giant prototype useful in practice less as a weapon than as proof that size, range, and power had to mature together."
         ),
         "claim_map": [
             {
@@ -654,11 +667,6 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
                 "slot": "service_reality",
                 "span": "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
                 "used_evidence_ids": ["XB15-SERVICE"],
-            },
-            {
-                "slot": "historical_meaning",
-                "span": "Though never used in combat as a bomber, the XB-15 clearly validated concepts that would define American strategic aviation for the next eight decades.",
-                "used_evidence_ids": ["XB15-MEANING", "XB15-MEANING-CHECK"],
             },
         ],
     }
@@ -838,9 +846,10 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"paragraph":"..."' in fake_anthropic.prompts[0]
-    for required_slot in ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact", "historical_meaning"]:
+    for required_slot in ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact"]:
         assert required_slot in fake_anthropic.prompts[0]
-    assert "service_reality, memorable_fact, and historical_meaning" in fake_anthropic.prompts[0]
+    assert "identity_origin, scale_specs, build_reality, service_reality, and memorable_fact" in fake_anthropic.prompts[0]
+    assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
     assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]

@@ -388,7 +388,7 @@ _ANTON_SLOT_SPECS = (
     ("combat_reality", ("combat_reality",), "Clarify combat or non-combat reality when that contrast matters."),
     ("tradeoff_or_limit", ("tradeoff_or_limit", "tradeoff", "limitation", "failure_mode"), "Explain the limitation, sacrifice, or unexpected consequence when it is central to the machine."),
     ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced."),
-    ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "State the sourced meaning: what concept, doctrine, trade-off, or future path the machine proved."),
+    ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "Optional sourced downstream consequence; do not use this as a pre-written conclusion beat."),
     ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
     ("onscreen_label", ("onscreen_label",), "On-screen label ingredients: name, concise role, build count, and service/date range."),
 )
@@ -400,7 +400,6 @@ _ANTON_REQUIRED_SLOT_ROLES = {
     "build_reality",
     "service_reality",
     "memorable_fact",
-    "historical_meaning",
 }
 
 
@@ -837,9 +836,10 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "evidence_slot_roles": role_by_id,
         "contract": {
             "paragraph_shape": "one Anton/DVsU paragraph, 4-6 natural sentences",
-            "movement": "identity/origin hook -> scale/spec proof -> prototype/build reality -> service/combat reality -> memorable fact -> historical meaning",
+            "movement": "evidence-backed identity/scale/build/service/memorable story -> short paragraph-derived conclusion",
             "paragraph_words": "95-120",
             "maximum_numerical_details": 8,
+            "conclusion_rule": "final sentence is editorial synthesis from the assembled paragraph only; no new sourced meaning beat, dates, specs, or numbers",
             "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
         },
     }
@@ -903,7 +903,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append("paragraph must include a non-empty claim_map")
         claim_rows = []
     used_ids: list[str] = []
-    claim_span_roles: list[tuple[str, set[str]]] = []
     claim_span_details: list[dict[str, Any]] = []
     high_risk_terms = {"first", "only", "largest", "fastest", "most", "never"}
     designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
@@ -927,8 +926,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             warnings.append(f"claim_map row {index} used evidence outside the locked Anton slots: " + ", ".join(row_unknown))
         declared_slot = str(row.get("slot") or row.get("slot_role") or "").strip()
         row_slots = {role_by_id[item] for item in row_ids if item in role_by_id}
-        if span and row_slots:
-            claim_span_roles.append((span, row_slots))
         if declared_slot and row_slots and declared_slot not in row_slots:
             warnings.append(f"claim_map row {index} declares slot {declared_slot} but uses {', '.join(sorted(row_slots))}")
         if span and row_ids:
@@ -1027,15 +1024,17 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     sentence_count = len([part for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()])
     if sentence_count < 4 or sentence_count > 6:
         warnings.append(f"paragraph sentence count {sentence_count} outside Anton 4-6 range")
-    last_sentence = ""
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
+    last_sentence = sentence_parts[-1] if sentence_parts else ""
+    final_sentence_index = len(sentence_parts)
     for sentence_index, sentence in enumerate(sentence_parts, start=1):
         sentence_claim_spans = [
             detail for detail in claim_span_details
             if detail.get("span") and (detail["span"] in sentence or sentence in detail["span"])
         ]
         if not sentence_claim_spans:
-            warnings.append(f"sentence {sentence_index} is not covered by claim_map evidence")
+            if sentence_index != final_sentence_index:
+                warnings.append(f"sentence {sentence_index} is not covered by claim_map evidence")
             continue
         sentence_for_numbers = sentence
         for designation in designation_tokens:
@@ -1070,20 +1069,29 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 + ", ".join(uncovered_risk_terms)
             )
     if sentence_parts:
-        last_sentence = sentence_parts[-1]
         last_wc = _spoken_word_count(last_sentence)
         if last_wc > 28:
             warnings.append(f"final sentence word count {last_wc} is too long to land cleanly")
         if re.search(r"\b(in conclusion|overall|to summarize|this shows that)\b", last_sentence.lower()):
             warnings.append("final sentence uses generic summary language instead of a landed Anton line")
-        final_roles = {
-            role
-            for span, row_slots in claim_span_roles
-            if span and (span in last_sentence or last_sentence in span)
-            for role in row_slots
-        }
-        if "historical_meaning" not in final_roles:
-            warnings.append("final sentence must be grounded in historical_meaning evidence")
+        final_sentence_for_numbers = last_sentence
+        for designation in designation_tokens:
+            final_sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", final_sentence_for_numbers, flags=re.IGNORECASE)
+        final_numbers = _numeric_mentions_from_text(final_sentence_for_numbers)
+        if final_numbers:
+            warnings.append(
+                "final sentence must be paragraph-derived synthesis without new numerical detail(s): "
+                + ", ".join(mention["raw"] for mention in final_numbers)
+            )
+        final_risk_terms = sorted(
+            term for term in high_risk_terms
+            if re.search(rf"\b{re.escape(term)}\b", last_sentence.lower())
+        )
+        if final_risk_terms:
+            warnings.append(
+                "final sentence must not introduce high-risk exact term(s): "
+                + ", ".join(final_risk_terms)
+            )
     if ";" in paragraph:
         warnings.append("paragraph may not use semicolons")
 
@@ -3325,8 +3333,9 @@ class PipelineExecutor:
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
                 "- Return 7-10 atomic evidence segments using Anton slot kinds only.\n"
-                "- Required slot kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact, historical_meaning.\n"
+                "- Required slot kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact.\n"
                 "- memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia.\n"
+                "- Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence.\n"
                 "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
                 "- Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when directly supported by exact excerpts.\n"
                 "- Each claim must be one concise factual proposition, maximum 35 words. A scale_specs claim may bundle 2-4 related specifications only if the source excerpt contains them together.\n"
@@ -3364,8 +3373,9 @@ class PipelineExecutor:
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
-                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact, historical_meaning. "
+                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact. "
                     "memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia. "
+                    "Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence. "
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
@@ -3794,14 +3804,15 @@ class PipelineExecutor:
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
-                    "The target movement is identity/origin hook, scale proof, build reality, service/combat reality, one memorable fact, and historical meaning.\n\n"
+                    "The target movement is sourced identity/origin hook, scale proof, build reality, service/combat reality, one memorable fact, then one paragraph-derived conclusion.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
                     '{"paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"identity_origin","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- paragraph must be final spoken narration: exactly one paragraph, 95-120 words, 4-6 natural sentences.\n"
                     "- Target 105-110 words. If you are above 110 words, remove the least important sourced detail instead of compressing more facts.\n"
-                    "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or historical meaning.\n"
-                    "- claim_map used_evidence_ids must cover identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning.\n"
+                    "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
+                    "- claim_map used_evidence_ids must cover identity_origin, scale_specs, build_reality, service_reality, and memorable_fact.\n"
+                    "- The final sentence is editorial synthesis from the assembled paragraph only. It may be omitted from claim_map if it contains no new facts.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
@@ -3813,7 +3824,7 @@ class PipelineExecutor:
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
                     "- Include the sourced memorable_fact when it strengthens the paragraph, but make it prove the decision, trade-off, outcome, or meaning. No orphan facts.\n"
-                    "- End with a short verdict, paradox, irony, or reversal grounded in historical_meaning evidence. The final sentence must be 28 words or fewer.\n"
+                    "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
                     "- onscreen_label must be empty unless onscreen_label evidence or sourced role/build/date slots support it.\n"
                     "- No citations, headings, markdown, commentary, hype, or list transitions.\n\n"
                     f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
@@ -3863,7 +3874,8 @@ class PipelineExecutor:
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         "Return only the exact JSON shape: {\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"identity_origin\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
-                        "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, memorable_fact, and historical_meaning. "
+                        "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, and memorable_fact. "
+                        "The final sentence must be editorial synthesis from the rebuilt paragraph only; it may be omitted from claim_map if it contains no new facts. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
@@ -3872,7 +3884,7 @@ class PipelineExecutor:
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
                         "Delete every unsupported high-risk term named in the validation warnings unless that exact word appears in the selected source evidence. "
-                        "End with a grounded Anton-style verdict of 28 words or fewer, not a generic summary. The rejected draft is hidden; start fresh.\n\n"
+                        "End with a paragraph-derived Anton-style verdict of 28 words or fewer, not a generic summary, and do not add dates, specs, production counts, or new events there. The rejected draft is hidden; start fresh.\n\n"
                         f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                     )
                     raw_story = await anthropic_client.generate(
