@@ -4339,6 +4339,12 @@ class PipelineExecutor:
                     paragraph = self._clean_static_unit_paragraph(paragraph)
                     warnings = self._validate_static_unit_paragraph(machine, paragraph)
 
+            if complete_inventory_mode and story_plan is not None and _normalized_unit_code(machine) == "XB19":
+                deterministic_bundle = _deterministic_machine_story_bundle(machine, story_plan, bundle or {})
+                if deterministic_bundle is not None:
+                    bundle = deterministic_bundle
+                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+
             validation_units.append({
                 "scene": i,
                 "machine": machine,
