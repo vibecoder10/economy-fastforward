@@ -107,7 +107,7 @@ The timeline-structure gate rejects paragraphs that stack dated biography senten
 
 The narrative-flow gate rejects ranked-list connector language such as "Next came," "Another aircraft was," "Moving on to," "At number," and "on this list." Anton paragraphs must bridge through problem, contrast, consequence, or the prior machine instead of announcing another list entry.
 
-`memorable_fact` must not be invented, and the saved research card must contain a sourced `memorable_fact`, `surprising_fact`, or `retention_fact` evidence segment before script preview is enabled. The script preview audit will still mark the machine as needing review if the paragraph ignores the one research found.
+`memorable_fact` must not be invented, and the saved research card must contain a sourced `memorable_fact`, `surprising_fact`, or `retention_fact` evidence segment before script preview is enabled. The UI gate treats the slot as sourced only when it carries a copied `source_excerpt` plus `source_url` or `locator`, so a model-labeled but unsourced memorable fact cannot unlock preview. The script preview audit will still mark the machine as needing review if the paragraph ignores the one research found.
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.
 

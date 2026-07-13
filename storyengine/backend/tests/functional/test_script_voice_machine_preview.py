@@ -52,6 +52,9 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "activePreviewResearchCard" in text
     assert "activePreviewReady" in text
     assert "Research card missing · preview blocked" in text
+    assert "Sourced memorable fact missing · preview blocked" in text
+    assert "const hasSourcedMemorableFact" in text
+    assert "String(segment?.source_excerpt || \"\").trim()" in text
     assert "Evidence source mismatch ·" in text
     assert "Research card missing Anton slots ·" in text
     assert "Research card needs distinct Anton excerpts · preview blocked" in text

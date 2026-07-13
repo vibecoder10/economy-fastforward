@@ -454,11 +454,13 @@ function machineResearchCardStatus(card: any, machine: string = "", sourcePackag
     return { ready: false, message: "Visual identity missing · preview blocked" };
   }
   const evidenceSegments = Array.isArray(card?.evidence_segments) ? card.evidence_segments : [];
-  const hasMemorableFact = evidenceSegments.some((segment: any) => (
+  const hasSourcedMemorableFact = evidenceSegments.some((segment: any) => (
     ["memorable_fact", "surprising_fact", "retention_fact"].includes(String(segment?.kind || "").trim().toLowerCase())
+    && String(segment?.source_excerpt || "").trim()
+    && (String(segment?.source_url || "").trim() || String(segment?.locator || "").trim())
   ));
-  if (!hasMemorableFact) {
-    return { ready: false, message: "Memorable fact missing · preview blocked" };
+  if (!hasSourcedMemorableFact) {
+    return { ready: false, message: "Sourced memorable fact missing · preview blocked" };
   }
   const evidenceIds = new Set(
     evidenceSegments

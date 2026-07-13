@@ -71,7 +71,9 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Timeframe evidence missing ·" in text
     assert "Visual identity missing · preview blocked" in text
     assert "Visual identity evidence missing ·" in text
-    assert "Memorable fact missing · preview blocked" in text
+    assert "Sourced memorable fact missing · preview blocked" in text
+    assert "const hasSourcedMemorableFact" in text
+    assert "String(segment?.source_excerpt || \"\").trim()" in text
     assert "Evidence source mismatch ·" in text
     assert "Research card missing Anton slots ·" in text
     assert "Research card needs distinct Anton excerpts · preview blocked" in text
@@ -114,7 +116,9 @@ def test_script_voice_tab_blocks_preview_without_authoritative_source():
     assert "function machineResearchCardStatus" in text
     assert "Timeframe missing · preview blocked" in text
     assert "Visual identity missing · preview blocked" in text
-    assert "Memorable fact missing · preview blocked" in text
+    assert "Sourced memorable fact missing · preview blocked" in text
+    assert "const hasSourcedMemorableFact" in text
+    assert "String(segment?.source_excerpt || \"\").trim()" in text
     assert "Evidence source mismatch ·" in text
     assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
     assert "Timeframe evidence Tier 4-only · preview blocked" in text
