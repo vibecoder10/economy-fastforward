@@ -94,6 +94,24 @@ function previewMatchesMachine(preview: any, machine: string): boolean {
   return machineLabelMatches(preview?.machine, machine);
 }
 
+function fullMachineResearchGatePassed(validation: any, verifiedCount: number, rosterCount: number): boolean {
+  const units = Array.isArray(validation?.units) ? validation.units : [];
+  return Boolean(
+    validation?.passed
+    && rosterCount > 0
+    && verifiedCount === rosterCount
+    && units.length >= rosterCount
+    && !validation?.target_machine
+  );
+}
+
+function machinePreviewPassesAntonGate(preview: any): boolean {
+  const formulaSentences = Array.isArray(preview?.claim_bundle?.formula_sentences)
+    ? preview.claim_bundle.formula_sentences
+    : [];
+  return Boolean(preview?.passed && preview?.quality_audit?.passed && formulaSentences.length === 5);
+}
+
 function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
   if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
   if (previews[machine]) return previews[machine] as MachineScriptPreview;
@@ -783,7 +801,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       const result = await runMachineScriptPreview(video.id, machine);
       setLocalMachinePreview(result.preview);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      if (result.preview.passed) {
+      if (machinePreviewPassesAntonGate(result.preview)) {
         toast.success("Single-machine preview passed. Production script unchanged.");
       } else {
         toast.error("Single-machine preview needs review. Production script unchanged.");
@@ -822,9 +840,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       const verifiedCount = lockedRoster.filter((item: any) => {
         const label = machineLabel(item);
         const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-        return Boolean(card) && sourcePackageReady(sourcePackageForMachine(packages, label), label);
+        const sourcePackage = sourcePackageForMachine(packages, label);
+        return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
       }).length;
-      if (lockedRoster.length > 0 && !machineResearchGate?.passed) {
+      if (lockedRoster.length > 0 && !fullMachineResearchGatePassed(machineResearchGate, verifiedCount, lockedRoster.length)) {
         setApproveError(`Machine research is incomplete: ${verifiedCount}/${lockedRoster.length} verified cards finished.`);
         return;
       }
@@ -936,6 +955,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
     }).length;
   }, [research]);
+  const fullMachineResearchPassed = fullMachineResearchGatePassed(
+    research?.unit_research_hold_validation,
+    verifiedMachineResearchCount,
+    research?.unit_roster?.length || 0
+  );
 
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map
@@ -943,6 +967,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const selectedPreviewFormulaSentences = Array.isArray(selectedMachinePreview?.claim_bundle?.formula_sentences)
     ? selectedMachinePreview.claim_bundle.formula_sentences
     : [];
+  const selectedMachinePreviewPassed = machinePreviewPassesAntonGate(selectedMachinePreview);
 
   const selectedPreviewEvidenceById = useMemo(() => {
     const rows: Record<string, {
@@ -1174,7 +1199,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       )}
 
       {research.unit_roster.length > 0 && research.unit_roster_validation?.passed && (
-        <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: research.unit_research_hold_validation?.passed ? "var(--green)" : "var(--turquoise)" }}>
+        <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: fullMachineResearchPassed ? "var(--green)" : "var(--turquoise)" }}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 mb-1">
@@ -1185,7 +1210,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 {verifiedMachineResearchCount}/{research.unit_roster.length} verified machines researched. Each selected-machine card is saved with a raw source package before the next machine begins.
               </p>
               <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
-                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (verifiedMachineResearchCount / research.unit_roster.length) * 100)}%`, background: research.unit_research_hold_validation?.passed ? "var(--green)" : "var(--turquoise)" }} />
+                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (verifiedMachineResearchCount / research.unit_roster.length) * 100)}%`, background: fullMachineResearchPassed ? "var(--green)" : "var(--turquoise)" }} />
               </div>
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <select
@@ -1264,13 +1289,13 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
               className="mt-4 rounded-lg p-4"
               style={{
                 background: "rgba(0,0,0,.18)",
-                border: `1px solid ${selectedMachinePreview?.passed ? "rgba(74,222,128,.28)" : "rgba(255,255,255,.09)"}`,
+                border: `1px solid ${selectedMachinePreviewPassed ? "rgba(74,222,128,.28)" : "rgba(255,255,255,.09)"}`,
               }}
             >
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <ShieldCheck size={14} style={{ color: selectedMachinePreview?.passed ? "var(--green)" : "var(--turquoise)" }} />
+                    <ShieldCheck size={14} style={{ color: selectedMachinePreviewPassed ? "var(--green)" : "var(--turquoise)" }} />
                     <h4 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
                       Single-machine script preview
                     </h4>
@@ -1278,8 +1303,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>{selectedMachineLabel}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedMachinePreview?.passed ? "rgba(0,230,138,.12)" : "rgba(255,255,255,.06)", color: selectedMachinePreview?.passed ? "var(--green)" : "var(--text-tertiary)" }}>
-                    {selectedMachinePreview ? (selectedMachinePreview.passed ? "Passed" : "Needs review") : "Not previewed"}
+                  <span className="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedMachinePreviewPassed ? "rgba(0,230,138,.12)" : "rgba(255,255,255,.06)", color: selectedMachinePreviewPassed ? "var(--green)" : "var(--text-tertiary)" }}>
+                    {selectedMachinePreview ? (selectedMachinePreviewPassed ? "Passed" : "Needs review") : "Not previewed"}
                   </span>
                   {selectedMachinePreview?.word_count !== undefined && (
                     <span className="rounded-md px-2 py-1 text-[10px] font-mono" style={{ background: "rgba(255,255,255,.06)", color: "var(--text-tertiary)" }}>
@@ -1317,6 +1342,11 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   ) : (
                     <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                       Preview stopped before a paragraph was generated.
+                    </div>
+                  )}
+                  {!selectedMachinePreview.quality_audit?.checks?.length && (
+                    <div className="rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                      Legacy preview missing Anton audit. Regenerate this machine before accepting it.
                     </div>
                   )}
 

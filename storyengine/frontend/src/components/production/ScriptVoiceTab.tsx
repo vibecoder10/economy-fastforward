@@ -177,6 +177,24 @@ function previewMatchesMachine(preview: any, machine: string): boolean {
   return machineLabelMatches(preview?.machine, machine);
 }
 
+function fullMachineResearchGatePassed(validation: any, verifiedCount: number, rosterCount: number): boolean {
+  const units = Array.isArray(validation?.units) ? validation.units : [];
+  return Boolean(
+    validation?.passed
+    && rosterCount > 0
+    && verifiedCount === rosterCount
+    && units.length >= rosterCount
+    && !validation?.target_machine
+  );
+}
+
+function machinePreviewPassesAntonGate(preview: any): boolean {
+  const formulaSentences = Array.isArray(preview?.claim_bundle?.formula_sentences)
+    ? preview.claim_bundle.formula_sentences
+    : [];
+  return Boolean(preview?.passed && preview?.quality_audit?.passed && formulaSentences.length === 5);
+}
+
 function cardMatchesMachine(card: any, machine: string): boolean {
   return machineLabelMatches(cardLabel(card), machine);
 }
@@ -1432,9 +1450,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         const verifiedCount = roster.filter((item: any) => {
           const label = machineLabel(item);
           const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-          return Boolean(card) && sourcePackageReady(sourcePackageForMachine(packages, label), label);
+          const sourcePackage = sourcePackageForMachine(packages, label);
+          return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
         }).length;
-        if (!validation?.passed) {
+        if (!fullMachineResearchGatePassed(validation, verifiedCount, roster.length)) {
           return `Machine research is incomplete: ${verifiedCount}/${roster.length} verified cards finished.`;
         }
       }
@@ -1830,7 +1849,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     const roster = machineRoster;
     if (roster.length === 0) return null;
     const validation = researchPayload?.unit_research_hold_validation;
-    return validation?.passed
+    return fullMachineResearchGatePassed(validation, verifiedMachineResearchCount, roster.length)
       ? validation
       : {
           passed: false,
@@ -1861,6 +1880,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const previewFormulaSentences = Array.isArray(machinePreview?.claim_bundle?.formula_sentences)
     ? machinePreview.claim_bundle.formula_sentences
     : [];
+  const machinePreviewPassed = machinePreviewPassesAntonGate(machinePreview);
   const previewEvidenceById = (() => {
     const rows: Record<string, {
       slot?: string;
@@ -1935,7 +1955,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       setMachinePreview(result.preview);
       setPreviewMachine(machine);
       invalidateAll();
-      if (result.preview.passed) {
+      if (machinePreviewPassesAntonGate(result.preview)) {
         toast.success(`${machine} preview generated. Production script unchanged.`);
       } else {
         toast.error(`${machine} preview needs review. Production script unchanged.`);
@@ -2053,10 +2073,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               </div>
             )}
             {machinePreview && (
-              <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreview.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
+              <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreviewPassed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{machinePreview.machine}</span>
-                  <span className="text-xs font-mono" style={{ color: machinePreview.passed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreview.passed ? "Passed" : "Needs review"}</span>
+                  <span className="text-xs font-mono" style={{ color: machinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreviewPassed ? "Passed" : "Needs review"}</span>
                 </div>
                 {machinePreview.claim_bundle?.editorial_thesis && (
                   <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
@@ -2071,6 +2091,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 ) : (
                   <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     Preview stopped before a paragraph was generated.
+                  </div>
+                )}
+                {!machinePreview.quality_audit?.checks?.length && (
+                  <div className="mt-3 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                    Legacy preview missing Anton audit. Regenerate this machine before accepting it.
                   </div>
                 )}
                 {previewFormulaSentences.length > 0 && (

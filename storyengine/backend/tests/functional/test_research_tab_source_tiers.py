@@ -144,6 +144,11 @@ def test_research_tab_counts_only_verified_machine_cards():
     text = _research_tab().read_text()
 
     assert "function sourcePackageForMachine" in text
+    assert "function fullMachineResearchGatePassed" in text
+    assert "function machinePreviewPassesAntonGate" in text
+    assert "verifiedCount === rosterCount" in text
+    assert "units.length >= rosterCount" in text
+    assert "!validation?.target_machine" in text
     assert "const rows = Array.isArray(packages) ? packages : Object.entries(packages).map" in text
     assert "const candidate = Array.isArray(packages) ? row : row.value" in text
     assert "normalizedUnitCode(rawKey) === key" in text
@@ -153,6 +158,9 @@ def test_research_tab_counts_only_verified_machine_cards():
     assert "sourcePackageReady(sourcePackage, label)" in text
     assert "verified machines researched" in text
     assert "verifiedMachineResearchCount / research.unit_roster.length" in text
+    assert "const fullMachineResearchPassed = fullMachineResearchGatePassed" in text
+    assert "!fullMachineResearchGatePassed(machineResearchGate, verifiedCount, lockedRoster.length)" in text
+    assert "return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label)" in text
     assert "verified cards finished" in text
     assert "unit_research_cards?.length || 0" not in text
 
@@ -264,6 +272,9 @@ def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
     assert "selectedPreviewClaimMap" in text
     assert "selectedPreviewFormulaSentences" in text
     assert "selectedPreviewFormulaRows" in text
+    assert "machinePreviewPassesAntonGate(result.preview)" in text
+    assert "const selectedMachinePreviewPassed = machinePreviewPassesAntonGate(selectedMachinePreview)" in text
+    assert "Legacy preview missing Anton audit" in text
     assert "const spanMatchesSentence = span && (span === sentence || sentence.includes(span));" in text
     assert "return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));" in text
     assert "span.includes(sentence)" not in text
