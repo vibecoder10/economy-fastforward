@@ -5641,12 +5641,13 @@ class PipelineExecutor:
                 paragraph,
                 warnings,
             ) if complete_inventory_mode else {}
+            preview_passed = (not warnings) and bool((quality_audit or {}).get("passed", True))
             validation_units.append({
                 "scene": i,
                 "machine": machine,
                 "word_count": _spoken_word_count(paragraph),
                 "research_source": research_source_kind,
-                "passed": not warnings,
+                "passed": preview_passed,
                 "warnings": warnings,
                 "quality_audit": quality_audit,
             })
@@ -5656,7 +5657,7 @@ class PipelineExecutor:
                     "scene": i,
                     "paragraph": " ".join(paragraph.split()),
                     "word_count": _spoken_word_count(paragraph),
-                    "passed": not warnings,
+                    "passed": preview_passed,
                     "warnings": warnings,
                     "onscreen_label": str(bundle.get("onscreen_label") or "").strip(),
                     "research_source": research_source_kind,
@@ -5684,17 +5685,19 @@ class PipelineExecutor:
                     await self._log_activity(bot_name, video_id, "failed", msg)
                     return {"status": "failed", "error": msg, "video_id": video_id}
                 await self._log_activity(
-                    bot_name, video_id, "completed" if not warnings else "failed",
-                    f"Single-machine script preview {'passed' if not warnings else 'needs review'}: {machine}",
+                    bot_name, video_id, "completed" if preview_passed else "failed",
+                    f"Single-machine script preview {'passed' if preview_passed else 'needs review'}: {machine}",
                 )
                 return {"status": "completed", "video_id": video_id, "preview": preview}
-            if warnings:
+            if not preview_passed:
                 validation = {"script_hold": {"passed": False, "units": validation_units}}
                 await execute(
                     "UPDATE videos SET script_validation = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
                     _json_sh.dumps(validation), video_id, self.tenant_id,
                 )
-                msg = f"Script-hold stopped at machine {i}/{len(roster)} ({machine}): " + "; ".join(warnings)
+                msg = f"Script-hold stopped at machine {i}/{len(roster)} ({machine}): " + "; ".join(
+                    warnings or [str((quality_audit or {}).get("summary") or "Anton quality audit needs review")]
+                )
                 await self._log_activity(bot_name, video_id, "failed", msg[:900])
                 return {"status": "failed", "error": msg, "video_id": video_id}
 
