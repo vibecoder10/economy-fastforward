@@ -4660,7 +4660,14 @@ class PipelineExecutor:
         if not validation.get("target_machine_passed"):
             units = validation.get("units") or []
             warnings = units[-1].get("warnings", []) if units else validation.get("warnings", [])
-            return {"status": "failed", "video_id": video_id, "error": "; ".join(str(item) for item in warnings)}
+            return {
+                "status": "needs_review",
+                "video_id": video_id,
+                "machine": matched,
+                "error": "; ".join(str(item) for item in warnings),
+                "warnings": warnings,
+                "research_payload": payload,
+            }
         final_save_result = await execute(
             """UPDATE videos
                SET research_payload = $1, status = $2, updated_at = now()

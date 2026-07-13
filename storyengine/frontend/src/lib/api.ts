@@ -707,7 +707,7 @@ export const runMachineScriptPreview = (videoId: string, machine: string) =>
   );
 
 export const runOneMachineResearch = (videoId: string, machine: string) =>
-  fetchApi<{ status: string; video_id: string; machine: string; research_card: Record<string, unknown> }>(
+  fetchApi<{ status: string; video_id: string; machine: string; research_card?: Record<string, unknown>; research_payload?: Record<string, unknown>; warnings?: string[]; error?: string }>(
     `/api/pipeline/machine-research-one/${videoId}`,
     { method: "POST", body: JSON.stringify({ machine }) },
   );

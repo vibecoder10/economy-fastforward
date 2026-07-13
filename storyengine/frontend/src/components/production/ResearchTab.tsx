@@ -796,9 +796,13 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       if (!machine) {
         throw new Error("No locked machine selected.");
       }
-      await runOneMachineResearch(video.id, machine);
+      const result = await runOneMachineResearch(video.id, machine);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      toast.success("Machine research saved.");
+      if (result.status === "needs_review") {
+        toast.error("Raw source package saved. Machine card needs review.");
+      } else {
+        toast.success("Machine research saved.");
+      }
     } catch (err: unknown) {
       toast.error(`Machine research failed: ${(err as Error).message || "Unknown error"}`);
     } finally {

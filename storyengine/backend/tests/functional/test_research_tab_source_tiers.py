@@ -119,6 +119,7 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "nonCautionUrls.size < 1" in text
     assert "authoritativeUrls.size < 1" in text
     assert "selectedResearchStatusMessage" in text
+    assert "Raw source package saved. Machine card needs review." in text
     assert "Raw source package missing Anton slots ·" in text
     assert "sourcePackage?.source_slot_coverage?.missing_slots" in text
     assert "antonSourceSlotHints(candidate?.text)" in text

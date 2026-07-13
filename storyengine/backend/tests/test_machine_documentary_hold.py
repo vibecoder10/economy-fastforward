@@ -3927,6 +3927,42 @@ def test_machine_research_route_humanizes_unexpected_exception(monkeypatch):
         raise AssertionError("provider failure should return a humanized HTTPException")
 
 
+def test_machine_research_route_returns_reviewable_raw_package_failure(monkeypatch):
+    import routes.pipeline as route
+
+    review_result = {
+        "status": "needs_review",
+        "video_id": "video-test",
+        "machine": "Boeing XB-15",
+        "error": "research card missing Anton slots",
+        "research_payload": {
+            "machine_raw_source_packages": {
+                "XB15": {"candidate_excerpts": [{"excerpt_id": "S1-E1", "text": "Boeing XB-15 raw excerpt."}]},
+            },
+        },
+    }
+
+    class FakeExecutor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def run_one_machine_research(self, video_id, machine):
+            return review_result
+
+    monkeypatch.setattr(route, "PipelineExecutor", FakeExecutor)
+
+    result = asyncio.run(
+        route.run_one_machine_research(
+            "video-test",
+            route.MachineResearchRequest(machine="Boeing XB-15"),
+            tenant_id="tenant-test",
+        )
+    )
+
+    assert result["status"] == "needs_review"
+    assert result["research_payload"]["machine_raw_source_packages"]["XB15"]["candidate_excerpts"][0]["excerpt_id"] == "S1-E1"
+
+
 def test_script_generation_exception_preserves_existing_script_rows(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {
@@ -4234,6 +4270,54 @@ def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(mo
     assert json.loads(writes[0][1][0])["unit_research_hold_validation"]["passed"] is False
     assert "research_payload->'unit_roster' = $5::jsonb" in writes[0][0]
     assert json.loads(writes[0][1][4]) == roster_names
+
+
+def test_run_one_machine_research_returns_reviewable_payload_when_card_fails(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    payload = {
+        "unit_roster": roster_names,
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): {
+                "machine": "Boeing XB-15",
+                "candidate_excerpts": [{"excerpt_id": "S1-E1", "text": "Boeing XB-15 raw source excerpt."}],
+            },
+        },
+        "unit_research_hold_validation": {
+            "passed": False,
+            "target_machine": "Boeing XB-15",
+            "target_machine_passed": False,
+            "units": [{"machine": "Boeing XB-15", "passed": False, "warnings": ["research card missing Anton slots"]}],
+        },
+    }
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Strategic Bomber Ever Built",
+            "render_mode": "static_docu",
+            "status": "ready_for_research_review",
+            "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": roster_names},
+        }
+
+    async def fake_research_hold(_video_id, _title, _payload, _roster, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return payload
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_research_hold)
+
+    result = asyncio.run(executor.run_one_machine_research("video-test", "Boeing XB-15"))
+
+    assert result["status"] == "needs_review"
+    assert result["machine"] == "Boeing XB-15"
+    assert "research card missing Anton slots" in result["error"]
+    assert result["research_payload"]["machine_raw_source_packages"][pe._verified_source_cache_key("Boeing XB-15")]["candidate_excerpts"][0]["excerpt_id"] == "S1-E1"
 
 
 def test_run_one_machine_research_refuses_final_save_after_roster_change(monkeypatch):
