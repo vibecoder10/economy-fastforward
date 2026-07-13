@@ -1639,6 +1639,31 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     }
     return rows;
   })();
+  const previewFormulaRows = previewFormulaSentences.map((sentence: string, index: number) => {
+    const expectedSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
+    const expectedSlot = expectedSlots[index] || "conclusion";
+    const claimRows = index < expectedSlots.length
+      ? previewClaimMap.filter((row: any) => {
+          const span = String(row?.span || "").trim();
+          const slot = String(row?.slot || "").trim();
+          return slot === expectedSlot || (span && (span === sentence || sentence.includes(span) || span.includes(sentence)));
+        })
+      : [];
+    const evidenceIds = Array.from(new Set(
+      claimRows.flatMap((row: any) => {
+        if (Array.isArray(row?.used_evidence_ids)) return row.used_evidence_ids;
+        if (Array.isArray(row?.evidence_ids)) return row.evidence_ids;
+        return [];
+      }).map((id: any) => String(id || "").trim()).filter(Boolean)
+    ));
+    const evidenceRows = evidenceIds.map((id) => ({ id, evidence: previewEvidenceById[id] }));
+    return {
+      sentence,
+      slot: expectedSlot,
+      label: index < expectedSlots.length ? ["problem", "decision", "tradeoff", "reality"][index] : "conclusion",
+      evidenceRows,
+    };
+  });
 
   const handleMachinePreview = async () => {
     const machine = previewMachine || machineRosterLabels[0];
@@ -1772,12 +1797,24 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       <ShieldCheck size={13} />
                       Sentence assembly
                     </div>
-                    {previewFormulaSentences.map((sentence: string, index: number) => (
+                    {previewFormulaRows.map((row, index) => (
                       <div key={`formula-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
                         <span className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: index < 4 ? "var(--turquoise)" : "var(--orange)", background: index < 4 ? "rgba(79,214,198,.1)" : "rgba(255,120,73,.1)" }}>
-                          {index < 4 ? ["problem", "decision", "tradeoff", "reality"][index] : "conclusion"}
+                          {row.label}
                         </span>
-                        <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{sentence}</p>
+                        <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.sentence}</p>
+                        {row.evidenceRows.length > 0 && (
+                          <div className="mt-2 space-y-2">
+                            {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
+                              <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
+                                <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                  {[evidence?.source_title || id, evidence?.source_capture_method, evidence?.locator].filter(Boolean).join(" · ")}
+                                </p>
+                                {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
