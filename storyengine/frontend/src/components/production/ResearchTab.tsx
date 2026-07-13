@@ -901,7 +901,17 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           passed: false,
           warnings: [message],
           research_source: "preview_error",
-          claim_bundle: { claim_map: [] },
+          claim_bundle: { editorial_thesis: "", formula_sentences: [], claim_map: [] },
+          quality_audit: {
+            passed: false,
+            summary: message,
+            checks: [{
+              name: "preview_error",
+              label: "Preview error",
+              passed: false,
+              detail: message,
+            }],
+          },
         });
       }
       toast.error(`Script preview failed: ${message}. Production script unchanged.`);
