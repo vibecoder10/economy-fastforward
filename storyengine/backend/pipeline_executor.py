@@ -5303,9 +5303,28 @@ class PipelineExecutor:
                     "passed": False,
                     "in_progress": False,
                     "target_machine": target_machine,
+                    "target_machine_passed": False,
                     "units": [{"machine": target_machine, "passed": False, "warnings": [msg]}],
                     "warnings": [msg],
                 }
+                validation_checkpoint_result = await self._checkpoint_one_machine_research_result(
+                    video_id,
+                    original_unit_research_cards,
+                    payload["unit_research_hold_validation"],
+                    locked_roster_snapshot,
+                )
+                if self._db_write_missed(validation_checkpoint_result):
+                    conflict = "persisted unit_roster changed concurrently; source validation checkpoint refused"
+                    payload["unit_research_hold_validation"] = {
+                        "passed": False,
+                        "in_progress": False,
+                        "target_machine": target_machine,
+                        "target_machine_passed": False,
+                        "units": [{"machine": target_machine, "passed": False, "warnings": [conflict]}],
+                        "warnings": [conflict],
+                    }
+                    await self._log_activity(bot_name, video_id, "failed", conflict)
+                    return payload
                 await self._log_activity(bot_name, video_id, "failed", msg)
                 return payload
             legacy_source = _format_verified_machine_source_package(verified_source_package)

@@ -5052,6 +5052,7 @@ def test_target_machine_research_requires_verified_source_package_before_llm(mon
     )
 
     assert result["unit_research_hold_validation"]["passed"] is False
+    assert result["unit_research_hold_validation"]["target_machine_passed"] is False
     assert result["unit_research_hold_validation"]["warnings"] == ["no verified excerpts"]
     assert stale_key not in result["machine_script_previews"]
     assert stale_key not in result["machine_script_briefs"]
@@ -5062,6 +5063,14 @@ def test_target_machine_research_requires_verified_source_package_before_llm(mon
     assert "machine_script_briefs" in raw_checkpoint
     assert "machine_story_plans" in raw_checkpoint
     assert "- $1::text" in raw_checkpoint
+    validation_checkpoints = [
+        (query, args)
+        for query, args in writes
+        if "{unit_research_cards}" in query and "{unit_research_hold_validation}" in query
+    ]
+    assert validation_checkpoints
+    assert json.loads(validation_checkpoints[-1][1][1])["warnings"] == ["no verified excerpts"]
+    assert not any("SET research_payload = $1" in query for query, _args in writes)
     assert not any("INSERT INTO machine_research_cards" in query for query, _args in writes)
 
 
@@ -5112,8 +5121,19 @@ def test_target_machine_research_rejects_thin_source_package_before_llm(monkeypa
     )
 
     assert result["unit_research_hold_validation"]["passed"] is False
+    assert result["unit_research_hold_validation"]["target_machine_passed"] is False
     assert "two distinct source URLs" in result["unit_research_hold_validation"]["warnings"][0]
     assert any("machine_raw_source_packages" in query for query, _args in writes)
+    validation_checkpoints = [
+        (query, args)
+        for query, args in writes
+        if "{unit_research_cards}" in query and "{unit_research_hold_validation}" in query
+    ]
+    assert validation_checkpoints
+    saved_validation = json.loads(validation_checkpoints[-1][1][1])
+    assert saved_validation["target_machine_passed"] is False
+    assert "two distinct source URLs" in saved_validation["warnings"][0]
+    assert not any("SET research_payload = $1" in query for query, _args in writes)
     assert not any("INSERT INTO machine_research_cards" in query for query, _args in writes)
 
 
