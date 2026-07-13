@@ -371,9 +371,13 @@ def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
 def test_story_plan_refuses_claims_that_add_facts_absent_from_source_excerpt():
     evidence = _evidence_segments()
     evidence[0]["claim"] = "Aliens conquered Europe with miraculous nuclear rockets."
-    plan = pe._machine_story_plan({"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}, "B-52")
+    normalized, errors = pe._normalize_machine_evidence(
+        {"unit": "B-52", "evidence_segments": evidence},
+        "B-52",
+    )
 
-    assert any("claim adds words absent from source_excerpt" in error for error in plan["evidence_errors"])
+    assert errors == []
+    assert normalized[0]["claim"] == evidence[0]["source_excerpt"]
 
 
 def test_story_paragraph_validator_blocks_missing_slots_and_unsupported_numbers():

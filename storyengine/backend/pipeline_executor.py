@@ -658,9 +658,24 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             if raw_token not in grounding_stopwords and not _grounded_word(stem)
         })
         if ungrounded_words:
-            errors.append(
-                f"evidence segment {evidence_id or index} claim adds words absent from source_excerpt: {', '.join(ungrounded_words[:8])}"
-            )
+            # The claim is an internal compression of the fetched excerpt. If
+            # the model adds unsourced wording there, clamp it back to the
+            # exact excerpt instead of letting a restatement become evidence.
+            claim = excerpt
+            excerpt_for_numbers = excerpt
+            for designation in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()):
+                excerpt_for_numbers = re.sub(
+                    rf"\b{re.escape(designation)}(?:s)?\b",
+                    "",
+                    excerpt_for_numbers,
+                    flags=re.IGNORECASE,
+                )
+            normalized_numbers = list(dict.fromkeys(
+                normalized_numbers + [
+                    token for token in _numeric_tokens_from_text(excerpt_for_numbers)
+                    if _numeric_token_key(token)
+                ]
+            ))
         designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
         numeric_claim = claim
         numeric_excerpt = excerpt
