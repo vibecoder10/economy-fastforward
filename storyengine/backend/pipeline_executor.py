@@ -4099,7 +4099,8 @@ class PipelineExecutor:
                                 video_id, len(units))
                 return
             rows = await fetch_all(
-                "SELECT voice_id FROM scripts WHERE video_id = $1 LIMIT 1", video_id)
+                "SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1",
+                video_id, self.tenant_id)
             voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
             await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
                           video_id, self.tenant_id)

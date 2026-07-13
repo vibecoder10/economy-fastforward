@@ -1744,6 +1744,56 @@ def test_script_generation_exception_preserves_existing_script_rows(monkeypatch)
     assert writes == [], "provider failure must leave the prior script untouched"
 
 
+def test_static_resplit_voice_lookup_is_tenant_scoped(monkeypatch):
+    unit_paragraph = (
+        "Boeing XB-15 evidence sentence keeps this static documentary unit long enough "
+        "to be treated as one machine paragraph with clear narration, technical context, "
+        "and a sourced outcome for the resplit path."
+    )
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "script": "\n\n".join(f"{unit_paragraph} Unit {index}." for index in range(1, 9)),
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    fetch_calls = []
+    writes = []
+
+    async def fake_get_video(_video_id):
+        return video
+
+    async def fake_fetch_all(query, *args):
+        fetch_calls.append((query, args))
+        return [{"voice_id": "voice-existing"}]
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    asyncio.run(executor._resplit_static_scenes("video-test"))
+
+    assert fetch_calls == [(
+        "SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1",
+        ("video-test", "tenant-test"),
+    )]
+    assert writes[0] == (
+        "DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
+        ("video-test", "tenant-test"),
+    )
+    insert_rows = [args for query, args in writes if "INSERT INTO scripts" in query]
+    assert len(insert_rows) == 8
+    assert insert_rows[0][0:3] == ("tenant-test", "video-test", 1)
+    assert insert_rows[0][-1] == "voice-existing"
+
+
 def test_research_hold_refuses_bulk_generation_for_missing_machine_cards(monkeypatch):
     structured_roster = [
         {"unit": "Boeing XB-15", "include": True},
