@@ -1092,6 +1092,31 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 "final sentence must not introduce high-risk exact term(s): "
                 + ", ".join(final_risk_terms)
             )
+        prior_paragraph_text = " ".join(sentence_parts[:-1])
+        known_entity_text = f"{prior_paragraph_text} {machine}"
+        ignored_final_entities = {
+            "a", "an", "and", "as", "but", "it", "its", "so", "that", "the",
+            "these", "this", "those", "together",
+        }
+        final_entities = [
+            " ".join(match.split())
+            for match in re.findall(
+                r"\b(?:[A-Z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?|[A-Z]{2,}|[IVX]{1,4})"
+                r"(?:\s+(?:[A-Z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?|[A-Z]{2,}|[IVX]{1,4}))*\b",
+                last_sentence,
+            )
+        ]
+        new_final_entities = []
+        for entity in final_entities:
+            if entity.lower() in ignored_final_entities:
+                continue
+            if entity not in known_entity_text:
+                new_final_entities.append(entity)
+        if new_final_entities:
+            warnings.append(
+                "final sentence must not introduce new named entity/event detail(s): "
+                + ", ".join(dict.fromkeys(new_final_entities))
+            )
     if ";" in paragraph:
         warnings.append("paragraph may not use semicolons")
 

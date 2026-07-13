@@ -525,6 +525,21 @@ def test_story_paragraph_validator_blocks_fact_heavy_final_synthesis():
     assert not any("paragraph introduced unsupported numerical detail" in warning for warning in warnings)
 
 
+def test_story_paragraph_validator_blocks_new_named_entity_in_final_synthesis():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    sentence_parts = [part for part in bundle["paragraph"].split(". ") if part]
+    old_final = sentence_parts[-1]
+    new_final = old_final.rstrip(".") + " over Vietnam."
+    bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final)
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("final sentence must not introduce new named entity/event detail(s): Vietnam" in warning for warning in warnings)
+    assert not any("paragraph introduced unsupported numerical detail" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_requires_every_sentence_claim_mapped():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
