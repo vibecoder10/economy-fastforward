@@ -195,6 +195,13 @@ function sourceSlotHintsForEvidence(segment: any, sourcePackage: any): string[] 
   return match ? Array.from(antonSourceSlotHints(match?.text)) : [];
 }
 
+function sourceSlotHintsForCandidate(candidate: any): string[] {
+  const rawHints = Array.isArray(candidate?.anton_slot_hints) ? candidate.anton_slot_hints : [];
+  const hints = rawHints.map((slot: any) => String(slot || "").trim()).filter(Boolean);
+  if (hints.length > 0) return hints;
+  return Array.from(antonSourceSlotHints(candidate?.text));
+}
+
 function hostnameForSource(url: unknown): string {
   try {
     const host = new URL(String(url || "")).hostname.toLowerCase();
@@ -952,6 +959,15 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage, selectedMachineLabel);
   const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage, selectedMachineLabel);
   const selectedSourceCoverageRows = sourceSlotCoverageRows(selectedSourcePackage, selectedMachineLabel);
+  const selectedRawSourceExcerpts = useMemo(() => {
+    const excerpts = Array.isArray(selectedSourcePackage?.candidate_excerpts)
+      ? selectedSourcePackage.candidate_excerpts.filter((candidate: any) => String(candidate?.text || "").trim())
+      : [];
+    return (selectedMachineLabel
+      ? excerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, selectedMachineLabel))
+      : excerpts
+    ).slice(0, 8);
+  }, [selectedSourcePackage, selectedMachineLabel]);
   const selectedResearchCardStatus = machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage);
   const selectedResearchReady = selectedResearchCardStatus.ready && selectedSourcePackageReady;
   const selectedResearchStatusMessage = selectedResearchCardStatus.ready
@@ -1257,34 +1273,54 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   {singlePreviewRunning ? "Previewing..." : selectedMachinePreview ? "Preview selected" : "Script preview"}
                 </ActionButton>
               </div>
-              {selectedResearchCard && (
-                <>
-                  <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
-                    <ShieldCheck size={12} />
-                    {selectedResearchStatusMessage}
+              <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
+                <ShieldCheck size={12} />
+                {selectedResearchStatusMessage}
+              </div>
+              {selectedSourcePackage && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {selectedSourceCoverageRows.map((row) => (
+                    <span
+                      key={row.slot}
+                      className="inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
+                      style={{
+                        background: row.covered ? "rgba(0,230,138,.08)" : "rgba(255,120,73,.08)",
+                        color: row.covered ? "var(--green)" : "var(--orange)",
+                        border: `1px solid ${row.covered ? "rgba(0,230,138,.18)" : "rgba(255,120,73,.2)"}`,
+                      }}
+                      title={row.evidenceIds.join(", ") || "Missing"}
+                    >
+                      <span>{row.label}</span>
+                      <span className="font-mono normal-case tracking-normal" style={{ color: "var(--text-tertiary)" }}>
+                        {row.evidenceIds.slice(0, 3).join(", ") || "missing"}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {selectedSourcePackage && (
+                <details className="mt-3 rounded-md" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  <summary className="cursor-pointer px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                    Raw source package excerpts
+                  </summary>
+                  <div className="space-y-2 px-3 pb-3">
+                    {selectedRawSourceExcerpts.map((candidate: any, excerptIndex: number) => {
+                      const hints = sourceSlotHintsForCandidate(candidate);
+                      const tier = sourceTierNumber(candidate);
+                      return (
+                        <div key={`${candidate?.excerpt_id || candidate?.locator || "excerpt"}-${excerptIndex}`} className="rounded px-2 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.06)" }}>
+                          <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                            {[candidate?.excerpt_id || candidate?.locator, tier ? `Tier ${tier}` : "", candidate?.source_capture_method, hints.length ? `hints ${hints.join(", ")}` : "", candidate?.source_title].filter(Boolean).join(" · ")}
+                          </p>
+                          <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{candidate?.text}</p>
+                        </div>
+                      );
+                    })}
+                    {selectedRawSourceExcerpts.length === 0 && (
+                      <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>No matching raw excerpts saved for the selected machine.</p>
+                    )}
                   </div>
-                  {selectedSourcePackage && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {selectedSourceCoverageRows.map((row) => (
-                        <span
-                          key={row.slot}
-                          className="inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
-                          style={{
-                            background: row.covered ? "rgba(0,230,138,.08)" : "rgba(255,120,73,.08)",
-                            color: row.covered ? "var(--green)" : "var(--orange)",
-                            border: `1px solid ${row.covered ? "rgba(0,230,138,.18)" : "rgba(255,120,73,.2)"}`,
-                          }}
-                          title={row.evidenceIds.join(", ") || "Missing"}
-                        >
-                          <span>{row.label}</span>
-                          <span className="font-mono normal-case tracking-normal" style={{ color: "var(--text-tertiary)" }}>
-                            {row.evidenceIds.slice(0, 3).join(", ") || "missing"}
-                          </span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </>
+                </details>
               )}
             </div>
           </div>
