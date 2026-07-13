@@ -1465,6 +1465,49 @@ def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(
     assert legacy["unit_research_cards"] == legacy_cards
 
 
+def test_compact_card_read_preserves_schema_v3_four_beat_evidence(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+    machine = "Boeing XB-15"
+    compact_card = {
+        "schema_version": 3,
+        "unit": machine,
+        "engineering_thesis": "The design answer only works when read against the operating limit.",
+        "evidence_segments": copy.deepcopy(_evidence_segments()),
+    }
+
+    async def fake_fetch_all(query, *args):
+        assert "machine_key = $3" in query
+        assert args == ("tenant-a", "video-a", "XB15")
+        return [{
+            "machine_key": "XB15",
+            "machine_name": machine,
+            "roster_index": 1,
+            "card": copy.deepcopy(compact_card),
+            "validation": {"passed": True},
+        }]
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    legacy_card = {"unit": machine, "engineering_thesis": "legacy prose without addressable evidence"}
+    legacy = {"unit_roster": [machine], "unit_research_cards": [legacy_card]}
+
+    result = asyncio.run(
+        executor._load_machine_research_cards("video-a", legacy, roster=[machine], target_machine=machine)
+    )
+
+    loaded = result["unit_research_cards"][0]
+    assert loaded["evidence_segments"] == compact_card["evidence_segments"]
+    assert loaded is not compact_card
+    assert legacy["unit_research_cards"] == [legacy_card]
+
+    plan = pe._machine_story_plan(result, machine)
+    by_slot = {slot["slot"]: slot["evidence_ids"] for slot in plan["slots"]}
+    assert by_slot["original_problem"] == ["E-PROBLEM"]
+    assert by_slot["engineering_decision"] == ["E-DECISION"]
+    assert by_slot["tradeoff"] == ["E-TRADEOFF"]
+    assert by_slot["reality"] == ["E-REALITY"]
+
+
 def test_compact_card_read_falls_back_to_legacy_payload(monkeypatch):
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-a"
@@ -1546,3 +1589,29 @@ def test_compact_write_rejects_empty_canonical_key():
         assert "non-empty machine key" in str(exc)
     else:
         raise AssertionError("empty canonical key was accepted")
+
+
+def test_compact_write_persists_full_schema_v3_card_json(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+    card = {
+        "schema_version": 3,
+        "unit": "Boeing XB-15",
+        "engineering_thesis": "The design answer only works when read against the operating limit.",
+        "evidence_segments": copy.deepcopy(_evidence_segments()),
+    }
+    validation = {"machine": "Boeing XB-15", "passed": True, "warnings": []}
+    captured = {}
+
+    async def fake_execute(query, *args):
+        captured["query"] = query
+        captured["args"] = args
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    asyncio.run(executor._upsert_machine_research_card("video-a", "Boeing XB-15", 1, card, validation))
+
+    assert "INSERT INTO machine_research_cards" in captured["query"]
+    assert captured["args"][:5] == ("tenant-a", "video-a", "XB15", "Boeing XB-15", 1)
+    assert json.loads(captured["args"][5]) == card
+    assert json.loads(captured["args"][6]) == validation
