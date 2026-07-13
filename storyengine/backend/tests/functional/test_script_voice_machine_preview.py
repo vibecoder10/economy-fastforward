@@ -99,8 +99,12 @@ def test_script_voice_preview_shows_raw_source_beat_coverage():
 
     assert "function sourceSlotCoverageRows" in text
     assert "function distinctAntonSlotAssignment" in text
+    assert "function excerptTextsOverlap" in text
+    assert "function sourceExcerptTextById" in text
     assert "function sourceSlotEvidenceBySlot" in text
     assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
+    assert "sourceExcerptTextById(targetExcerpts)" in text
+    assert "requiredSourceTextById" in text
     assert "sourcePackage?.source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text

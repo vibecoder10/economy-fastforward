@@ -234,6 +234,15 @@ function sourceExcerptId(candidate: any): string {
   return String(candidate?.excerpt_id || candidate?.locator || "").trim();
 }
 
+function sourceExcerptTextById(excerpts: any[]): Record<string, string> {
+  return excerpts.reduce((rows: Record<string, string>, candidate: any) => {
+    const excerptId = sourceExcerptId(candidate);
+    const text = String(candidate?.text || "").trim();
+    if (excerptId && text) rows[excerptId] = text;
+    return rows;
+  }, {});
+}
+
 function sourceSlotEvidenceBySlot(excerpts: any[]): Record<string, string[]> {
   return excerpts.reduce((rows: Record<string, string[]>, candidate: any) => {
     const excerptId = sourceExcerptId(candidate);
@@ -249,16 +258,38 @@ function sourceSlotEvidenceBySlot(excerpts: any[]): Record<string, string[]> {
   }, {});
 }
 
-function distinctAntonSlotAssignment(evidenceBySlot: Record<string, string[]>, requiredSlots = REQUIRED_ANTON_SOURCE_SLOTS): Record<string, string> {
+function excerptTextsOverlap(left: unknown, right: unknown): boolean {
+  const leftText = normalizedSourceText(left);
+  const rightText = normalizedSourceText(right);
+  if (!leftText || !rightText) return false;
+  if (leftText === rightText || leftText.includes(rightText) || rightText.includes(leftText)) return true;
+  const stopwords = new Set(["a", "an", "and", "as", "by", "for", "from", "in", "into", "of", "on", "or", "source", "sourced", "supplied", "grounded", "claim", "claims", "exact", "text", "the", "this", "that", "to", "was", "with"]);
+  const leftTokens = new Set((leftText.match(/[a-z0-9]+/g) || []).filter((token) => !stopwords.has(token)));
+  const rightTokens = new Set((rightText.match(/[a-z0-9]+/g) || []).filter((token) => !stopwords.has(token)));
+  if (Math.min(leftTokens.size, rightTokens.size) < 12) return false;
+  const intersection = Array.from(leftTokens).filter((token) => rightTokens.has(token)).length;
+  return intersection / Math.max(1, Math.min(leftTokens.size, rightTokens.size)) >= 0.95;
+}
+
+function distinctAntonSlotAssignment(
+  evidenceBySlot: Record<string, string[]>,
+  requiredSlots = REQUIRED_ANTON_SOURCE_SLOTS,
+  excerptTextById: Record<string, string> = {}
+): Record<string, string> {
   const orderedSlots = [...requiredSlots].sort((a, b) => (evidenceBySlot[a]?.length || 0) - (evidenceBySlot[b]?.length || 0));
   const assignment: Record<string, string> = {};
   const used = new Set<string>();
+  const conflictsWithUsed = (excerptId: string): boolean => {
+    const text = excerptTextById[excerptId];
+    if (!text) return false;
+    return Array.from(used).some((usedId) => excerptTextsOverlap(text, excerptTextById[usedId]));
+  };
 
   const assign = (index: number): boolean => {
     if (index >= orderedSlots.length) return true;
     const slot = orderedSlots[index];
     for (const excerptId of evidenceBySlot[slot] || []) {
-      if (!excerptId || used.has(excerptId)) continue;
+      if (!excerptId || used.has(excerptId) || conflictsWithUsed(excerptId)) continue;
       assignment[slot] = excerptId;
       used.add(excerptId);
       if (assign(index + 1)) return true;
@@ -331,7 +362,11 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
       return { ready: false, message: `Raw source package missing Anton slots · ${missingSlots.join(", ")} · preview blocked` };
     }
     const savedNeedsDistinct = sourcePackage?.source_slot_coverage?.needs_distinct_slot_excerpts === true;
-    const distinctAssignment = distinctAntonSlotAssignment(computedEvidenceBySlot);
+    const distinctAssignment = distinctAntonSlotAssignment(
+      computedEvidenceBySlot,
+      REQUIRED_ANTON_SOURCE_SLOTS,
+      sourceExcerptTextById(targetExcerpts)
+    );
     if (savedNeedsDistinct || Object.keys(distinctAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
       return { ready: false, message: "Raw source package needs distinct Anton excerpts · preview blocked" };
     }
@@ -457,12 +492,15 @@ function machineResearchCardStatus(card: any, machine: string = "", sourcePackag
       const evidenceId = String(staleSegment?.evidence_id || "unknown evidence").trim();
       return { ready: false, message: `Evidence source mismatch · ${evidenceId} · preview blocked` };
     }
+    const requiredSourceTextById: Record<string, string> = {};
     const requiredSourceIdsBySlot = sourcedSegments.reduce((rows: Record<string, string[]>, segment: any) => {
       const role = antonSlotRoleForEvidenceKind(segment?.kind);
       if (!REQUIRED_ANTON_SOURCE_SLOTS.includes(role)) return rows;
       const match = sourceCandidateForEvidence(segment, sourcePackage);
       const excerptId = String(match?.excerpt_id || segment?.source_excerpt_id || match?.locator || segment?.locator || "").trim();
       if (!excerptId) return rows;
+      const excerptText = String(match?.text || segment?.source_excerpt || "").trim();
+      if (excerptText) requiredSourceTextById[excerptId] = excerptText;
       rows[role] = rows[role] || [];
       if (!rows[role].includes(excerptId)) rows[role].push(excerptId);
       return rows;
@@ -471,7 +509,11 @@ function machineResearchCardStatus(card: any, machine: string = "", sourcePackag
     if (missingRequiredSlots.length > 0) {
       return { ready: false, message: `Research card missing Anton slots · ${missingRequiredSlots.join(", ")} · preview blocked` };
     }
-    const requiredAssignment = distinctAntonSlotAssignment(requiredSourceIdsBySlot);
+    const requiredAssignment = distinctAntonSlotAssignment(
+      requiredSourceIdsBySlot,
+      REQUIRED_ANTON_SOURCE_SLOTS,
+      requiredSourceTextById
+    );
     if (Object.keys(requiredAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
       return { ready: false, message: "Research card needs distinct Anton excerpts · preview blocked" };
     }

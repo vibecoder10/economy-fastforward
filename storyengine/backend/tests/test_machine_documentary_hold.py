@@ -299,6 +299,27 @@ def test_verified_source_package_quality_requires_distinct_anton_slot_excerpts()
     assert any("distinct raw excerpts for each Anton slot" in error for error in errors)
 
 
+def test_verified_source_package_quality_rejects_overlapping_anton_slot_excerpts():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    nested_windows = [
+        "Boeing XB-15 was required for a long-range bomber program.",
+        "Boeing XB-15 was required for a long-range bomber program and was built with large wing and engine choices.",
+        "Boeing XB-15 was required for a long-range bomber program and was built with large wing and engine choices, but it was underpowered.",
+        "Boeing XB-15 was required for a long-range bomber program and was built with large wing and engine choices, but it was underpowered and later served as a World War II transport.",
+    ]
+    for index, text in enumerate(nested_windows):
+        package["candidate_excerpts"][index]["text"] = text
+    for candidate in package["candidate_excerpts"][len(nested_windows):]:
+        candidate["text"] = "Boeing XB-15 archived source row alpha bravo charlie delta."
+
+    coverage = pe._anton_source_slot_coverage(package["candidate_excerpts"], "Boeing XB-15")
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert coverage["missing_slots"] == []
+    assert coverage["needs_distinct_slot_excerpts"] is True
+    assert any("distinct raw excerpts for each Anton slot" in error for error in errors)
+
+
 def test_anton_source_slot_coverage_records_excerpt_ids():
     package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
 
@@ -759,6 +780,35 @@ def test_research_card_required_slots_must_select_distinct_raw_excerpts():
             "locator": broad_candidate["locator"],
         })
     card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("distinct raw source excerpts for required Anton slots" in warning for warning in warnings)
+
+
+def test_research_card_required_slots_reject_overlapping_raw_excerpts():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    nested_windows = [
+        "Boeing XB-15 was required for a long-range bomber program.",
+        "Boeing XB-15 was required for a long-range bomber program and was built with large wing and engine choices.",
+        "Boeing XB-15 was required for a long-range bomber program and was built with large wing and engine choices, but it was underpowered.",
+        "Boeing XB-15 was required for a long-range bomber program and was built with large wing and engine choices, but it was underpowered and later served as a World War II transport.",
+    ]
+    required_kinds = ["original_problem", "engineering_decision", "tradeoff", "reality"]
+    for index, (kind, text) in enumerate(zip(required_kinds, nested_windows)):
+        package["candidate_excerpts"][index]["text"] = text
+        segments[index].update({
+            "kind": kind,
+            "source_excerpt": text,
+            "source_excerpt_id": package["candidate_excerpts"][index]["excerpt_id"],
+            "source_url": package["candidate_excerpts"][index]["source_url"],
+            "source_title": package["candidate_excerpts"][index]["source_title"],
+            "locator": package["candidate_excerpts"][index]["locator"],
+        })
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments[:4]}
 
     warnings = pe._validate_card_against_verified_sources(card, package)
 

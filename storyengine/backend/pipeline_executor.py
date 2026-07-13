@@ -446,15 +446,11 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -
     ]
     candidates: list[str] = []
     seen: set[str] = set()
-    for index, sentence in enumerate(raw_sentences):
-        if not _mentions_machine(sentence, machine):
-            continue
-        windows = [
-            " ".join(raw_sentences[index:index + span]).strip()
-            for span in (1, 2, 3)
-            if index + span <= len(raw_sentences)
-        ]
-        for window in windows:
+    for span in (1, 2, 3):
+        for index, sentence in enumerate(raw_sentences):
+            if not _mentions_machine(sentence, machine) or index + span > len(raw_sentences):
+                continue
+            window = " ".join(raw_sentences[index:index + span]).strip()
             if len(window) < 45 or len(window) > 720:
                 continue
             key = _normalized_source_text(window)
@@ -530,7 +526,41 @@ def _anton_source_slot_hints(text: str) -> set[str]:
     return hints
 
 
-def _distinct_anton_slot_assignment(coverage_by_slot: dict[str, list[str]], required_slots: list[str]) -> dict[str, str]:
+def _excerpt_overlap_tokens(text: str, machine: str = "") -> set[str]:
+    stopwords = {
+        "a", "an", "and", "as", "by", "for", "from", "in", "into", "of", "on", "or",
+        "source", "sourced", "supplied", "grounded", "claim", "claims", "exact",
+        "text", "the", "this", "that", "to", "was", "with",
+    }
+    machine_tokens = set(re.findall(r"[a-z0-9]+", str(machine or "").lower()))
+    return {
+        token for token in re.findall(r"[a-z0-9]+", _normalized_source_text(text))
+        if token not in stopwords and token not in machine_tokens
+    }
+
+
+def _excerpt_texts_overlap(left: str, right: str, machine: str = "") -> bool:
+    """Return true when two saved excerpts are effectively the same evidence."""
+    left_text = _normalized_source_text(left)
+    right_text = _normalized_source_text(right)
+    if not left_text or not right_text:
+        return False
+    if left_text == right_text or left_text in right_text or right_text in left_text:
+        return True
+    left_tokens = _excerpt_overlap_tokens(left_text, machine)
+    right_tokens = _excerpt_overlap_tokens(right_text, machine)
+    if min(len(left_tokens), len(right_tokens)) < 12:
+        return False
+    overlap = len(left_tokens & right_tokens) / max(1, min(len(left_tokens), len(right_tokens)))
+    return overlap >= 0.95
+
+
+def _distinct_anton_slot_assignment(
+    coverage_by_slot: dict[str, list[str]],
+    required_slots: list[str],
+    excerpt_text_by_id: Optional[dict[str, str]] = None,
+    machine: str = "",
+) -> dict[str, str]:
     """Assign each required Anton beat to a different raw excerpt when possible."""
     ordered_slots = sorted(
         [slot for slot in required_slots if slot],
@@ -538,13 +568,23 @@ def _distinct_anton_slot_assignment(coverage_by_slot: dict[str, list[str]], requ
     )
     assignment: dict[str, str] = {}
     used_excerpt_ids: set[str] = set()
+    excerpt_text_by_id = excerpt_text_by_id or {}
+
+    def conflicts_with_used(excerpt_id: str) -> bool:
+        text = excerpt_text_by_id.get(excerpt_id, "")
+        if not text:
+            return False
+        return any(
+            _excerpt_texts_overlap(text, excerpt_text_by_id.get(used_id, ""), machine)
+            for used_id in used_excerpt_ids
+        )
 
     def assign(index: int) -> bool:
         if index >= len(ordered_slots):
             return True
         slot = ordered_slots[index]
         for excerpt_id in coverage_by_slot.get(slot, []):
-            if not excerpt_id or excerpt_id in used_excerpt_ids:
+            if not excerpt_id or excerpt_id in used_excerpt_ids or conflicts_with_used(excerpt_id):
                 continue
             assignment[slot] = excerpt_id
             used_excerpt_ids.add(excerpt_id)
@@ -562,6 +602,7 @@ def _distinct_anton_slot_assignment(coverage_by_slot: dict[str, list[str]], requ
 def _anton_source_slot_coverage(candidates: list[dict], machine: str = "") -> dict:
     """Summarize raw-source coverage before the card-writing LLM runs."""
     coverage_by_slot: dict[str, list[str]] = {}
+    excerpt_text_by_id: dict[str, str] = {}
     checked_excerpt_count = 0
     for item in candidates or []:
         if not isinstance(item, dict):
@@ -573,6 +614,8 @@ def _anton_source_slot_coverage(candidates: list[dict], machine: str = "") -> di
         hints = sorted(_anton_source_slot_hints(text))
         item["anton_slot_hints"] = hints
         excerpt_id = str(item.get("excerpt_id") or item.get("locator") or "").strip()
+        if excerpt_id:
+            excerpt_text_by_id[excerpt_id] = text
         for slot in hints:
             if excerpt_id:
                 coverage_by_slot.setdefault(slot, [])
@@ -583,7 +626,7 @@ def _anton_source_slot_coverage(candidates: list[dict], machine: str = "") -> di
         if role in _ANTON_REQUIRED_SLOT_ROLES
     ]
     covered_slots = sorted(slot for slot in coverage_by_slot if slot in _ANTON_REQUIRED_SLOT_ROLES)
-    distinct_assignment = _distinct_anton_slot_assignment(coverage_by_slot, required_slots)
+    distinct_assignment = _distinct_anton_slot_assignment(coverage_by_slot, required_slots, excerpt_text_by_id, machine)
     distinct_required_excerpts = sorted(set(distinct_assignment.values()))
     return {
         "required_slots": required_slots,
@@ -871,7 +914,16 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
     ]
     warnings: list[str] = []
     required_slot_sources: dict[str, list[tuple[str, int, str]]] = {}
+    selected_excerpt_text_by_id: dict[str, str] = {}
     selected_source_tiers: dict[str, int] = {}
+    machine = _unit_display_name(
+        (card or {}).get("unit")
+        or (card or {}).get("machine")
+        or (card or {}).get("name")
+        or (card or {}).get("designation")
+        or (package or {}).get("machine")
+        or ""
+    )
     for segment in (card.get("evidence_segments") if isinstance(card, dict) else []) or []:
         if not isinstance(segment, dict):
             continue
@@ -926,6 +978,8 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
                 if role in _ANTON_REQUIRED_SLOT_ROLES:
                     excerpt_identity = candidate_excerpt_id or candidate_locator
+                    if excerpt_identity:
+                        selected_excerpt_text_by_id[excerpt_identity] = candidate_text
                     required_slot_sources.setdefault(role, []).append((
                         evidence_id,
                         _source_tier_number(candidate),
@@ -954,7 +1008,12 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
             ]
             for role in required_slots
         }
-        distinct_assignment = _distinct_anton_slot_assignment(selected_excerpts_by_slot, required_slots)
+        distinct_assignment = _distinct_anton_slot_assignment(
+            selected_excerpts_by_slot,
+            required_slots,
+            selected_excerpt_text_by_id,
+            machine,
+        )
         if len(distinct_assignment) < len(required_slots):
             warnings.append(
                 "research card must select distinct raw source excerpts for required Anton slots: "
@@ -974,14 +1033,6 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
         matched_tiers = [selected_source_tiers[item] for item in evidence_ids if item in selected_source_tiers]
         if matched_tiers and all(tier >= 4 for tier in matched_tiers):
             warnings.append(f"{label} uses only Tier 4/caution sources: " + ", ".join(evidence_ids))
-    machine = _unit_display_name(
-        (card or {}).get("unit")
-        or (card or {}).get("machine")
-        or (card or {}).get("name")
-        or (card or {}).get("designation")
-        or (package or {}).get("machine")
-        or ""
-    )
     rationale = " ".join(str((card or {}).get("why_this_unit_deserves_a_paragraph") or "").split())
     if rationale:
         rationale_for_numbers = rationale
