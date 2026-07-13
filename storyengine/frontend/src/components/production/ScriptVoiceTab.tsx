@@ -1615,6 +1615,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       source_title?: string;
       source_url?: string;
       locator?: string;
+      source_excerpt_id?: string;
+      source_excerpt_hash?: string;
+      source_tier?: string;
       source_capture_method?: string;
     }> = {};
     const slots = Array.isArray((machinePreview?.story_plan as any)?.slots)
@@ -1633,6 +1636,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           source_title: String(segment?.source_title || ""),
           source_url: String(segment?.source_url || ""),
           locator: String(segment?.locator || ""),
+          source_excerpt_id: String(segment?.source_excerpt_id || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.excerpt_id || ""),
+          source_excerpt_hash: String(segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.text_hash || ""),
+          source_tier: sourceTierForEvidence(segment, activePreviewSourcePackage)?.label,
           source_capture_method: sourceCaptureMethodForEvidence(segment, activePreviewSourcePackage),
         };
       }
@@ -1808,7 +1814,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                             {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                               <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                 <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                  {[evidence?.source_title || id, evidence?.source_capture_method, evidence?.locator].filter(Boolean).join(" · ")}
+                                  {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                 </p>
                                 {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
                               </div>
@@ -1860,7 +1866,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                               {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
                                 <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
                                   <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[evidence?.source_title || id, evidence?.source_capture_method, evidence?.locator].filter(Boolean).join(" · ")}
+                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
                                   </p>
                                   {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
                                   {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}

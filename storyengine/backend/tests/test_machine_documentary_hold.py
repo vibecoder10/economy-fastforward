@@ -475,6 +475,38 @@ def test_required_anton_slots_accept_authoritative_source_support():
     assert warnings == []
 
 
+def test_verified_card_validation_backfills_raw_excerpt_identity():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"][0]["text_hash"] = "excerpt-hash-1"
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert warnings == []
+    assert segments[0]["source_excerpt_id"] == "S1-E1"
+    assert segments[0]["source_id"] == "S1"
+    assert segments[0]["source_excerpt_hash"] == "excerpt-hash-1"
+    assert segments[0]["source_tier"] == 2
+    assert segments[0]["source_tier_label"] == "Tier 2 museum/authoritative secondary"
+    assert segments[0]["source_capture_method"] == "fetched_page"
+
+
+def test_verified_card_validation_rejects_mismatched_raw_excerpt_id():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    segments[0]["source_excerpt_id"] = "S99-E9"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("source_excerpt_id S99-E9 does not match verified excerpt S1-E1" in warning for warning in warnings)
+
+
 def test_research_card_must_select_at_least_one_authoritative_source():
     segments = _evidence_segments()
     for segment in segments:
@@ -3315,7 +3347,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
     assert "EXACT_TEXT: Boeing B-52 Stratofortress Original problem claim grounded in the supplied source." in prompt
-    assert "source_url, source_title, locator" in prompt
+    assert "source_excerpt_id, source_url, source_title, locator" in prompt
+    assert "source_excerpt_id must equal that row's EXCERPT_ID" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt
     assert "why_this_unit_deserves_a_paragraph must state the unique engineering idea" in prompt

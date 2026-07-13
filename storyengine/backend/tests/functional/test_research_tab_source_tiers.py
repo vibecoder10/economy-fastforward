@@ -166,8 +166,14 @@ def test_research_tab_surfaces_source_capture_method():
     assert "match?.source_capture_method || segment?.source_capture_method" in text
     assert '"legacy_unmarked"' in text
     assert "source_capture_method?: string" in text
+    assert "source_excerpt_id?: string" in text
+    assert "source_excerpt_hash?: string" in text
+    assert "segment?.source_excerpt_id || sourceCandidateForEvidence(segment, selectedSourcePackage)?.excerpt_id" in text
+    assert "segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, selectedSourcePackage)?.text_hash" in text
     assert "sourceCaptureMethodForEvidence(segment, selectedSourcePackage)" in text
     assert "evidence?.source_capture_method" in text
+    assert "evidence?.source_excerpt_id || evidence?.locator" in text
+    assert "evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : \"\"" in text
     assert "sourceCaptureMethod" in text
     assert "const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label)" in text
     assert "sourceCaptureMethodForEvidence(segment, cardSourcePackage)" in text
@@ -182,6 +188,17 @@ def test_research_tab_surfaces_tier_badges_and_labels():
     assert "source_tier" in text
     assert "sourceTierNumber(match)" in text
     assert "sourceTierForUrl(segment?.source_url, segment?.source_title)" in text
+
+
+def test_script_voice_preview_surfaces_raw_excerpt_identity():
+    text = _script_voice_tab().read_text()
+
+    assert "source_excerpt_id?: string" in text
+    assert "source_excerpt_hash?: string" in text
+    assert "segment?.source_excerpt_id || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.excerpt_id" in text
+    assert "segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.text_hash" in text
+    assert "evidence?.source_excerpt_id || evidence?.locator" in text
+    assert "evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : \"\"" in text
 
 
 def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():

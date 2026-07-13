@@ -759,6 +759,7 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
             candidate_url = str(candidate.get("source_url") or "").strip()
             candidate_locator = str(candidate.get("locator") or "").strip()
             candidate_excerpt_id = str(candidate.get("excerpt_id") or "").strip()
+            segment_excerpt_id = str(segment.get("source_excerpt_id") or segment.get("excerpt_id") or "").strip()
             url_matches = candidate_url == source_url
             locator_matches = (
                 segment_locator == candidate_locator
@@ -766,6 +767,26 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 or bool(candidate_locator and candidate_locator.startswith(f"{segment_locator};"))
             )
             if url_matches and locator_matches and excerpt in candidate_text:
+                if segment_excerpt_id and candidate_excerpt_id and segment_excerpt_id != candidate_excerpt_id:
+                    warnings.append(
+                        f"evidence segment {evidence_id} source_excerpt_id {segment_excerpt_id} does not match verified excerpt {candidate_excerpt_id}"
+                    )
+                    break
+                if candidate_excerpt_id:
+                    segment["source_excerpt_id"] = candidate_excerpt_id
+                if candidate.get("source_id"):
+                    segment["source_id"] = candidate.get("source_id")
+                if candidate.get("text_hash"):
+                    segment["source_excerpt_hash"] = candidate.get("text_hash")
+                tier = _source_tier_number(candidate)
+                if tier:
+                    segment["source_tier"] = tier
+                    segment["source_tier_label"] = candidate.get("source_tier_label") or _source_tier_for_url(
+                        candidate_url,
+                        str(candidate.get("source_title") or ""),
+                    ).get("label")
+                if candidate.get("source_capture_method"):
+                    segment["source_capture_method"] = candidate.get("source_capture_method")
                 matched = True
                 selected_source_tiers[evidence_id] = _source_tier_number(candidate)
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
@@ -4779,11 +4800,11 @@ class PipelineExecutor:
                 "- Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when directly supported by exact excerpts.\n"
                 "- onscreen_label is metadata for Producer File/on-screen text, never spoken narration; use only sourced full name, concise role, operator or build count, and service/date range.\n"
                 "- Each claim must be one concise factual proposition, maximum 35 words. A technical claim may bundle 2-4 related specifications only if the source excerpt contains them together and they serve the engineering_decision beat.\n"
-                "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
+                "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_excerpt_id, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one research slot. Do not write narration or pre-assemble the paragraph.\n"
                 "- claim must be a concise restatement of source_excerpt using no factual noun, verb, adjective, or number absent from that excerpt.\n"
                 "- numeric_tokens must list every number used by claim and may contain only numbers present in claim or source_excerpt.\n"
-                "- source_excerpt must be copied from EXACT_TEXT in the verified excerpt package; source_url and locator must match that excerpt.\n"
+                "- source_excerpt must be copied from EXACT_TEXT in the verified excerpt package; source_excerpt_id must equal that row's EXCERPT_ID; source_url and locator must match that excerpt.\n"
                 "- Do not use memory, training data, general knowledge, or unsupplied web facts.\n"
                 "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied excerpts cannot support a required slot, make that absence explicit in validation rather than guessing.\n"
                 "- Be precise or be silent: if the exact excerpts cannot verify a claim to reasonable confidence, soften it or omit it.\n"
@@ -4830,8 +4851,8 @@ class PipelineExecutor:
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "
                     "onscreen_label is metadata for Producer File/on-screen text, never spoken narration; use only sourced full name, concise role, operator or build count, and service/date range. "
-                    "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url, source_title, locator, numeric_tokens, and confidence. "
-                    "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below; source_url and locator must match the same fetched excerpt row. "
+                    "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_excerpt_id, source_url, source_title, locator, numeric_tokens, and confidence. "
+                    "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below; source_excerpt_id must equal that row's EXCERPT_ID; source_url and locator must match the same fetched excerpt row. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
                     "Be precise or be silent: if the exact excerpts cannot verify a claim to reasonable confidence, soften it or omit it. "
                     "If excerpts conflict on a number, date, superlative, or specification, use the more conservative supported wording, hedge it, or leave it out; never pick the higher or more dramatic claim. "
