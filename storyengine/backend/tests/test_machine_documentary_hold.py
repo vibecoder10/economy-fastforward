@@ -447,6 +447,36 @@ def test_verified_source_cache_ignores_wrong_machine_package(monkeypatch):
     assert result["machine"] == "Boeing XB-15"
 
 
+def test_verified_source_cache_reuses_package_with_review_metadata(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    package.pop("source_slot_coverage", None)
+    for candidate in package["candidate_excerpts"]:
+        candidate.pop("anton_slot_hints", None)
+    payload = {
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): package,
+        },
+    }
+
+    async def forbidden_get_secret(*_args, **_kwargs):
+        raise AssertionError("ready cached raw package should not call Tavily")
+
+    monkeypatch.setattr(pe, "get_secret", forbidden_get_secret)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", payload
+        )
+    )
+
+    assert result["passed"] is True
+    assert result["source_slot_coverage"]["missing_slots"] == []
+    assert result["source_slot_coverage"]["needs_distinct_slot_excerpts"] is False
+    assert result["candidate_excerpts"][0]["anton_slot_hints"]
+
+
 def test_source_gathering_skips_tavily_content_snippets(monkeypatch):
     import httpx
 

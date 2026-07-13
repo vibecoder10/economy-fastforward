@@ -501,6 +501,24 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     return len(text_excerpts) >= 6
 
 
+def _verified_machine_source_package_with_anton_metadata(package: Any, machine: str = "") -> Any:
+    """Return a raw-source package with reviewable Anton slot metadata attached."""
+    if not _verified_machine_source_package_ready(package):
+        return package
+    hydrated = dict(package)
+    hydrated_candidates: list[Any] = [
+        dict(item) if isinstance(item, dict) else item
+        for item in (hydrated.get("candidate_excerpts") or [])
+    ]
+    hydrated["candidate_excerpts"] = hydrated_candidates
+    hydrated.setdefault("schema_version", 3)
+    hydrated["source_slot_coverage"] = _anton_source_slot_coverage(
+        [item for item in hydrated_candidates if isinstance(item, dict)],
+        machine,
+    )
+    return hydrated
+
+
 def _anton_source_slot_hints(text: str) -> set[str]:
     """Heuristic pre-LLM check that raw excerpts can support Anton's four beats."""
     lower = _normalized_source_text(text)
@@ -3637,6 +3655,7 @@ class PipelineExecutor:
         """
         cache_key = _verified_source_cache_key(machine)
         cached = ((payload or {}).get("machine_raw_source_packages") or {}).get(cache_key)
+        cached = _verified_machine_source_package_with_anton_metadata(cached, machine)
         if (
             _verified_machine_source_package_ready(cached)
             and not _verified_machine_source_package_quality_errors(cached, machine)
