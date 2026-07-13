@@ -1858,6 +1858,126 @@ def test_run_one_machine_research_refuses_final_save_after_roster_change(monkeyp
     assert "unit_roster changed concurrently" in result["error"]
 
 
+def test_run_unit_research_final_save_is_tenant_scoped(monkeypatch):
+    import sys
+    import types
+
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster_names,
+        "unit_roster_validation": {"passed": True},
+    }
+    researched_payload = {
+        **payload,
+        "unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()} for machine in roster_names],
+        "unit_research_hold_validation": {
+            "passed": True,
+            "units": [{"machine": machine, "passed": True, "warnings": []} for machine in roster_names],
+        },
+    }
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    writes = []
+    syncs = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Strategic Bomber Ever Built",
+            "render_mode": "static_docu",
+            "status": "ready_for_research_review",
+            "research_payload": payload,
+        }
+
+    async def fake_research_hold(_video_id, _title, _payload, _roster):
+        return researched_payload
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_sync(video_id, tenant_id):
+        syncs.append((video_id, tenant_id))
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_research_hold)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
+
+    result = asyncio.run(executor.run_unit_research("video-test"))
+
+    assert result["status"] == "ready_for_scripting"
+    assert "WHERE id = $3 AND tenant_id = $4" in writes[0][0]
+    assert writes[0][1][2:] == ("video-test", "tenant-test")
+    assert syncs == [("video-test", "tenant-test")]
+
+
+def test_run_unit_research_refuses_zero_row_final_save(monkeypatch):
+    import sys
+    import types
+
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster_names,
+        "unit_roster_validation": {"passed": True},
+    }
+    researched_payload = {
+        **payload,
+        "unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()} for machine in roster_names],
+        "unit_research_hold_validation": {"passed": True, "units": []},
+    }
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    syncs = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Strategic Bomber Ever Built",
+            "render_mode": "static_docu",
+            "status": "ready_for_research_review",
+            "research_payload": payload,
+        }
+
+    async def fake_research_hold(_video_id, _title, _payload, _roster):
+        return researched_payload
+
+    async def fake_execute(*_args):
+        return "UPDATE 0"
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_sync(video_id, tenant_id):
+        syncs.append((video_id, tenant_id))
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_research_hold)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
+
+    result = asyncio.run(executor.run_unit_research("video-test"))
+
+    assert result["status"] == "failed"
+    assert "save refused" in result["error"]
+    assert syncs == []
+
+
 def test_target_machine_research_marks_full_hold_complete_after_final_verified_card(monkeypatch):
     roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
     existing_cards = []

@@ -3434,10 +3434,14 @@ class PipelineExecutor:
             next_status = "ready_for_scripting" if passed else (video.get("status") or "idea_logged")
 
             import json as _json
-            await execute(
-                "UPDATE videos SET research_payload = $1, status = $2, updated_at = now() WHERE id = $3",
-                _json.dumps(payload), next_status, video_id,
+            save_result = await execute(
+                "UPDATE videos SET research_payload = $1, status = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4",
+                _json.dumps(payload), next_status, video_id, self.tenant_id,
             )
+            if isinstance(save_result, str) and save_result.strip().upper() == "UPDATE 0":
+                warning = "Machine research save refused because the video is no longer available for this tenant"
+                await self._log_activity(bot_name, video_id, "failed", warning)
+                return {"status": "failed", "video_id": video_id, "error": warning}
             from drive_workspace import sync_video_workspace_fail_soft
             await sync_video_workspace_fail_soft(video_id, self.tenant_id)
             completed = len(payload.get("unit_research_cards") or [])
