@@ -126,6 +126,8 @@ Fetched source packages also carry `SOURCE_TIER` metadata:
 
 Required Anton slots cannot be supported only by Tier 4 evidence. Tier 3 remains acceptable when official or museum sources do not contain the needed fact, but high-risk exact facts still need cross-checking or hedging.
 
+The raw source package gate now applies that Tier 4 rule before Claude writes the research card: each required Anton beat with candidate coverage must have at least one non-caution excerpt available. This prevents a package from passing merely because it has one authoritative source somewhere else while a specific sentence role is only supported by Wikipedia, YouTube, social, forum, or wiki-mirror text.
+
 The desktop research standard's accuracy rule is enforced in the card prompts: be precise or be silent. If exact excerpts conflict or cannot verify a number, date, superlative, or specification, the card must use the more conservative supported wording, hedge it, or omit it rather than choosing the higher or more dramatic claim.
 
 StoryEngine's Research and Script/Voice tabs mirror the backend preview gate before enabling single-machine preview: a matching saved research card plus a ready raw source package with matching machine identity, at least six excerpts, at least two distinct source URLs, at least one non-caution source, and at least one Tier 1-2 primary/authoritative source. Missing-card, thin, wrong-machine, caution-only, or Tier 3-only packages show a blocked badge instead of a misleading ready state. If an older raw package lacks explicit `source_tier`, the UI infers tier from source URL using the same official/museum/caution hierarchy as the backend.

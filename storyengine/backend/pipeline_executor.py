@@ -722,6 +722,19 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
                 "Verified source package needs distinct raw excerpts for each Anton slot: "
                 + ", ".join(coverage.get("required_slots") or [])
             )
+        tier_four_only_slots: list[str] = []
+        for slot in _ANTON_REQUIRED_SLOT_ROLES:
+            slot_candidates = [
+                item for item in quality_candidates
+                if slot in (item.get("anton_slot_hints") or [])
+            ]
+            if slot_candidates and all(_source_tier_number(item) >= 4 for item in slot_candidates):
+                tier_four_only_slots.append(slot)
+        if tier_four_only_slots:
+            errors.append(
+                "Verified source package cannot support required Anton slot(s) only with Tier 4/caution excerpts: "
+                + ", ".join(sorted(tier_four_only_slots))
+            )
     source_urls = {
         str(item.get("source_url") or "").strip()
         for item in quality_candidates

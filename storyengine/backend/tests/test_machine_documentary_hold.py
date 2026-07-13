@@ -298,6 +298,18 @@ def test_verified_source_package_quality_rejects_single_source_and_caution_only(
     assert any("without source capture method" in error for error in missing_capture_errors)
 
 
+def test_verified_source_package_quality_rejects_tier_four_only_required_slot():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    segments[0]["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert any("only with Tier 4/caution excerpts: original_problem" in error for error in errors)
+
+
 def test_verified_source_package_quality_requires_anton_slot_coverage():
     package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
     for candidate in package["candidate_excerpts"]:
