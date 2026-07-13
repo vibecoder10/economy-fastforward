@@ -512,6 +512,18 @@ def test_story_paragraph_validator_requires_final_sentence_historical_meaning():
     assert not any("paragraph missing required Anton slot evidence" in warning for warning in warnings)
 
 
+def test_story_paragraph_validator_requires_every_sentence_claim_mapped():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["claim_map"][2]["span"] = bundle["claim_map"][0]["span"]
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("sentence 3 is not covered by claim_map evidence" in warning for warning in warnings)
+    assert not any("paragraph missing required Anton slot evidence" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     evidence = [
         {

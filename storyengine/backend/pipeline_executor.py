@@ -1001,6 +1001,13 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append(f"paragraph sentence count {sentence_count} outside Anton 4-6 range")
     last_sentence = ""
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
+    for sentence_index, sentence in enumerate(sentence_parts, start=1):
+        sentence_has_evidence = any(
+            span and (span in sentence or sentence in span)
+            for span, _row_slots in claim_span_roles
+        )
+        if not sentence_has_evidence:
+            warnings.append(f"sentence {sentence_index} is not covered by claim_map evidence")
     if sentence_parts:
         last_sentence = sentence_parts[-1]
         last_wc = _spoken_word_count(last_sentence)
