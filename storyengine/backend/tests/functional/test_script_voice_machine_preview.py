@@ -204,13 +204,14 @@ def test_script_voice_full_script_generation_waits_for_full_machine_research_gat
 def test_script_voice_preview_keeps_failed_reason_visible():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]
+    helper = text[text.index("function previewErrorArtifact"):text.index("function cardMatchesMachine")]
 
-    assert "setMachinePreview({" in handler
-    assert 'research_source: "preview_error"' in handler
-    assert 'name: "preview_error"' in handler
-    assert 'label: "Preview error"' in handler
-    assert "quality_audit: {" in handler
-    assert "warnings: [message]" in handler
+    assert "setMachinePreview(previewErrorArtifact(" in handler
+    assert 'research_source: "preview_error"' in helper
+    assert 'name: "preview_error"' in helper
+    assert 'label: "Preview error"' in helper
+    assert "quality_audit: {" in helper
+    assert "previewErrorArtifact(machine, message)" in handler
     assert "Production script unchanged." in handler
     assert "Preview stopped before a paragraph was generated." in text
 
@@ -230,7 +231,10 @@ def test_script_voice_preview_button_calls_only_isolated_preview_route():
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]
 
     assert "const machine = previewMachine || machineRosterLabels[0]" in handler
+    assert "checkMachineScriptPreviewReadiness(video.id, machine)" in handler
     assert "runMachineScriptPreview(video.id, machine)" in handler
+    assert handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < handler.index("runMachineScriptPreview(video.id, machine)")
+    assert "if (!readiness.ready)" in handler
     assert "setMachinePreview(result.preview)" in handler
     assert "setPreviewMachine(machine)" in handler
     assert "Production script unchanged." in handler

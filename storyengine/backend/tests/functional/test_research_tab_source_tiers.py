@@ -44,11 +44,14 @@ def _frontend_api() -> Path:
 
 def test_one_machine_api_wrappers_use_isolated_endpoints():
     text = _frontend_api().read_text()
+    readiness_wrapper = text[text.index("export const checkMachineScriptPreviewReadiness"):text.index("export const runMachineScriptPreview")]
     research_wrapper = text[text.index("export const runOneMachineResearch"):text.index("export const runNextStep")]
     preview_wrapper = text[text.index("export const runMachineScriptPreview"):text.index("export const runOneMachineResearch")]
 
+    assert "`/api/pipeline/machine-script-preview-readiness/${videoId}`" in readiness_wrapper
     assert "`/api/pipeline/machine-research-one/${videoId}`" in research_wrapper
     assert "`/api/pipeline/machine-script-preview/${videoId}`" in preview_wrapper
+    assert "body: JSON.stringify({ machine })" in readiness_wrapper
     assert "body: JSON.stringify({ machine })" in research_wrapper
     assert "body: JSON.stringify({ machine })" in preview_wrapper
     assert "/api/pipeline/machine-research/" not in research_wrapper
@@ -325,7 +328,10 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     assert "resetPipeline(" not in research_handler
 
     assert "machine = selectedMachine || machineLabel(roster[0])" in preview_handler
+    assert "checkMachineScriptPreviewReadiness(video.id, machine)" in preview_handler
     assert "runMachineScriptPreview(video.id, machine)" in preview_handler
+    assert preview_handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < preview_handler.index("runMachineScriptPreview(video.id, machine)")
+    assert "if (!readiness.ready)" in preview_handler
     assert "setLocalMachinePreview(result.preview)" in preview_handler
     assert "Production script unchanged." in preview_handler
     assert 'runPipelineStage(video.id, "script")' not in preview_handler
@@ -449,11 +455,12 @@ def test_research_tab_keeps_failed_preview_reason_visible():
     text = _research_tab().read_text()
 
     handler = text[text.index("const handleOneMachinePreview"):text.index("const handleApproveResearch")]
+    helper = text[text.index("function previewErrorArtifact"):text.index("function previewForMachine")]
     assert "Production script unchanged." in handler
-    assert "setLocalMachinePreview({" in handler
-    assert 'research_source: "preview_error"' in handler
-    assert 'name: "preview_error"' in handler
-    assert 'label: "Preview error"' in handler
-    assert "quality_audit: {" in handler
-    assert "warnings: [message]" in handler
+    assert "setLocalMachinePreview(previewErrorArtifact(" in handler
+    assert 'research_source: "preview_error"' in helper
+    assert 'name: "preview_error"' in helper
+    assert 'label: "Preview error"' in helper
+    assert "quality_audit: {" in helper
+    assert "previewErrorArtifact(machine, message)" in handler
     assert "Preview stopped before a paragraph was generated." in text

@@ -612,6 +612,26 @@ async def run_machine_script_preview(
     return result
 
 
+@router.post("/machine-script-preview-readiness/{video_id}")
+async def check_machine_script_preview_readiness(
+    video_id: str,
+    body: MachineScriptPreviewRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Check whether one locked machine can safely run script preview without calling providers."""
+    machine = body.machine.strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required")
+    executor = PipelineExecutor(tenant_id)
+    try:
+        result = await executor.check_machine_script_preview_readiness(video_id, machine)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=humanize_error(e)) from e
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Preview readiness check failed")
+    return result
+
+
 @router.post("/machine-research-one/{video_id}")
 async def run_one_machine_research(
     video_id: str,

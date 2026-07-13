@@ -4725,6 +4725,120 @@ def test_run_machine_script_preview_canonicalizes_label_to_locked_roster(monkeyp
     assert result["preview"]["machine"] == "Boeing XB-15"
 
 
+def test_machine_preview_readiness_reports_missing_package_without_provider(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [_valid_research_card("Boeing XB-15", _evidence_segments())],
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": payload,
+        }
+
+    async def fake_load(_video_id, current_payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(current_payload)
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+
+    result = asyncio.run(
+        executor.check_machine_script_preview_readiness("video-test", "XB-15 — Boeing XB-15")
+    )
+
+    assert result["status"] == "needs_review"
+    assert result["ready"] is False
+    assert result["machine"] == "Boeing XB-15"
+    assert result["scene"] == 1
+    assert "missing verified raw internet source package" in result["warnings"][0]
+    assert "Anthropic client" not in result["warnings"][0]
+
+
+def test_machine_preview_readiness_passes_with_verified_card_and_package(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _evidence_segments()
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [_valid_research_card("Boeing XB-15", segments)],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": payload,
+        }
+
+    async def fake_load(_video_id, current_payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(current_payload)
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+
+    result = asyncio.run(
+        executor.check_machine_script_preview_readiness("video-test", "Boeing XB-15")
+    )
+
+    assert result["status"] == "completed"
+    assert result["ready"] is True
+    assert result["machine"] == "Boeing XB-15"
+    assert result["scene"] == 1
+    assert result["warnings"] == []
+
+
+def test_machine_preview_readiness_route_returns_review_status(monkeypatch):
+    import routes.pipeline as route
+
+    class FakeExecutor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def check_machine_script_preview_readiness(self, video_id, machine):
+            return {
+                "status": "needs_review",
+                "ready": False,
+                "video_id": video_id,
+                "machine": machine,
+                "warnings": ["raw source missing"],
+                "summary": "raw source missing",
+            }
+
+    monkeypatch.setattr(route, "PipelineExecutor", FakeExecutor)
+
+    result = asyncio.run(
+        route.check_machine_script_preview_readiness(
+            "video-test",
+            route.MachineScriptPreviewRequest(machine="Boeing XB-15"),
+            tenant_id="tenant-test",
+        )
+    )
+
+    assert result["ready"] is False
+    assert result["warnings"] == ["raw source missing"]
+
+
 def test_machine_research_route_humanizes_unexpected_exception(monkeypatch):
     import routes.pipeline as route
 

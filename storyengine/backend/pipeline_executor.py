@@ -6925,6 +6925,71 @@ separate scenes."""
             return {"status": "failed", "error": f"Machine is not in the locked roster: {machine}"}
         return await self._run_static_script_hold(video_id, video, roster, target_machine=matched)
 
+    async def check_machine_script_preview_readiness(self, video_id: str, machine: str) -> dict:
+        """No-spend check for whether one locked machine is ready for script preview."""
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "ready": False, "error": "Video not found"}
+        rp = video.get("research_payload") or {}
+        if isinstance(rp, str):
+            import json as _json_preview_ready
+            rp = _json_preview_ready.loads(rp)
+        if not isinstance(rp, dict):
+            return {"status": "failed", "ready": False, "error": "Research payload is missing or invalid"}
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"status": "failed", "ready": False, "error": "No locked machine roster found"}
+        matched = _locked_roster_item_for_machine(roster, machine)
+        if not matched:
+            return {"status": "failed", "ready": False, "error": f"Machine is not in the locked roster: {machine}"}
+        rp = await self._load_machine_research_cards(
+            video_id, rp, roster, target_machine=matched
+        )
+        scene = roster.index(matched) + 1
+        card = _research_card_for_machine(rp, matched)
+        if card is None:
+            msg = "Script-hold requires a saved research card for every locked machine; missing: " + matched
+            return {
+                "status": "needs_review",
+                "ready": False,
+                "video_id": video_id,
+                "machine": matched,
+                "scene": scene,
+                "summary": msg,
+                "warnings": [msg],
+                "research_payload": rp,
+            }
+        source_package = _verified_source_package_for_machine(rp, matched)
+        source_errors = _research_card_contract_warnings(
+            matched,
+            card,
+            source_package,
+            require_source_package=True,
+        )
+        if source_errors:
+            msg = "Script preview evidence gate failed: " + matched + ": " + "; ".join(source_errors)
+            return {
+                "status": "needs_review",
+                "ready": False,
+                "video_id": video_id,
+                "machine": matched,
+                "scene": scene,
+                "summary": msg,
+                "warnings": [msg],
+                "research_payload": rp,
+            }
+        return {
+            "status": "completed",
+            "ready": True,
+            "video_id": video_id,
+            "machine": matched,
+            "scene": scene,
+            "summary": "Machine script preview is ready.",
+            "warnings": [],
+            "research_payload": rp,
+        }
+
     async def run_script(self, video_id: str) -> dict:
         """Generate script for a video.
 

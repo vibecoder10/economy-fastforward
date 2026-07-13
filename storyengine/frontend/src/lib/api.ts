@@ -700,6 +700,23 @@ export type MachineScriptPreview = {
   };
 };
 
+export type MachineScriptPreviewReadiness = {
+  status: string;
+  ready: boolean;
+  video_id: string;
+  machine: string;
+  scene?: number;
+  summary?: string;
+  warnings?: string[];
+  research_payload?: Record<string, unknown>;
+};
+
+export const checkMachineScriptPreviewReadiness = (videoId: string, machine: string) =>
+  fetchApi<MachineScriptPreviewReadiness>(
+    `/api/pipeline/machine-script-preview-readiness/${videoId}`,
+    { method: "POST", body: JSON.stringify({ machine }) },
+  );
+
 export const runMachineScriptPreview = (videoId: string, machine: string) =>
   fetchApi<{ status: string; preview: MachineScriptPreview; research_payload?: Record<string, unknown> }>(
     `/api/pipeline/machine-script-preview/${videoId}`,

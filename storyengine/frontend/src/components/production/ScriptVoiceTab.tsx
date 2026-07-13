@@ -16,7 +16,7 @@ import {
   getDefaultScriptPrompt, rewriteSceneText,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
   setApiKey, getApiKeyStatus, getDialogueMap, getAudioToken,
-  getPipelineTaskStatus, runMachineScriptPreview,
+  getPipelineTaskStatus, checkMachineScriptPreviewReadiness, runMachineScriptPreview,
 } from "@/lib/api";
 import { API_URL } from "@/lib/env";
 import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview } from "@/lib/api";
@@ -223,6 +223,33 @@ function machinePreviewReviewMessages(preview: any): string[] {
         .filter(Boolean)
     : [];
   return Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows])).slice(0, 6);
+}
+
+function previewErrorArtifact(machine: string, message: string, warnings?: string[], scene = 0): MachineScriptPreview {
+  const reviewMessages = (Array.isArray(warnings) && warnings.length ? warnings : [message])
+    .map((warning) => String(warning || "").trim())
+    .filter(Boolean);
+  const summary = String(message || reviewMessages[0] || "Preview stopped before a paragraph was generated.").trim();
+  return {
+    machine,
+    scene,
+    paragraph: "",
+    word_count: 0,
+    passed: false,
+    warnings: reviewMessages.length ? reviewMessages : [summary],
+    research_source: "preview_error",
+    claim_bundle: { editorial_thesis: "", formula_sentences: [], claim_map: [] },
+    quality_audit: {
+      passed: false,
+      summary,
+      checks: [{
+        name: "preview_error",
+        label: "Preview error",
+        passed: false,
+        detail: summary,
+      }],
+    },
+  };
 }
 
 function cardMatchesMachine(card: any, machine: string): boolean {
@@ -2068,6 +2095,25 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     if (!machine) return;
     setPreviewGenerating(true);
     try {
+      const readiness = await checkMachineScriptPreviewReadiness(video.id, machine);
+      if (readiness.research_payload) {
+        queryClient.setQueryData(["video", video.id], (current: any) => (
+          current ? { ...current, research_payload: readiness.research_payload } : current
+        ));
+      }
+      if (!readiness.ready) {
+        const message = readiness.summary || readiness.warnings?.[0] || "Single-machine preview readiness check failed.";
+        setMachinePreview(previewErrorArtifact(
+          readiness.machine || machine,
+          message,
+          readiness.warnings,
+          readiness.scene || 0
+        ));
+        setPreviewMachine(readiness.machine || machine);
+        invalidateAll();
+        toast.error(`Preview blocked: ${message}. Production script unchanged.`);
+        return;
+      }
       const result = await runMachineScriptPreview(video.id, machine);
       setMachinePreview(result.preview);
       setPreviewMachine(machine);
@@ -2084,26 +2130,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       }
     } catch (err) {
       const message = (err as Error).message || "Unknown error";
-      setMachinePreview({
-        machine,
-        scene: 0,
-        paragraph: "",
-        word_count: 0,
-        passed: false,
-        warnings: [message],
-        research_source: "preview_error",
-        claim_bundle: { editorial_thesis: "", formula_sentences: [], claim_map: [] },
-        quality_audit: {
-          passed: false,
-          summary: message,
-          checks: [{
-            name: "preview_error",
-            label: "Preview error",
-            passed: false,
-            detail: message,
-          }],
-        },
-      });
+      setMachinePreview(previewErrorArtifact(machine, message));
       toast.error(`Preview failed: ${message}. Production script unchanged.`);
     } finally {
       setPreviewGenerating(false);
