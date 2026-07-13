@@ -20,24 +20,22 @@ def _words(machine: str, count: int) -> str:
 def _story_bundle(machine: str, words_per_sentence: int) -> str:
     target_words = max(5, words_per_sentence * 5)
     sentences = [
-        f"{machine} identity origin claim grounded in the supplied source.",
-        "Scale specs claim grounded in the supplied source.",
-        "Build reality claim grounded in the supplied source.",
-        "Service reality claim grounded in the supplied source.",
-        "Memorable fact claim grounded in the supplied source.",
+        f"{machine} original problem claim grounded in the supplied source.",
+        "Engineering decision claim grounded in the supplied source.",
+        "Tradeoff claim grounded in the supplied source.",
+        "Reality claim grounded in the supplied source.",
         "Together, those choices made the machine matter beyond its own service.",
     ]
     fill_index = 0
     while pe._spoken_word_count(" ".join(sentences)) < target_words:
-        index = fill_index % len(sentences)
+        index = fill_index % (len(sentences) - 1)
         sentences[index] = sentences[index].rstrip(".") + " clear."
         fill_index += 1
     ids = [
-        "E-IDENTITY",
-        "E-SCALE",
-        "E-BUILD",
-        "E-SERVICE",
-        "E-MEMORABLE",
+        "E-PROBLEM",
+        "E-DECISION",
+        "E-TRADEOFF",
+        "E-REALITY",
     ]
     return json.dumps({
         "editorial_thesis": f"{machine} mattered because its design promise had to survive real operating limits.",
@@ -45,7 +43,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "claim_map": [
             {"slot": slot, "span": sentence, "used_evidence_ids": [evidence_id]}
             for slot, sentence, evidence_id in zip(
-                ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact"],
+                ["original_problem", "engineering_decision", "tradeoff", "reality"],
                 sentences,
                 ids,
             )
@@ -56,13 +54,12 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
 
 def _evidence_segments() -> list[dict]:
     rows = [
-        ("E-IDENTITY", "identity_origin", "Identity origin claim grounded in the supplied source."),
+        ("E-PROBLEM", "original_problem", "Original problem claim grounded in the supplied source."),
         ("E-ROLE", "role_category", "Role category claim grounded in the supplied source."),
-        ("E-SCALE", "scale_specs", "Scale specs claim grounded in the supplied source."),
-        ("E-BUILD", "build_reality", "Build reality claim grounded in the supplied source."),
-        ("E-SERVICE", "service_reality", "Service reality claim grounded in the supplied source."),
+        ("E-DECISION", "engineering_decision", "Engineering decision claim grounded in the supplied source."),
+        ("E-TRADEOFF", "tradeoff", "Tradeoff claim grounded in the supplied source."),
+        ("E-REALITY", "reality", "Reality claim grounded in the supplied source."),
         ("E-MEMORABLE", "memorable_fact", "Memorable fact claim grounded in the supplied source."),
-        ("E-COMBAT", "combat_reality", "Combat reality claim grounded in the supplied source."),
         ("E-MEANING", "historical_meaning", "Historical meaning claim grounded in the supplied source."),
         ("E-LABEL", "onscreen_label", "Onscreen label claim grounded in the supplied source."),
     ]
@@ -139,10 +136,10 @@ def test_required_anton_slots_accept_tier_four_when_cross_checked_by_better_sour
     segments = _evidence_segments()
     for segment in segments:
         segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
-    wiki_identity = copy.deepcopy(segments[0])
-    wiki_identity["evidence_id"] = "E-IDENTITY-WIKI"
-    wiki_identity["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
-    segments.append(wiki_identity)
+    wiki_problem = copy.deepcopy(segments[0])
+    wiki_problem["evidence_id"] = "E-PROBLEM-WIKI"
+    wiki_problem["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    segments.append(wiki_problem)
     package = _verified_package_for_segments("Boeing XB-15", segments)
     card = {"unit": "Boeing XB-15", "evidence_segments": segments}
 
@@ -426,19 +423,17 @@ def test_story_plan_locks_research_into_anton_slots():
     plan = pe._machine_story_plan(payload, "B-52")
 
     assert plan["schema_version"] == 3
-    assert [slot["slot"] for slot in plan["slots"]][:6] == [
-        "identity_origin",
-        "engineering_intent",
-        "role_category",
-        "scale_specs",
-        "build_reality",
-        "service_reality",
+    assert [slot["slot"] for slot in plan["slots"]][:4] == [
+        "original_problem",
+        "engineering_decision",
+        "tradeoff",
+        "reality",
     ]
     by_slot = {slot["slot"]: slot["evidence_ids"] for slot in plan["slots"]}
-    assert by_slot["identity_origin"] == ["E-IDENTITY"]
-    assert by_slot["scale_specs"] == ["E-SCALE"]
-    assert by_slot["build_reality"] == ["E-BUILD"]
-    assert by_slot["service_reality"] == ["E-SERVICE"]
+    assert by_slot["original_problem"] == ["E-PROBLEM"]
+    assert by_slot["engineering_decision"] == ["E-DECISION"]
+    assert by_slot["tradeoff"] == ["E-TRADEOFF"]
+    assert by_slot["reality"] == ["E-REALITY"]
     assert by_slot["memorable_fact"] == ["E-MEMORABLE"]
     assert by_slot["historical_meaning"] == ["E-MEANING"]
     assert "must not enter the plan" not in json.dumps(plan)
@@ -475,7 +470,7 @@ def test_story_paragraph_validator_blocks_missing_slots_and_unsupported_numbers(
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
-    bundle["claim_map"] = bundle["claim_map"][:4]
+    bundle["claim_map"] = bundle["claim_map"][:3]
     old_span = bundle["claim_map"][0]["span"]
     new_span = old_span.replace("clear.", "clear 1967.", 1)
     bundle["claim_map"][0]["span"] = new_span
@@ -508,7 +503,7 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
     assert warnings == []
     assert pe._spoken_word_count(paragraph) == 95
     assert [row["used_evidence_ids"][0] for row in bundle["claim_map"]] == [
-        "E-IDENTITY", "E-SCALE", "E-BUILD", "E-SERVICE", "E-MEMORABLE"
+        "E-PROBLEM", "E-DECISION", "E-TRADEOFF", "E-REALITY"
     ]
 
 
@@ -606,8 +601,8 @@ def test_story_paragraph_validator_requires_sentence_numbers_inside_claim_map_sp
 def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     evidence = [
         {
-            "evidence_id": "XB15-IDENTITY",
-            "kind": "identity_origin",
+            "evidence_id": "XB15-PROBLEM",
+            "kind": "original_problem",
             "claim": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
             "source_excerpt": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
             "source_url": "https://example.test/xb-15",
@@ -617,8 +612,8 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             "confidence": "high",
         },
         {
-            "evidence_id": "XB15-SCALE",
-            "kind": "scale_specs",
+            "evidence_id": "XB15-DECISION",
+            "kind": "engineering_decision",
             "claim": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
             "source_excerpt": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
             "source_url": "https://example.test/xb-15",
@@ -628,10 +623,10 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             "confidence": "high",
         },
         {
-            "evidence_id": "XB15-BUILD",
-            "kind": "build_reality",
-            "claim": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
-            "source_excerpt": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
+            "evidence_id": "XB15-TRADEOFF",
+            "kind": "tradeoff",
+            "claim": "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances.",
+            "source_excerpt": "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances.",
             "source_url": "https://example.test/xb-15",
             "source_title": "Anton source fixture",
             "locator": "paragraph-1",
@@ -641,8 +636,8 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
         {
             "evidence_id": "XB15-MEMORABLE",
             "kind": "memorable_fact",
-            "claim": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
-            "source_excerpt": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
+            "claim": "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances.",
+            "source_excerpt": "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances.",
             "source_url": "https://example.test/xb-15",
             "source_title": "Anton source fixture",
             "locator": "paragraph-1",
@@ -650,8 +645,8 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             "confidence": "high",
         },
         {
-            "evidence_id": "XB15-SERVICE",
-            "kind": "service_reality",
+            "evidence_id": "XB15-REALITY",
+            "kind": "reality",
             "claim": "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
             "source_excerpt": "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
             "source_url": "https://example.test/xb-15",
@@ -672,7 +667,7 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
             "confidence": "high",
         },
     ]
-    for source_id in ("XB15-IDENTITY", "XB15-SCALE", "XB15-BUILD", "XB15-MEMORABLE", "XB15-MEANING"):
+    for source_id in ("XB15-PROBLEM", "XB15-DECISION", "XB15-TRADEOFF", "XB15-MEMORABLE", "XB15-MEANING"):
         duplicate = copy.deepcopy(next(item for item in evidence if item["evidence_id"] == source_id))
         duplicate["evidence_id"] = f"{source_id}-CHECK"
         duplicate["source_url"] = "https://example.test/xb-15-cross-check"
@@ -687,35 +682,30 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
         "paragraph": (
             "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing. "
             "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles. "
-            "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances. "
+            "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances. "
             "The aircraft served as a transport during World War II, hauling cargo across the Pacific. "
-            "That made the giant prototype useful in practice less as a weapon than as proof that size, range, and power had to mature together."
+            "That made the prototype useful less as a weapon than as proof that size, range, and power matured together."
         ),
         "claim_map": [
             {
-                "slot": "identity_origin",
+                "slot": "original_problem",
                 "span": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
-                "used_evidence_ids": ["XB15-IDENTITY", "XB15-IDENTITY-CHECK"],
+                "used_evidence_ids": ["XB15-PROBLEM", "XB15-PROBLEM-CHECK"],
             },
             {
-                "slot": "scale_specs",
+                "slot": "engineering_decision",
                 "span": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
-                "used_evidence_ids": ["XB15-SCALE", "XB15-SCALE-CHECK"],
+                "used_evidence_ids": ["XB15-DECISION", "XB15-DECISION-CHECK"],
             },
             {
-                "slot": "build_reality",
-                "span": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
-                "used_evidence_ids": ["XB15-BUILD", "XB15-BUILD-CHECK"],
+                "slot": "tradeoff",
+                "span": "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances.",
+                "used_evidence_ids": ["XB15-TRADEOFF", "XB15-TRADEOFF-CHECK", "XB15-MEMORABLE", "XB15-MEMORABLE-CHECK"],
             },
             {
-                "slot": "memorable_fact",
-                "span": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
-                "used_evidence_ids": ["XB15-MEMORABLE", "XB15-MEMORABLE-CHECK"],
-            },
-            {
-                "slot": "service_reality",
+                "slot": "reality",
                 "span": "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
-                "used_evidence_ids": ["XB15-SERVICE"],
+                "used_evidence_ids": ["XB15-REALITY"],
             },
         ],
     }
@@ -747,13 +737,13 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
         "numeric_tokens": ["5000"],
     })
     scale_check = copy.deepcopy(evidence[2])
-    scale_check["evidence_id"] = "E-SCALE-CHECK"
+    scale_check["evidence_id"] = "E-DECISION-CHECK"
     scale_check["source_url"] = "https://example.test/scale-cross-check"
     evidence.append(scale_check)
     payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]}
     plan = pe._machine_story_plan(payload, "Boeing XB-15")
     bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
-    bundle["claim_map"][1]["used_evidence_ids"] = ["E-SCALE", "E-SCALE-CHECK"]
+    bundle["claim_map"][1]["used_evidence_ids"] = ["E-DECISION", "E-DECISION-CHECK"]
     old_span = bundle["claim_map"][1]["span"]
     new_span = old_span.replace("clear.", "clear five thousand miles.", 1)
     bundle["claim_map"][1]["span"] = new_span
@@ -892,13 +882,13 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert len(fake_anthropic.prompts) == 2, "under-length sentence jobs must trigger one fresh bundle repair"
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
     assert "machine-card-source" not in fake_anthropic.prompts[0]
-    assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
+    assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[0]
     assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
-    for required_slot in ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact"]:
+    for required_slot in ["original_problem", "engineering_decision", "tradeoff", "reality"]:
         assert required_slot in fake_anthropic.prompts[0]
-    assert "identity_origin, scale_specs, build_reality, service_reality, and memorable_fact" in fake_anthropic.prompts[0]
+    assert "original_problem, engineering_decision, tradeoff, and reality" in fake_anthropic.prompts[0]
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
     assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
@@ -1031,7 +1021,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
-    assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
+    assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
 
 
 def test_target_machine_preview_requires_verified_raw_source_package_before_llm(monkeypatch):
@@ -1367,7 +1357,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     prompt = fake_anthropic.prompts[0]
     assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
-    assert "EXACT_TEXT: Identity origin claim grounded in the supplied source." in prompt
+    assert "EXACT_TEXT: Original problem claim grounded in the supplied source." in prompt
     assert "source_url, source_title, locator" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt

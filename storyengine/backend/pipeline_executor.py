@@ -415,15 +415,16 @@ def _source_tier_number(item: dict) -> int:
 
 
 _ANTON_SLOT_SPECS = (
-    ("identity_origin", ("identity_origin", "design_problem", "design_intent"), "Identify what this machine was and the origin/date that made it enter the story."),
-    ("engineering_intent", ("engineering_intent", "design_requirement", "doctrinal_problem"), "Capture the engineering problem, requirement, or doctrine the machine was meant to answer."),
+    ("original_problem", ("original_problem", "design_problem", "engineering_intent", "design_requirement", "doctrinal_problem", "identity_origin", "design_intent"), "Raw excerpt for the problem, requirement, or need that made this machine enter the story."),
+    ("engineering_decision", ("engineering_decision", "engineering_response", "design_response", "scale_specs", "validated_concept"), "Raw excerpt for the design or engineering decision made in response to that problem."),
+    ("tradeoff", ("tradeoff", "tradeoff_or_limit", "limitation", "failure_mode"), "Raw excerpt for the sacrifice, limitation, or tradeoff created by the decision."),
+    ("reality", ("reality", "actual_reality", "actual_outcome", "service_reality", "operational_reality", "combat_reality", "test_result", "build_reality", "production_reality", "prototype_reality"), "Raw excerpt for what happened in testing, production, service, or combat reality."),
+    ("identity_origin", ("identity_origin_context",), "Optional concise identity context when it is not already covered by original_problem."),
+    ("scale_specs", ("scale_specs_context",), "Optional supporting scale/capability detail when it proves the engineering decision."),
+    ("build_reality", ("build_reality_context",), "Optional supporting build or production detail when it is not the main reality beat."),
+    ("service_reality", ("service_reality_context",), "Optional supporting service detail when it is not the main reality beat."),
+    ("memorable_fact", ("memorable_fact", "surprising_fact", "retention_fact"), "Optional sourced fact serious viewers are unlikely to know; embed it only when it strengthens one of the four beats."),
     ("role_category", ("role_category", "classification"), "Name the role or category only when it helps the viewer understand the engineering lane."),
-    ("scale_specs", ("scale_specs", "engineering_response"), "Select the few scale/capability details that prove the machine's ambition."),
-    ("build_reality", ("build_reality", "production_reality", "prototype_reality"), "Show the prototype, production, or build-count reality."),
-    ("service_reality", ("service_reality", "operational_reality", "actual_outcome", "test_result"), "Show what actually happened in service, testing, or institutional use."),
-    ("memorable_fact", ("memorable_fact", "surprising_fact", "retention_fact"), "Capture one sourced fact that serious viewers are unlikely to know, and that supports the engineering story."),
-    ("combat_reality", ("combat_reality",), "Clarify combat or non-combat reality when that contrast matters."),
-    ("tradeoff_or_limit", ("tradeoff_or_limit", "tradeoff", "limitation", "failure_mode"), "Explain the limitation, sacrifice, or unexpected consequence when it is central to the machine."),
     ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced."),
     ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "Optional sourced downstream consequence; do not use this as a pre-written conclusion beat."),
     ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
@@ -432,11 +433,10 @@ _ANTON_SLOT_SPECS = (
 
 
 _ANTON_REQUIRED_SLOT_ROLES = {
-    "identity_origin",
-    "scale_specs",
-    "build_reality",
-    "service_reality",
-    "memorable_fact",
+    "original_problem",
+    "engineering_decision",
+    "tradeoff",
+    "reality",
 }
 
 
@@ -568,7 +568,7 @@ def _inventory_story_brief(payload: dict, machine: str) -> dict:
         ],
         "onscreen_label": card.get("onscreen_label") or "",
         "editorial_rule": (
-            "Use Anton slots as candidate ingredients, not a checklist. Build one micro-story with origin, scale, build/service reality, and meaning."
+            "Use Anton slots as candidate ingredients, not a checklist. Build one micro-story from problem, engineering decision, tradeoff, reality, then a paragraph-derived conclusion."
         ),
     }
 
@@ -884,7 +884,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "evidence_slot_roles": role_by_id,
         "contract": {
             "paragraph_shape": "one Anton/DVsU paragraph, 4-6 natural sentences",
-            "movement": "one declared engineering decision/contrast -> evidence-backed identity/scale/build/service/memorable story -> short paragraph-derived conclusion",
+            "movement": "raw original problem -> raw engineering decision -> raw tradeoff -> raw reality -> short paragraph-derived conclusion",
             "paragraph_words": "95-120",
             "maximum_numerical_details": 8,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
@@ -3235,7 +3235,8 @@ class PipelineExecutor:
             }
             card.setdefault(
                 "design_problem",
-                by_kind.get("engineering_intent")
+                by_kind.get("original_problem")
+                or by_kind.get("engineering_intent")
                 or by_kind.get("design_requirement")
                 or by_kind.get("doctrinal_problem")
                 or by_kind.get("identity_origin")
@@ -3243,20 +3244,28 @@ class PipelineExecutor:
                 or by_kind.get("design_intent")
                 or "",
             )
-            card.setdefault("engineering_response", by_kind.get("scale_specs") or by_kind.get("engineering_response") or "")
+            card.setdefault(
+                "engineering_response",
+                by_kind.get("engineering_decision")
+                or by_kind.get("design_response")
+                or by_kind.get("scale_specs")
+                or by_kind.get("engineering_response")
+                or "",
+            )
             card.setdefault(
                 "tradeoff",
-                by_kind.get("tradeoff_or_limit")
-                or by_kind.get("tradeoff")
+                by_kind.get("tradeoff")
+                or by_kind.get("tradeoff_or_limit")
                 or by_kind.get("limitation")
                 or by_kind.get("failure_mode")
-                or by_kind.get("combat_reality")
-                or by_kind.get("build_reality")
                 or "",
             )
             card.setdefault(
                 "actual_outcome",
-                by_kind.get("service_reality")
+                by_kind.get("reality")
+                or by_kind.get("actual_reality")
+                or by_kind.get("actual_outcome")
+                or by_kind.get("service_reality")
                 or by_kind.get("operational_reality")
                 or by_kind.get("test_result")
                 or by_kind.get("combat_reality")
@@ -3427,13 +3436,17 @@ class PipelineExecutor:
                 "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
-                "- Return 7-10 atomic evidence segments using Anton slot kinds only.\n"
-                "- Required slot kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact.\n"
-                "- memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia.\n"
+                "- Return 6-9 atomic evidence segments using Anton slot kinds only.\n"
+                "- Required four-beat slot kinds at least once: original_problem, engineering_decision, tradeoff, reality.\n"
+                "- original_problem = raw excerpt for the situation, requirement, or need that created the machine.\n"
+                "- engineering_decision = raw excerpt for the design/procurement/engineering answer.\n"
+                "- tradeoff = raw excerpt for the sacrifice, limitation, compromise, or unintended consequence.\n"
+                "- reality = raw excerpt for what happened in testing, production, service, or combat reality.\n"
+                "- memorable_fact is optional and must be a sourced fact serious viewers are unlikely to know; embed it only if it strengthens one of the four beats.\n"
                 "- Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence.\n"
                 "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
-                "- Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when directly supported by exact excerpts.\n"
-                "- Each claim must be one concise factual proposition, maximum 35 words. A scale_specs claim may bundle 2-4 related specifications only if the source excerpt contains them together.\n"
+                "- Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when directly supported by exact excerpts.\n"
+                "- Each claim must be one concise factual proposition, maximum 35 words. A technical claim may bundle 2-4 related specifications only if the source excerpt contains them together and they serve the engineering_decision beat.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one research slot. Do not write narration or pre-assemble the paragraph.\n"
                 "- claim must be a concise restatement of source_excerpt using no factual noun, verb, adjective, or number absent from that excerpt.\n"
@@ -3468,11 +3481,12 @@ class PipelineExecutor:
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
-                    "Return 7-10 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, memorable_fact. "
-                    "memorable_fact must be a sourced fact that serious viewers are unlikely to know and that supports the engineering story; do not use trivia. "
+                    "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
+                    "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
+                    "memorable_fact is optional and must strengthen one of those four beats; do not use trivia. "
                     "Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence. "
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
-                    "Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
+                    "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url, source_title, locator, numeric_tokens, and confidence. "
                     "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below; source_url and locator must match the same fetched excerpt row. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
@@ -3833,8 +3847,8 @@ class PipelineExecutor:
                 structure_brief = (
                     "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
                     "- TARGET 105-110 words, while remaining inside the absolute 95-120 validator.\n"
-                    "- Before writing, silently rank the Anton slots. Keep the details needed to explain: origin, scale, build reality, service/combat reality, and why it belongs in the story. Omit everything else.\n"
-                    "- Use 4-6 sentences and no more than 6 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
+                    "- Before writing, silently rank the Anton slots. Keep the details needed to explain: original problem, engineering decision, tradeoff, and reality. Omit everything else.\n"
+                    "- Use 4-6 sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
                     "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, or historical meaning understandable.\n"
                     "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural Anton micro-hook, not a manufactured twist.\n"
                     "- Do not inventory dimensions, engines, payload, speed, range, dates, crew features, and legacy. Never summarize every field in the research card.\n"
@@ -3853,7 +3867,7 @@ class PipelineExecutor:
                     "\n\nSCOPED OVERRIDE — COMPLETE INVENTORY MODE:\n"
                     "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
                     "Write a short Anton micro-story, not a compressed fact sheet and not a miniature engineering essay. "
-                    "Silently cherry-pick only the details needed for one clear narrative: origin, scale, build/service reality, consequence, meaning. Omission is a feature. "
+                    "Silently cherry-pick only the details needed for one clear narrative: problem, decision, tradeoff, reality, and a paragraph-derived landing line. Omission is a feature. "
                     "Target 105-110 words and 4-6 sentences. Use no more than six factual story beats. Never list research-card fields. "
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
                     "A surprising fact, thesis connection, technical explanation, paradox, irony, and punchline are all optional. They never outrank brevity, clarity, or natural spoken rhythm. "
@@ -3907,15 +3921,15 @@ class PipelineExecutor:
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
-                    "The target movement is sourced identity/origin hook, scale proof, build reality, service/combat reality, one memorable fact, then one paragraph-derived conclusion.\n\n"
+                    "The target movement is four evidence-backed sentences from original_problem, engineering_decision, tradeoff, and reality, then one paragraph-derived conclusion.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
-                    '{"editorial_thesis":"single engineering decision or contrast","paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"identity_origin","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
+                    '{"editorial_thesis":"single engineering decision or contrast","paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
                     "- paragraph must be final spoken narration: exactly one paragraph, 95-120 words, 4-6 natural sentences.\n"
                     "- Target 105-110 words. If you are above 110 words, remove the least important sourced detail instead of compressing more facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
-                    "- claim_map used_evidence_ids must cover identity_origin, scale_specs, build_reality, service_reality, and memorable_fact.\n"
+                    "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
                     "- The final sentence is editorial synthesis from the assembled paragraph only. It may be omitted from claim_map if it contains no new facts.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
@@ -3923,11 +3937,11 @@ class PipelineExecutor:
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
                     "- Numbers may be numerals or spelled words, but every number must map to numeric_tokens/source_excerpt in the selected evidence.\n"
                     "- Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
-                    "- Prefer fewer than 6 numerical details when optional slots add clutter; keep origin/range, one scale proof, one performance/service reality, and one meaning proof.\n"
+                    "- Prefer fewer than 6 numerical details when optional slots add clutter; keep only numbers that explain the problem, decision, tradeoff, or reality.\n"
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
-                    "- Include the sourced memorable_fact when it strengthens the paragraph, but make it prove the decision, trade-off, outcome, or meaning. No orphan facts.\n"
+                    "- Include a sourced memorable_fact only when it strengthens one of the four beats. No orphan facts.\n"
                     "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
                     "- onscreen_label must be empty unless onscreen_label evidence or sourced role/build/date slots support it.\n"
                     "- No citations, headings, markdown, commentary, hype, or list transitions.\n\n"
@@ -3976,15 +3990,15 @@ class PipelineExecutor:
                     repair_prompt = (
                         "REBUILD THE ANTON-STYLE PARAGRAPH JSON FROM THE SAME LOCKED STORY PLAN.\n\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
-                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"identity_origin\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
+                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
                         "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
-                        "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, and memorable_fact. "
+                        "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only; it may be omitted from claim_map if it contains no new facts. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
-                        "If validation says there are too many numerical details, rewrite around fewer concepts: origin/range, one scale proof, one performance or service reality, and one meaning proof. "
+                        "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "

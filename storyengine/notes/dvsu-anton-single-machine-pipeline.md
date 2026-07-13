@@ -9,23 +9,22 @@
 
 ## Anton Paragraph Pattern From First Three Strategic Bombers
 
-1. Identity/origin: name the machine and the date or role that puts it into the story.
-2. Scale proof: use only the specs that prove the engineering ambition.
-3. Build reality: prototype count or production scale.
-4. Service reality: what the machine actually did, including combat or non-combat reality when important.
-5. Memorable fact: one sourced fact serious viewers are unlikely to know, used only if it supports the engineering story.
-6. Editorial thesis: the single engineering decision, tradeoff, or contrast that tells the writer why these facts belong together.
-7. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
+1. Original problem: raw excerpt for the need, requirement, or situation that forced the machine into the story.
+2. Engineering decision: raw excerpt for the design, procurement, or technical answer.
+3. Tradeoff: raw excerpt for the sacrifice, limitation, compromise, or unintended consequence.
+4. Reality: raw excerpt for what happened in testing, production, service, or combat.
+5. Editorial thesis: the single engineering decision, tradeoff, or contrast that tells the writer why these facts belong together.
+6. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
 
 The paragraph is still one natural 95-120 word unit. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
 ## First Three Machines Broken Into Reusable Slots
 
-| Machine | Identity/origin | Scale proof | Build reality | Service reality | Memorable fact | Paragraph-derived landed line |
+| Machine | Original problem | Engineering decision | Tradeoff | Reality | Optional memorable fact | Paragraph-derived landed line |
 | --- | --- | --- | --- | --- | --- | --- |
-| Boeing XB-15 | First flew in 1937 as an experimental long-range strategic bomber | 149-foot wingspan, four 850-hp engines, 2,500-pound bomb load, 5,130-mile range | One prototype | Transport use in World War II; cargo across the Pacific; not combat as a bomber | A bomber prototype became useful as a wartime transport | Validated large multi-engine, long-range bomber concepts |
-| Boeing B-17 Flying Fortress | Entered service in 1938; backbone of daylight precision bombing | Four 1,200-hp engines, 4,500-pound bomb load, 287 mph, 2,000-mile reach, thirteen .50-caliber guns | 12,731 built | Heavy Eighth Air Force losses over Europe | 4,735 B-17s lost over Europe, 47% of heavy bomber losses in the script | Daylight precision bombing worked, but at a severe human cost |
-| Consolidated B-24 Liberator | First flew in 1941; became the most-produced American military aircraft | 110-foot wingspan, 8,000-pound bomb load, 290 mph, 2,100-mile reach, Davis wing efficiency | 18,482 produced | Every theater; Ploesti and Atlantic patrol work; less forgiving than B-17 | The most-produced American military aircraft was less forgiving than its famous rival | Industrial scale could overwhelm the enemy |
+| Boeing XB-15 | America attempted long-range strategic bombing before the engine technology was mature | Huge airframe, four engines, long range, and payload ambition | One prototype; not used in combat as a bomber | Became useful as a World War II Pacific transport | A bomber prototype became useful as cargo aircraft | Validated large multi-engine, long-range bomber concepts |
+| Boeing B-17 Flying Fortress | America bet on daylight precision bombing over Europe | Defensive gunship-like bomber with range, payload, and thirteen machine guns | Crews believed it could defend itself without fighter escort; losses proved the cost | Heavy Eighth Air Force losses over Europe | 4,735 B-17s lost over Europe, 47% of heavy bomber losses in the script | Daylight precision bombing worked, but at a severe human cost |
+| Consolidated B-24 Liberator | America needed mass, range, and fuel efficiency at global scale | Davis wing and production scale favored range and volume | Less forgiving than the B-17 despite stronger industrial output | Served in every theater, from Ploesti to Atlantic patrols | The most-produced American military aircraft was less forgiving than its famous rival | Industrial scale could overwhelm the enemy |
 
 ## Research Contract
 
@@ -33,8 +32,8 @@ Research runs one locked roster machine at a time. The model may use only fetche
 
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
-- Required: `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `memorable_fact`
-- Optional when directly sourced: `engineering_intent`, `role_category`, `combat_reality`, `tradeoff_or_limit`, `human_detail`, `historical_meaning`, `transition_hook`, `onscreen_label`
+- Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
+- Optional when directly sourced: `memorable_fact`, `role_category`, `human_detail`, `historical_meaning`, `transition_hook`, `onscreen_label`, or narrow context slots
 
 Do not research or pre-write a standalone "meaning" beat. The final sentence is editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.
 
@@ -60,7 +59,7 @@ The script preview writer returns JSON:
   "claim_map": [
     {
       "span": "exact paragraph words",
-      "slot": "identity_origin",
+      "slot": "original_problem",
       "used_evidence_ids": ["..."]
     }
   ],
@@ -74,7 +73,7 @@ Validation requires:
 - locked machine designation present
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
 - claim-map spans copied exactly from the paragraph
-- required Anton evidence slots covered
+- required Anton evidence slots covered: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
 - final sentence is a paragraph-derived conclusion, not a researched `historical_meaning` beat
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
