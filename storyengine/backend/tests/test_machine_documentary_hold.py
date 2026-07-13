@@ -855,8 +855,102 @@ def test_source_gathering_prefers_raw_content_when_direct_fetch_has_thin_machine
     )
 
     assert result["sources"][0]["source_capture_method"] == "tavily_raw_content"
+    selection = result["sources"][0]["source_variant_selection"]
+    assert selection["selected_capture_method"] == "tavily_raw_content"
+    assert {row["source_capture_method"] for row in selection["evaluated_variants"]} == {
+        "fetched_page",
+        "tavily_raw_content",
+    }
+    assert selection["selected_variant"]["covered_slot_count"] > next(
+        row["covered_slot_count"]
+        for row in selection["evaluated_variants"]
+        if row["source_capture_method"] == "fetched_page"
+    )
+    assert result["candidate_excerpts"][0]["source_variant_selection"]["selected_capture_method"] == "tavily_raw_content"
     assert "related links and navigation" not in result["candidate_excerpts"][0]["text"]
     assert result["source_slot_coverage"]["missing_slots"] == []
+
+
+def test_source_gathering_prefers_fetched_page_on_equal_raw_content_coverage(monkeypatch):
+    import httpx
+
+    fetched_text = (
+        "Boeing XB-15 came from a Project A requirement that called for long-range bombing. "
+        "Boeing XB-15 used a large wing, four engines, and a deep fuselage as the engineering decision. "
+        "Boeing XB-15 was underpowered and too slow for the combat bomber role. "
+        "Boeing XB-15 served as a transport during World War II."
+    )
+    raw_text = (
+        "Boeing XB-15 came from a requirement that called for long-range bombing. "
+        "Boeing XB-15 used a large wing, four engines, and a deep fuselage as the engineering decision. "
+        "Boeing XB-15 was underpowered and too slow for the combat bomber role. "
+        "Boeing XB-15 later served as a transport during World War II."
+    )
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "results": [
+                    {
+                        "url": "https://example.test/equal-coverage",
+                        "title": "Equal coverage result",
+                        "raw_content": raw_text,
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_fetch_source_text(_client, _url):
+        return fetched_text
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(executor, "_fetch_source_text", fake_fetch_source_text)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    selection = result["sources"][0]["source_variant_selection"]
+    fetched_variant = next(
+        row for row in selection["evaluated_variants"]
+        if row["source_capture_method"] == "fetched_page"
+    )
+    raw_variant = next(
+        row for row in selection["evaluated_variants"]
+        if row["source_capture_method"] == "tavily_raw_content"
+    )
+
+    assert result["sources"][0]["source_capture_method"] == "fetched_page"
+    assert selection["selected_capture_method"] == "fetched_page"
+    assert fetched_variant["covered_slot_count"] == raw_variant["covered_slot_count"]
+    assert fetched_variant["distinct_slot_excerpt_count"] == raw_variant["distinct_slot_excerpt_count"]
+    assert fetched_variant["excerpt_count"] == raw_variant["excerpt_count"]
+    assert fetched_variant["method_priority"] > raw_variant["method_priority"]
+    assert result["candidate_excerpts"][0]["source_capture_method"] == "fetched_page"
+    assert "Project A requirement" in result["candidate_excerpts"][0]["text"]
 
 
 def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):

@@ -15,6 +15,8 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     text = _runbook().read_text()
 
     assert "Raw source package" in text or "raw source package" in text
+    assert "`source_variant_selection`" in text
+    assert "the evaluated capture methods, selected method, coverage counts, exact-text hashes, and the tie-break rule" in text
     assert "original_problem -> engineering_decision -> tradeoff -> reality" in text
     assert "Do not research or pre-write a standalone \"meaning\" beat" in text
     assert "normalizes those labels into `reality` before building `machine_story_plans`" in text

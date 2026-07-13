@@ -508,6 +508,37 @@ def _machine_source_variant_score(excerpts: list[str], machine: str) -> tuple[in
     )
 
 
+def _machine_source_variant_selection_metadata(
+    source_variants: list[tuple[tuple[int, int, int, int], str, str, list[str]]],
+    selected_capture_method: str,
+) -> dict:
+    """Review metadata for why one exact-text capture method was saved."""
+    evaluated: list[dict] = []
+    selected_variant: dict = {}
+    for score, capture_method, source_text, excerpt_candidates in source_variants:
+        row = {
+            "source_capture_method": capture_method,
+            "covered_slot_count": score[0],
+            "distinct_slot_excerpt_count": score[1],
+            "excerpt_count": score[2],
+            "method_priority": score[3],
+            "text_hash": _source_text_fingerprint(source_text),
+            "text_chars": len(source_text or ""),
+        }
+        evaluated.append(row)
+        if capture_method == selected_capture_method:
+            selected_variant = dict(row)
+    return {
+        "selected_capture_method": selected_capture_method,
+        "selected_variant": selected_variant,
+        "evaluated_variants": evaluated,
+        "selection_rule": (
+            "highest Anton-slot coverage, then distinct required-slot excerpts, "
+            "then excerpt count; fetched_page wins exact ties"
+        ),
+    }
+
+
 def _verified_machine_source_package_ready(package: Any) -> bool:
     if not isinstance(package, dict) or package.get("passed") is False:
         return False
@@ -3917,6 +3948,10 @@ class PipelineExecutor:
                     source_variants,
                     key=lambda row: row[0],
                 )
+                variant_selection = _machine_source_variant_selection_metadata(
+                    source_variants,
+                    capture_method,
+                )
                 source_id = f"S{len(sources) + 1}"
                 source_hash = _source_text_fingerprint(source_text)
                 source_tier = _source_tier_for_url(url, title_text)
@@ -3928,6 +3963,7 @@ class PipelineExecutor:
                     "source_tier_label": source_tier["label"],
                     "query": item.get("_query"),
                     "source_capture_method": capture_method,
+                    "source_variant_selection": variant_selection,
                     "text_hash": source_hash,
                     "text_chars": len(source_text),
                 })
@@ -3941,6 +3977,7 @@ class PipelineExecutor:
                         "source_tier": source_tier["tier"],
                         "source_tier_label": source_tier["label"],
                         "source_capture_method": capture_method,
+                        "source_variant_selection": variant_selection,
                         "locator": f"{excerpt_id}; query={item.get('_query')}",
                         "text": excerpt,
                         "text_hash": _source_text_fingerprint(excerpt),
