@@ -737,6 +737,7 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
     ]
     warnings: list[str] = []
     required_slot_sources: dict[str, list[tuple[str, int]]] = {}
+    selected_source_tiers: dict[str, int] = {}
     for segment in (card.get("evidence_segments") if isinstance(card, dict) else []) or []:
         if not isinstance(segment, dict):
             continue
@@ -766,6 +767,7 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
             )
             if url_matches and locator_matches and excerpt in candidate_text:
                 matched = True
+                selected_source_tiers[evidence_id] = _source_tier_number(candidate)
                 role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
                 if role in _ANTON_REQUIRED_SLOT_ROLES:
                     required_slot_sources.setdefault(role, []).append((evidence_id, _source_tier_number(candidate)))
@@ -780,6 +782,20 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
             warnings.append(
                 f"required Anton slot {role} uses only Tier 4/caution sources: {evidence_ids}"
             )
+    if selected_source_tiers and all(tier > 2 for tier in selected_source_tiers.values()):
+        warnings.append("research card evidence needs at least one selected Tier 1-2 primary/authoritative source")
+    for field_name, label in (
+        ("timeframe_evidence_ids", "timeframe"),
+        ("visual_identity_evidence_ids", "visual_identity"),
+    ):
+        evidence_ids = [
+            str(item).strip()
+            for item in ((card or {}).get(field_name) if isinstance((card or {}).get(field_name), list) else [])
+            if str(item).strip()
+        ]
+        matched_tiers = [selected_source_tiers[item] for item in evidence_ids if item in selected_source_tiers]
+        if matched_tiers and all(tier >= 4 for tier in matched_tiers):
+            warnings.append(f"{label} uses only Tier 4/caution sources: " + ", ".join(evidence_ids))
     machine = _unit_display_name(
         (card or {}).get("unit")
         or (card or {}).get("machine")

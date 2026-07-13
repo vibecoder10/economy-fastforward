@@ -447,6 +447,57 @@ def test_required_anton_slots_accept_authoritative_source_support():
     assert warnings == []
 
 
+def test_research_card_must_select_at_least_one_authoritative_source():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://example.test/b52-reference"
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["sources"].append({
+        "source_id": "S-AUTH",
+        "title": "Authoritative unused source",
+        "url": "https://airandspace.si.edu/collection-objects/boeing-xb-15",
+        "text_hash": "auth",
+        "text_chars": 120,
+    })
+    package["candidate_excerpts"].append({
+        "excerpt_id": "S-AUTH-E1",
+        "source_id": "S-AUTH",
+        "source_title": "Authoritative unused source",
+        "source_url": "https://airandspace.si.edu/collection-objects/boeing-xb-15",
+        "locator": "S-AUTH-E1",
+        "text": "Boeing XB-15 authoritative context not selected by the card.",
+        "text_hash": "auth",
+        "source_capture_method": "fetched_page",
+    })
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("at least one selected Tier 1-2" in warning for warning in warnings)
+
+
+def test_metadata_evidence_rejects_caution_only_support():
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    caution_timeframe = copy.deepcopy(segments[4])
+    caution_timeframe["evidence_id"] = "E-TIME-WIKI"
+    caution_timeframe["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    segments.append(caution_timeframe)
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    card = {
+        "unit": "Boeing XB-15",
+        "timeframe_evidence_ids": ["E-TIME-WIKI"],
+        "visual_identity_evidence_ids": ["E-DECISION"],
+        "evidence_segments": segments,
+    }
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any("timeframe uses only Tier 4/caution sources" in warning for warning in warnings)
+    assert not any("visual_identity uses only Tier 4/caution sources" in warning for warning in warnings)
+
+
 def test_paragraph_worth_rejects_unsupported_numbers_and_designations():
     segments = _evidence_segments()
     segments[0]["claim"] = "Boeing XB-15 original problem involved range and payload requirements."
