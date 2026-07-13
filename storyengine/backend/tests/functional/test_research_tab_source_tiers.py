@@ -71,6 +71,8 @@ def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
 
     assert "selectedPreviewClaimMap" in text
     assert "selectedPreviewEvidenceById" in text
+    assert "Editorial thesis" in text
+    assert "selectedMachinePreview.claim_bundle?.editorial_thesis" in text
     assert "source_excerpt: String(segment?.source_excerpt" in text
     assert "evidence?.claim" in text
     assert "evidence?.source_excerpt" in text

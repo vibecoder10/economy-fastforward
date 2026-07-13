@@ -676,6 +676,7 @@ export type MachineScriptPreview = {
   research_source?: string;
   story_plan?: Record<string, unknown>;
   claim_bundle?: {
+    editorial_thesis?: string;
     paragraph?: string;
     onscreen_label?: string;
     claim_map?: Array<{

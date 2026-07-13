@@ -774,6 +774,14 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
 
               {selectedMachinePreview ? (
                 <div className="space-y-4">
+                  {selectedMachinePreview.claim_bundle?.editorial_thesis && (
+                    <div className="rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>Editorial thesis</div>
+                      <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
+                        {selectedMachinePreview.claim_bundle.editorial_thesis}
+                      </p>
+                    </div>
+                  )}
                   {(selectedMachinePreview.onscreen_label || selectedMachinePreview.claim_bundle?.onscreen_label) && (
                     <div className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
                       <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>On-screen label</div>

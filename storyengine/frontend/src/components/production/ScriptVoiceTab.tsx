@@ -1455,6 +1455,14 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                   <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{machinePreview.machine}</span>
                   <span className="text-xs font-mono" style={{ color: machinePreview.passed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreview.passed ? "Passed" : "Needs review"}</span>
                 </div>
+                {machinePreview.claim_bundle?.editorial_thesis && (
+                  <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>Editorial thesis</div>
+                    <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
+                      {machinePreview.claim_bundle.editorial_thesis}
+                    </p>
+                  </div>
+                )}
                 {machinePreview.paragraph ? (
                   <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machinePreview.paragraph}</p>
                 ) : (
