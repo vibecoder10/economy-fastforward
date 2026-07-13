@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { RefreshCw, FileText, Search, Loader2, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { RefreshCw, FileText, Search, Loader2, Check, ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -538,6 +538,32 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                         {card.tradeoff && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Design tradeoff</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.tradeoff}</p></div>}
                       </div>
                       {Array.isArray(card.source_notes) && card.source_notes.length > 0 && <div className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>Sources: {card.source_notes.join(" · ")}</div>}
+                      {Array.isArray(card.evidence_segments) && card.evidence_segments.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                            <ShieldCheck size={12} />
+                            Exact evidence segments
+                          </div>
+                          <div className="space-y-2">
+                            {card.evidence_segments.slice(0, 12).map((segment: any, segmentIndex: number) => (
+                              <div key={`${segment.evidence_id || segment.kind || "evidence"}-${segmentIndex}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                                <div className="mb-1 flex flex-wrap items-center gap-2">
+                                  <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{segment.kind || "slot"}</span>
+                                  {segment.evidence_id && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{segment.evidence_id}</span>}
+                                  {segment.confidence && <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{segment.confidence}</span>}
+                                </div>
+                                {segment.claim && <p className="text-xs leading-5" style={{ color: "var(--text-primary)" }}>{segment.claim}</p>}
+                                {segment.source_excerpt && <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{segment.source_excerpt}</p>}
+                                {(segment.source_title || segment.source_url || segment.locator) && (
+                                  <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                    {[segment.source_title, segment.source_url, segment.locator].filter(Boolean).join(" · ")}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </details>

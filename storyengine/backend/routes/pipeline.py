@@ -609,10 +609,6 @@ async def run_machine_script_preview(
         raise HTTPException(status_code=400, detail=humanize_error(e)) from e
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Preview generation failed")
-    preview = result.get("preview") if isinstance(result, dict) else None
-    if isinstance(preview, dict) and not preview.get("passed"):
-        warnings = preview.get("warnings") or ["Preview validation failed"]
-        raise HTTPException(status_code=400, detail="Script preview needs review: " + "; ".join(map(str, warnings)))
     return result
 
 

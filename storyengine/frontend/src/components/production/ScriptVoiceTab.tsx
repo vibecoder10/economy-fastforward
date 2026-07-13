@@ -1266,7 +1266,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       const result = await runMachineScriptPreview(video.id, machine);
       setMachinePreview(result.preview);
       setPreviewMachine(machine);
-      toast.success(`${machine} preview generated. Production script unchanged.`);
+      if (result.preview.passed) {
+        toast.success(`${machine} preview generated. Production script unchanged.`);
+      } else {
+        toast.error(`${machine} preview needs review. Production script unchanged.`);
+      }
     } catch (err) {
       toast.error(`Preview failed: ${(err as Error).message}`);
     } finally {

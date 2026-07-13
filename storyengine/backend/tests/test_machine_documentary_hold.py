@@ -779,6 +779,43 @@ def test_target_machine_preview_filters_unrelated_loaded_cards(monkeypatch):
     assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
 
 
+def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
+    import routes.pipeline as route
+
+    class FakeExecutor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def run_machine_script_preview(self, video_id, machine):
+            return {
+                "status": "completed",
+                "video_id": video_id,
+                "preview": {
+                    "machine": machine,
+                    "scene": 1,
+                    "paragraph": "Reviewable paragraph.",
+                    "word_count": 2,
+                    "passed": False,
+                    "warnings": ["word count 2 outside 95-120 script-hold range"],
+                    "claim_bundle": {"claim_map": []},
+                },
+            }
+
+    monkeypatch.setattr(route, "PipelineExecutor", FakeExecutor)
+
+    result = asyncio.run(
+        route.run_machine_script_preview(
+            "video-test",
+            route.MachineScriptPreviewRequest(machine="Boeing XB-15"),
+            tenant_id="tenant-test",
+        )
+    )
+
+    assert result["preview"]["passed"] is False
+    assert result["preview"]["paragraph"] == "Reviewable paragraph."
+    assert "word count" in result["preview"]["warnings"][0]
+
+
 def test_script_generation_exception_preserves_existing_script_rows(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {
