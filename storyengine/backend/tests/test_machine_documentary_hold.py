@@ -1082,12 +1082,51 @@ def test_anton_preview_quality_audit_reports_passed_checks():
         "clean_voiceover",
         "spoken_rhythm",
         "opening_assignment",
+        "narrative_weight",
         "not_catalog_copy",
     ]
     assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
     assert next(check for check in audit["checks"] if check["name"] == "clean_voiceover")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "spoken_rhythm")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "opening_assignment")["passed"] is True
+    assert next(check for check in audit["checks"] if check["name"] == "narrative_weight")["passed"] is True
+
+
+def test_story_paragraph_validator_enforces_major_narrative_weight_target():
+    payload = {"unit_research_cards": [{
+        "unit": "B-52",
+        "narrative_weight": "major",
+        "evidence_segments": _evidence_segments(),
+    }]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    audit = pe._anton_preview_quality_audit("B-52", plan, bundle, paragraph, warnings)
+
+    assert any("narrative_weight target major 112-120 words" in warning for warning in warnings)
+    narrative_check = next(check for check in audit["checks"] if check["name"] == "narrative_weight")
+    assert audit["passed"] is False
+    assert narrative_check["passed"] is False
+    assert narrative_check["detail"] == "major target 112-120; 95 words"
+
+
+def test_story_paragraph_validator_accepts_transitional_narrative_weight_target():
+    payload = {"unit_research_cards": [{
+        "unit": "XB-15",
+        "narrative_weight": "transitional",
+        "evidence_segments": _evidence_segments(),
+    }]}
+    plan = pe._machine_story_plan(payload, "XB-15")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("XB-15", 19))
+
+    paragraph, warnings = pe._validate_machine_story_sentences("XB-15", plan, bundle)
+    audit = pe._anton_preview_quality_audit("XB-15", plan, bundle, paragraph, warnings)
+    narrative_check = next(check for check in audit["checks"] if check["name"] == "narrative_weight")
+
+    assert not any("narrative_weight target" in warning for warning in warnings)
+    assert narrative_check["passed"] is True
+    assert narrative_check["detail"] == "transitional target 95-103; 95 words"
 
 
 def test_anton_preview_quality_audit_flags_voiceover_artifacts():

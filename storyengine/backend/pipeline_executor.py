@@ -1299,6 +1299,31 @@ def _anton_narrative_weight_profile(card: dict, evidence: list[dict]) -> dict:
     }
 
 
+def _narrative_weight_target_warning(paragraph: str, plan: dict) -> Optional[str]:
+    import re as _re
+
+    if not isinstance(plan, dict):
+        return None
+    narrative_weight = (plan.get("contract") or {}).get("narrative_weight")
+    if not isinstance(narrative_weight, dict):
+        return None
+    label = str(narrative_weight.get("label") or "").strip().lower()
+    if label not in {"major", "transitional"}:
+        return None
+    target_words = str(narrative_weight.get("target_words") or "").strip()
+    match = _re.search(r"(\d+)\s*-\s*(\d+)", target_words)
+    if not match:
+        return None
+    low, high = int(match.group(1)), int(match.group(2))
+    word_count = _spoken_word_count(paragraph)
+    if low <= word_count <= high:
+        return None
+    return (
+        f"paragraph misses narrative_weight target {label} {low}-{high} words "
+        f"({word_count} words)"
+    )
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -1311,6 +1336,9 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         return "", ["story distiller must return a paragraph string"]
     opening_assignment = str(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("opening_assignment") or "")
     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_assignment))
+    narrative_warning = _narrative_weight_target_warning(paragraph, plan)
+    if narrative_warning:
+        warnings.append(narrative_warning)
 
     editorial_thesis = " ".join(str(bundle.get("editorial_thesis") or "").split())
     if not editorial_thesis:
@@ -1667,6 +1695,9 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
     opening_warnings = [
         "opening assignment forbids machine-name opening",
     ]
+    narrative_weight_warnings = [
+        "narrative_weight target",
+    ]
     catalog_warnings = [
         "wikipedia-style",
         "list/spec-dump",
@@ -1683,6 +1714,10 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         return row
 
     word_count = _spoken_word_count(paragraph)
+    narrative_weight = (plan.get("contract") or {}).get("narrative_weight") if isinstance(plan, dict) else None
+    narrative_weight = narrative_weight if isinstance(narrative_weight, dict) else {}
+    narrative_label = str(narrative_weight.get("label") or "standard").strip() or "standard"
+    narrative_target = str(narrative_weight.get("target_words") or _ANTON_PARAGRAPH_TARGET_WORDS).strip()
     reference_benchmark = plan.get("reference_benchmark") if isinstance(plan, dict) else None
     checks = [
         check(
@@ -1744,6 +1779,12 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "Opening assignment",
             not any(token in warning_text for token in opening_warnings),
             "matched" if not any(token in warning_text for token in opening_warnings) else "machine-name opener flagged",
+        ),
+        check(
+            "narrative_weight",
+            "Narrative weight",
+            not any(token in warning_text for token in narrative_weight_warnings),
+            f"{narrative_label} target {narrative_target}; {word_count} words",
         ),
         check(
             "not_catalog_copy",
