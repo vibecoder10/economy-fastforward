@@ -1695,6 +1695,80 @@ def _research_card_contract_warnings(
     return list(dict.fromkeys(warnings))
 
 
+_STORY_UNIQUENESS_STOPWORDS = {
+    "about", "across", "after", "against", "aircraft", "because", "became",
+    "before", "between", "bomber", "bombers", "built", "card", "concrete",
+    "could", "decision", "deserves", "different", "engineering", "exposed",
+    "flying", "from", "idea", "into", "machine", "machines", "other",
+    "paragraph", "problem", "proves", "reality", "service", "specific",
+    "story", "that", "their", "this", "tradeoff", "unit", "where", "with",
+}
+
+
+def _story_uniqueness_terms(machine: str, text: str) -> set[str]:
+    """Token signature for catching duplicated unit engineering stories."""
+    raw = str(text or "").lower()
+    machine_tokens = set(re.findall(r"[a-z0-9]+", str(machine or "").lower()))
+    machine_code = _normalized_unit_code(machine).lower()
+    raw = raw.replace(machine_code, " ")
+    tokens = re.findall(r"[a-z0-9]+", raw)
+    return {
+        token for token in tokens
+        if len(token) >= 4
+        and token not in _STORY_UNIQUENESS_STOPWORDS
+        and token not in machine_tokens
+    }
+
+
+def _roster_story_uniqueness_warnings(roster: list[str], cards_by_roster_code: dict[str, dict]) -> dict[str, list[str]]:
+    """Flag repeated engineering stories across a locked DVsU roster."""
+    warnings_by_code: dict[str, list[str]] = {}
+    seen: list[dict] = []
+    fields = (
+        ("engineering_thesis", "engineering_thesis"),
+        ("why_this_unit_deserves_a_paragraph", "paragraph rationale"),
+    )
+    for machine in roster:
+        code = _normalized_unit_code(machine)
+        card = cards_by_roster_code.get(code)
+        if not isinstance(card, dict):
+            continue
+        for field_name, label in fields:
+            terms = _story_uniqueness_terms(machine, str(card.get(field_name) or ""))
+            if len(terms) < 5:
+                continue
+            for previous in seen:
+                if previous["field"] != field_name:
+                    continue
+                previous_terms = previous["terms"]
+                overlap = len(terms & previous_terms)
+                if overlap < 5:
+                    continue
+                union = len(terms | previous_terms)
+                min_size = min(len(terms), len(previous_terms))
+                jaccard = overlap / union if union else 0
+                containment = overlap / min_size if min_size else 0
+                if jaccard >= 0.72 or containment >= 0.86:
+                    other_machine = previous["machine"]
+                    warnings_by_code.setdefault(code, []).append(
+                        f"{label} duplicates engineering story with {other_machine}"
+                    )
+                    warnings_by_code.setdefault(previous["code"], []).append(
+                        f"{label} duplicates engineering story with {machine}"
+                    )
+            seen.append({
+                "code": code,
+                "machine": machine,
+                "field": field_name,
+                "terms": terms,
+            })
+    return {
+        code: list(dict.fromkeys(warnings))
+        for code, warnings in warnings_by_code.items()
+        if warnings
+    }
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -4430,6 +4504,15 @@ class PipelineExecutor:
                     if card else ["missing saved one-machine research card"]
                 )
                 units.append({"machine": roster_machine, "passed": not warnings, "warnings": warnings})
+            uniqueness_warnings = _roster_story_uniqueness_warnings(roster, cards_by_roster_code)
+            if uniqueness_warnings:
+                for unit in units:
+                    code = _normalized_unit_code(unit.get("machine") or "")
+                    unit_warnings = uniqueness_warnings.get(code) or []
+                    if unit_warnings:
+                        merged = list(dict.fromkeys((unit.get("warnings") or []) + unit_warnings))
+                        unit["warnings"] = merged
+                        unit["passed"] = False
             return units, all(unit.get("passed") for unit in units)
 
         anthropic_client = getattr(self._pipeline, "anthropic", None)
@@ -4451,23 +4534,12 @@ class PipelineExecutor:
                 cards_by_code[code] = card
 
         if not target_code:
-            validation_units = []
-            invalid_or_missing = []
-            for i, machine in enumerate(roster, start=1):
-                code = _normalized_unit_code(machine)
-                card = cards_by_code.get(code)
-                warnings = (
-                    _card_warnings(
-                        machine,
-                        card,
-                        _verified_source_package_for_machine(payload, machine),
-                        require_source_package=True,
-                    )
-                    if card else ["missing saved one-machine research card"]
-                )
-                validation_units.append({"machine": machine, "passed": not warnings, "warnings": warnings})
-                if warnings:
-                    invalid_or_missing.append(machine)
+            validation_units, _existing_hold_passed = _full_research_validation(existing_cards)
+            invalid_or_missing = [
+                str(unit.get("machine") or "")
+                for unit in validation_units
+                if not unit.get("passed")
+            ]
             if invalid_or_missing:
                 msg = (
                     "Bulk DVsU machine-card generation is disabled for hallucination safety. "
@@ -4701,6 +4773,15 @@ class PipelineExecutor:
                 if target_code else
                 (validation_units, not warnings and i == len(roster))
             )
+            if target_code:
+                target_machine_passed = next(
+                    (
+                        bool(unit.get("passed"))
+                        for unit in full_validation_units
+                        if _normalized_unit_code(unit.get("machine") or "") == code
+                    ),
+                    target_machine_passed,
+                )
             payload["unit_research_hold_validation"] = {
                 "passed": full_hold_passed,
                 "in_progress": False if target_code else not warnings and i < len(roster),
@@ -4735,11 +4816,17 @@ class PipelineExecutor:
                 return payload
 
         target_machine_passed = bool(validation_units and validation_units[-1].get("passed"))
-        full_validation_units, full_hold_passed = (
-            _full_research_validation(unit_cards)
-            if target_code else
-            (validation_units, True)
-        )
+        full_validation_units, full_hold_passed = _full_research_validation(unit_cards)
+        if target_code and validation_units:
+            target_code_final = _normalized_unit_code(validation_units[-1].get("machine") or "")
+            target_machine_passed = next(
+                (
+                    bool(unit.get("passed"))
+                    for unit in full_validation_units
+                    if _normalized_unit_code(unit.get("machine") or "") == target_code_final
+                ),
+                target_machine_passed,
+            )
         payload["unit_research_hold_validation"] = {
             "passed": full_hold_passed,
             "in_progress": False,

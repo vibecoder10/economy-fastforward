@@ -677,6 +677,93 @@ def test_card_validation_requires_sourced_memorable_fact_slot(monkeypatch):
     )
 
 
+def test_roster_story_uniqueness_flags_duplicate_engineering_ideas():
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
+    duplicate_thesis = "shows a long range payload endurance compromise where power limits shaped bomber procurement balance"
+    cards = {
+        pe._normalized_unit_code(machine): _valid_research_card(
+            machine,
+            engineering_thesis=f"{machine} {duplicate_thesis}.",
+            why_this_unit_deserves_a_paragraph=(
+                f"{machine} deserves a paragraph because its long range payload endurance compromise "
+                "shows how power limits shaped bomber procurement balance."
+            ),
+        )
+        for machine in roster
+    }
+
+    warnings = pe._roster_story_uniqueness_warnings(roster, cards)
+
+    assert pe._normalized_unit_code(roster[0]) in warnings
+    assert pe._normalized_unit_code(roster[1]) in warnings
+    assert any("duplicates engineering story with Boeing B-17" in warning for warning in warnings["XB15"])
+    assert any("duplicates engineering story with Boeing XB-15" in warning for warning in warnings["B17"])
+
+
+def test_full_research_validation_refuses_duplicate_unit_stories_before_llm(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
+    cards = []
+    packages = {}
+    duplicate_thesis = "shows a long range payload endurance compromise where power limits shaped bomber procurement balance"
+    for machine in roster:
+        segments = _evidence_segments()
+        cards.append(_valid_research_card(
+            machine,
+            segments,
+            engineering_thesis=f"{machine} {duplicate_thesis}.",
+            why_this_unit_deserves_a_paragraph=(
+                f"{machine} deserves a paragraph because its long range payload endurance compromise "
+                "shows how power limits shaped bomber procurement balance."
+            ),
+        ))
+        packages[pe._verified_source_cache_key(machine)] = _verified_package_for_segments(machine, segments)
+    payload = {
+        "unit_roster": roster,
+        "unit_research_cards": cards,
+        "machine_raw_source_packages": packages,
+    }
+
+    class ForbiddenAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("duplicate full-roster cards must fail before Claude")
+
+    forbidden_anthropic = ForbiddenAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("Pipeline", (), {"anthropic": forbidden_anthropic})()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def no_compact_rows(*_args, **_kwargs):
+        return []
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", no_compact_rows)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+
+    result = asyncio.run(executor._run_unit_research_hold("video-a", "Title", payload, roster))
+
+    assert result["unit_research_hold_validation"]["passed"] is False
+    assert forbidden_anthropic.calls == 0
+    assert writes == []
+    unit_warnings = [
+        warning
+        for unit in result["unit_research_hold_validation"]["units"]
+        for warning in unit["warnings"]
+    ]
+    assert any("duplicates engineering story" in warning for warning in unit_warnings)
+
+
 def test_verified_source_validation_requires_matching_locator():
     segments = _evidence_segments()
     package = _verified_package_for_segments("Boeing XB-15", segments)
@@ -3346,11 +3433,26 @@ def test_target_machine_research_marks_full_hold_complete_after_final_verified_c
     roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
     existing_cards = []
     source_packages = {}
+    existing_story_fields = {
+        "Boeing XB-15": {
+            "engineering_thesis": "XB-15 demonstrates how early range ambition exposed bomber power and prototype limits.",
+            "why_this_unit_deserves_a_paragraph": (
+                "Boeing XB-15 deserves a paragraph because its long-range prototype ambition exposed "
+                "the power-and-size limits behind early strategic bomber design."
+            ),
+        },
+        "Boeing B-17 Flying Fortress": {
+            "engineering_thesis": "B-17 demonstrates how daylight precision doctrine relied on defensive firepower until escort reality intervened.",
+            "why_this_unit_deserves_a_paragraph": (
+                "Boeing B-17 Flying Fortress deserves a paragraph because daylight precision bombing "
+                "tested defensive firepower against escort and attrition reality."
+            ),
+        },
+    }
     for machine in roster_names[:2]:
         card = {
             "unit": machine,
-            "engineering_thesis": f"{machine} has a sufficiently detailed source-grounded engineering thesis.",
-            "why_this_unit_deserves_a_paragraph": f"{machine} proves a source-grounded engineering decision where the bomber's problem, tradeoff, and consequence cannot be replaced by another roster machine.",
+            **existing_story_fields[machine],
             "surprising_fact": "Memorable fact claim grounded in the supplied source.",
             "source_notes": ["https://example.test/source"],
             **_timeframe_fields(machine),

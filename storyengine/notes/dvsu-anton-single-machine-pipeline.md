@@ -88,6 +88,8 @@ Research cards may also include `narrative_weight` as `major`, `standard`, or `t
 
 `why_this_unit_deserves_a_paragraph` is required and must state the unique engineering idea this locked machine contributes to the video. Generic fame, importance, existence, or "this machine mattered" wording fails card validation because Anton's rule is that no other roster machine should be able to replace the unit's reason for inclusion. It may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence segments.
 
+When the full locked roster is evaluated, StoryEngine also compares saved cards for repeated `engineering_thesis` or `why_this_unit_deserves_a_paragraph` signatures. If two machines tell effectively the same engineering story, the full research gate stays blocked so the duplicate can be fixed one machine at a time before script generation.
+
 `human_detail` must either name a person or cite an official finding/decision. Generic pilot, crew, or engineer claims are invalid even when they come from a fetched excerpt, because Anton's rule is about a documented perspective that builds trust without replacing the engineering thesis.
 
 Do not research or pre-write a standalone "meaning" beat. If a source states a concrete downstream consequence, save it as `reality`; the final sentence remains editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.
