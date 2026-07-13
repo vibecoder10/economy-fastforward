@@ -30,7 +30,8 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     assert "normalizes those labels into `reality` before building `machine_story_plans`" in text
     assert "may not use them to fill `why_this_unit_deserves_a_paragraph`" in text
     assert "For the current proof, only the selected first machine is researched or previewed" in text
-    assert "run one-machine research for `Boeing XB-15` only" in text
+    assert "Current live proof row `fc73860c-a9af-444f-95a5-7f86d60503e0` needs a fresh one-machine research pass for `Boeing XB-15` before preview" in text
+    assert "without `source_capture_method` or `source_variant_selection`" in text
     assert "no-spend readiness preflight for `Boeing XB-15`" in text
     assert "Run only the single-machine script preview for `Boeing XB-15` after readiness passes" in text
     assert "`benchmark_cadence` is hard-gated from the claim map" in text

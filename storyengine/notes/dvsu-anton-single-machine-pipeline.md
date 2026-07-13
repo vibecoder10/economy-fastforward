@@ -231,7 +231,7 @@ For the current proof, only the selected first machine is researched or previewe
 ## Current Runbook
 
 1. Deploy only after Ryan approves the live StoryEngine update.
-2. In StoryEngine, run one-machine research for `Boeing XB-15` only if the existing locked research card needs refresh.
+2. Current live proof row `fc73860c-a9af-444f-95a5-7f86d60503e0` needs a fresh one-machine research pass for `Boeing XB-15` before preview. The saved `XB15` raw package predates the provenance gate: it has 23 legacy excerpts without `source_capture_method` or `source_variant_selection`, and the saved card evidence does not trace back to verified fetched source text.
 3. Let the StoryEngine UI call the no-spend readiness preflight for `Boeing XB-15`; if it shows `readiness_preflight`, fix the selected card/source package before paying for preview.
 4. Run only the single-machine script preview for `Boeing XB-15` after readiness passes.
 5. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.

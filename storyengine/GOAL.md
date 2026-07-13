@@ -158,11 +158,13 @@ his only future input is a list of titles. Tenant 561b872d, static_docu render m
   (Kie roster rejects custom voices) - Ryan decides whose key goes in before the beta.
 - G3 beta test video (switched to "Every US Strategic Bomber Ever Built" - his real #1, direct
   script comparison possible): Ryan walks gates in the UI, I verify data-side. `[in progress
-  2026-07-07: research PASS, script restructured to 13 machine scenes; voice gate next, blocked
-  on Anton's elevenlabs_api_key. Gate-driven fixes shipped along the way @ fb60a3db: no spoken
-  citations, scene-per-machine re-split, research unit_roster -> locked script contract, title
-  lock (research can never rename a video), per-scene wand rewrite + regenerate button, image
-  accuracy pack (pure white, no nano, vision gates, ref cache, 1K). See HANDOFF.md.]`
+  2026-07-13: active one-machine proof row is fc73860c-a9af-444f-95a5-7f86d60503e0, 23-machine
+  static_docu roster, first machine Boeing XB-15. A read-only evidence gate check found the saved
+  XB-15 raw package is legacy and fails before Anthropic because its excerpts lack source capture
+  method and source-selection provenance, and card evidence no longer maps to verified fetched
+  source text. Next paid action is XB-15 one-machine research refresh only after Ryan explicitly
+  approves; script preview waits for the no-spend readiness preflight to pass. The older
+  6398a4e5-6aaa-4e8b-855d-b6c439323c32 13-scene beta is stale and not the current proof row.]`
 - G4 production: Anton's first 3-5 real titles through the same flow; monitor 2-3 weeks;
   enhancements (thumbnail A/B via YouTube Experiments, autopilot scoring on his format table)
   only after baseline parity. `[todo]`
