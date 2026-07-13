@@ -1545,6 +1545,9 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "meta/commentary",
         "must be exactly one paragraph",
     ]
+    rhythm_warnings = [
+        "three consecutive long sentences",
+    ]
     catalog_warnings = [
         "wikipedia-style",
         "list/spec-dump",
@@ -1608,6 +1611,12 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "Clean voiceover only",
             not any(token in warning_text for token in voiceover_clean_warnings),
             "clean" if not any(token in warning_text for token in voiceover_clean_warnings) else "production/meta artifact flagged",
+        ),
+        check(
+            "spoken_rhythm",
+            "Spoken rhythm",
+            not any(token in warning_text for token in rhythm_warnings),
+            "varied sentence lengths" if not any(token in warning_text for token in rhythm_warnings) else "three long sentences in a row",
         ),
         check(
             "not_catalog_copy",
@@ -4361,6 +4370,15 @@ class PipelineExecutor:
         ]
         if written_connector_starts:
             warnings.append("contains written-language connector sentence start instead of spoken documentary flow")
+        long_run = 0
+        for part in sentence_parts:
+            if _spoken_word_count(part) > 28:
+                long_run += 1
+                if long_run >= 3:
+                    warnings.append("contains three consecutive long sentences instead of varied voiceover rhythm")
+                    break
+            else:
+                long_run = 0
         if sentence_parts:
             last_sentence = sentence_parts[-1].lower()
             if re.search(r"\b(?:retired|retirement|decommissioned)\b", last_sentence) and re.search(r"\b(?:18|19|20)\d{2}\b|\b\d+\s+years?\b", last_sentence):
@@ -4612,6 +4630,7 @@ class PipelineExecutor:
                     "- Prefer fewer than 6 numerical details when optional slots add clutter; keep only numbers that explain the problem, decision, tradeoff, or reality.\n"
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
+                    "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
                     "- Avoid written-language connector sentence starts: However, Nevertheless, Furthermore, Moreover, Additionally, In addition.\n"
                     "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
@@ -4647,6 +4666,7 @@ class PipelineExecutor:
                     f"- OPENING ASSIGNMENT: {opening_brief}\n"
                     f"{structure_brief}"
                     "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
+                    "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
                     "- Avoid written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition.\n"
                     "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
                     f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
@@ -4678,6 +4698,7 @@ class PipelineExecutor:
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "
                         "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. "
+                        "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
                         "Remove written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition. "
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
@@ -4699,6 +4720,7 @@ class PipelineExecutor:
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         f"Return exactly ONE spoken paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS} and cut any result above {_ANTON_PARAGRAPH_MAX_WORDS}. "
                         "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
+                        "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
                         "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
                         "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this research source.\n\n"
                         f"RESEARCH SOURCE:\n{research_source}"

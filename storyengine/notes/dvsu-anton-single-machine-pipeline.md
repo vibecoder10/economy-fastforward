@@ -83,6 +83,8 @@ Do not research or pre-write a standalone "meaning" beat. If a source states a c
 
 The voiceover-clean gate rejects Producer File artifacts inside narration: unit labels, act labels, b-roll cues, thumbnail lines, graphics-list language, and bracketed production notes. These belong to Producer File or downstream assembly, not the single-machine spoken paragraph.
 
+The spoken-rhythm gate rejects three consecutive long sentences. Anton's voiceover standard allows long sentences for momentum, but they must be broken by shorter emphasis or landing sentences so the paragraph reads cleanly in ElevenLabs.
+
 `memorable_fact` must not be invented. The research prompt asks for it when exact excerpts support one; the script preview audit will mark the machine as needing review if the story plan has no sourced memorable fact or if the paragraph ignores the one research found.
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.
@@ -134,10 +136,11 @@ Validation requires:
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
 - voice-ready number wording is preferred for years and quantities; designations/model names such as B-52, XB-15, and F-86 remain designations
+- sentence length varies for spoken delivery; three consecutive long sentences trigger review
 - unsupported designations, high-risk terms, hype, list transitions, production cues, bracketed notes, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
-The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 95-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, clean voiceover only, spoken rhythm, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape. `early_human_detail` stays advisory only when no sourced detail exists; if the locked story plan contains one, unused human-detail evidence is a hard review failure.
 
 ## Isolation Rule
 

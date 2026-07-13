@@ -672,6 +672,21 @@ def test_static_validator_blocks_voiceover_file_artifacts():
     assert any("production cue/label" in warning for warning in validate("B-52", thumbnail_line))
 
 
+def test_static_validator_blocks_three_consecutive_long_sentences():
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+
+    def long_sentence(prefix: str) -> str:
+        return prefix + " " + " ".join(f"word{i}" for i in range(1, 31)) + "."
+
+    paragraph = " ".join([
+        long_sentence("The B-52 stayed useful because range mattered more than speed"),
+        long_sentence("That endurance made the aircraft a strategic answer rather than a fashionable one"),
+        long_sentence("The Air Force kept returning to the same basic choice whenever replacement programs stalled"),
+    ])
+
+    assert any("three consecutive long sentences" in warning for warning in validate("B-52", paragraph))
+
+
 def test_card_matching_never_confuses_prefix_designations():
     payload = {"unit_research_cards": [{"unit": "B-21", "engineering_thesis": "wrong machine"}]}
     assert pe._research_card_for_machine(payload, "B-2") is None
@@ -931,10 +946,12 @@ def test_anton_preview_quality_audit_reports_passed_checks():
         "editorial_thesis",
         "landed_final_line",
         "clean_voiceover",
+        "spoken_rhythm",
         "not_catalog_copy",
     ]
     assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
     assert next(check for check in audit["checks"] if check["name"] == "clean_voiceover")["passed"] is True
+    assert next(check for check in audit["checks"] if check["name"] == "spoken_rhythm")["passed"] is True
 
 
 def test_anton_preview_quality_audit_flags_voiceover_artifacts():
@@ -955,6 +972,26 @@ def test_anton_preview_quality_audit_flags_voiceover_artifacts():
     assert audit["passed"] is False
     assert voiceover_check["passed"] is False
     assert voiceover_check["detail"] == "production/meta artifact flagged"
+
+
+def test_anton_preview_quality_audit_flags_flat_spoken_rhythm():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    paragraph, _warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit(
+        "B-52",
+        plan,
+        bundle,
+        paragraph,
+        ["contains three consecutive long sentences instead of varied voiceover rhythm"],
+    )
+    rhythm_check = next(check for check in audit["checks"] if check["name"] == "spoken_rhythm")
+
+    assert audit["passed"] is False
+    assert rhythm_check["passed"] is False
+    assert rhythm_check["detail"] == "three long sentences in a row"
 
 
 def test_first_three_anton_audit_reports_human_detail_advisory():
@@ -1453,11 +1490,13 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
     assert "Prefer voice-ready spoken number words" in fake_anthropic.prompts[0]
     assert "Keep designations/model names like B-52, XB-15, and F-86 as designations" in fake_anthropic.prompts[0]
+    assert "Vary sentence length for spoken delivery. Do not write three long sentences in a row" in fake_anthropic.prompts[0]
     assert "No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes" in fake_anthropic.prompts[0]
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
     assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
     assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
+    assert "Vary sentence length for spoken delivery; do not write three long sentences in a row" in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
