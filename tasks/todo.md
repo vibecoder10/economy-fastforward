@@ -10,11 +10,12 @@ Current DVsU bomber proof state:
 - Current StoryEngine machine script preview expects one 95-120 word paragraph plus `claim_map` spans. Validation checks exact span presence, required slot coverage, per-span/paragraph number support, unsupported designations, high-risk terms, sentence count, final-line length, and static DVsU paragraph rules.
 - The deterministic extractive fallback is disabled. If the model cannot produce an Anton-quality claim-mapped paragraph after repair, the preview must fail for review instead of saving safe filler.
 - Target-machine preview now filters the hydrated compact/legacy card set back to only the requested machine before building the story plan, so other roster cards are not loaded into the proof prompt.
+- StoryEngine UI now exposes exact `evidence_segments` on each researched machine card and returns/showcases failed `machine-script-preview` audits instead of hiding them behind an HTTP error. This lets the operator inspect the source excerpt map before accepting or rerunning.
 - Local no-spend proof passed with real fetched XB-15 sources from Boeing Images, National Museum of the USAF, and Pacific Wrecks: 99 words, no research-card errors, no validator warnings.
 - VPS read-only check: backend service is active and running from checkout `e288cec8`; the DB still has the old saved XB-15 preview marked `passed=false`, `word_count=122`, with warnings for too many numbers, overlong final sentence, high-risk terms, and word count. This is good: the system is not treating the old preview as acceptable.
 - New note/spec file: `storyengine/notes/dvsu-anton-single-machine-pipeline.md` maps Anton desktop materials, the first three Strategic Bomber paragraphs, the research slot contract, script JSON contract, and isolation rule.
 
-Next safe action: after Ryan approves a paid Anthropic preview rerun, run only `/api/pipeline/machine-script-preview/{video_id}` for `Boeing XB-15` through the StoryEngine UI/API. Do not run the full roster script until that preview passes Ryan's quality bar.
+Next safe action: after Ryan approves deploy + paid Anthropic preview rerun, deploy the local ahead commits, run only `/api/pipeline/machine-script-preview/{video_id}` for `Boeing XB-15` through the StoryEngine UI/API, and inspect the paragraph plus evidence map in-app. Do not run the full roster script until that preview passes Ryan's quality bar.
 
 ## Handoff — 2026-06-22 (chat-first creative producer)
 

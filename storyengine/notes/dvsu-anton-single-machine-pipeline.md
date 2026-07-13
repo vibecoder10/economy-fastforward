@@ -67,3 +67,12 @@ Validation requires:
 ## Isolation Rule
 
 For the current proof, only the selected first machine is researched or previewed. Existing legacy cards for other roster machines remain untouched and are not loaded into the proof path.
+
+## Current Runbook
+
+1. Deploy only after Ryan approves the live StoryEngine update.
+2. In StoryEngine, run one-machine research for `Boeing XB-15` only if the existing locked research card needs refresh.
+3. Run only the single-machine script preview for `Boeing XB-15`.
+4. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
+5. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
+6. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
