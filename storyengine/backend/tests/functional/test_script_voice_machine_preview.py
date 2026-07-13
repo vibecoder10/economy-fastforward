@@ -99,6 +99,8 @@ def test_script_voice_research_gate_counts_only_verified_cards():
     assert "function cardMatchesMachine" in text
     assert "function fullMachineResearchGatePassed" in text
     assert "function machinePreviewPassesAntonGate" in text
+    assert "const auditChecks = Array.isArray(preview?.quality_audit?.checks)" in text
+    assert "auditChecks.length > 0" in text
     assert "verifiedCount === rosterCount" in text
     assert "units.length >= rosterCount" in text
     assert "!validation?.target_machine" in text

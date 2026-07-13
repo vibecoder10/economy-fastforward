@@ -109,7 +109,10 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
   const formulaSentences = Array.isArray(preview?.claim_bundle?.formula_sentences)
     ? preview.claim_bundle.formula_sentences
     : [];
-  return Boolean(preview?.passed && preview?.quality_audit?.passed && formulaSentences.length === 5);
+  const auditChecks = Array.isArray(preview?.quality_audit?.checks)
+    ? preview.quality_audit.checks
+    : [];
+  return Boolean(preview?.passed && preview?.quality_audit?.passed && auditChecks.length > 0 && formulaSentences.length === 5);
 }
 
 function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {

@@ -146,6 +146,8 @@ def test_research_tab_counts_only_verified_machine_cards():
     assert "function sourcePackageForMachine" in text
     assert "function fullMachineResearchGatePassed" in text
     assert "function machinePreviewPassesAntonGate" in text
+    assert "const auditChecks = Array.isArray(preview?.quality_audit?.checks)" in text
+    assert "auditChecks.length > 0" in text
     assert "verifiedCount === rosterCount" in text
     assert "units.length >= rosterCount" in text
     assert "!validation?.target_machine" in text
