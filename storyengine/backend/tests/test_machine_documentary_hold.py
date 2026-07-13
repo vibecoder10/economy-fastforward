@@ -18,35 +18,64 @@ def _words(machine: str, count: int) -> str:
 
 
 def _story_bundle(machine: str, words_per_sentence: int) -> str:
-    rows = []
-    for index, beat in enumerate(("problem", "decision", "tradeoff", "outcome")):
-        first = machine if index == 0 else beat.capitalize()
-        sentence = " ".join([first] + ["clear"] * (words_per_sentence - 1)) + "."
-        rows.append({"beat": beat, "sentence": sentence, "used_evidence_ids": [f"E-{beat.upper()}"]})
-    conclusion = " ".join(["Conclusion"] + ["clear"] * (words_per_sentence - 1)) + "."
-    return json.dumps({"sentences": rows, "conclusion": {"sentence": conclusion}})
+    target_words = max(5, words_per_sentence * 5)
+    sentences = [
+        f"{machine} identity origin claim grounded in the supplied source.",
+        "Scale specs claim grounded in the supplied source.",
+        "Build reality claim grounded in the supplied source.",
+        "Service reality claim grounded in the supplied source.",
+        "Historical meaning claim grounded in the supplied source.",
+    ]
+    fill_index = 0
+    while pe._spoken_word_count(" ".join(sentences)) < target_words:
+        index = fill_index % len(sentences)
+        sentences[index] = sentences[index].rstrip(".") + " clear."
+        fill_index += 1
+    ids = [
+        "E-IDENTITY",
+        "E-SCALE",
+        "E-BUILD",
+        "E-SERVICE",
+        "E-MEANING",
+    ]
+    return json.dumps({
+        "paragraph": " ".join(sentences),
+        "claim_map": [
+            {"slot": slot, "span": sentence, "used_evidence_ids": [evidence_id]}
+            for slot, sentence, evidence_id in zip(
+                ["identity_origin", "scale_specs", "build_reality", "service_reality", "historical_meaning"],
+                sentences,
+                ids,
+            )
+        ],
+        "onscreen_label": "",
+    })
 
 
 def _evidence_segments() -> list[dict]:
-    kinds = {
-        "problem": "design_problem",
-        "decision": "engineering_response",
-        "tradeoff": "tradeoff",
-        "outcome": "operational_reality",
-    }
+    rows = [
+        ("E-IDENTITY", "identity_origin", "Identity origin claim grounded in the supplied source."),
+        ("E-ROLE", "role_category", "Role category claim grounded in the supplied source."),
+        ("E-SCALE", "scale_specs", "Scale specs claim grounded in the supplied source."),
+        ("E-BUILD", "build_reality", "Build reality claim grounded in the supplied source."),
+        ("E-SERVICE", "service_reality", "Service reality claim grounded in the supplied source."),
+        ("E-COMBAT", "combat_reality", "Combat reality claim grounded in the supplied source."),
+        ("E-MEANING", "historical_meaning", "Historical meaning claim grounded in the supplied source."),
+        ("E-LABEL", "onscreen_label", "Onscreen label claim grounded in the supplied source."),
+    ]
     return [
         {
-            "evidence_id": f"E-{beat.upper()}",
+            "evidence_id": evidence_id,
             "kind": kind,
-            "claim": f"Atomic {beat} claim grounded in the supplied source.",
-            "source_excerpt": f"Atomic {beat} claim grounded in the supplied source.",
-            "source_url": f"https://example.test/{beat}",
+            "claim": claim,
+            "source_excerpt": claim,
+            "source_url": f"https://example.test/{kind}",
             "source_title": "Test source",
             "locator": "",
             "numeric_tokens": [],
             "confidence": "high",
         }
-        for beat, kind in kinds.items()
+        for evidence_id, kind, claim in rows
     ]
 
 
@@ -299,29 +328,34 @@ def test_inventory_story_brief_hides_exhaustive_card_fields():
     assert "FIVE PREWRITTEN BEATS" not in serialized
 
 
-def test_story_plan_locks_research_into_ordered_sentence_jobs():
+def test_story_plan_locks_research_into_anton_slots():
     payload = {"unit_research_cards": [{
         "unit": "B-52",
-        "design_problem": "problem evidence",
-        "engineering_response": "decision evidence",
-        "tradeoff": "tradeoff evidence",
-        "actual_outcome": "outcome evidence",
-        "engineering_thesis": "meaning evidence must not become a beat",
+        "engineering_thesis": "meaning evidence remains card context",
         "surprising_fact": "must not enter the plan",
         "evidence_segments": _evidence_segments(),
     }]}
 
     plan = pe._machine_story_plan(payload, "B-52")
 
-    assert [beat["beat"] for beat in plan["beats"]] == ["problem", "decision", "tradeoff", "outcome"]
-    assert [beat["evidence_ids"] for beat in plan["beats"]] == [
-        ["E-PROBLEM"], ["E-DECISION"], ["E-TRADEOFF"], ["E-OUTCOME"]
+    assert plan["schema_version"] == 3
+    assert [slot["slot"] for slot in plan["slots"]][:6] == [
+        "identity_origin",
+        "engineering_intent",
+        "role_category",
+        "scale_specs",
+        "build_reality",
+        "service_reality",
     ]
+    by_slot = {slot["slot"]: slot["evidence_ids"] for slot in plan["slots"]}
+    assert by_slot["identity_origin"] == ["E-IDENTITY"]
+    assert by_slot["scale_specs"] == ["E-SCALE"]
+    assert by_slot["build_reality"] == ["E-BUILD"]
+    assert by_slot["service_reality"] == ["E-SERVICE"]
+    assert by_slot["historical_meaning"] == ["E-MEANING"]
     assert "must not enter the plan" not in json.dumps(plan)
-    assert "meaning evidence must not become a beat" not in json.dumps(plan)
-    assert plan["contract"]["maximum_numerical_details"] == 2
-    assert plan["contract"]["evidence_sentences"] == 4
-    assert "paragraph-derived" in plan["contract"]["conclusion"]
+    assert plan["contract"]["maximum_numerical_details"] == 8
+    assert "identity/origin hook" in plan["contract"]["movement"]
 
 
 def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
@@ -330,8 +364,8 @@ def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
         "B-52",
     )
 
-    assert any("schema-v2" in error for error in plan["evidence_errors"])
-    assert all(not beat["evidence_ids"] for beat in plan["beats"])
+    assert any("schema-v3" in error for error in plan["evidence_errors"])
+    assert all(not slot["evidence_ids"] for slot in plan["slots"])
 
 
 def test_story_plan_refuses_claims_that_add_facts_absent_from_source_excerpt():
@@ -342,47 +376,25 @@ def test_story_plan_refuses_claims_that_add_facts_absent_from_source_excerpt():
     assert any("claim adds words absent from source_excerpt" in error for error in plan["evidence_errors"])
 
 
-def test_story_sentence_validator_blocks_reordering_and_unsupported_numbers():
-    payload = {"unit_research_cards": [{
-        "unit": "B-52",
-        "design_problem": "A long-range mission created a difficult fuel problem.",
-        "engineering_response": "Designers favored efficient subsonic flight instead of maximum speed.",
-        "tradeoff": "The bomber could not escape modern interceptors through speed alone.",
-        "actual_outcome": "Its adaptable structure kept accepting new weapons and electronics.",
-        "engineering_thesis": "Range and adaptability ultimately mattered more than outright speed.",
-        "evidence_segments": _evidence_segments(),
-    }]}
+def test_story_paragraph_validator_blocks_missing_slots_and_unsupported_numbers():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
-    rows = json.loads(_story_bundle("B-52", 19))["sentences"]
-    rows[0]["beat"], rows[1]["beat"] = rows[1]["beat"], rows[0]["beat"]
-    rows[2]["sentence"] = rows[2]["sentence"].replace("clear.", "clear 1967.")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["claim_map"] = bundle["claim_map"][:4]
+    old_span = bundle["claim_map"][0]["span"]
+    new_span = old_span.replace("clear.", "clear 1967.", 1)
+    bundle["claim_map"][0]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
 
-    _, warnings = pe._validate_machine_story_sentences("B-52", plan, {"sentences": rows})
+    _, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert any("exactly ordered" in warning for warning in warnings)
+    assert any("missing required Anton slot evidence" in warning for warning in warnings)
     assert any("unsupported numerical detail" in warning for warning in warnings)
 
 
-def test_story_sentence_validator_blocks_lowercase_second_sentence_and_fabricated_claims():
-    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
-    plan = pe._machine_story_plan(payload, "B-52")
-    rows = json.loads(_story_bundle("B-52", 19))["sentences"]
-    rows[0]["sentence"] = "B-52 word word word word word word word word. then aliens conquered Europe with miraculous rockets word word word word."
-
-    _, warnings = pe._validate_machine_story_sentences("B-52", plan, {"sentences": rows})
-
-    assert any("exactly one sentence" in warning for warning in warnings)
-    assert any("outside its locked evidence vocabulary" in warning for warning in warnings)
-
-
-def test_story_sentence_validator_assembles_four_evidence_jobs_plus_conclusion():
+def test_story_paragraph_validator_accepts_anton_slot_bundle():
     payload = {"unit_research_cards": [{
         "unit": "B-52",
-        "design_problem": "problem evidence",
-        "engineering_response": "decision evidence",
-        "tradeoff": "tradeoff evidence",
-        "actual_outcome": "outcome evidence",
-        "engineering_thesis": "meaning evidence",
         "evidence_segments": _evidence_segments(),
     }]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -392,137 +404,66 @@ def test_story_sentence_validator_assembles_four_evidence_jobs_plus_conclusion()
 
     assert warnings == []
     assert pe._spoken_word_count(paragraph) == 95
-    assert paragraph.count(".") == 5
+    assert [row["used_evidence_ids"][0] for row in bundle["claim_map"]] == [
+        "E-IDENTITY", "E-SCALE", "E-BUILD", "E-SERVICE", "E-MEANING"
+    ]
 
 
-def test_story_sentence_parser_canonicalizes_evidence_object_shape():
-    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
-    plan = pe._machine_story_plan(payload, "B-52")
-    canonical = json.loads(_story_bundle("B-52", 19))
-    loose = {
-        "machine": "B-52",
-        "evidence": {row["beat"]: row["sentence"] for row in canonical["sentences"]},
-        "conclusion": {"paragraph_derived_sentence": canonical["conclusion"]["sentence"]},
-    }
-
-    bundle = pe._parse_machine_story_sentences(json.dumps(loose))
-    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
-
-    assert warnings == []
-    assert [row["beat"] for row in bundle["sentences"]] == ["problem", "decision", "tradeoff", "outcome"]
-    assert bundle["conclusion"]["sentence"] == canonical["conclusion"]["sentence"]
-    assert pe._spoken_word_count(paragraph) == 95
-
-
-def test_story_sentence_parser_canonicalizes_top_level_beat_shape():
-    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
-    plan = pe._machine_story_plan(payload, "B-52")
-    canonical = json.loads(_story_bundle("B-52", 19))
-    loose = {row["beat"]: row["sentence"] for row in canonical["sentences"]}
-    loose["conclusion"] = {"sentence": canonical["conclusion"]["sentence"]}
-
-    bundle = pe._parse_machine_story_sentences(json.dumps(loose))
-    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
-
-    assert warnings == []
-    assert [row["beat"] for row in bundle["sentences"]] == ["problem", "decision", "tradeoff", "outcome"]
-    assert pe._spoken_word_count(paragraph) == 95
-
-
-def test_story_sentence_parser_canonicalizes_evidence_sentences_list_shape():
-    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
-    plan = pe._machine_story_plan(payload, "B-52")
-    canonical = json.loads(_story_bundle("B-52", 19))
-    loose = {
-        "evidence_sentences": [
-            row["sentence"]
-            for row in canonical["sentences"]
-        ] + [canonical["conclusion"]["sentence"]]
-    }
-
-    bundle = pe._parse_machine_story_sentences(json.dumps(loose))
-    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
-
-    assert warnings == []
-    assert [row["beat"] for row in bundle["sentences"]] == ["problem", "decision", "tradeoff", "outcome"]
-    assert bundle["conclusion"]["sentence"] == canonical["conclusion"]["sentence"]
-    assert pe._spoken_word_count(paragraph) == 95
-
-
-def test_story_sentence_validator_allows_source_supported_spelled_numbers_only():
-    evidence = _evidence_segments()
-    evidence[0].update({
-        "claim": "The Boeing XB-15 problem required a very large bomber with range of 5000 mi for the Army Air Corps.",
-        "source_excerpt": "The Boeing XB-15 problem required a very large bomber with range of 5,000 mi for the Army Air Corps.",
-        "numeric_tokens": ["5000"],
-    })
-    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]}
-    plan = pe._machine_story_plan(payload, "Boeing XB-15")
-    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
-    bundle["sentences"][0]["sentence"] = (
-        "The Boeing XB-15 problem required a very large bomber with range of five thousand miles for the Army Air Corps."
-    )
-
-    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
-
-    assert warnings == []
-    assert "five thousand miles" in paragraph
-    assert pe._spoken_word_count(paragraph) == 96
-
-    bad_bundle = copy.deepcopy(bundle)
-    bad_bundle["sentences"][0]["sentence"] = bad_bundle["sentences"][0]["sentence"].replace(
-        "five thousand", "six thousand"
-    )
-
-    _, bad_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bad_bundle)
-
-    assert any("six thousand" in warning for warning in bad_warnings)
-
-
-def test_deterministic_story_bundle_recovers_overlong_grounded_xb15_draft():
+def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     evidence = [
         {
-            "evidence_id": "XB15-DP-01",
-            "kind": "design_problem",
-            "claim": "Project A began in mid-1933 as USAAC discussions regarding the possibility of flying a very large bomber with a range of 5,000 mi.",
-            "source_excerpt": "The specification that produced the XB-15 began in mid-1933 as Project A, USAAC discussions regarding the possibility of flying a very large bomber with a range of 5,000 mi (8,000 km).",
+            "evidence_id": "XB15-IDENTITY",
+            "kind": "identity_origin",
+            "claim": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
+            "source_excerpt": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
             "source_url": "https://example.test/xb-15",
-            "source_title": "Test source",
-            "locator": "S1-E1",
-            "numeric_tokens": ["1933", "5000", "8000"],
+            "source_title": "Anton source fixture",
+            "locator": "paragraph-1",
+            "numeric_tokens": ["1937"],
             "confidence": "high",
         },
         {
-            "evidence_id": "XB15-ER-01",
-            "kind": "engineering_response",
-            "claim": "The XB-15 pioneered unusual features including an autopilot, deicing equipment, and two gasoline generators used as auxiliary power units to power the 110-volt electrical system.",
-            "source_excerpt": "Unusual features that the XB-15 pioneered included an autopilot, deicing equipment, and two gasoline generators used as auxiliary power units to power the 110-volt electrical system.",
+            "evidence_id": "XB15-SCALE",
+            "kind": "scale_specs",
+            "claim": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
+            "source_excerpt": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
             "source_url": "https://example.test/xb-15",
-            "source_title": "Test source",
-            "locator": "S1-E2",
-            "numeric_tokens": ["2", "110"],
+            "source_title": "Anton source fixture",
+            "locator": "paragraph-1",
+            "numeric_tokens": ["149", "four", "850", "2500", "5130"],
             "confidence": "high",
         },
         {
-            "evidence_id": "XB15-TR-01",
-            "kind": "tradeoff",
-            "claim": "With a wingspan of 149 feet, the XB-15 was the victim of lag in engine development with no engines available powerful enough to give it the performance it deserved.",
-            "source_excerpt": "With a wingspan of 149 feet, almost half again as large as the B-17, the XB-15 was the victim of lag in engine development; there were simply no engines available which were powerful enough to give it the performance it deserved.",
+            "evidence_id": "XB15-BUILD",
+            "kind": "build_reality",
+            "claim": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
+            "source_excerpt": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
             "source_url": "https://example.test/xb-15",
-            "source_title": "Test source",
-            "locator": "S1-E3",
-            "numeric_tokens": ["149", "17"],
+            "source_title": "Anton source fixture",
+            "locator": "paragraph-1",
+            "numeric_tokens": ["one"],
             "confidence": "high",
         },
         {
-            "evidence_id": "XB15-OR-01",
-            "kind": "operational_reality",
-            "claim": "The specified speed of 200 mph for the Twin Wasp-powered XB-15 was not quite reached even when the aircraft was empty; the best speed attained in level flight was 197 mph.",
-            "source_excerpt": "The specified speed of 200 mph for the Twin Wasp-powered XB-15 was not quite reached even when the aircraft was empty; the best speed attained in level flight was 197 mph.",
+            "evidence_id": "XB15-SERVICE",
+            "kind": "service_reality",
+            "claim": "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
+            "source_excerpt": "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
             "source_url": "https://example.test/xb-15",
-            "source_title": "Test source",
-            "locator": "S1-E4",
-            "numeric_tokens": ["200", "197"],
+            "source_title": "Anton source fixture",
+            "locator": "paragraph-1",
+            "numeric_tokens": [],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB15-MEANING",
+            "kind": "historical_meaning",
+            "claim": "Though never used in combat as a bomber, the XB-15 validated concepts that would define American strategic aviation for the next eight decades.",
+            "source_excerpt": "Though never used in combat as a bomber, the XB-15 validated concepts that would define American strategic aviation for the next eight decades.",
+            "source_url": "https://example.test/xb-15",
+            "source_title": "Anton source fixture",
+            "locator": "paragraph-1",
+            "numeric_tokens": ["eight"],
             "confidence": "high",
         },
     ]
@@ -530,59 +471,108 @@ def test_deterministic_story_bundle_recovers_overlong_grounded_xb15_draft():
         {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]},
         "Boeing XB-15",
     )
-    rejected = {
-        "sentences": [
+    bundle = {
+        "paragraph": (
+            "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing. "
+            "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles. "
+            "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances. "
+            "The aircraft served as a transport during World War II, hauling cargo across the Pacific. "
+            "Though never used in combat as a bomber, the XB-15 clearly validated concepts that would define American strategic aviation for the next eight decades."
+        ),
+        "claim_map": [
             {
-                "beat": "problem",
-                "sentence": "Project A began in mid-1933 as USAAC discussions regarding the possibility of flying a very large Boeing XB-15 bomber with a range of 5,000 miles.",
-                "used_evidence_ids": [],
+                "slot": "identity_origin",
+                "span": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
+                "used_evidence_ids": ["XB15-IDENTITY"],
             },
             {
-                "beat": "decision",
-                "sentence": "The Boeing XB-15 pioneered unusual features including an autopilot, deicing equipment, and two gasoline generators used as auxiliary power units to power the electrical system.",
-                "used_evidence_ids": [],
+                "slot": "scale_specs",
+                "span": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
+                "used_evidence_ids": ["XB15-SCALE"],
             },
             {
-                "beat": "tradeoff",
-                "sentence": "With a wingspan of 149 feet, the Boeing XB-15 was the victim of lag in engine development with no engines available powerful enough to give it deserved performance.",
-                "used_evidence_ids": [],
+                "slot": "build_reality",
+                "span": "Only one prototype was built, but the XB-15 proved that large, multi-engine bombers could fly intercontinental distances.",
+                "used_evidence_ids": ["XB15-BUILD"],
             },
             {
-                "beat": "outcome",
-                "sentence": "The specified speed for the Twin Wasp-powered Boeing XB-15 was not quite reached even when the aircraft was empty; the best speed attained in level flight was 197 mph.",
-                "used_evidence_ids": [],
+                "slot": "service_reality",
+                "span": "The aircraft served as a transport during World War II, hauling cargo across the Pacific.",
+                "used_evidence_ids": ["XB15-SERVICE"],
+            },
+            {
+                "slot": "historical_meaning",
+                "span": "Though never used in combat as a bomber, the XB-15 clearly validated concepts that would define American strategic aviation for the next eight decades.",
+                "used_evidence_ids": ["XB15-MEANING"],
             },
         ],
-        "conclusion": {
-            "sentence": "The Boeing XB-15 proved that ambition alone could not overcome the technological limits of its era, as inadequate engine power transformed a pioneering long-range bomber into a cautionary tale about mismatched aspirations and available propulsion technology."
-        },
     }
 
-    _, initial_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, rejected)
-    fallback = pe._deterministic_machine_story_bundle("Boeing XB-15", plan, rejected)
-    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, fallback)
+    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
 
-    assert any("word count 144" in warning for warning in initial_warnings)
     assert warnings == []
-    assert 95 <= pe._spoken_word_count(paragraph) <= 120
-    assert "5,000 miles" in paragraph
-    assert "197 mph" in paragraph
-    assert ", and its best level flight speed" in paragraph
+    assert pe._spoken_word_count(paragraph) == 95
 
 
-def test_story_sentence_validator_blocks_conclusion_new_evidence_or_numbers():
+def test_story_sentence_parser_accepts_paragraph_object_shape():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    canonical = json.loads(_story_bundle("B-52", 19))
+
+    bundle = pe._parse_machine_story_sentences(json.dumps(canonical))
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert warnings == []
+    assert bundle["paragraph"] == canonical["paragraph"]
+    assert pe._spoken_word_count(paragraph) == 95
+
+
+def test_story_sentence_validator_allows_source_supported_spelled_numbers_only():
+    evidence = _evidence_segments()
+    evidence[2].update({
+        "claim": "The Boeing XB-15 scale specs included range of 5000 mi for the Army Air Corps.",
+        "source_excerpt": "The Boeing XB-15 scale specs included range of 5,000 mi for the Army Air Corps.",
+        "numeric_tokens": ["5000"],
+    })
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    old_span = bundle["claim_map"][1]["span"]
+    new_span = old_span.replace("clear.", "clear five thousand miles.", 1)
+    bundle["claim_map"][1]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+
+    paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
+
+    assert warnings == []
+    assert "five thousand miles" in paragraph
+
+    bad_bundle = copy.deepcopy(bundle)
+    bad_bundle["paragraph"] = bad_bundle["paragraph"].replace(
+        "five thousand", "six thousand"
+    )
+    bad_sentences = [part if part.endswith(".") else part + "." for part in bad_bundle["paragraph"].split(". ") if part]
+    for row, sentence in zip(bad_bundle["claim_map"], bad_sentences):
+        row["span"] = sentence
+
+    _, bad_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bad_bundle)
+
+    assert any("six thousand" in warning for warning in bad_warnings)
+
+
+def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
-    bundle["conclusion"] = {
-        "sentence": "Conclusion clear clear clear clear clear clear clear clear clear clear clear clear clear clear clear clear clear 1967.",
-        "used_evidence_ids": ["E-OUTCOME"],
-    }
+    old_span = bundle["claim_map"][0]["span"]
+    new_span = old_span.replace("clear.", "B-47 first clear.", 1)
+    bundle["claim_map"][0]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
 
     _, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert any("conclusion must not declare used_evidence_ids" in warning for warning in warnings)
-    assert any("conclusion introduced unsupported numerical detail" in warning for warning in warnings)
+    assert any("unsupported designation" in warning for warning in warnings)
+    assert any("high-risk term" in warning for warning in warnings)
 
 
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
@@ -657,20 +647,16 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert len(fake_anthropic.prompts) == 2, "under-length sentence jobs must trigger one fresh bundle repair"
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
     assert "machine-card-source" not in fake_anthropic.prompts[0]
-    assert "Atomic problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
-    assert "DISTILL FOUR LOCKED RESEARCH BEATS" in fake_anthropic.prompts[0]
-    assert '"beat": "problem"' in fake_anthropic.prompts[0]
-    assert "one complete spoken sentence per evidence beat, 19-24 words each" in fake_anthropic.prompts[0]
-    assert '"conclusion":{"sentence":"..."}' in fake_anthropic.prompts[0]
-    assert "conclusion has no used_evidence_ids" in fake_anthropic.prompts[0]
-    assert "at most two numerical details" in fake_anthropic.prompts[0]
-    assert "Prefer copying claim/source words literally" in fake_anthropic.prompts[0]
+    assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
+    assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
+    assert '"paragraph":"..."' in fake_anthropic.prompts[0]
+    assert "identity_origin, scale_specs, build_reality, service_reality, and historical_meaning" in fake_anthropic.prompts[0]
+    assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
+    assert "End with a short verdict" in fake_anthropic.prompts[0]
     assert "Numbers may be numerals or spelled words" in fake_anthropic.prompts[0]
-    assert "Include the exact locked machine name" in fake_anthropic.prompts[0]
-    assert "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE" in fake_anthropic.prompts[1]
-    assert "Delete or replace every word named in the validation warnings" in fake_anthropic.prompts[1]
-    assert "Numbers may be numerals or spelled words" in fake_anthropic.prompts[1]
-    assert fake_anthropic.system_prompts[0].startswith("You are a deterministic source-grounded JSON compiler")
+    assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
+    assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
+    assert fake_anthropic.system_prompts[0].startswith("You are a source-grounded Anton/DVsU paragraph compiler")
     assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
@@ -878,7 +864,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     prompt = fake_anthropic.prompts[0]
     assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
-    assert "EXACT_TEXT: Atomic problem claim grounded in the supplied source." in prompt
+    assert "EXACT_TEXT: Identity origin claim grounded in the supplied source." in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt
     assert result["unit_research_hold_validation"]["passed"] is True

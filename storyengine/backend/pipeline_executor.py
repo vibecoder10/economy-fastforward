@@ -276,22 +276,31 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -
     cleaned = " ".join(str(text or "").split())
     if not cleaned:
         return []
-    raw_sentences = _re.split(r"(?<=[.!?])\s+", cleaned)
+    raw_sentences = [
+        " ".join(sentence.split()).strip()
+        for sentence in _re.split(r"(?<=[.!?])\s+", cleaned)
+        if " ".join(sentence.split()).strip()
+    ]
     candidates: list[str] = []
     seen: set[str] = set()
-    for sentence in raw_sentences:
-        sentence = " ".join(sentence.split()).strip()
-        if len(sentence) < 45 or len(sentence) > 420:
-            continue
+    for index, sentence in enumerate(raw_sentences):
         if not _mentions_machine(sentence, machine):
             continue
-        key = _normalized_source_text(sentence)
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append(sentence)
-        if len(candidates) >= limit:
-            break
+        windows = [
+            " ".join(raw_sentences[index:index + span]).strip()
+            for span in (1, 2, 3)
+            if index + span <= len(raw_sentences)
+        ]
+        for window in windows:
+            if len(window) < 45 or len(window) > 720:
+                continue
+            key = _normalized_source_text(window)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(window)
+            if len(candidates) >= limit:
+                return candidates
     return candidates
 
 
@@ -299,7 +308,39 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     if not isinstance(package, dict) or package.get("passed") is False:
         return False
     excerpts = package.get("candidate_excerpts")
-    return isinstance(excerpts, list) and len(excerpts) >= 4
+    return isinstance(excerpts, list) and len(excerpts) >= 6
+
+
+_ANTON_SLOT_SPECS = (
+    ("identity_origin", ("identity_origin", "design_problem", "design_intent"), "Identify what this machine was and the origin/date that made it enter the story."),
+    ("engineering_intent", ("engineering_intent", "design_requirement", "doctrinal_problem"), "Capture the engineering problem, requirement, or doctrine the machine was meant to answer."),
+    ("role_category", ("role_category", "classification"), "Name the role or category only when it helps the viewer understand the engineering lane."),
+    ("scale_specs", ("scale_specs", "engineering_response"), "Select the few scale/capability details that prove the machine's ambition."),
+    ("build_reality", ("build_reality", "production_reality", "prototype_reality"), "Show the prototype, production, or build-count reality."),
+    ("service_reality", ("service_reality", "operational_reality", "actual_outcome", "test_result"), "Show what actually happened in service, testing, or institutional use."),
+    ("combat_reality", ("combat_reality",), "Clarify combat or non-combat reality when that contrast matters."),
+    ("tradeoff_or_limit", ("tradeoff_or_limit", "tradeoff", "limitation", "failure_mode"), "Explain the limitation, sacrifice, or unexpected consequence when it is central to the machine."),
+    ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "State the sourced meaning: what concept, doctrine, trade-off, or future path the machine proved."),
+    ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
+    ("onscreen_label", ("onscreen_label",), "On-screen label ingredients: name, concise role, build count, and service/date range."),
+)
+
+
+_ANTON_REQUIRED_SLOT_ROLES = {
+    "identity_origin",
+    "scale_specs",
+    "build_reality",
+    "service_reality",
+    "historical_meaning",
+}
+
+
+def _anton_slot_role_for_kind(kind: str) -> Optional[str]:
+    normalized = str(kind or "").strip().lower()
+    for role, accepted_kinds, _job in _ANTON_SLOT_SPECS:
+        if normalized in accepted_kinds:
+            return role
+    return None
 
 
 def _format_verified_machine_source_package(package: dict) -> str:
@@ -307,7 +348,7 @@ def _format_verified_machine_source_package(package: dict) -> str:
         "Verified source package. The model may use ONLY these fetched excerpts.",
         "Every returned source_excerpt must be copied from one candidate below.",
     ]
-    for item in (package.get("candidate_excerpts") or [])[:36]:
+    for item in (package.get("candidate_excerpts") or [])[:60]:
         if not isinstance(item, dict):
             continue
         lines.extend([
@@ -318,7 +359,7 @@ def _format_verified_machine_source_package(package: dict) -> str:
             f"LOCATOR: {item.get('locator')}",
             f"EXACT_TEXT: {item.get('text')}",
         ])
-    return "\n".join(lines)[:24000]
+    return "\n".join(lines)[:32000]
 
 
 def _validate_card_against_verified_sources(card: dict, package: Optional[dict]) -> list[str]:
@@ -361,6 +402,7 @@ def _inventory_story_brief(payload: dict, machine: str) -> dict:
     import re
 
     card = _research_card_for_machine(payload, machine) or {}
+    evidence, _errors = _normalize_machine_evidence(card, machine)
 
     def sentences(value, limit: int) -> str:
         text = " ".join(str(value or "").split())
@@ -383,8 +425,18 @@ def _inventory_story_brief(payload: dict, machine: str) -> dict:
             or card.get("historical_significance"),
             1,
         ),
+        "anton_slots": [
+            {
+                "slot": segment.get("slot_role") or _anton_slot_role_for_kind(segment.get("kind")),
+                "evidence_id": segment.get("evidence_id"),
+                "claim": segment.get("claim"),
+            }
+            for segment in evidence
+            if segment.get("slot_role") or _anton_slot_role_for_kind(segment.get("kind"))
+        ],
+        "onscreen_label": card.get("onscreen_label") or "",
         "editorial_rule": (
-            "These are candidate ingredients, not a checklist. Build one micro-story and omit any ingredient or detail that crowds it."
+            "Use Anton slots as candidate ingredients, not a checklist. Build one micro-story with origin, scale, build/service reality, and meaning."
         ),
     }
 
@@ -543,7 +595,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
 
     raw_segments = card.get("evidence_segments") if isinstance(card, dict) else None
     if not isinstance(raw_segments, list) or not raw_segments:
-        return [], ["missing evidence_segments; schema-v2 source-addressable research is required"]
+        return [], ["missing evidence_segments; schema-v3 source-addressable research is required"]
     normalized: list[dict] = []
     errors: list[str] = []
     seen: set[str] = set()
@@ -564,6 +616,8 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         seen.add(evidence_id)
         if not kind or not claim:
             errors.append(f"evidence segment {evidence_id or index} missing kind or atomic claim")
+        elif _anton_slot_role_for_kind(kind) is None:
+            errors.append(f"evidence segment {evidence_id or index} has unsupported Anton slot kind: {kind}")
         if not excerpt:
             errors.append(f"evidence segment {evidence_id or index} missing source_excerpt")
         if not source_url and not locator:
@@ -635,6 +689,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         normalized.append({
             "evidence_id": evidence_id,
             "kind": kind,
+            "slot_role": _anton_slot_role_for_kind(kind),
             "claim": claim,
             "source_excerpt": excerpt,
             "source_url": source_url,
@@ -647,42 +702,51 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
 
 
 def _machine_story_plan(payload: dict, machine: str) -> dict:
-    """Compile source-addressable evidence into four locked sentence jobs."""
+    """Compile source-addressable evidence into Anton-style paragraph slots."""
     card = _research_card_for_machine(payload, machine) or {}
     evidence, evidence_errors = _normalize_machine_evidence(card, machine)
-    beat_specs = (
-        ("problem", ("design_problem", "design_intent"), "Establish the concrete pressure that made this machine necessary."),
-        ("decision", ("engineering_response",), "Explain the defining design decision as a response to that problem."),
-        ("tradeoff", ("tradeoff",), "State what the decision sacrificed, limited, or made harder."),
-        ("outcome", ("operational_reality", "actual_outcome", "test_result"), "Show what happened in service, testing, production, or institutional reality."),
-    )
-    beats = []
-    for role, accepted_kinds, job in beat_specs:
-        segment = next((item for item in evidence if item["kind"] in accepted_kinds), None)
-        beats.append({
-            "beat": role,
-            "evidence_ids": [segment["evidence_id"]] if segment else [],
-            "evidence_segments": [segment] if segment else [],
-            "sentence_job": job,
+    slots = []
+    seen_ids: set[str] = set()
+    for role, accepted_kinds, job in _ANTON_SLOT_SPECS:
+        segments = [
+            item for item in evidence
+            if item.get("kind") in accepted_kinds and item.get("evidence_id") not in seen_ids
+        ]
+        if segments:
+            seen_ids.update(str(item.get("evidence_id") or "") for item in segments)
+        slots.append({
+            "slot": role,
+            "required": role in _ANTON_REQUIRED_SLOT_ROLES,
+            "evidence_ids": [segment["evidence_id"] for segment in segments],
+            "evidence_segments": segments,
+            "paragraph_job": job,
         })
+    role_by_id = {
+        segment.get("evidence_id"): slot["slot"]
+        for slot in slots
+        for segment in slot.get("evidence_segments", [])
+        if segment.get("evidence_id")
+    }
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "machine": machine,
         "evidence_errors": evidence_errors,
-        "beats": beats,
-        "assembly_order": [beat["beat"] for beat in beats],
+        "slots": slots,
+        "slot_order": [slot["slot"] for slot in slots],
+        "required_slots": sorted(_ANTON_REQUIRED_SLOT_ROLES),
+        "evidence_slot_roles": role_by_id,
         "contract": {
-            "evidence_sentences": 4,
-            "conclusion": "one paragraph-derived sentence after reading the four assembled evidence sentences",
-            "words_per_sentence": "19-24",
+            "paragraph_shape": "one Anton/DVsU paragraph, 4-6 natural sentences",
+            "movement": "identity/origin hook -> scale/spec proof -> prototype/build reality -> service/combat reality -> historical meaning",
             "paragraph_words": "95-120",
-            "maximum_numerical_details": 2,
+            "maximum_numerical_details": 8,
+            "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
         },
     }
 
 
 def _parse_machine_story_sentences(raw: str) -> dict:
-    """Parse the constrained sentence bundle returned by the story distiller."""
+    """Parse the constrained Anton paragraph bundle returned by the story distiller."""
     import json
     import re
 
@@ -696,196 +760,162 @@ def _parse_machine_story_sentences(raw: str) -> dict:
     if not isinstance(parsed, dict):
         return {}
 
-    # Some Claude replies follow the intended logic but use a looser
-    # {"evidence": {"problem": "..."}} shape. Canonicalize it, then let the
-    # strict validator decide whether the sentences actually pass.
-    if not isinstance(parsed.get("sentences"), list) and isinstance(parsed.get("evidence"), dict):
-        evidence = parsed.get("evidence") or {}
-        parsed["sentences"] = [
-            {"beat": beat, "sentence": str(evidence.get(beat) or ""), "used_evidence_ids": []}
-            for beat in ("problem", "decision", "tradeoff", "outcome")
-            if evidence.get(beat)
-        ]
-    if not isinstance(parsed.get("sentences"), list) and isinstance(parsed.get("evidence_sentences"), list):
-        evidence_sentences = [
-            " ".join(str(item or "").split())
-            for item in parsed.get("evidence_sentences") or []
-            if str(item or "").strip()
-        ]
-        parsed["sentences"] = [
-            {"beat": beat, "sentence": sentence, "used_evidence_ids": []}
-            for beat, sentence in zip(("problem", "decision", "tradeoff", "outcome"), evidence_sentences[:4])
-        ]
-        if len(evidence_sentences) >= 5 and not isinstance(parsed.get("conclusion"), dict):
-            parsed["conclusion"] = {"sentence": evidence_sentences[4]}
-    if not isinstance(parsed.get("sentences"), list):
-        parsed["sentences"] = [
-            {"beat": beat, "sentence": str(parsed.get(beat) or ""), "used_evidence_ids": []}
-            for beat in ("problem", "decision", "tradeoff", "outcome")
-            if parsed.get(beat)
-        ]
-    conclusion = parsed.get("conclusion")
-    if isinstance(conclusion, str):
-        parsed["conclusion"] = {"sentence": conclusion}
-        conclusion = parsed.get("conclusion")
-    if isinstance(conclusion, dict) and not conclusion.get("sentence") and conclusion.get("paragraph_derived_sentence"):
-        parsed["conclusion"] = {"sentence": conclusion.get("paragraph_derived_sentence")}
+    for key in ("paragraph", "voiceover", "narration"):
+        if isinstance(parsed.get(key), str) and not isinstance(parsed.get("paragraph"), str):
+            parsed["paragraph"] = parsed[key]
+    if isinstance(parsed.get("paragraph"), str):
+        parsed["paragraph"] = " ".join(parsed.get("paragraph", "").split())
+    if not isinstance(parsed.get("claim_map"), list):
+        for key in ("claims", "evidence_map", "source_map"):
+            if isinstance(parsed.get(key), list):
+                parsed["claim_map"] = parsed[key]
+                break
     return parsed
 
 
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
-    """Assemble ordered sentence jobs and enforce structural/grounding budgets."""
+    """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
 
     warnings: list[str] = []
-    expected = [beat["beat"] for beat in plan.get("beats", [])]
-    rows = bundle.get("sentences") if isinstance(bundle, dict) else None
-    if not isinstance(rows, list):
-        return "", ["story distiller must return a sentences array"]
-    actual = [str(row.get("beat") or "") for row in rows if isinstance(row, dict)]
-    if actual != expected:
-        warnings.append(f"sentence beats must be exactly ordered as {expected}")
+    if not isinstance(bundle, dict):
+        return "", ["story distiller must return a JSON object"]
+    paragraph = " ".join(str(bundle.get("paragraph") or "").split())
+    if not paragraph:
+        return "", ["story distiller must return a paragraph string"]
 
-    evidence_by_beat = {
-        beat["beat"]: {segment["evidence_id"]: segment for segment in beat.get("evidence_segments", [])}
-        for beat in plan.get("beats", [])
-    }
-    sentences: list[str] = []
-    all_number_tokens: list[str] = []
-    designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
-    for row in rows:
+    evidence_by_id: dict[str, dict] = {}
+    role_by_id: dict[str, str] = {}
+    for slot in plan.get("slots", []):
+        role = str(slot.get("slot") or "")
+        if slot.get("required") and not slot.get("evidence_ids"):
+            warnings.append(f"locked story plan missing required Anton slot evidence: {role}")
+        for segment in slot.get("evidence_segments", []) or []:
+            if not isinstance(segment, dict):
+                continue
+            evidence_id = str(segment.get("evidence_id") or "")
+            if evidence_id:
+                evidence_by_id[evidence_id] = segment
+                role_by_id[evidence_id] = role
+
+    claim_rows = bundle.get("claim_map")
+    if not isinstance(claim_rows, list) or not claim_rows:
+        warnings.append("paragraph must include a non-empty claim_map")
+        claim_rows = []
+    used_ids: list[str] = []
+    for index, row in enumerate(claim_rows, start=1):
         if not isinstance(row, dict):
-            warnings.append("every sentence row must be an object")
+            warnings.append(f"claim_map row {index} must be an object")
             continue
-        beat = str(row.get("beat") or "")
-        sentence = " ".join(str(row.get("sentence") or "").split())
-        used_ids = row.get("used_evidence_ids")
-        allowed = evidence_by_beat.get(beat, {})
-        if not isinstance(used_ids, list) or not used_ids:
-            if len(allowed) == 1:
-                used_ids = [next(iter(allowed.keys()))]
-            else:
-                warnings.append(f"{beat} must declare non-empty used_evidence_ids")
-                used_ids = []
-        unknown_ids = [str(item) for item in used_ids if str(item) not in allowed]
-        if unknown_ids:
-            warnings.append(f"{beat} used evidence outside its locked beat: {', '.join(unknown_ids)}")
-        sentences.append(sentence)
-        wc = _spoken_word_count(sentence)
-        if wc < 19 or wc > 24:
-            warnings.append(f"{beat} sentence word count {wc} outside 19-24")
-        body = sentence.rstrip()
-        if not re.search(r"[.!?][\"')\]]?$", body):
-            warnings.append(f"{beat} must be exactly one complete sentence")
-        stripped_terminal = re.sub(r"[.!?][\"')\]]?$", "", body)
-        if re.search(r"[.!?](?=\s|$)", stripped_terminal):
-            warnings.append(f"{beat} must contain exactly one sentence")
-        if ";" in sentence:
-            warnings.append(f"{beat} may not use semicolons")
-        allowed_number_keys = {
-            _numeric_token_key(token)
-            for evidence_id in used_ids
-            for token in allowed.get(str(evidence_id), {}).get("numeric_tokens", [])
-        }
-        sentence_for_numbers = sentence
-        for designation in designation_tokens:
-            sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", sentence_for_numbers, flags=re.IGNORECASE)
-        sentence_numbers = _numeric_mentions_from_text(sentence_for_numbers)
-        unsupported = [mention["raw"] for mention in sentence_numbers if mention["key"] not in allowed_number_keys]
-        if unsupported:
-            warnings.append(f"{beat} introduced unsupported numerical detail(s): {', '.join(unsupported)}")
-        all_number_tokens.extend(mention["key"] for mention in sentence_numbers)
+        span = " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split())
+        if not span:
+            warnings.append(f"claim_map row {index} missing span")
+        elif span not in paragraph:
+            warnings.append(f"claim_map row {index} span is not present in paragraph")
+        row_ids_raw = row.get("used_evidence_ids") or row.get("evidence_ids")
+        if not isinstance(row_ids_raw, list) or not row_ids_raw:
+            warnings.append(f"claim_map row {index} must declare used_evidence_ids")
+            row_ids: list[str] = []
+        else:
+            row_ids = [str(item) for item in row_ids_raw if str(item).strip()]
+        row_unknown = [item for item in row_ids if item not in evidence_by_id]
+        if row_unknown:
+            warnings.append(f"claim_map row {index} used evidence outside the locked Anton slots: " + ", ".join(row_unknown))
+        declared_slot = str(row.get("slot") or row.get("slot_role") or "").strip()
+        row_slots = {role_by_id[item] for item in row_ids if item in role_by_id}
+        if declared_slot and row_slots and declared_slot not in row_slots:
+            warnings.append(f"claim_map row {index} declares slot {declared_slot} but uses {', '.join(sorted(row_slots))}")
+        if span and row_ids:
+            span_for_numbers = span
+            for designation in set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper())):
+                span_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", span_for_numbers, flags=re.IGNORECASE)
+            row_number_keys = {
+                _numeric_token_key(token)
+                for evidence_id in row_ids
+                for token in evidence_by_id.get(evidence_id, {}).get("numeric_tokens", [])
+            }
+            row_unsupported_numbers = [
+                mention["raw"] for mention in _numeric_mentions_from_text(span_for_numbers)
+                if mention["key"] not in row_number_keys
+            ]
+            if row_unsupported_numbers:
+                warnings.append(
+                    f"claim_map row {index} introduced unsupported numerical detail(s): "
+                    + ", ".join(row_unsupported_numbers)
+                )
+        used_ids.extend(row_ids)
+    used_ids = list(dict.fromkeys(used_ids))
+    unknown_ids = [item for item in used_ids if item not in evidence_by_id]
+    if unknown_ids:
+        warnings.append("paragraph used evidence outside the locked Anton slots: " + ", ".join(unknown_ids))
 
-        evidence_text = " ".join(
-            f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
-            for evidence_id in used_ids
-            for segment in [allowed.get(str(evidence_id), {})]
-        ).lower()
-        function_words = {
-            "a", "an", "and", "are", "as", "at", "be", "because", "been", "being", "but", "by", "could",
-            "did", "do", "for", "from", "had", "has", "have", "he", "her", "his", "how", "if", "in", "into",
-            "is", "it", "its", "made", "make", "meant", "more", "not", "of", "on", "only", "or", "rather", "clear",
-            "she", "so", "still", "than", "that", "the", "their", "them", "then", "there", "these", "they",
-            "this", "those", "through", "to", "ultimately", "was", "were", "what", "when", "which", "while",
-            "who", "whose", "with", "without", "would", "yet", "showed", "revealed", "proved", "became", "instead",
-        } | _NUMBER_WORD_VOCABULARY | _unit_word_variants_from_evidence(evidence_text)
+    covered_roles = {role_by_id[item] for item in used_ids if item in role_by_id}
+    missing_required = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
+    if missing_required:
+        warnings.append("paragraph missing required Anton slot evidence: " + ", ".join(missing_required))
+    if len(covered_roles) < 4:
+        warnings.append("paragraph must use evidence from at least four Anton slots")
 
-        def _claim_stem(token: str) -> str:
-            for suffix in ("ingly", "edly", "ing", "ed", "es", "s"):
-                if token.endswith(suffix) and len(token) > len(suffix) + 3:
-                    return token[:-len(suffix)]
-            return token
+    designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
+    paragraph_for_numbers = paragraph
+    for designation in designation_tokens:
+        paragraph_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", paragraph_for_numbers, flags=re.IGNORECASE)
+    paragraph_numbers = _numeric_mentions_from_text(paragraph_for_numbers)
+    allowed_number_keys = {
+        _numeric_token_key(token)
+        for evidence_id in used_ids
+        for token in evidence_by_id.get(evidence_id, {}).get("numeric_tokens", [])
+    }
+    unsupported_numbers = [
+        mention["raw"] for mention in paragraph_numbers
+        if mention["key"] not in allowed_number_keys
+    ]
+    if unsupported_numbers:
+        warnings.append("paragraph introduced unsupported numerical detail(s): " + ", ".join(unsupported_numbers))
+    if len(paragraph_numbers) > int((plan.get("contract") or {}).get("maximum_numerical_details") or 8):
+        warnings.append(f"paragraph contains {len(paragraph_numbers)} numerical details; maximum is 8")
 
-        evidence_vocab = {_claim_stem(token) for token in re.findall(r"[a-z]+", evidence_text)}
-        machine_vocab = {_claim_stem(token) for token in re.findall(r"[a-z]+", machine.lower())}
-        novel_claim_words = sorted({
-            token
-            for raw in re.findall(r"[a-z]+", sentence.lower())
-            for token in [_claim_stem(raw)]
-            if raw not in function_words
-            and token not in evidence_vocab
-            and token not in machine_vocab
-            and not re.fullmatch(r"word\d*", raw)
-        })
-        if novel_claim_words:
-            warnings.append(
-                f"{beat} introduced words outside its locked evidence vocabulary: {', '.join(novel_claim_words[:8])}"
-            )
+    allowed_designations = {_normalized_unit_code(machine)}
+    allowed_evidence_text = " ".join(
+        f"{evidence_by_id.get(eid, {}).get('claim', '')} {evidence_by_id.get(eid, {}).get('source_excerpt', '')}"
+        for eid in used_ids
+    )
+    allowed_designations.update(
+        _normalized_unit_code(token)
+        for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", allowed_evidence_text.upper())
+    )
+    paragraph_designations = {
+        _normalized_unit_code(token)
+        for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", paragraph.upper())
+    }
+    unsupported_designations = sorted(token for token in paragraph_designations if token and token not in allowed_designations)
+    if unsupported_designations:
+        warnings.append("paragraph introduced unsupported designation(s): " + ", ".join(unsupported_designations))
 
-    conclusion = bundle.get("conclusion") if isinstance(bundle, dict) else None
-    conclusion_sentence = ""
-    if not isinstance(conclusion, dict):
-        warnings.append("conclusion must be an object with one paragraph-derived sentence")
-    else:
-        conclusion_sentence = " ".join(str(conclusion.get("sentence") or "").split())
-        if conclusion.get("used_evidence_ids"):
-            warnings.append("conclusion must not declare used_evidence_ids; it derives only from the assembled paragraph")
-        wc = _spoken_word_count(conclusion_sentence)
-        if wc < 19 or wc > 24:
-            warnings.append(f"conclusion sentence word count {wc} outside 19-24")
-        body = conclusion_sentence.rstrip()
-        if not re.search(r"[.!?][\"')\]]?$", body):
-            warnings.append("conclusion must be exactly one complete sentence")
-        stripped_terminal = re.sub(r"[.!?][\"')\]]?$", "", body)
-        if re.search(r"[.!?](?=\s|$)", stripped_terminal):
-            warnings.append("conclusion must contain exactly one sentence")
-        if ";" in conclusion_sentence:
-            warnings.append("conclusion may not use semicolons")
+    sentence_count = len([part for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()])
+    if sentence_count < 4 or sentence_count > 6:
+        warnings.append(f"paragraph sentence count {sentence_count} outside Anton 4-6 range")
+    last_sentence = ""
+    sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
+    if sentence_parts:
+        last_sentence = sentence_parts[-1]
+        last_wc = _spoken_word_count(last_sentence)
+        if last_wc > 28:
+            warnings.append(f"final sentence word count {last_wc} is too long to land cleanly")
+        if re.search(r"\b(in conclusion|overall|to summarize|this shows that)\b", last_sentence.lower()):
+            warnings.append("final sentence uses generic summary language instead of a landed Anton line")
+    if ";" in paragraph:
+        warnings.append("paragraph may not use semicolons")
 
-        assembled_evidence = " ".join(sentences)
-        conclusion_for_numbers = conclusion_sentence
-        evidence_for_numbers = assembled_evidence
-        for designation in designation_tokens:
-            conclusion_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", conclusion_for_numbers, flags=re.IGNORECASE)
-            evidence_for_numbers = re.sub(rf"\b{re.escape(designation)}\b", "", evidence_for_numbers, flags=re.IGNORECASE)
-        evidence_numbers = {mention["key"] for mention in _numeric_mentions_from_text(evidence_for_numbers)}
-        conclusion_numbers = _numeric_mentions_from_text(conclusion_for_numbers)
-        unsupported_conclusion_numbers = [
-            mention["raw"]
-            for mention in conclusion_numbers
-            if mention["key"] not in evidence_numbers
-        ]
-        if unsupported_conclusion_numbers:
-            warnings.append(
-                "conclusion introduced unsupported numerical detail(s): "
-                + ", ".join(unsupported_conclusion_numbers)
-            )
+    high_risk_terms = {"first", "only", "largest", "fastest", "most", "never"}
+    evidence_text = allowed_evidence_text.lower()
+    unsupported_risk_terms = sorted(
+        term for term in high_risk_terms
+        if re.search(rf"\b{term}\b", paragraph.lower()) and not re.search(rf"\b{term}\b", evidence_text)
+    )
+    if unsupported_risk_terms:
+        warnings.append("paragraph used high-risk term(s) absent from sourced evidence: " + ", ".join(unsupported_risk_terms))
 
-        allowed_designations = {_normalized_unit_code(machine)}
-        conclusion_designations = {
-            _normalized_unit_code(token)
-            for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", conclusion_sentence.upper())
-        }
-        unsupported_designations = sorted(token for token in conclusion_designations if token and token not in allowed_designations)
-        if unsupported_designations:
-            warnings.append(
-                "conclusion introduced unsupported designation(s): "
-                + ", ".join(unsupported_designations)
-            )
-
-    if len(all_number_tokens) > 2:
-        warnings.append(f"paragraph contains {len(all_number_tokens)} numerical details; maximum is 2")
-    paragraph = " ".join(sentences + ([conclusion_sentence] if conclusion_sentence else []))
     warnings.extend(PipelineExecutor._validate_static_unit_paragraph(machine, paragraph))
     return paragraph, list(dict.fromkeys(warnings))
 
@@ -958,66 +988,7 @@ def _machine_story_candidate_variants(machine: str, text: str) -> list[str]:
 
 
 def _deterministic_machine_story_bundle(machine: str, plan: dict, rejected_bundle: dict) -> Optional[dict]:
-    """Last-resort extractive compiler for valid evidence that Claude made too long."""
-    if not isinstance(plan, dict):
-        return None
-    rejected_rows = rejected_bundle.get("sentences") if isinstance(rejected_bundle, dict) else []
-    rejected_by_beat = {
-        str(row.get("beat") or ""): str(row.get("sentence") or "")
-        for row in rejected_rows
-        if isinstance(row, dict)
-    }
-    beat_rows: list[list[dict]] = []
-    for beat in plan.get("beats", []):
-        beat_name = str(beat.get("beat") or "")
-        segments = beat.get("evidence_segments") or []
-        segment = segments[0] if segments and isinstance(segments[0], dict) else {}
-        evidence_id = str(segment.get("evidence_id") or "")
-        if not beat_name or not evidence_id:
-            return None
-        sources = [
-            rejected_by_beat.get(beat_name, ""),
-            str(segment.get("claim") or ""),
-            str(segment.get("source_excerpt") or ""),
-        ]
-        candidates: list[dict] = []
-        seen_sentences: set[str] = set()
-        for source in sources:
-            for sentence in _machine_story_candidate_variants(machine, source):
-                wc = _spoken_word_count(sentence)
-                if wc < 19 or wc > 24 or ";" in sentence:
-                    continue
-                if sentence in seen_sentences:
-                    continue
-                seen_sentences.add(sentence)
-                candidates.append({
-                    "beat": beat_name,
-                    "sentence": sentence,
-                    "used_evidence_ids": [evidence_id],
-                })
-                if len(candidates) >= 20:
-                    break
-            if len(candidates) >= 20:
-                break
-        if not candidates:
-            return None
-        beat_rows.append(candidates)
-
-    conclusion_candidates = [
-        f"The {machine} showed a bomber can answer an ambitious specification while still exposing the engineering limit that shaped it.",
-        f"The {machine} showed ambition, systems, tradeoffs, and test reality matter only when the engineering limit is visible.",
-    ]
-    import itertools
-
-    for combination in itertools.product(*beat_rows):
-        for conclusion in conclusion_candidates:
-            bundle = {
-                "sentences": [dict(row) for row in combination],
-                "conclusion": {"sentence": _clean_machine_story_candidate(conclusion)},
-            }
-            _paragraph, warnings = _validate_machine_story_sentences(machine, plan, bundle)
-            if not warnings:
-                return bundle
+    """Disabled: extractive fallback is safe for facts but not Anton-quality writing."""
     return None
 
 
@@ -1873,8 +1844,11 @@ class PipelineExecutor:
             f'"{machine}" USAF fact sheet',
             f'"{machine}" National Museum of the United States Air Force',
             f'"{machine}" {manufacturer} development operational history'.strip(),
-            f'"{machine}" design development tradeoff operational history',
-        ]))[:5]
+            f'"{machine}" specifications range payload wingspan engines',
+            f'"{machine}" production prototype built service history',
+            f'"{machine}" combat service transport cargo World War II',
+            f'"{machine}" legacy strategic bomber development',
+        ]))[:8]
 
         import httpx as _httpx
 
@@ -1892,7 +1866,7 @@ class PipelineExecutor:
                             "search_depth": "advanced",
                             "include_answer": False,
                             "include_raw_content": True,
-                            "max_results": 4,
+                            "max_results": 5,
                         },
                     )
                     if response.status_code >= 400:
@@ -1929,7 +1903,7 @@ class PipelineExecutor:
                     "text_hash": source_hash,
                     "text_chars": len(source_text),
                 })
-                for excerpt in _sentence_candidates_from_source(source_text, machine, limit=8):
+                for excerpt in _sentence_candidates_from_source(source_text, machine, limit=10):
                     excerpt_id = f"{source_id}-E{len([e for e in candidate_excerpts if e.get('source_id') == source_id]) + 1}"
                     candidate_excerpts.append({
                         "excerpt_id": excerpt_id,
@@ -1940,14 +1914,14 @@ class PipelineExecutor:
                         "text": excerpt,
                         "text_hash": _source_text_fingerprint(excerpt),
                     })
-                    if len(candidate_excerpts) >= 36:
+                    if len(candidate_excerpts) >= 60:
                         break
-                if len(candidate_excerpts) >= 36:
+                if len(candidate_excerpts) >= 60:
                     break
 
         package = {
-            "passed": len(candidate_excerpts) >= 4,
-            "schema_version": 1,
+            "passed": len(candidate_excerpts) >= 6,
+            "schema_version": 2,
             "machine": machine,
             "machine_key": cache_key,
             "search_queries": queries,
@@ -1958,7 +1932,7 @@ class PipelineExecutor:
         }
         if not package["passed"] and not errors:
             package["errors"] = [
-                "Verified source gathering found fewer than four exact machine-matching excerpts."
+                "Verified source gathering found fewer than six exact machine-matching excerpts."
             ]
         return package
 
@@ -3037,7 +3011,7 @@ class PipelineExecutor:
         verified_source_package: Optional[dict] = None
 
         def _hydrate_compatibility_fields(card: dict) -> dict:
-            """Derive legacy UI fields from schema-v2 evidence without asking the model to repeat itself."""
+            """Derive legacy UI fields from schema-v3 evidence without asking the model to repeat itself."""
             if not isinstance(card, dict):
                 return card
             segments = card.get("evidence_segments") or []
@@ -3045,11 +3019,49 @@ class PipelineExecutor:
                 str(segment.get("kind") or "").strip().lower(): str(segment.get("claim") or "").strip()
                 for segment in segments if isinstance(segment, dict)
             }
-            card.setdefault("design_problem", by_kind.get("design_problem") or by_kind.get("design_intent") or "")
-            card.setdefault("engineering_response", by_kind.get("engineering_response") or "")
-            card.setdefault("tradeoff", by_kind.get("tradeoff") or "")
-            card.setdefault("actual_outcome", by_kind.get("operational_reality") or by_kind.get("test_result") or "")
-            card.setdefault("surprising_fact", card.get("actual_outcome") or card.get("tradeoff") or "")
+            card.setdefault(
+                "design_problem",
+                by_kind.get("engineering_intent")
+                or by_kind.get("design_requirement")
+                or by_kind.get("doctrinal_problem")
+                or by_kind.get("identity_origin")
+                or by_kind.get("design_problem")
+                or by_kind.get("design_intent")
+                or "",
+            )
+            card.setdefault("engineering_response", by_kind.get("scale_specs") or by_kind.get("engineering_response") or "")
+            card.setdefault(
+                "tradeoff",
+                by_kind.get("tradeoff_or_limit")
+                or by_kind.get("tradeoff")
+                or by_kind.get("limitation")
+                or by_kind.get("failure_mode")
+                or by_kind.get("combat_reality")
+                or by_kind.get("build_reality")
+                or "",
+            )
+            card.setdefault(
+                "actual_outcome",
+                by_kind.get("service_reality")
+                or by_kind.get("operational_reality")
+                or by_kind.get("test_result")
+                or by_kind.get("combat_reality")
+                or by_kind.get("build_reality")
+                or "",
+            )
+            card.setdefault("why_this_unit_deserves_a_paragraph", by_kind.get("historical_meaning") or by_kind.get("legacy") or "")
+            card.setdefault("onscreen_label", by_kind.get("onscreen_label") or "")
+            card.setdefault(
+                "surprising_fact",
+                card.get("surprising_fact")
+                or by_kind.get("build_reality")
+                or by_kind.get("combat_reality")
+                or by_kind.get("service_reality")
+                or card.get("actual_outcome")
+                or card.get("tradeoff")
+                or card.get("engineering_response")
+                or "",
+            )
             card.setdefault("source_notes", list(dict.fromkeys(
                 str(segment.get("source_url") or segment.get("locator") or "").strip()
                 for segment in segments if isinstance(segment, dict) and (segment.get("source_url") or segment.get("locator"))
@@ -3079,9 +3091,12 @@ class PipelineExecutor:
                 warnings.extend(_validate_card_against_verified_sources(card, verified_source_package))
             if not evidence_errors:
                 plan = _machine_story_plan({"unit_research_cards": [card]}, machine)
-                missing_beats = [beat["beat"] for beat in plan["beats"] if not beat["evidence_ids"]]
-                if missing_beats:
-                    warnings.append("evidence_segments missing required story kinds for: " + ", ".join(missing_beats))
+                missing_slots = [
+                    slot["slot"] for slot in plan["slots"]
+                    if slot.get("required") and not slot["evidence_ids"]
+                ]
+                if missing_slots:
+                    warnings.append("evidence_segments missing required Anton slots for: " + ", ".join(missing_slots))
             return list(dict.fromkeys(warnings))
 
         anthropic_client = getattr(self._pipeline, "anthropic", None)
@@ -3187,23 +3202,25 @@ class PipelineExecutor:
                 f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n\n"
                 "HARD CONTRACT:\n"
                 "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
-                "- Research/enrich only THIS machine enough to support four evidence-backed DVsU sentences and one image brief.\n"
+                "- Research/enrich only THIS machine enough to support one Anton-quality 95-120 word DVsU paragraph and one image brief.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
-                "Required JSON keys: schema_version (2), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
+                "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
-                "- Return exactly four atomic evidence segments covering these kinds once each: design_problem, engineering_response, tradeoff, operational_reality.\n"
-                "- Each claim and source_excerpt must be one concise sentence, maximum 35 words.\n"
+                "- Return 6-9 atomic evidence segments using Anton slot kinds only.\n"
+                "- Required slot kinds at least once: identity_origin, scale_specs, build_reality, service_reality, historical_meaning.\n"
+                "- Add engineering_intent, combat_reality, tradeoff_or_limit, role_category, transition_hook, and onscreen_label only when directly supported by exact excerpts.\n"
+                "- Each claim must be one concise factual proposition, maximum 35 words. A scale_specs claim may bundle 2-4 related specifications only if the source excerpt contains them together.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
-                "- One segment = one factual proposition, never a paragraph or specification bundle.\n"
+                "- One segment = one research slot. Do not write narration or pre-assemble the paragraph.\n"
                 "- claim must be a concise restatement of source_excerpt using no factual noun, verb, adjective, or number absent from that excerpt.\n"
                 "- numeric_tokens must list every number used by claim and may contain only numbers present in claim or source_excerpt.\n"
                 "- source_excerpt must be copied from EXACT_TEXT in the verified excerpt package; source_url and locator must match that excerpt.\n"
                 "- Do not use memory, training data, general knowledge, or unsupplied web facts.\n"
-                "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied excerpts cannot support a required beat, make that absence explicit in validation rather than guessing.\n"
-                "- Do not return consequence, legacy, meaning, script_beats, or prewritten narration. Research remains evidence, not prose composition.\n\n"
+                "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied excerpts cannot support a required slot, make that absence explicit in validation rather than guessing.\n"
+                "- Research remains evidence, not prose composition. Do not return script_beats or a paragraph.\n\n"
                 f"{source_label}:\n{legacy_source}"
             )
             raw = await anthropic_client.generate(
@@ -3228,13 +3245,14 @@ class PipelineExecutor:
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
-                    "Return ONLY valid schema_version 2 JSON with the minimal required keys and evidence_segments array. "
+                    "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
-                    "Return exactly four evidence segments: design_problem, engineering_response, tradeoff, operational_reality. "
+                    "Return 6-9 Anton-slot evidence segments. Required kinds at least once: identity_origin, scale_specs, build_reality, service_reality, historical_meaning. "
+                    "Add engineering_intent, combat_reality, tradeoff_or_limit, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
                     "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
-                    "Do not create consequence, legacy, meaning, or script_beats. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
+                    "Do not create script_beats or a paragraph. Keep prose concise and complete the JSON object. Do not reopen the roster.\n\n"
                     f"BAD/RAW CARD:\n{raw}\n\n{source_label}:\n{legacy_source}"
                 )
                 raw = await anthropic_client.generate(
@@ -3559,10 +3577,10 @@ class PipelineExecutor:
                 structure_brief = (
                     "FORMAT MODE: COMPLETE INVENTORY MICRO-STORY. The roster fulfills the title; this paragraph only has to make this machine memorable.\n"
                     "- TARGET 105-110 words, while remaining inside the absolute 95-120 validator.\n"
-                    "- Before writing, silently rank the research. Keep only the few details needed to explain: what it attempted, what defined it, what actually happened, and why it belongs in the story. Omit everything else.\n"
-                    "- Use 4-5 sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
-                    "- Use at most 2 numerical details total. A number earns its place only when it makes the machine's scale, capability, or failure understandable.\n"
-                    "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural micro-hook, not a manufactured twist.\n"
+                    "- Before writing, silently rank the Anton slots. Keep the details needed to explain: origin, scale, build reality, service/combat reality, and why it belongs in the story. Omit everything else.\n"
+                    "- Use 4-6 sentences and no more than 6 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
+                    "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, or historical meaning understandable.\n"
+                    "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural Anton micro-hook, not a manufactured twist.\n"
                     "- Do not inventory dimensions, engines, payload, speed, range, dates, crew features, and legacy. Never summarize every field in the research card.\n"
                     "- Prefer clean spoken history over technical completeness. A surprising detail, engineering thesis, or punchline is optional and must be cut if it crowds the story.\n"
                 )
@@ -3578,15 +3596,15 @@ class PipelineExecutor:
                 inventory_system_override = (
                     "\n\nSCOPED OVERRIDE — COMPLETE INVENTORY MODE:\n"
                     "For titles promising Every, All, or a complete history, this block replaces conflicting paragraph rules above. "
-                    "Write a short micro-story, not a compressed fact sheet and not a miniature engineering essay. "
-                    "Silently cherry-pick only the details needed for one clear narrative: attempt, defining trait, reality, consequence. Omission is a feature. "
-                    "Target 105-110 words and 4-5 sentences. Use no more than five factual story beats and two numerical details total. Never list research-card fields. "
+                    "Write a short Anton micro-story, not a compressed fact sheet and not a miniature engineering essay. "
+                    "Silently cherry-pick only the details needed for one clear narrative: origin, scale, build/service reality, consequence, meaning. Omission is a feature. "
+                    "Target 105-110 words and 4-6 sentences. Use no more than six factual story beats. Never list research-card fields. "
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
                     "A surprising fact, thesis connection, technical explanation, paradox, irony, and punchline are all optional. They never outrank brevity, clarity, or natural spoken rhythm. "
                     "Count the finished paragraph before returning it. If it exceeds 110 words, remove the least important fact rather than compressing more facts into longer sentences."
                 )
             story_distiller_system_prompt = (
-                "You are a deterministic source-grounded JSON compiler for a DVsU machine documentary. "
+                "You are a source-grounded Anton/DVsU paragraph compiler for a machine documentary. "
                 "Output only valid JSON matching the requested schema. Do not write prose outside JSON, markdown, citations, or alternate keys."
             )
             story_plan = None
@@ -3594,9 +3612,12 @@ class PipelineExecutor:
             if complete_inventory_mode:
                 story_plan = _machine_story_plan(rp, machine)
                 plan_errors = list(story_plan.get("evidence_errors") or [])
-                missing_beats = [beat["beat"] for beat in story_plan["beats"] if not beat["evidence_ids"]]
-                if missing_beats:
-                    plan_errors.append(f"missing source-addressable evidence for beats: {', '.join(missing_beats)}")
+                missing_slots = [
+                    slot["slot"] for slot in story_plan["slots"]
+                    if slot.get("required") and not slot["evidence_ids"]
+                ]
+                if missing_slots:
+                    plan_errors.append(f"missing source-addressable evidence for Anton slots: {', '.join(missing_slots)}")
                 if plan_errors:
                     msg = "Story compiler evidence gate failed: " + "; ".join(plan_errors)
                     await self._log_activity(bot_name, video_id, "failed", msg)
@@ -3613,41 +3634,33 @@ class PipelineExecutor:
                     machine, _json_sh.dumps(story_plan), video_id, self.tenant_id,
                 )
                 prompt = (
-                    "DISTILL FOUR LOCKED RESEARCH BEATS, THEN WRITE ONE PARAGRAPH-DERIVED CONCLUSION.\n\n"
+                    "WRITE ONE ANTON-STYLE PARAGRAPH FROM LOCKED SOURCE SLOTS.\n\n"
                     f"VIDEO TITLE: {title}\n"
                     f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
                     f"PREVIOUS MACHINE: {prev_machine}\n"
                     f"NEXT MACHINE: {next_machine}\n\n"
-                    "You are not selecting facts and you are not writing a paragraph from memory. "
-                    "Each of the first four sentences has one locked job and may use ONLY its own evidence field. "
-                    "The final conclusion is written only after reading those four assembled sentences.\n\n"
+                    "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
+                    "The target movement is identity/origin hook, scale proof, build reality, service/combat reality, and historical meaning.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
-                    '{"sentences":[{"beat":"problem","sentence":"...","used_evidence_ids":["..."]},'
-                    '{"beat":"decision","sentence":"...","used_evidence_ids":["..."]},'
-                    '{"beat":"tradeoff","sentence":"...","used_evidence_ids":["..."]},'
-                    '{"beat":"outcome","sentence":"...","used_evidence_ids":["..."]}],'
-                    '"conclusion":{"sentence":"..."}}\n'
-                    "- Do not return a machine key, evidence object, paragraph_derived_sentence key, or any alternate schema.\n"
-                    "- Preserve that exact beat order and copy only evidence IDs supplied inside that beat.\n"
-                    "- Write exactly one complete spoken sentence per evidence beat, 19-24 words each.\n"
-                    "- Distill; do not inventory. One sentence may express only the central idea of its evidence.\n"
-                    "- Keep factual nouns and verbs inside the vocabulary of that beat's claim and source excerpt; do not add factual synonyms.\n"
-                    "- Prefer copying claim/source words literally, then deleting clutter. Do not translate 'not quite reached' into 'fell short', 'give' into 'deliver', or 'very large' into 'exceptional'.\n"
-                    "- Numbers may be numerals or spelled words, but every number must map to that beat's numeric_tokens/source excerpt; do not add or convert unsupported numbers or units.\n"
-                    "- Do not add dates, numbers, names, programs, specifications, causes, or claims absent from that beat's evidence.\n"
-                    "- Across the four evidence sentences, use at most two numerical details, and only when essential.\n"
-                    "- The conclusion has no used_evidence_ids. It may state only what the assembled four-sentence paragraph demonstrates.\n"
-                    "- The conclusion must not introduce new facts, numbers, dates, names, programs, specifications, causes, events, or external knowledge.\n"
-                    "- Write the conclusion as exactly one complete spoken sentence, 19-24 words.\n"
-                    "- Include the exact locked machine name in the evidence sentences; safest is to use it in every evidence sentence.\n"
-                    "- No transitions that announce a list, no citations, no headings, no commentary, and no facts from general knowledge.\n\n"
+                    '{"paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"identity_origin","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
+                    "- paragraph must be final spoken narration: exactly one paragraph, 95-120 words, 4-6 natural sentences.\n"
+                    "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or historical meaning.\n"
+                    "- claim_map used_evidence_ids must cover identity_origin, scale_specs, build_reality, service_reality, and historical_meaning.\n"
+                    "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
+                    "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
+                    "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
+                    "- Numbers may be numerals or spelled words, but every number must map to numeric_tokens/source_excerpt in the selected evidence.\n"
+                    "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
+                    "- End with a short verdict, paradox, irony, or reversal grounded in historical_meaning evidence.\n"
+                    "- onscreen_label must be empty unless onscreen_label evidence or sourced role/build/date slots support it.\n"
+                    "- No citations, headings, markdown, commentary, hype, or list transitions.\n\n"
                     f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                 )
                 raw_story = await anthropic_client.generate(
                     prompt=prompt,
                     system_prompt=story_distiller_system_prompt + inventory_system_override,
-                    max_tokens=650,
+                    max_tokens=950,
                     temperature=0.25,
                 )
                 bundle = _parse_machine_story_sentences(raw_story)
@@ -3685,37 +3698,24 @@ class PipelineExecutor:
             if warnings:
                 if complete_inventory_mode:
                     repair_prompt = (
-                        "REBUILD THE FOUR-EVIDENCE-SENTENCE JSON BUNDLE PLUS PARAGRAPH-DERIVED CONCLUSION FROM THE SAME LOCKED STORY PLAN.\n\n"
+                        "REBUILD THE ANTON-STYLE PARAGRAPH JSON FROM THE SAME LOCKED STORY PLAN.\n\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
-                        "Return only the exact JSON shape with four ordered evidence sentences and one conclusion object. "
-                        "Do not return a machine key, evidence object, paragraph_derived_sentence key, or any alternate schema. "
-                        "Preserve problem, decision, tradeoff, outcome order. Write one 19-24 word sentence per evidence beat. "
-                        "Use only that beat's evidence. Introduce no new claims or numerical details. "
-                        "Delete or replace every word named in the validation warnings with literal wording from the claim/source excerpt. "
-                        "Numbers may be numerals or spelled words, but every number must map to that beat's numeric_tokens/source excerpt; omit unsupported numbers or units. "
-                        "Do not use semicolons. Include the exact locked machine name in the evidence sentences. "
-                        "Write the conclusion only from the assembled four evidence sentences; no evidence IDs, no new facts, no new numbers. "
-                        "Use no more than two numerical details across the evidence bundle. The rejected draft is hidden; start fresh.\n\n"
+                        "Return only the exact JSON shape: {\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"identity_origin\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
+                        "Write exactly one paragraph, 95-120 words, 4-6 sentences. "
+                        "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, and historical_meaning. "
+                        "Introduce no unsupported claims, designations, or numerical details. "
+                        "Delete or replace every unsupported number or high-risk term named in the validation warnings. "
+                        "End with a grounded Anton-style verdict, not a generic summary. The rejected draft is hidden; start fresh.\n\n"
                         f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                     )
                     raw_story = await anthropic_client.generate(
                         prompt=repair_prompt,
                         system_prompt=story_distiller_system_prompt + inventory_system_override,
-                        max_tokens=650,
+                        max_tokens=950,
                         temperature=0.15,
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
                     paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
-                    if warnings:
-                        deterministic_bundle = _deterministic_machine_story_bundle(machine, story_plan, bundle)
-                        if deterministic_bundle:
-                            deterministic_paragraph, deterministic_warnings = _validate_machine_story_sentences(
-                                machine, story_plan, deterministic_bundle
-                            )
-                            if not deterministic_warnings:
-                                bundle = deterministic_bundle
-                                paragraph = deterministic_paragraph
-                                warnings = []
                 else:
                     repair_prompt = (
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
@@ -3753,7 +3753,7 @@ class PipelineExecutor:
                     "warnings": warnings,
                     "research_source": research_source_kind,
                     "story_plan": story_plan,
-                    "sentence_bundle": bundle,
+                    "claim_bundle": bundle,
                 }
                 await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
