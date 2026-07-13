@@ -848,6 +848,21 @@ def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_s
     assert repaired["claim_map"][-1]["slot"] == "historical_meaning"
 
 
+def test_story_bundle_trim_drops_optional_sentence_when_over_word_contract():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 27))
+
+    assert pe._spoken_word_count(bundle["paragraph"]) > 120
+
+    trimmed = pe._trim_machine_story_bundle_to_contract("B-52", plan, bundle)
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, trimmed)
+
+    assert warnings == []
+    assert 95 <= pe._spoken_word_count(paragraph) <= 120
+    assert all(row.get("slot") != "memorable_fact" for row in trimmed["claim_map"])
+
+
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {

@@ -1018,6 +1018,57 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
     return repaired_bundle
 
 
+def _trim_machine_story_bundle_to_contract(machine: str, plan: dict, bundle: dict) -> dict:
+    """Drop optional-only sentences when a valid story bundle overruns Anton length."""
+    if not isinstance(bundle, dict):
+        return bundle
+    paragraph = " ".join(str(bundle.get("paragraph") or "").split())
+    claim_rows = bundle.get("claim_map")
+    if _spoken_word_count(paragraph) <= 120 or not isinstance(claim_rows, list):
+        return bundle
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
+    if len(sentences) <= 4:
+        return bundle
+    normalized_rows = [dict(row) for row in claim_rows if isinstance(row, dict)]
+
+    candidates: list[tuple[int, int, str, list[dict]]] = []
+    for index, sentence in enumerate(sentences):
+        sentence_rows = [
+            row for row in normalized_rows
+            if " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split()) in sentence
+        ]
+        if not sentence_rows:
+            continue
+        row_roles = {
+            str(row.get("slot") or row.get("slot_role") or "").strip()
+            for row in sentence_rows
+        }
+        if not row_roles or any(role in _ANTON_REQUIRED_SLOT_ROLES for role in row_roles):
+            continue
+        kept_sentences = [item for item_index, item in enumerate(sentences) if item_index != index]
+        trimmed_paragraph = " ".join(kept_sentences)
+        trimmed_wc = _spoken_word_count(trimmed_paragraph)
+        if trimmed_wc < 95 or trimmed_wc > 120:
+            continue
+        sentence_spans = {
+            " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split())
+            for row in sentence_rows
+        }
+        kept_rows = [
+            row for row in normalized_rows
+            if " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split()) not in sentence_spans
+        ]
+        candidates.append((_spoken_word_count(sentence), index, trimmed_paragraph, kept_rows))
+
+    if not candidates:
+        return bundle
+    _, _, trimmed_paragraph, kept_rows = sorted(candidates, reverse=True)[0]
+    trimmed_bundle = dict(bundle)
+    trimmed_bundle["paragraph"] = trimmed_paragraph
+    trimmed_bundle["claim_map"] = kept_rows
+    return trimmed_bundle
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -4076,6 +4127,7 @@ class PipelineExecutor:
                 )
                 bundle = _parse_machine_story_sentences(raw_story)
                 bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
+                bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
                 paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                 research_source_kind = "structured_story_plan"
             else:
@@ -4140,6 +4192,7 @@ class PipelineExecutor:
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
                     bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
+                    bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
                     paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                     if warnings:
                         deterministic_bundle = _deterministic_machine_story_bundle(machine, story_plan, bundle)
