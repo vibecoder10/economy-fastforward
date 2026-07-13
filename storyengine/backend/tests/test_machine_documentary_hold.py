@@ -1803,6 +1803,28 @@ def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
     assert "scale/capability present" in fact_rhythm_check["detail"]
     assert "production/service reality present" in fact_rhythm_check["detail"]
 
+    spoken_number_paragraph = (
+        "Boeing XB-15 first flew in nineteen thirty-seven as America's experimental answer to long-range bombing. "
+        "Its one hundred forty-nine-foot wingspan, four engines, and five thousand one hundred thirty-mile range turned scale into the engineering decision. "
+        "Only one prototype was built, which made the ambition hard to convert into a combat bomber. "
+        "In World War II, the aircraft found reality as a Pacific transport instead of a bomber. "
+        "The XB-15 proved the concept without becoming the weapon."
+    )
+    spoken_number_audit = pe._anton_preview_quality_audit(
+        "Boeing XB-15",
+        plan,
+        {},
+        spoken_number_paragraph,
+        [],
+    )
+    spoken_number_check = next(
+        check for check in spoken_number_audit["checks"] if check["name"] == "benchmark_cadence"
+    )
+
+    assert spoken_number_check["passed"] is True
+    assert "scale/capability present" in spoken_number_check["detail"]
+    assert "production/service reality present" in spoken_number_check["detail"]
+
 
 def test_first_three_anton_audit_reports_human_detail_advisory():
     payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]}
