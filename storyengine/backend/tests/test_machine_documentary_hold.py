@@ -522,6 +522,21 @@ def test_machine_evidence_human_detail_requires_attribution():
     assert official_errors == []
 
 
+def test_paragraph_worth_requires_unique_engineering_idea():
+    generic_warnings = pe._paragraph_worth_warnings(
+        "Boeing B-52 Stratofortress",
+        "This machine mattered and was famous and important.",
+    )
+    specific_warnings = pe._paragraph_worth_warnings(
+        "Boeing B-52 Stratofortress",
+        "B-52 proves how a long-range payload requirement created a bomber built around endurance rather than short-lived speed.",
+    )
+
+    assert any("generic" in warning for warning in generic_warnings)
+    assert any("concrete engineering decision" in warning for warning in generic_warnings)
+    assert specific_warnings == []
+
+
 def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
     payload = {"unit_roster": ["Boeing XB-15", "Boeing B-17", "Convair B-36"]}
     machine_payload = {**payload, "documentary_style": "machine_documentary"}
@@ -2662,6 +2677,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
         "unit": "Boeing B-52 Stratofortress",
         "include": True,
         "engineering_thesis": "B-52 demonstrates one specific source-grounded engineering tradeoff.",
+        "why_this_unit_deserves_a_paragraph": "B-52 proves how a long-range payload requirement created a bomber built around endurance rather than short-lived speed.",
         "evidence_segments": b52_segments,
     }
     writes = []
@@ -2719,6 +2735,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "source_url, source_title, locator" in prompt
     assert "source_url and locator must match" in prompt
     assert "source_url or locator" not in prompt
+    assert "why_this_unit_deserves_a_paragraph must state the unique engineering idea" in prompt
+    assert "no other roster machine could replace it" in prompt
     assert "Optional key: narrative_weight with one of major, standard, or transitional" in prompt
     assert "Use major for pivotal machines" in prompt
     assert "memorable_fact should be returned when the verified excerpts support" in prompt
@@ -2962,6 +2980,7 @@ def test_target_machine_research_marks_full_hold_complete_after_final_verified_c
         card = {
             "unit": machine,
             "engineering_thesis": f"{machine} has a sufficiently detailed source-grounded engineering thesis.",
+            "why_this_unit_deserves_a_paragraph": f"{machine} proves a source-grounded engineering decision where the bomber's problem, tradeoff, and consequence cannot be replaced by another roster machine.",
             "surprising_fact": "Memorable fact claim grounded in the supplied source.",
             "source_notes": ["https://example.test/source"],
             "evidence_segments": _evidence_segments(),
@@ -2972,6 +2991,7 @@ def test_target_machine_research_marks_full_hold_complete_after_final_verified_c
     target_card = {
         "unit": roster_names[2],
         "engineering_thesis": "B-24 demonstrates a sufficiently detailed source-grounded engineering thesis.",
+        "why_this_unit_deserves_a_paragraph": "B-24 proves a distinct production-and-range compromise where industrial output answered a bomber problem differently from the other roster machines.",
         "evidence_segments": target_segments,
     }
     payload = {
@@ -3266,6 +3286,7 @@ def test_compact_read_excludes_stale_mismatch_and_invalid_override(monkeypatch):
 def test_compact_write_unavailable_reuses_legacy_without_generation(monkeypatch):
     roster = ["B-52"]
     card = {"unit": "B-52", "engineering_thesis": "A sufficiently detailed source-grounded engineering thesis.",
+            "why_this_unit_deserves_a_paragraph": "B-52 proves how range and payload requirements created an endurance-first bomber that outlasted replacement plans.",
             "surprising_fact": "A fact", "source_notes": ["source"], "evidence_segments": _evidence_segments()}
     payload = {
         "unit_roster": roster,

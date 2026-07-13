@@ -82,6 +82,8 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 
 Research cards may also include `narrative_weight` as `major`, `standard`, or `transitional`. If the card does not provide it, StoryEngine infers a conservative advisory profile from the locked evidence and stores it in `machine_story_plans[*].contract.narrative_weight`. The compiler follows that target inside the hard 95-120 word range instead of forcing equal paragraph weight.
 
+`why_this_unit_deserves_a_paragraph` is required and must state the unique engineering idea this locked machine contributes to the video. Generic fame, importance, existence, or "this machine mattered" wording fails card validation because Anton's rule is that no other roster machine should be able to replace the unit's reason for inclusion.
+
 `human_detail` must either name a person or cite an official finding/decision. Generic pilot, crew, or engineer claims are invalid even when they come from a fetched excerpt, because Anton's rule is about a documented perspective that builds trust without replacing the engineering thesis.
 
 Do not research or pre-write a standalone "meaning" beat. If a source states a concrete downstream consequence, save it as `reality`; the final sentence remains editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.

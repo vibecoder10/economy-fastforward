@@ -1324,6 +1324,33 @@ def _narrative_weight_target_warning(paragraph: str, plan: dict) -> Optional[str
     )
 
 
+def _paragraph_worth_warnings(machine: str, paragraph_worth: str) -> list[str]:
+    import re as _re
+
+    text = " ".join(str(paragraph_worth or "").split())
+    lower = text.lower()
+    warnings: list[str] = []
+    if _spoken_word_count(text) < 8:
+        return ["missing/weak why_this_unit_deserves_a_paragraph"]
+    generic_patterns = (
+        r"\b(?:this|the)\s+(?:machine|aircraft|unit)\s+(?:mattered|was important|was significant|deserves a paragraph)\b",
+        r"\b(?:because|since|as)\s+it\s+(?:existed|was built|was famous|was important|mattered)\b",
+        r"\b(?:famous|iconic|legendary)\b",
+    )
+    if any(_re.search(pattern, lower) for pattern in generic_patterns):
+        warnings.append("why_this_unit_deserves_a_paragraph is generic; state the unique engineering idea no other roster machine can replace")
+    if not _re.search(
+        r"\b(?:because|but|despite|instead|rather|decision|chose|choice|balanced|trade|traded|tradeoff|tension|contrast|proved|validated|failed|solved|created|answered|sacrificed|compromise|consequence|outpaced|survived|needed|requirement|problem|doctrine|range|payload|production|speed|endurance|survivability|precision|escort|intercontinental)\b",
+        lower,
+    ):
+        warnings.append("why_this_unit_deserves_a_paragraph must name a concrete engineering decision, problem, tradeoff, or consequence")
+    machine_code = _normalized_unit_code(machine)
+    normalized_text = _normalized_unit_code(text)
+    if machine_code and machine_code not in normalized_text and _unit_display_name(machine).split()[-1].lower() not in lower:
+        warnings.append("why_this_unit_deserves_a_paragraph must be specific to the locked machine")
+    return warnings
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -4025,6 +4052,12 @@ class PipelineExecutor:
                 warnings.append(f"card unit does not match locked machine {machine}")
             if len(str(card.get("engineering_thesis") or "").strip()) < 20:
                 warnings.append("missing/weak engineering_thesis")
+            warnings.extend(
+                _paragraph_worth_warnings(
+                    machine,
+                    str(card.get("why_this_unit_deserves_a_paragraph") or "").strip(),
+                )
+            )
             if not str(card.get("surprising_fact") or "").strip():
                 warnings.append("missing surprising_fact")
             source_notes = card.get("source_notes")
@@ -4214,6 +4247,7 @@ class PipelineExecutor:
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
                 "Required JSON keys: schema_version (3), unit, include, engineering_thesis, why_this_unit_deserves_a_paragraph, evidence_segments.\n"
+                "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it. Do not say it mattered, was famous, or deserves a paragraph.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
@@ -4266,6 +4300,7 @@ class PipelineExecutor:
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
+                    "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it; do not use generic fame/importance wording. "
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
