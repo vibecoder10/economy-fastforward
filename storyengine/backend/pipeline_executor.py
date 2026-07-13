@@ -4351,6 +4351,7 @@ class PipelineExecutor:
             bundle = None
             if complete_inventory_mode:
                 story_plan = _machine_story_plan(rp, machine)
+                machine_artifact_key = _verified_source_cache_key(machine)
                 plan_errors = list(story_plan.get("evidence_errors") or [])
                 missing_slots = [
                     slot["slot"] for slot in story_plan["slots"]
@@ -4371,7 +4372,7 @@ class PipelineExecutor:
                            true
                        ), updated_at = now()
                        WHERE id = $3 AND tenant_id = $4""",
-                    machine, _json_sh.dumps(story_brief), video_id, self.tenant_id,
+                    machine_artifact_key, _json_sh.dumps(story_brief), video_id, self.tenant_id,
                 )
                 await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
@@ -4382,7 +4383,7 @@ class PipelineExecutor:
                            true
                        ), updated_at = now()
                        WHERE id = $3 AND tenant_id = $4""",
-                    machine, _json_sh.dumps(story_plan), video_id, self.tenant_id,
+                    machine_artifact_key, _json_sh.dumps(story_plan), video_id, self.tenant_id,
                 )
                 prompt = (
                     "WRITE ONE ANTON-STYLE PARAGRAPH FROM LOCKED SOURCE SLOTS.\n\n"
@@ -4547,7 +4548,7 @@ class PipelineExecutor:
                            true
                        ), updated_at = now()
                        WHERE id = $3 AND tenant_id = $4""",
-                    machine, _json_sh.dumps(preview), video_id, self.tenant_id,
+                    _verified_source_cache_key(machine), _json_sh.dumps(preview), video_id, self.tenant_id,
                 )
                 await self._log_activity(
                     bot_name, video_id, "completed" if not warnings else "failed",

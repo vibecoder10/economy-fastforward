@@ -1261,7 +1261,10 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
         loaded["unit_research_cards"] = [xb15_card, b17_card]
         return loaded
 
-    async def fake_execute(*_args, **_kwargs):
+    writes = []
+
+    async def fake_execute(query, *args, **_kwargs):
+        writes.append((query, args))
         return None
 
     async def fake_fetch_all(*_args, **_kwargs):
@@ -1294,6 +1297,12 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert reference_check["advisory"] is True
     assert "benchmark 94 words/5 sentences" in reference_check["detail"]
     assert result["preview"]["story_plan"]["reference_benchmark"]["reference_machine"] == "Boeing XB-15"
+    saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
+    saved_brief_rows = [(query, args) for query, args in writes if "machine_script_briefs" in query]
+    saved_plan_rows = [(query, args) for query, args in writes if "machine_story_plans" in query]
+    assert saved_preview_rows and saved_preview_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
+    assert saved_brief_rows and saved_brief_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
+    assert saved_plan_rows and saved_plan_rows[0][1][0] == pe._verified_source_cache_key("Boeing XB-15")
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]

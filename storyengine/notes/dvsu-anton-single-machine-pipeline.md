@@ -51,6 +51,8 @@ The Script/Voice calibration panel may show the single-machine preview control o
 
 When the last locked machine is researched through the same selected-machine path, StoryEngine recomputes the full roster gate from every saved card and that card's matching raw source package. Only then does `unit_research_hold_validation.passed` become true.
 
+Single-machine preview artifacts are saved under the same normalized machine key as raw source packages, for example `XB15`, so retries from slightly different UI labels update the same preview slot instead of creating duplicate display-name keys.
+
 Research cards use `schema_version: 3` and `evidence_segments` with Anton slot kinds:
 
 - Required: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
