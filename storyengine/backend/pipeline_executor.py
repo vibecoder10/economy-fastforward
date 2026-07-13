@@ -4234,6 +4234,12 @@ class PipelineExecutor:
         ]
         if len(list_starts) >= 2:
             warnings.append("contains list/spec-dump sentence pattern instead of an engineering argument")
+        written_connector_starts = [
+            part for part in sentence_parts
+            if re.match(r"^(?:however|nevertheless|furthermore|moreover|additionally|in addition)\b", part, flags=re.IGNORECASE)
+        ]
+        if written_connector_starts:
+            warnings.append("contains written-language connector sentence start instead of spoken documentary flow")
         if sentence_parts:
             last_sentence = sentence_parts[-1].lower()
             if re.search(r"\b(?:retired|retirement|decommissioned)\b", last_sentence) and re.search(r"\b(?:18|19|20)\d{2}\b|\b\d+\s+years?\b", last_sentence):
@@ -4488,6 +4494,7 @@ class PipelineExecutor:
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
+                    "- Avoid written-language connector sentence starts: However, Nevertheless, Furthermore, Moreover, Additionally, In addition.\n"
                     "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
                     "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
                     "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
@@ -4521,6 +4528,7 @@ class PipelineExecutor:
                     f"- OPENING ASSIGNMENT: {opening_brief}\n"
                     f"{structure_brief}"
                     "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
+                    "- Avoid written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition.\n"
                     "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
                     f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
                 )
@@ -4550,6 +4558,7 @@ class PipelineExecutor:
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "
+                        "Remove written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition. "
                         "Do not include optional-slot numbers if required slots already tell the story. "
                         "Introduce no unsupported claims, designations, or numerical details. "
                         "Delete every unsupported high-risk term named in the validation warnings unless that exact word appears in the selected source evidence. "

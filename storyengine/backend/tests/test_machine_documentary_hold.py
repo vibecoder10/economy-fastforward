@@ -565,10 +565,15 @@ def test_static_validator_blocks_anton_forbidden_ai_patterns():
         f"The B-52 kept serving because range mattered more than speed. {filler}. "
         "The aircraft was finally retired in 1978 after 24 years of service."
     )
+    written_connector = (
+        "The B-52 kept serving because range mattered more than speed. "
+        f"However, {filler}."
+    )
 
     assert any("Wikipedia-style" in warning for warning in validate("B-52", wiki_opening))
     assert any("list/spec-dump" in warning for warning in validate("B-52", spec_dump))
     assert any("retirement/date fact" in warning for warning in validate("B-52", retirement_ending))
+    assert any("written-language connector" in warning for warning in validate("B-52", written_connector))
 
 
 def test_card_matching_never_confuses_prefix_designations():
@@ -1300,9 +1305,11 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
     assert "final sentence must be 28 words or fewer" in fake_anthropic.prompts[0]
     assert "End with a short verdict" in fake_anthropic.prompts[0]
+    assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
     assert "Numbers may be numerals or spelled words" in fake_anthropic.prompts[0]
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
+    assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]

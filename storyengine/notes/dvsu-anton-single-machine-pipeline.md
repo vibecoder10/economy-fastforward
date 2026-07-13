@@ -123,7 +123,7 @@ Validation requires:
 - final sentence is a paragraph-derived conclusion, not a researched `historical_meaning` beat, and is not included in `claim_map`
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
-- unsupported designations, high-risk terms, hype, list transitions, and semicolons rejected
+- unsupported designations, high-risk terms, hype, list transitions, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
 The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 90-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows advisory `reference_shape` and `early_human_detail` checks against the actual Anton paragraph shape and desktop human-detail preference.
