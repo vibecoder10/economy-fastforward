@@ -164,7 +164,7 @@ Validation requires:
 - opening assignment is followed; when the assignment says not to open with the machine name, the first sentence cannot start with the locked machine name or designation
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed
-- voice-ready number wording is preferred for years and quantities; designations/model names such as B-52, XB-15, and F-86 remain designations
+- voice-ready number wording is required for years and quantities; designations/model names such as B-52, XB-15, and F-86 remain designations
 - sentence length varies for spoken delivery; three consecutive long sentences trigger review
 - unsupported designations, high-risk terms, hype, ranked-list connectors, timeline-biography structure, production cues, bracketed notes, written-language connector sentence starts, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality

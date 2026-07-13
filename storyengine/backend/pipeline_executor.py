@@ -946,6 +946,7 @@ _NUMBER_SCALE_WORDS = {
 
 _INDEFINITE_NUMBER_SCALE_WORDS = {"hundreds", "thousands", "millions"}
 _NUMBER_WORD_VOCABULARY = set(_NUMBER_TOKEN_WORDS) | set(_NUMBER_SCALE_WORDS) | _INDEFINITE_NUMBER_SCALE_WORDS | {"and"}
+_NUMERIC_DIGIT_PATTERN = r"(?<![A-Za-z0-9])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?(?![A-Za-z0-9])"
 
 
 def _parse_number_word_phrase(tokens: list[str]) -> Optional[int]:
@@ -1004,7 +1005,7 @@ def _numeric_mentions_from_text(text: str) -> list[dict[str, str]]:
     lower = str(text or "").lower()
     mentions = [
         {"raw": token, "key": _numeric_token_key(token)}
-        for token in re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", lower)
+        for token in re.findall(_NUMERIC_DIGIT_PATTERN, lower)
     ]
     tokens = re.findall(r"\b[a-z]+\b", lower.replace("-", " "))
     number_terms = set(_NUMBER_TOKEN_WORDS) | set(_NUMBER_SCALE_WORDS) | _INDEFINITE_NUMBER_SCALE_WORDS
@@ -1034,6 +1035,22 @@ def _numeric_mentions_from_text(text: str) -> list[dict[str, str]]:
 
 def _numeric_tokens_from_text(text: str) -> list[str]:
     return [mention["raw"] for mention in _numeric_mentions_from_text(text)]
+
+
+def _raw_digit_mentions_for_voiceover(text: str) -> list[str]:
+    """Find non-designation digits that should be spoken words in DVsU narration."""
+    scrubbed = str(text or "")
+    designation_pattern = (
+        r"\b(?:"
+        r"XB|YB|B|FB|F|MiG|Su|Tu|Il|La|Yak|Fw|Me|Ju|He|Do|A|C|KC|P|SR|U|"
+        r"UH|AH|CH|OH|J|R|TF|BB|CV|CVN|DD|DDG|SS|SSN"
+        r")-?\d{1,4}[A-Z]?\b"
+    )
+    scrubbed = re.sub(designation_pattern, " ", scrubbed, flags=re.IGNORECASE)
+    return list(dict.fromkeys(
+        match.group(0)
+        for match in re.finditer(_NUMERIC_DIGIT_PATTERN, scrubbed)
+    ))
 
 
 def _unit_word_variants_from_evidence(text: str) -> set[str]:
@@ -1144,7 +1161,7 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
             errors.append(f"evidence segment {evidence_id or index} missing source_url/locator")
         numbers = raw.get("numeric_tokens")
         if not isinstance(numbers, list):
-            numbers = re.findall(r"(?<![A-Za-z])\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?", claim.lower())
+            numbers = re.findall(_NUMERIC_DIGIT_PATTERN, claim.lower())
         normalized_numbers = [str(token).strip().lower() for token in numbers if str(token).strip()]
 
         grounding_stopwords = {
@@ -1957,6 +1974,12 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append("paragraph introduced unsupported numerical detail(s): " + ", ".join(unsupported_numbers))
     if len(paragraph_numbers) > int((plan.get("contract") or {}).get("maximum_numerical_details") or 8):
         warnings.append(f"paragraph contains {len(paragraph_numbers)} numerical details; maximum is 8")
+    raw_digit_mentions = _raw_digit_mentions_for_voiceover(paragraph)
+    if raw_digit_mentions:
+        warnings.append(
+            "paragraph uses raw numeric digit(s); write spoken numbers as words: "
+            + ", ".join(raw_digit_mentions)
+        )
 
     allowed_designations = {_normalized_unit_code(machine)}
     allowed_evidence_text = " ".join(
@@ -4976,6 +4999,12 @@ class PipelineExecutor:
             warnings.append("contains production cue/label instead of clean voiceover narration")
         if re.search(r"\[[^\]]+\]", text):
             warnings.append("contains bracketed production note instead of clean voiceover narration")
+        raw_digit_mentions = _raw_digit_mentions_for_voiceover(text)
+        if raw_digit_mentions:
+            warnings.append(
+                "uses raw numeric digit(s); write spoken numbers as words: "
+                + ", ".join(raw_digit_mentions)
+            )
         if any(term in lower for term in (
             "one of the greatest", "one of the most incredible", "arguably the greatest",
             "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
@@ -5302,7 +5331,7 @@ class PipelineExecutor:
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
-                    "- Prefer voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Keep designations/model names like B-52, XB-15, and F-86 as designations. Every number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
+                    "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Keep designations/model names like B-52, XB-15, and F-86 as designations. Every number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
                     "- Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
                     "- Prefer fewer than 6 numerical details when optional slots add clutter; keep only numbers that explain the problem, decision, tradeoff, or reality.\n"
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
@@ -5377,7 +5406,7 @@ class PipelineExecutor:
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
-                        "Prefer voice-ready spoken number words for years and quantities while preserving designations/model names like B-52, XB-15, and F-86. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
+                        "Use voice-ready spoken number words for years and quantities while preserving designations/model names like B-52, XB-15, and F-86. If validation says raw numeric digit, rewrite that number as spoken words. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "

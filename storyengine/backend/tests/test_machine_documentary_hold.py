@@ -1003,14 +1003,32 @@ def test_hard_word_bounds_are_95_through_120_inclusive():
     assert validate("B52", _words("B-52", 95)) == []
 
 
+def test_voiceover_digit_gate_keeps_designations_but_flags_quantities():
+    mentions = pe._raw_digit_mentions_for_voiceover(
+        "B-52, XB-15, MiG-21, F-86, J57, and TF30 stay, but 1937, 5,130 miles, and 47% should be spoken."
+    )
+
+    assert mentions == ["1937", "5,130", "47%"]
+
+
+def test_static_validator_requires_spoken_numbers_but_keeps_designations():
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+
+    clean_designations = _words("B-52", 95)
+    raw_quantity = " ".join(["B-52"] + ["word"] * 93 + ["1937"])
+
+    assert not any("raw numeric digit" in warning for warning in validate("B-52", clean_designations))
+    assert any("raw numeric digit" in warning and "1937" in warning for warning in validate("B-52", raw_quantity))
+
+
 def test_meta_validator_does_not_match_as_an_ai_inside_was_an_aircraft():
     paragraph = (
-        "The Air Force ordered Boeing to design a jet bomber in 1946 that could reach Moscow from American bases "
+        "The Air Force ordered Boeing to design a jet bomber in nineteen forty-six that could reach Moscow from American bases "
         "and return without refueling. Boeing's answer was an aircraft that traded speed for range. The B-52 "
-        "Stratofortress first flew on April 15, 1952, powered by eight Pratt and Whitney J57 turbojets that burned "
+        "Stratofortress first flew on April fifteenth, nineteen fifty-two, powered by eight Pratt and Whitney J57 turbojets that burned "
         "fuel slowly enough to stay airborne for sixteen hours. It was subsonic by design. The Air Force had wanted "
-        "a replacement by 1980. Instead, the B-52H models built between 1960 and 1962 are still flying combat missions "
-        "today, now scheduled to remain in service until the 2050s. No strategic bomber has ever served longer. The "
+        "a replacement by nineteen eighty. Instead, the B-52H models built between nineteen sixty and nineteen sixty-two are still flying combat missions "
+        "today, now scheduled to remain in service until the twenty-fifties. The "
         "aircraft outlasted its replacement because range mattered more than speed."
     )
 
@@ -1876,21 +1894,21 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     bundle = {
         "editorial_thesis": "The XB-15 mattered because size and range outpaced bomber-engine maturity.",
         "paragraph": (
-            "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing. "
-            "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles. "
+            "The Boeing XB-15 first flew in nineteen thirty-seven as America's experimental leap into long-range strategic bombing. "
+            "With a one hundred and forty-nine-foot wingspan and four Pratt & Whitney engines of eight hundred and fifty horsepower, it could carry two thousand, five hundred pounds of bombs over five thousand, one hundred and thirty miles. "
             "A single prototype was built, and it never fought as a bomber, but it proved large, multi-engine bombers could fly intercontinental distances. "
             "The aircraft served as a transport during World War II, hauling cargo across the Pacific. "
-            "That made the prototype useful less as a weapon than as proof that size, range, and power matured together."
+            "That made it proof that size, range, and power had to mature together."
         ),
         "claim_map": [
             {
                 "slot": "original_problem",
-                "span": "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing.",
+                "span": "The Boeing XB-15 first flew in nineteen thirty-seven as America's experimental leap into long-range strategic bombing.",
                 "used_evidence_ids": ["XB15-PROBLEM", "XB15-PROBLEM-CHECK"],
             },
             {
                 "slot": "engineering_decision",
-                "span": "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles.",
+                "span": "With a one hundred and forty-nine-foot wingspan and four Pratt & Whitney engines of eight hundred and fifty horsepower, it could carry two thousand, five hundred pounds of bombs over five thousand, one hundred and thirty miles.",
                 "used_evidence_ids": ["XB15-DECISION", "XB15-DECISION-CHECK"],
             },
             {
@@ -1909,7 +1927,7 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
     paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
 
     assert warnings == []
-    assert pe._spoken_word_count(paragraph) == 95
+    assert pe._spoken_word_count(paragraph) == 102
 
 
 def test_story_sentence_parser_accepts_paragraph_object_shape():
@@ -2102,7 +2120,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "End with a short verdict" in fake_anthropic.prompts[0]
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
     assert "Do not use ranked-list connectors" in fake_anthropic.prompts[0]
-    assert "Prefer voice-ready spoken number words" in fake_anthropic.prompts[0]
+    assert "Use voice-ready spoken number words" in fake_anthropic.prompts[0]
     assert "Keep designations/model names like B-52, XB-15, and F-86 as designations" in fake_anthropic.prompts[0]
     assert "Vary sentence length for spoken delivery. Do not write three long sentences in a row" in fake_anthropic.prompts[0]
     assert "Do not write a chronological biography" in fake_anthropic.prompts[0]
