@@ -59,6 +59,16 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "selectedSourcePackageStatus.message" in text
 
 
+def test_research_tab_does_not_offer_bulk_machine_research_action():
+    text = _research_tab().read_text()
+
+    assert 'runPipelineStage(video.id, "machine-research")' not in text
+    assert "handleMachineResearch" not in text
+    assert "Start machine research" not in text
+    assert "Continue machine research" not in text
+    assert "Research selected" in text
+
+
 def test_source_tier_helper_matches_excerpt_locator_not_card_claims():
     text = _research_tab().read_text()
     helper = text[text.index("function sourceTierForEvidence"):text.index("function CollapsibleSection")]

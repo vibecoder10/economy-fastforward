@@ -295,7 +295,6 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [taskRunning, setTaskRunning] = useState(false);
-  const [taskMode, setTaskMode] = useState<"research" | "machines">("research");
   const [selectedMachine, setSelectedMachine] = useState("");
   const [singleMachineRunning, setSingleMachineRunning] = useState(false);
   const [singlePreviewRunning, setSinglePreviewRunning] = useState(false);
@@ -320,7 +319,6 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   });
 
   const handleReResearch = useCallback(async () => {
-    setTaskMode("research");
     setIsResearching(true);
     try {
       await runPipelineStage(video.id, "research");
@@ -342,18 +340,6 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setIsResearching(false);
     }
   }, [video.id]);
-
-  const handleMachineResearch = useCallback(async () => {
-    setTaskMode("machines");
-    setIsResearching(true);
-    try {
-      await runPipelineStage(video.id, "machine-research");
-      setTaskRunning(true);
-    } catch (err: unknown) {
-      toast.error(`Machine research failed: ${(err as Error).message || "Unknown error"}`);
-      setIsResearching(false);
-    }
-  }, [video.id, toast]);
 
   const handleOneMachineResearch = useCallback(async () => {
     setSingleMachineRunning(true);
@@ -778,20 +764,6 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 </div>
               )}
             </div>
-            <ActionButton
-              variant="filled"
-              icon={isResearching || taskRunning ? Loader2 : research.unit_research_hold_validation?.passed ? Check : RefreshCw}
-              onClick={handleMachineResearch}
-              disabled={isResearching || taskRunning || research.unit_research_hold_validation?.passed}
-            >
-              {taskRunning && taskMode === "machines"
-                ? (taskMessage || "Researching machines...")
-                : research.unit_research_hold_validation?.passed
-                  ? "Research complete"
-                  : research.unit_research_cards.length > 0
-                    ? "Continue machine research"
-                    : "Start machine research"}
-            </ActionButton>
           </div>
 
           {research.unit_research_hold_validation?.warnings?.length > 0 && (
