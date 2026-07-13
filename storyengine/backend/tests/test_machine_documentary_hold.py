@@ -1767,7 +1767,7 @@ def test_anton_preview_quality_audit_flags_ranked_list_connector():
     assert catalog_check["detail"] == "catalog pattern flagged"
 
 
-def test_anton_preview_quality_audit_reports_strategic_bomber_cadence_advisory():
+def test_anton_preview_quality_audit_requires_strategic_bomber_cadence():
     payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "Boeing XB-15")
     bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
@@ -1776,8 +1776,8 @@ def test_anton_preview_quality_audit_reports_strategic_bomber_cadence_advisory()
     audit = pe._anton_preview_quality_audit("Boeing XB-15", plan, bundle, paragraph, warnings)
     cadence_check = next(check for check in audit["checks"] if check["name"] == "benchmark_cadence")
 
-    assert audit["passed"] is True
-    assert cadence_check["advisory"] is True
+    assert audit["passed"] is False
+    assert "advisory" not in cadence_check
     assert cadence_check["passed"] is False
     assert "scale/capability missing" in cadence_check["detail"]
 
@@ -1813,7 +1813,7 @@ def test_first_three_anton_audit_reports_human_detail_advisory():
     audit = pe._anton_preview_quality_audit("Boeing XB-15", plan, bundle, paragraph, warnings)
     human_check = next(check for check in audit["checks"] if check["name"] == "early_human_detail")
 
-    assert audit["passed"] is True
+    assert audit["passed"] is False
     assert human_check["advisory"] is True
     assert human_check["passed"] is False
     assert "no sourced human_detail" in human_check["detail"]
@@ -2288,8 +2288,12 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     async def fake_validate(_video_id):
         return {"passed": True}
 
+    def passed_quality_audit(*_args, **_kwargs):
+        return {"passed": True, "checks": [], "summary": "Anton quality audit passed"}
+
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "_anton_preview_quality_audit", passed_quality_audit)
     monkeypatch.setattr(executor, "_log_activity", fake_log)
     monkeypatch.setattr(executor, "_validate_static_script_roster", fake_validate)
     monkeypatch.setattr(executor, "_update_video_status", fake_update_status)
@@ -2422,8 +2426,12 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     async def fake_validate(_video_id):
         return {"passed": True}
 
+    def passed_quality_audit(*_args, **_kwargs):
+        return {"passed": True, "checks": [], "summary": "Anton quality audit passed"}
+
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "_anton_preview_quality_audit", passed_quality_audit)
     monkeypatch.setattr(executor, "_log_activity", fake_log)
     monkeypatch.setattr(executor, "_validate_static_script_roster", fake_validate)
     monkeypatch.setattr(executor, "_update_video_status", fake_update_status)
@@ -2493,8 +2501,12 @@ def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save
     async def forbidden_update_status(*_args, **_kwargs):
         raise AssertionError("zero-row final script save must not advance status")
 
+    def passed_quality_audit(*_args, **_kwargs):
+        return {"passed": True, "checks": [], "summary": "Anton quality audit passed"}
+
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "_anton_preview_quality_audit", passed_quality_audit)
     monkeypatch.setattr(executor, "_log_activity", fake_log)
     monkeypatch.setattr(executor, "_validate_static_script_roster", forbidden_validate)
     monkeypatch.setattr(executor, "_update_video_status", forbidden_update_status)
@@ -2669,9 +2681,14 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
         )
     )
 
-    assert result["preview"]["passed"] is True
+    assert result["preview"]["passed"] is False
     assert result["preview"]["machine"] == "Boeing XB-15"
-    assert result["preview"]["quality_audit"]["passed"] is True
+    assert result["preview"]["quality_audit"]["passed"] is False
+    cadence_check = next(
+        check for check in result["preview"]["quality_audit"]["checks"]
+        if check["name"] == "benchmark_cadence"
+    )
+    assert cadence_check["passed"] is False
     assert [check["name"] for check in result["preview"]["quality_audit"]["checks"]][:4] == [
         "word_range",
         "sentence_shape",

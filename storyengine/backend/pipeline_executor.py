@@ -2433,7 +2433,6 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
                 f"scale/capability {'present' if has_scale_or_capability else 'missing'}; "
                 f"production/service reality {'present' if has_production_or_service else 'missing'}"
             ),
-            advisory=True,
         ))
     if warnings:
         checks.append(check(
