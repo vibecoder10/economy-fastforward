@@ -175,6 +175,17 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
   return sourcePackageStatus(sourcePackage, machine).ready;
 }
 
+function sourcePackageForMachine(packages: any, machine: string): any | null {
+  if (!packages || typeof packages !== "object" || Array.isArray(packages) || !machine) return null;
+  const key = normalizedUnitCode(machine);
+  if (key && packages[key]) return packages[key];
+  return Object.values(packages).find((candidate: any) => {
+    const packageMachine = String(candidate?.machine || "");
+    const packageKey = String(candidate?.machine_key || "");
+    return normalizedUnitCode(packageMachine) === key || normalizedUnitCode(packageKey) === key;
+  }) || null;
+}
+
 function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
   label: string; borderColor?: string; children: React.ReactNode; defaultOpen?: boolean;
 }) {
@@ -405,8 +416,17 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       rosterGate = payload?.unit_roster_validation;
       const lockedRoster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
       const machineResearchGate = payload?.unit_research_hold_validation;
+      const cards = Array.isArray(payload?.unit_research_cards) ? payload.unit_research_cards : [];
+      const packages = payload?.machine_raw_source_packages && typeof payload.machine_raw_source_packages === "object" && !Array.isArray(payload.machine_raw_source_packages)
+        ? payload.machine_raw_source_packages
+        : {};
+      const verifiedCount = lockedRoster.filter((item: any) => {
+        const label = machineLabel(item);
+        const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
+        return Boolean(card) && sourcePackageReady(sourcePackageForMachine(packages, label), label);
+      }).length;
       if (lockedRoster.length > 0 && !machineResearchGate?.passed) {
-        setApproveError(`Machine research is incomplete: ${payload?.unit_research_cards?.length || 0}/${lockedRoster.length} cards finished.`);
+        setApproveError(`Machine research is incomplete: ${verifiedCount}/${lockedRoster.length} verified cards finished.`);
         return;
       }
     } catch { /* ignore malformed payload */ }
@@ -498,17 +518,18 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
 
   const selectedSourcePackage = useMemo(() => {
     if (!research || !selectedMachineLabel) return null;
-    const packages = research.machine_raw_source_packages || {};
-    const key = normalizedUnitCode(selectedMachineLabel);
-    if (key && packages[key]) return packages[key];
-    return Object.values(packages).find((candidate: any) => {
-      const machine = String(candidate?.machine || "");
-      const machineKey = String(candidate?.machine_key || "");
-      return normalizedUnitCode(machine) === key || normalizedUnitCode(machineKey) === key;
-    }) || null;
+    return sourcePackageForMachine(research.machine_raw_source_packages, selectedMachineLabel);
   }, [research, selectedMachineLabel]);
   const selectedSourcePackageStatus = sourcePackageStatus(selectedSourcePackage, selectedMachineLabel);
   const selectedSourcePackageReady = sourcePackageReady(selectedSourcePackage, selectedMachineLabel);
+  const verifiedMachineResearchCount = useMemo(() => {
+    if (!research) return 0;
+    return research.unit_roster.filter((item: any) => {
+      const label = machineLabel(item);
+      const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
+      return Boolean(card) && sourcePackageReady(sourcePackageForMachine(research.machine_raw_source_packages, label), label);
+    }).length;
+  }, [research]);
 
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map
@@ -720,10 +741,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Step 2 · Machine research cards</h3>
               </div>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                {research.unit_research_cards.length}/{research.unit_roster.length} machines researched. Each completed card is saved before the next machine begins.
+                {verifiedMachineResearchCount}/{research.unit_roster.length} verified machines researched. Each selected-machine card is saved with a raw source package before the next machine begins.
               </p>
               <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
-                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (research.unit_research_cards.length / research.unit_roster.length) * 100)}%`, background: research.unit_research_hold_validation?.passed ? "var(--green)" : "var(--turquoise)" }} />
+                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (verifiedMachineResearchCount / research.unit_roster.length) * 100)}%`, background: research.unit_research_hold_validation?.passed ? "var(--green)" : "var(--turquoise)" }} />
               </div>
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <select

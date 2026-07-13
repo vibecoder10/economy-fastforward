@@ -3377,7 +3377,7 @@ class PipelineExecutor:
             video_id, title, payload, roster, target_machine=matched
         )
         validation = payload.get("unit_research_hold_validation") or {}
-        if not validation.get("passed"):
+        if not validation.get("target_machine_passed"):
             units = validation.get("units") or []
             warnings = units[-1].get("warnings", []) if units else validation.get("warnings", [])
             return {"status": "failed", "video_id": video_id, "error": "; ".join(str(item) for item in warnings)}
@@ -3933,13 +3933,16 @@ class PipelineExecutor:
             roster_order = {_normalized_unit_code(item): index for index, item in enumerate(roster)}
             unit_cards.sort(key=lambda item: roster_order.get(_normalized_unit_code(_unit_display_name(item)), len(roster)))
             payload["unit_research_cards"] = unit_cards
+            target_machine_passed = not warnings
+            full_hold_passed = target_machine_passed and (not target_code or len(roster) == 1)
             payload["unit_research_hold_validation"] = {
-                "passed": not warnings if target_code else not warnings and i == len(roster),
+                "passed": full_hold_passed if target_code else not warnings and i == len(roster),
                 "in_progress": False if target_code else not warnings and i < len(roster),
                 "units": validation_units,
             }
             if target_code:
                 payload["unit_research_hold_validation"]["target_machine"] = machine
+                payload["unit_research_hold_validation"]["target_machine_passed"] = target_machine_passed
             checkpoint_result = await execute(
                 """UPDATE videos
                    SET research_payload = $1, updated_at = now()
@@ -3965,9 +3968,16 @@ class PipelineExecutor:
                 await self._log_activity(bot_name, video_id, "failed", f"Unit research-hold stopped at {machine}: " + "; ".join(warnings))
                 return payload
 
-        payload["unit_research_hold_validation"] = {"passed": True, "in_progress": False, "units": validation_units}
+        target_machine_passed = bool(validation_units and validation_units[-1].get("passed"))
+        full_hold_passed = target_machine_passed and (not target_code or len(roster) == 1)
+        payload["unit_research_hold_validation"] = {
+            "passed": full_hold_passed if target_code else True,
+            "in_progress": False,
+            "units": validation_units,
+        }
         if target_code and validation_units:
             payload["unit_research_hold_validation"]["target_machine"] = validation_units[-1].get("machine")
+            payload["unit_research_hold_validation"]["target_machine_passed"] = target_machine_passed
         await self._log_activity(bot_name, video_id, "running", f"Unit research-hold complete: {len(unit_cards)} machine card(s)")
         return payload
 

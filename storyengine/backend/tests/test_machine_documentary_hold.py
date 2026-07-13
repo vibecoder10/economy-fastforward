@@ -1747,8 +1747,59 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "Never invent a human account" in prompt
     assert "XB-15 leak" not in prompt
     assert "B-36 leak" not in prompt
-    assert result["unit_research_hold_validation"]["passed"] is True
+    assert result["unit_research_hold_validation"]["passed"] is False
+    assert result["unit_research_hold_validation"]["target_machine_passed"] is True
     assert result["unit_research_hold_validation"]["target_machine"] == "Boeing B-52 Stratofortress"
+
+
+def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    card = {"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}
+    payload = {
+        "unit_roster": roster_names,
+        "unit_research_cards": [card],
+        "unit_research_hold_validation": {
+            "passed": False,
+            "target_machine": "Boeing XB-15",
+            "target_machine_passed": True,
+            "units": [{"machine": "Boeing XB-15", "passed": True, "warnings": []}],
+        },
+    }
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    writes = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Strategic Bomber Ever Built",
+            "render_mode": "static_docu",
+            "status": "ready_for_research_review",
+            "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": roster_names},
+        }
+
+    async def fake_research_hold(_video_id, _title, _payload, _roster, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return payload
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_research_hold)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    result = asyncio.run(executor.run_one_machine_research("video-test", "Boeing XB-15"))
+
+    assert result["status"] == "completed"
+    assert result["machine"] == "Boeing XB-15"
+    assert result["research_card"] == card
+    assert json.loads(writes[0][1][0])["unit_research_hold_validation"]["passed"] is False
 
 
 def test_target_machine_research_requires_verified_source_package_before_llm(monkeypatch):

@@ -59,6 +59,18 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "selectedSourcePackageStatus.message" in text
 
 
+def test_research_tab_counts_only_verified_machine_cards():
+    text = _research_tab().read_text()
+
+    assert "function sourcePackageForMachine" in text
+    assert "const verifiedMachineResearchCount = useMemo" in text
+    assert "sourcePackageReady(sourcePackageForMachine(research.machine_raw_source_packages, label), label)" in text
+    assert "verified machines researched" in text
+    assert "verifiedMachineResearchCount / research.unit_roster.length" in text
+    assert "verified cards finished" in text
+    assert "unit_research_cards?.length || 0" not in text
+
+
 def test_research_tab_does_not_offer_bulk_machine_research_action():
     text = _research_tab().read_text()
 
