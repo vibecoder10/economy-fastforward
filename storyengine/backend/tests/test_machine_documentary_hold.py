@@ -917,6 +917,20 @@ def test_required_anton_slots_accept_authoritative_source_support():
     assert warnings == []
 
 
+def test_validate_card_against_verified_sources_rejects_unapproved_capture_method():
+    segments = _evidence_segments()
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"][0]["source_capture_method"] = "tavily_snippet"
+    card = {"unit": "Boeing XB-15", "evidence_segments": segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert any(
+        "evidence segment E-PROBLEM source_excerpt/locator was not found in verified fetched source text" in warning
+        for warning in warnings
+    )
+
+
 def test_research_card_required_slots_must_select_distinct_raw_excerpts():
     segments = _evidence_segments()
     for segment in segments:

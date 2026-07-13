@@ -1007,7 +1007,11 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
         return ["missing verified raw internet source package"]
     candidates = [
         item for item in (package or {}).get("candidate_excerpts", [])
-        if isinstance(item, dict) and str(item.get("text") or "").strip()
+        if (
+            isinstance(item, dict)
+            and str(item.get("text") or "").strip()
+            and _verified_source_candidate_traceable(item)
+        )
     ]
     warnings: list[str] = []
     required_slot_sources: dict[str, list[tuple[str, int, str]]] = {}
