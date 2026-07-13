@@ -113,6 +113,43 @@ def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
     }
 
 
+def test_verified_source_package_filters_other_aircraft_designations_for_target_machine():
+    package = {
+        "passed": True,
+        "candidate_excerpts": [
+            {
+                "excerpt_id": "good-target",
+                "source_title": "Douglas XB-19",
+                "source_url": "https://example.test/xb-19",
+                "locator": "p1",
+                "text": "The Douglas XB-19 was built as a giant experimental bomber.",
+            },
+            {
+                "excerpt_id": "bad-comparison",
+                "source_title": "Douglas XB-19 later comparisons",
+                "source_url": "https://example.test/xb-19-comparison",
+                "locator": "p2",
+                "text": "The XB-19 was soon compared with later XB-35 and XB-36 bomber designs.",
+            },
+            {
+                "excerpt_id": "good-no-code",
+                "source_title": "Douglas giant bomber",
+                "source_url": "https://example.test/giant-bomber",
+                "locator": "p3",
+                "text": "The prototype became a research aircraft rather than an operational weapon.",
+            },
+        ],
+    }
+
+    formatted = pe._format_verified_machine_source_package(package, "Douglas XB-19")
+
+    assert "good-target" in formatted
+    assert "good-no-code" in formatted
+    assert "bad-comparison" not in formatted
+    assert "XB-35" not in formatted
+    assert "XB-36" not in formatted
+
+
 def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
     card = {
         "unit": "Boeing XB-15",
@@ -688,6 +725,25 @@ def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
     assert any("high-risk term" in warning for warning in warnings)
 
 
+def test_story_sentence_validator_blocks_non_target_designation_even_when_sourced():
+    evidence = _evidence_segments()
+    evidence[5].update({
+        "claim": "Memorable fact claim grounded in the supplied source with XB-35.",
+        "source_excerpt": "The XB-19 was compared with the later XB-35 in the supplied source.",
+    })
+    payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Douglas XB-19")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Douglas XB-19", 19))
+    old_span = bundle["claim_map"][4]["span"]
+    new_span = old_span.replace("Memorable fact", "XB-35 memorable fact", 1)
+    bundle["claim_map"][4]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+
+    _, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
+
+    assert any("outside the locked machine" in warning for warning in warnings)
+
+
 def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
@@ -1205,7 +1261,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert fetch_calls[0][1:] == ("tenant-test", "video-test", "B52")
     assert len(fake_anthropic.prompts) == 1
     prompt = fake_anthropic.prompts[0]
-    assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
+    assert "LOCKED SELECTED MACHINE: Boeing B-52 Stratofortress" in prompt
+    assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" not in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
     assert "EXACT_TEXT: Identity origin claim grounded in the supplied source." in prompt
     assert "XB-15 leak" not in prompt

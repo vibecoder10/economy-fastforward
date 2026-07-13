@@ -84,6 +84,32 @@ def _normalized_unit_code(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", _unit_code(text).upper())
 
 
+_AIRCRAFT_DESIGNATION_RE = re.compile(r"\b[A-Z]{1,4}-?\d{1,4}[A-Z]?\b", re.IGNORECASE)
+
+
+def _target_machine_designation_codes(machine: str) -> set[str]:
+    """Model-number designations allowed for the locked one-machine scope."""
+    codes = {
+        _normalized_unit_code(token)
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(str(machine or "").upper())
+    }
+    fallback = _normalized_unit_code(machine)
+    if fallback:
+        codes.add(fallback)
+    return {code for code in codes if code}
+
+
+def _non_target_designation_codes(text: str, machine: str) -> list[str]:
+    allowed = _target_machine_designation_codes(machine)
+    if not allowed:
+        return []
+    found = {
+        _normalized_unit_code(token)
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(str(text or "").upper())
+    }
+    return sorted(code for code in found if code and code not in allowed)
+
+
 def _title_needs_complete_roster(title: str) -> bool:
     import re
     t = str(title or "").strip().lower()
@@ -323,7 +349,7 @@ _ANTON_SLOT_SPECS = (
     ("tradeoff_or_limit", ("tradeoff_or_limit", "tradeoff", "limitation", "failure_mode"), "Explain the limitation, sacrifice, or unexpected consequence when it is central to the machine."),
     ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced."),
     ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "State the sourced meaning: what concept, doctrine, trade-off, or future path the machine proved."),
-    ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
+    ("transition_hook", ("transition_hook",), "Optional bridge inside a complete script; never required for one-machine research or selected-machine script blocks."),
     ("onscreen_label", ("onscreen_label",), "On-screen label ingredients: name, concise role, build count, and service/date range."),
 )
 
@@ -345,14 +371,22 @@ def _anton_slot_role_for_kind(kind: str) -> Optional[str]:
     return None
 
 
-def _format_verified_machine_source_package(package: dict) -> str:
+def _format_verified_machine_source_package(package: dict, target_machine: str = "") -> str:
     lines = [
         "Verified source package. The model may use ONLY these fetched excerpts.",
         "Every returned source_excerpt must be copied from one candidate below.",
     ]
-    for item in (package.get("candidate_excerpts") or [])[:60]:
+    included = 0
+    for item in (package.get("candidate_excerpts") or []):
         if not isinstance(item, dict):
             continue
+        if target_machine:
+            searchable = " ".join(
+                str(item.get(key) or "")
+                for key in ("source_title", "text")
+            )
+            if _non_target_designation_codes(searchable, target_machine):
+                continue
         lines.extend([
             "",
             f"EXCERPT_ID: {item.get('excerpt_id')}",
@@ -361,6 +395,9 @@ def _format_verified_machine_source_package(package: dict) -> str:
             f"LOCATOR: {item.get('locator')}",
             f"EXACT_TEXT: {item.get('text')}",
         ])
+        included += 1
+        if included >= 60:
+            break
     return "\n".join(lines)[:32000]
 
 
@@ -963,22 +1000,18 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if len(paragraph_numbers) > int((plan.get("contract") or {}).get("maximum_numerical_details") or 8):
         warnings.append(f"paragraph contains {len(paragraph_numbers)} numerical details; maximum is 8")
 
-    allowed_designations = {_normalized_unit_code(machine)}
+    allowed_designations = _target_machine_designation_codes(machine)
     allowed_evidence_text = " ".join(
         f"{evidence_by_id.get(eid, {}).get('claim', '')} {evidence_by_id.get(eid, {}).get('source_excerpt', '')}"
         for eid in used_ids
     )
-    allowed_designations.update(
-        _normalized_unit_code(token)
-        for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", allowed_evidence_text.upper())
-    )
     paragraph_designations = {
         _normalized_unit_code(token)
-        for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", paragraph.upper())
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(paragraph.upper())
     }
     unsupported_designations = sorted(token for token in paragraph_designations if token and token not in allowed_designations)
     if unsupported_designations:
-        warnings.append("paragraph introduced unsupported designation(s): " + ", ".join(unsupported_designations))
+        warnings.append("paragraph introduced unsupported designation(s) outside the locked machine: " + ", ".join(unsupported_designations))
 
     sentence_count = len([part for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()])
     if sentence_count < 4 or sentence_count > 6:
@@ -3327,7 +3360,10 @@ class PipelineExecutor:
                 }
                 await self._log_activity(bot_name, video_id, "failed", msg)
                 return payload
-            legacy_source = _format_verified_machine_source_package(verified_source_package)
+            legacy_source = _format_verified_machine_source_package(
+                verified_source_package,
+                target_machine or "",
+            )
             source_label = "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE"
         else:
             legacy_source = "\n\n".join(
@@ -3364,13 +3400,19 @@ class PipelineExecutor:
                     await self._upsert_machine_research_card(video_id, machine, i, card, reused_validation)
                     continue
 
+            machine_scope_line = (
+                f"LOCKED SELECTED MACHINE: {machine}\n"
+                if target_code else f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
+            )
             prompt = (
                 "Create ONE Designed vs Used machine research card.\n\n"
                 f"VIDEO TITLE: {title}\n"
-                f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n\n"
+                f"{machine_scope_line}\n"
                 "HARD CONTRACT:\n"
                 "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
                 "- Research/enrich only THIS machine enough to support one Anton-quality 95-120 word DVsU paragraph and one image brief.\n"
+                "- Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine.\n"
+                "- If an excerpt mentions a different aircraft or machine designation, ignore that excerpt.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
@@ -3424,6 +3466,8 @@ class PipelineExecutor:
                     "Add engineering_intent, combat_reality, tradeoff_or_limit, human_detail, role_category, transition_hook, and onscreen_label only when supported by exact excerpts. "
                     "For exact dates, counts, model numbers, specifications, and superlatives like first/only/largest/most/never, return matching evidence segments from two independent source_url values when the verified excerpt package contains them. "
                     "If only one source supports a high-risk exact fact, prefer a qualitative claim from a better-supported slot instead of making that fact central to the card. "
+                    "Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine. "
+                    "If an excerpt mentions a different aircraft or machine designation, ignore that excerpt. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url or locator, numeric_tokens, and confidence. "
                     "numeric_tokens must include every number-like token used by claim, including years, model numbers, counts, speeds, ranges, decades like 1940s, and spelled numbers. "
                     "Each source_excerpt must be copied character-for-character from one EXACT_TEXT row in the verified source package below. Do not paraphrase, merge, trim across rows, or synthesize source_excerpt. "
@@ -3754,6 +3798,14 @@ class PipelineExecutor:
         for i, machine in selected_units:
             prev_machine = roster[i - 2] if i > 1 else "None"
             next_machine = roster[i] if i < len(roster) else "None"
+            machine_scope_line = (
+                f"LOCKED SELECTED MACHINE: {machine}\n"
+                if target_machine else f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
+            )
+            neighbor_context = "" if target_machine else (
+                f"PREVIOUS MACHINE: {prev_machine}\n"
+                f"NEXT MACHINE: {next_machine}\n"
+            )
             research_source, research_source_kind = _research_source_for_machine(rp, machine)
             # Anton allows only 4-5 name-openers across a full video. Assign them
             # deterministically so independent calls cannot all default to the
@@ -3767,7 +3819,7 @@ class PipelineExecutor:
                     "a paradox or contradiction",
                     "a consequence or institutional decision",
                     "a date/event or sourced human detail",
-                    "a contrast with the previous machine",
+                    "a documented use or outcome",
                 )
                 opening_brief = f"Do NOT open with the machine name. Open with {opening_modes[(i - 1) % len(opening_modes)]}."
             complete_inventory_mode = bool(
@@ -3850,9 +3902,8 @@ class PipelineExecutor:
                 prompt = (
                     "WRITE ONE ANTON-STYLE PARAGRAPH FROM LOCKED SOURCE SLOTS.\n\n"
                     f"VIDEO TITLE: {title}\n"
-                    f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
-                    f"PREVIOUS MACHINE: {prev_machine}\n"
-                    f"NEXT MACHINE: {next_machine}\n\n"
+                    f"{machine_scope_line}"
+                    f"{neighbor_context}\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
                     "The target movement is identity/origin hook, scale proof, build reality, service/combat reality, one memorable fact, and historical meaning.\n\n"
                     "HARD CONTRACT:\n"
@@ -3867,6 +3918,7 @@ class PipelineExecutor:
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim in the same span or remove it.\n"
                     "- For facts supported by only one evidence ID, prefer qualitative phrasing over exact dates/counts. If you keep a single-source number, date, or superlative, the paragraph span itself must say approximately, around, roughly, estimated, about, claimed, at least, more than, or between.\n"
                     "- Do not mention engine counts, spectator counts, runway lengths, successor model numbers, final-flight dates, or scrapping dates unless they are essential to the story and fully supported by the same claim_map row.\n"
+                    "- Do not mention any other aircraft or machine designation. This is one machine, one research card, one script block.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
                     "- Numbers may be numerals or spelled words, but every number must map to numeric_tokens/source_excerpt in the selected evidence.\n"
@@ -3895,19 +3947,20 @@ class PipelineExecutor:
                     "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
                     f"VIDEO TITLE: {title}\n"
                     f"VIDEO THESIS / ARC: {video_thesis}\n"
-                    f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
-                    f"PREVIOUS MACHINE: {prev_machine}\n"
-                    f"NEXT MACHINE: {next_machine}\n\n"
+                    f"{machine_scope_line}"
+                    f"{neighbor_context}\n"
                     "HARD CONTRACT:\n"
                     "- Return exactly ONE paragraph, 95-120 words inclusive. A 90-word result must be expanded.\n"
                     "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, or JSON.\n"
                     "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
+                    "- Do not mention any other aircraft or machine designation.\n"
                     f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
                     "- Include the locked machine designation/name naturally.\n"
                     f"- OPENING ASSIGNMENT: {opening_brief}\n"
                     f"{structure_brief}"
                     "- Documentary authority: calm, precise, spoken, and specific. No hype, generic praise, Wikipedia opening, list writing, or spec dump.\n"
-                    "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n\n"
+                    + ("" if target_machine else "- Bridge naturally from the previous machine when useful, but never say 'next,' 'moving on,' or announce the list.\n")
+                    + "\n"
                     f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
                 )
                 paragraph = await anthropic_client.generate(
@@ -3932,6 +3985,7 @@ class PipelineExecutor:
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim in the same span or remove it. "
                         "For facts supported by only one evidence ID, prefer qualitative phrasing over exact dates/counts. If you keep a single-source number, date, or superlative, the paragraph span itself must say approximately, around, roughly, estimated, about, claimed, at least, more than, or between. "
                         "Do not mention engine counts, spectator counts, runway lengths, successor model numbers, final-flight dates, or scrapping dates unless they are essential to the story and fully supported by the same claim_map row. "
+                        "Do not mention any other aircraft or machine designation; this repair is still one machine, one research card, one script block. "
                         "Use at most 5 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: origin/range, one scale proof, one performance or service reality, and one meaning proof. "
@@ -3961,6 +4015,7 @@ class PipelineExecutor:
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         "Return exactly ONE spoken paragraph, 95-120 words inclusive. Expand any result below 95 and cut any result above 120. "
                         "No markdown/labels. Include the locked designation/name. Use only the same research source. "
+                        "Do not mention any other aircraft or machine designation. "
                         "Preserve the engineering thesis, one surprising fact, and a clean final irony/reversal; cut secondary specs and timeline filler.\n\n"
                         "The rejected draft is deliberately hidden so you do not preserve its structure or fact density. Start over from this research source.\n\n"
                         f"RESEARCH SOURCE:\n{research_source}"
