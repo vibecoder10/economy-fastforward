@@ -2206,6 +2206,9 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "bracketed production note",
         "meta/commentary",
         "must be exactly one paragraph",
+        "raw numeric digit",
+        "written unit abbreviation",
+        "semicolon",
     ]
     rhythm_warnings = [
         "three consecutive long sentences",
@@ -2311,6 +2314,13 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "clean" if not any(token in warning_text for token in catalog_warnings) else "catalog pattern flagged",
         ),
     ]
+    if warnings:
+        checks.append(check(
+            "validator_warnings",
+            "Validator warnings",
+            False,
+            "; ".join(str(item) for item in warnings[:3])[:240],
+        ))
     if isinstance(reference_benchmark, dict):
         try:
             benchmark_words = int(reference_benchmark.get("word_count") or 0)

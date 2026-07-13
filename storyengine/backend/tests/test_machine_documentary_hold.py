@@ -1576,6 +1576,48 @@ def test_anton_preview_quality_audit_flags_voiceover_artifacts():
     assert voiceover_check["detail"] == "production/meta artifact flagged"
 
 
+def test_anton_preview_quality_audit_flags_spoken_unit_warnings():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    paragraph, _warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit(
+        "B-52",
+        plan,
+        bundle,
+        paragraph,
+        ["paragraph uses written unit abbreviation(s); spell out for voiceover: mph -> miles per hour"],
+    )
+    voiceover_check = next(check for check in audit["checks"] if check["name"] == "clean_voiceover")
+    validator_check = next(check for check in audit["checks"] if check["name"] == "validator_warnings")
+
+    assert audit["passed"] is False
+    assert voiceover_check["passed"] is False
+    assert validator_check["passed"] is False
+    assert "mph -> miles per hour" in validator_check["detail"]
+
+
+def test_anton_preview_quality_audit_never_passes_with_uncategorized_warning():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    paragraph, _warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    audit = pe._anton_preview_quality_audit(
+        "B-52",
+        plan,
+        bundle,
+        paragraph,
+        ["paragraph introduced unsupported designation(s): B47"],
+    )
+    validator_check = next(check for check in audit["checks"] if check["name"] == "validator_warnings")
+
+    assert audit["passed"] is False
+    assert validator_check["passed"] is False
+    assert "unsupported designation" in validator_check["detail"]
+
+
 def test_anton_preview_quality_audit_flags_flat_spoken_rhythm():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
