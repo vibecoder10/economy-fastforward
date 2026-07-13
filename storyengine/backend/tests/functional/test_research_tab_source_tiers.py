@@ -136,6 +136,9 @@ def test_research_tab_counts_only_verified_machine_cards():
     text = _research_tab().read_text()
 
     assert "function sourcePackageForMachine" in text
+    assert "const rows = Array.isArray(packages) ? packages : Object.entries(packages).map" in text
+    assert "const candidate = Array.isArray(packages) ? row : row.value" in text
+    assert "normalizedUnitCode(rawKey) === key" in text
     assert "const verifiedMachineResearchCount = useMemo" in text
     assert "machineResearchCardReady(card, label, sourcePackage)" in text
     assert "const sourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label)" in text

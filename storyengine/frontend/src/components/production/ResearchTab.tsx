@@ -546,14 +546,25 @@ function machineResearchCardReady(card: any, machine: string = "", sourcePackage
 }
 
 function sourcePackageForMachine(packages: any, machine: string): any | null {
-  if (!packages || typeof packages !== "object" || Array.isArray(packages) || !machine) return null;
+  if (!packages || typeof packages !== "object" || !machine) return null;
   const key = normalizedUnitCode(machine);
-  if (key && packages[key]) return packages[key];
-  return Object.values(packages).find((candidate: any) => {
-    const packageMachine = String(candidate?.machine || "");
-    const packageKey = String(candidate?.machine_key || "");
-    return normalizedUnitCode(packageMachine) === key || normalizedUnitCode(packageKey) === key;
-  }) || null;
+  if (!Array.isArray(packages) && key && packages[key]) return packages[key];
+  const rows = Array.isArray(packages) ? packages : Object.entries(packages).map(([rawKey, value]) => ({ rawKey, value }));
+  for (const row of rows) {
+    const rawKey = Array.isArray(packages) ? "" : String(row.rawKey || "");
+    const candidate = Array.isArray(packages) ? row : row.value;
+    if (!candidate || typeof candidate !== "object") continue;
+    const packageMachine = String(candidate.machine || "");
+    const packageKey = String(candidate.machine_key || "");
+    if (
+      normalizedUnitCode(rawKey) === key
+      || normalizedUnitCode(packageMachine) === key
+      || normalizedUnitCode(packageKey) === key
+    ) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
