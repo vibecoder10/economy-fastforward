@@ -888,6 +888,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "paragraph_words": "95-120",
             "maximum_numerical_details": 8,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
+            "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
             "conclusion_rule": "final sentence is editorial synthesis from the assembled paragraph only; no new sourced meaning beat, dates, specs, or numbers",
             "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
         },
@@ -1050,6 +1051,14 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append("paragraph used evidence outside the locked Anton slots: " + ", ".join(unknown_ids))
 
     covered_roles = {role_by_id[item] for item in used_ids if item in role_by_id}
+    memorable_ids = [
+        evidence_id
+        for slot in plan.get("slots", [])
+        if str(slot.get("slot") or "") == "memorable_fact"
+        for evidence_id in (slot.get("evidence_ids") or [])
+    ]
+    if memorable_ids and not any(evidence_id in used_ids for evidence_id in memorable_ids):
+        warnings.append("paragraph must use sourced memorable_fact when the story plan provides one")
     missing_required = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
     if missing_required:
         warnings.append("paragraph missing required Anton slot evidence: " + ", ".join(missing_required))
@@ -3851,8 +3860,9 @@ class PipelineExecutor:
                     "- Use 4-6 sentences and no more than 5 factual story beats total. Each sentence should do one clear job, not carry a list.\n"
                     "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, or historical meaning understandable.\n"
                     "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural Anton micro-hook, not a manufactured twist.\n"
-                    "- Do not inventory dimensions, engines, payload, speed, range, dates, crew features, and legacy. Never summarize every field in the research card.\n"
-                    "- Prefer clean spoken history over technical completeness. A surprising detail, engineering thesis, or punchline is optional and must be cut if it crowds the story.\n"
+                    "- Do not inventory every dimension, engine, payload, speed, range, date, crew feature, and legacy field. Select the 2-4 technical facts that prove the decision, tradeoff, or reality.\n"
+                    "- Use sourced memorable_fact when the plan provides it, folded into one of the four evidence-backed sentences. Do not add a separate trivia sentence.\n"
+                    "- Prefer clean spoken history over technical completeness, but the paragraph still needs a concrete engineering thesis and a final line that lands.\n"
                 )
             else:
                 structure_brief = (
@@ -3870,7 +3880,8 @@ class PipelineExecutor:
                     "Silently cherry-pick only the details needed for one clear narrative: problem, decision, tradeoff, reality, and a paragraph-derived landing line. Omission is a feature. "
                     "Target 105-110 words and 4-6 sentences. Use no more than six factual story beats. Never list research-card fields. "
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
-                    "A surprising fact, thesis connection, technical explanation, paradox, irony, and punchline are all optional. They never outrank brevity, clarity, or natural spoken rhythm. "
+                    "Use a sourced memorable_fact when the story plan provides one, but merge it into the strongest required beat instead of adding trivia. "
+                    "The final line must land as a verdict, paradox, irony, or reversal; brevity decides which secondary facts to cut, not whether the paragraph has a point. "
                     "Count the finished paragraph before returning it. If it exceeds 110 words, remove the least important fact rather than compressing more facts into longer sentences."
                 )
             story_distiller_system_prompt = (
@@ -3930,6 +3941,7 @@ class PipelineExecutor:
                     "- Target 105-110 words. If you are above 110 words, remove the least important sourced detail instead of compressing more facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
+                    "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
                     "- The final sentence is editorial synthesis from the assembled paragraph only. It may be omitted from claim_map if it contains no new facts.\n"
                     "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
                     "- Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when the plan contains them; otherwise hedge the claim or remove it.\n"
@@ -3941,7 +3953,7 @@ class PipelineExecutor:
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
-                    "- Include a sourced memorable_fact only when it strengthens one of the four beats. No orphan facts.\n"
+                    "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
                     "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
                     "- onscreen_label must be empty unless onscreen_label evidence or sourced role/build/date slots support it.\n"
                     "- No citations, headings, markdown, commentary, hype, or list transitions.\n\n"
@@ -3994,6 +4006,7 @@ class PipelineExecutor:
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
                         "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
+                        "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only; it may be omitted from claim_map if it contains no new facts. "
                         "Exact numbers, specifications, production counts, dates, and superlative terms must cite two independent evidence IDs when available; otherwise hedge the claim or remove it. "
                         "Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "

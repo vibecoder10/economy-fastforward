@@ -18,6 +18,11 @@
 
 The paragraph is still one natural 95-120 word unit. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
+Anton's desktop writing standards add two quality locks to this formula:
+
+- Every paragraph needs one memorable sourced fact for serious enthusiasts. This is not a fifth required research sentence. If a `memorable_fact` excerpt exists, the compiler folds it into the strongest of the four evidence-backed beats.
+- Technical specifications are allowed when they prove the decision, tradeoff, or reality. The compiler should select the 2-4 useful technical facts instead of either dumping every spec or stripping the paragraph until it loses the Anton inventory feel.
+
 ## First Three Machines Broken Into Reusable Slots
 
 | Machine | Original problem | Engineering decision | Tradeoff | Reality | Optional memorable fact | Paragraph-derived landed line |
@@ -36,6 +41,8 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 - Optional when directly sourced: `memorable_fact`, `role_category`, `human_detail`, `historical_meaning`, `transition_hook`, `onscreen_label`, or narrow context slots
 
 Do not research or pre-write a standalone "meaning" beat. The final sentence is editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.
+
+`memorable_fact` remains optional at the research-card level because the system must not invent a surprising detail. Once research has saved one, it becomes required at the script level and must be used inside one required beat, not as disconnected trivia.
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.
 
@@ -74,6 +81,7 @@ Validation requires:
 - `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
 - claim-map spans copied exactly from the paragraph
 - required Anton evidence slots covered: `original_problem`, `engineering_decision`, `tradeoff`, `reality`
+- sourced `memorable_fact` used when the story plan provides one
 - final sentence is a paragraph-derived conclusion, not a researched `historical_meaning` beat
 - paragraph and each claim-map span use only numbers supported by their evidence IDs
 - exact numbers, specifications, dates, production counts, and superlatives either cite two independent sources or are hedged/removed

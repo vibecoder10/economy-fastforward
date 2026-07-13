@@ -32,17 +32,17 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         sentences[index] = sentences[index].rstrip(".") + " clear."
         fill_index += 1
     ids = [
-        "E-PROBLEM",
-        "E-DECISION",
-        "E-TRADEOFF",
-        "E-REALITY",
+        ["E-PROBLEM"],
+        ["E-DECISION"],
+        ["E-TRADEOFF"],
+        ["E-REALITY", "E-MEMORABLE"],
     ]
     return json.dumps({
         "editorial_thesis": f"{machine} mattered because its design promise had to survive real operating limits.",
         "paragraph": " ".join(sentences),
         "claim_map": [
-            {"slot": slot, "span": sentence, "used_evidence_ids": [evidence_id]}
-            for slot, sentence, evidence_id in zip(
+            {"slot": slot, "span": sentence, "used_evidence_ids": evidence_ids}
+            for slot, sentence, evidence_ids in zip(
                 ["original_problem", "engineering_decision", "tradeoff", "reality"],
                 sentences,
                 ids,
@@ -440,6 +440,7 @@ def test_story_plan_locks_research_into_anton_slots():
     assert plan["contract"]["maximum_numerical_details"] == 8
     assert "engineering decision" in plan["contract"]["movement"]
     assert "single engineering decision" in plan["contract"]["editorial_thesis"]
+    assert "memorable_fact" in plan["contract"]["memorable_fact_rule"]
     assert "paragraph-derived conclusion" in plan["contract"]["movement"]
     assert "no new sourced meaning beat" in plan["contract"]["conclusion_rule"]
 
@@ -505,6 +506,18 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
     assert [row["used_evidence_ids"][0] for row in bundle["claim_map"]] == [
         "E-PROBLEM", "E-DECISION", "E-TRADEOFF", "E-REALITY"
     ]
+    assert "E-MEMORABLE" in bundle["claim_map"][3]["used_evidence_ids"]
+
+
+def test_story_paragraph_validator_requires_available_memorable_fact():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["claim_map"][3]["used_evidence_ids"] = ["E-REALITY"]
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("must use sourced memorable_fact" in warning for warning in warnings)
 
 
 def test_story_paragraph_validator_requires_editorial_thesis():
@@ -889,6 +902,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     for required_slot in ["original_problem", "engineering_decision", "tradeoff", "reality"]:
         assert required_slot in fake_anthropic.prompts[0]
     assert "original_problem, engineering_decision, tradeoff, and reality" in fake_anthropic.prompts[0]
+    assert "at least one claim_map row must use a memorable_fact evidence ID" in fake_anthropic.prompts[0]
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
     assert "95-120 words, 4-6 natural sentences" in fake_anthropic.prompts[0]
@@ -900,12 +914,14 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
+    assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
     assert "28 words or fewer" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("You are a source-grounded Anton/DVsU paragraph compiler")
     assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
     assert "Omission is a feature" in fake_anthropic.system_prompts[0]
+    assert "Use a sourced memorable_fact when the story plan provides one" in fake_anthropic.system_prompts[0]
     assert "LOCKED STORY PLAN" in fake_anthropic.prompts[0]
     assert "rejected draft is hidden" in fake_anthropic.prompts[1]
 
