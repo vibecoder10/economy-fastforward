@@ -14,9 +14,10 @@
 3. Build reality: prototype count or production scale.
 4. Service reality: what the machine actually did, including combat or non-combat reality when important.
 5. Memorable fact: one sourced fact serious viewers are unlikely to know, used only if it supports the engineering story.
-6. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
+6. Editorial thesis: the single engineering decision, tradeoff, or contrast that tells the writer why these facts belong together.
+7. Paragraph-derived conclusion: a short landed final sentence based only on the assembled paragraph, not a pre-researched meaning beat.
 
-The paragraph is still one natural 95-120 word unit. The internal structure is not a visible four-beat scaffold.
+The paragraph is still one natural 95-120 word unit. The internal structure is not a visible four-beat scaffold, and the saved `editorial_thesis` is not narration. It is the compiler's required declaration that the paragraph is about an engineering decision, not a catalog entry.
 
 ## First Three Machines Broken Into Reusable Slots
 
@@ -54,6 +55,7 @@ The script preview writer returns JSON:
 
 ```json
 {
+  "editorial_thesis": "single engineering decision or contrast",
   "paragraph": "final spoken narration",
   "claim_map": [
     {
@@ -70,6 +72,7 @@ Validation requires:
 
 - one paragraph, 95-120 words, 4-6 sentences
 - locked machine designation present
+- `editorial_thesis` present, specific, 6-26 words, and centered on an engineering decision, tradeoff, or contrast
 - claim-map spans copied exactly from the paragraph
 - required Anton evidence slots covered
 - final sentence is a paragraph-derived conclusion, not a researched `historical_meaning` beat

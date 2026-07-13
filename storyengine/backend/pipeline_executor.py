@@ -884,9 +884,10 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
         "evidence_slot_roles": role_by_id,
         "contract": {
             "paragraph_shape": "one Anton/DVsU paragraph, 4-6 natural sentences",
-            "movement": "evidence-backed identity/scale/build/service/memorable story -> short paragraph-derived conclusion",
+            "movement": "one declared engineering decision/contrast -> evidence-backed identity/scale/build/service/memorable story -> short paragraph-derived conclusion",
             "paragraph_words": "95-120",
             "maximum_numerical_details": 8,
+            "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
             "conclusion_rule": "final sentence is editorial synthesis from the assembled paragraph only; no new sourced meaning beat, dates, specs, or numbers",
             "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
         },
@@ -918,6 +919,11 @@ def _parse_machine_story_sentences(raw: str) -> dict:
             if isinstance(parsed.get(key), list):
                 parsed["claim_map"] = parsed[key]
                 break
+    if not isinstance(parsed.get("editorial_thesis"), str):
+        for key in ("engineering_decision", "throughline", "contrast_axis"):
+            if isinstance(parsed.get(key), str):
+                parsed["editorial_thesis"] = parsed[key]
+                break
     return parsed
 
 
@@ -931,6 +937,22 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     if not paragraph:
         return "", ["story distiller must return a paragraph string"]
+
+    editorial_thesis = " ".join(str(bundle.get("editorial_thesis") or "").split())
+    if not editorial_thesis:
+        warnings.append("story distiller must declare editorial_thesis for the machine's engineering decision or contrast")
+    else:
+        thesis_wc = _spoken_word_count(editorial_thesis)
+        thesis_lower = editorial_thesis.lower()
+        if thesis_wc < 6 or thesis_wc > 26:
+            warnings.append(f"editorial_thesis word count {thesis_wc} outside 6-26 range")
+        if re.search(r"\b(?:this|the)\s+(?:machine|aircraft|unit)\s+(?:mattered|was important|was significant)\b", thesis_lower):
+            warnings.append("editorial_thesis is generic; name the specific engineering decision, tradeoff, or contrast")
+        if not re.search(
+            r"\b(?:because|but|despite|instead|rather|decision|chose|choice|balanced|trade|traded|tradeoff|tension|contrast|proved|validated|failed|solved|created|answered|sacrificed|compromise|consequence|outpaced|survived|needed)\b",
+            thesis_lower,
+        ):
+            warnings.append("editorial_thesis must state a concrete engineering decision, tradeoff, or contrast")
 
     evidence_by_id: dict[str, dict] = {}
     role_by_id: dict[str, str] = {}
@@ -3888,7 +3910,8 @@ class PipelineExecutor:
                     "The target movement is sourced identity/origin hook, scale proof, build reality, service/combat reality, one memorable fact, then one paragraph-derived conclusion.\n\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
-                    '{"paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"identity_origin","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
+                    '{"editorial_thesis":"single engineering decision or contrast","paragraph":"...","claim_map":[{"span":"exact paragraph words","slot":"identity_origin","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
+                    "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
                     "- paragraph must be final spoken narration: exactly one paragraph, 95-120 words, 4-6 natural sentences.\n"
                     "- Target 105-110 words. If you are above 110 words, remove the least important sourced detail instead of compressing more facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
@@ -3953,7 +3976,8 @@ class PipelineExecutor:
                     repair_prompt = (
                         "REBUILD THE ANTON-STYLE PARAGRAPH JSON FROM THE SAME LOCKED STORY PLAN.\n\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
-                        "Return only the exact JSON shape: {\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"identity_origin\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
+                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"paragraph\":\"...\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"identity_origin\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
+                        "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
                         "Write exactly one paragraph, target 105-110 words, absolute range 95-120 words, 4-6 sentences. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering identity_origin, scale_specs, build_reality, service_reality, and memorable_fact. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only; it may be omitted from claim_map if it contains no new facts. "

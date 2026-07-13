@@ -40,6 +40,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "E-MEMORABLE",
     ]
     return json.dumps({
+        "editorial_thesis": f"{machine} mattered because its design promise had to survive real operating limits.",
         "paragraph": " ".join(sentences),
         "claim_map": [
             {"slot": slot, "span": sentence, "used_evidence_ids": [evidence_id]}
@@ -442,6 +443,8 @@ def test_story_plan_locks_research_into_anton_slots():
     assert by_slot["historical_meaning"] == ["E-MEANING"]
     assert "must not enter the plan" not in json.dumps(plan)
     assert plan["contract"]["maximum_numerical_details"] == 8
+    assert "engineering decision" in plan["contract"]["movement"]
+    assert "single engineering decision" in plan["contract"]["editorial_thesis"]
     assert "paragraph-derived conclusion" in plan["contract"]["movement"]
     assert "no new sourced meaning beat" in plan["contract"]["conclusion_rule"]
 
@@ -507,6 +510,25 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
     assert [row["used_evidence_ids"][0] for row in bundle["claim_map"]] == [
         "E-IDENTITY", "E-SCALE", "E-BUILD", "E-SERVICE", "E-MEMORABLE"
     ]
+
+
+def test_story_paragraph_validator_requires_editorial_thesis():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle.pop("editorial_thesis", None)
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any("must declare editorial_thesis" in warning for warning in warnings)
+
+    generic_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    generic_bundle["editorial_thesis"] = "This machine mattered."
+
+    _paragraph, generic_warnings = pe._validate_machine_story_sentences("B-52", plan, generic_bundle)
+
+    assert any("editorial_thesis is generic" in warning for warning in generic_warnings)
+    assert any("must state a concrete engineering decision" in warning for warning in generic_warnings)
 
 
 def test_story_paragraph_validator_allows_unmapped_final_synthesis_without_historical_meaning():
@@ -661,6 +683,7 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
         "Boeing XB-15",
     )
     bundle = {
+        "editorial_thesis": "The XB-15 mattered because size and range outpaced bomber-engine maturity.",
         "paragraph": (
             "The Boeing XB-15 first flew in 1937 as America's experimental leap into long-range strategic bombing. "
             "With a 149-foot wingspan and four 850-horsepower Pratt & Whitney engines, this massive aircraft could carry 2,500 pounds of bombs over 5,130 miles. "
@@ -871,7 +894,8 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "machine-card-source" not in fake_anthropic.prompts[0]
     assert "Identity origin claim grounded in the supplied source" in fake_anthropic.prompts[0]
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
-    assert '"paragraph":"..."' in fake_anthropic.prompts[0]
+    assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[0]
+    assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
     for required_slot in ["identity_origin", "scale_specs", "build_reality", "service_reality", "memorable_fact"]:
         assert required_slot in fake_anthropic.prompts[0]
     assert "identity_origin, scale_specs, build_reality, service_reality, and memorable_fact" in fake_anthropic.prompts[0]
@@ -883,6 +907,7 @@ def test_ninety_word_machine_paragraph_repairs_upward_and_saves_only_repaired_un
     assert "End with a short verdict" in fake_anthropic.prompts[0]
     assert "Numbers may be numerals or spelled words" in fake_anthropic.prompts[0]
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
+    assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
     assert "28 words or fewer" in fake_anthropic.prompts[1]
