@@ -450,11 +450,22 @@ def _verified_machine_source_package_quality_errors(package: Any) -> list[str]:
         for item in candidates
         if str(item.get("source_url") or "").strip() and _source_tier_number(item) <= 3
     }
+    unsupported_capture_methods = sorted({
+        str(item.get("source_capture_method") or "").strip()
+        for item in candidates
+        if str(item.get("source_capture_method") or "").strip()
+        and str(item.get("source_capture_method") or "").strip() not in {"fetched_page", "tavily_raw_content"}
+    })
     errors: list[str] = []
     if len(source_urls) < 2:
         errors.append("Verified source package needs excerpts from at least two distinct source URLs.")
     if not non_caution_urls:
         errors.append("Verified source package needs at least one non-caution source before Claude can write a card.")
+    if unsupported_capture_methods:
+        errors.append(
+            "Verified source package contains unsupported source capture method(s): "
+            + ", ".join(unsupported_capture_methods)
+        )
     return errors
 
 
@@ -579,6 +590,7 @@ def _format_verified_machine_source_package(package: dict) -> str:
             f"SOURCE_TITLE: {item.get('source_title')}",
             f"SOURCE_URL: {item.get('source_url')}",
             f"SOURCE_TIER: {tier} - {tier_label}",
+            f"SOURCE_CAPTURE_METHOD: {item.get('source_capture_method') or 'legacy_unmarked'}",
             f"LOCATOR: {item.get('locator')}",
             f"EXACT_TEXT: {item.get('text')}",
         ])
@@ -2449,9 +2461,11 @@ class PipelineExecutor:
                 seen_urls.add(url)
                 title_text = str(item.get("title") or url).strip()
                 fetched_text = await self._fetch_source_text(client, url)
-                source_text = fetched_text or str(item.get("raw_content") or item.get("content") or "")
+                raw_content = str(item.get("raw_content") or "")
+                source_text = fetched_text or raw_content
                 if not source_text or not _mentions_machine(source_text, machine):
                     continue
+                capture_method = "fetched_page" if fetched_text else "tavily_raw_content"
                 source_id = f"S{len(sources) + 1}"
                 source_hash = _source_text_fingerprint(source_text)
                 source_tier = _source_tier_for_url(url, title_text)
@@ -2462,6 +2476,7 @@ class PipelineExecutor:
                     "source_tier": source_tier["tier"],
                     "source_tier_label": source_tier["label"],
                     "query": item.get("_query"),
+                    "source_capture_method": capture_method,
                     "text_hash": source_hash,
                     "text_chars": len(source_text),
                 })
@@ -2474,6 +2489,7 @@ class PipelineExecutor:
                         "source_url": url,
                         "source_tier": source_tier["tier"],
                         "source_tier_label": source_tier["label"],
+                        "source_capture_method": capture_method,
                         "locator": f"{excerpt_id}; query={item.get('_query')}",
                         "text": excerpt,
                         "text_hash": _source_text_fingerprint(excerpt),

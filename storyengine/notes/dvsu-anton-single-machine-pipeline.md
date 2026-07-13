@@ -43,6 +43,8 @@ The fetch stage uses a cost-bounded eight-query set for the locked machine: offi
 
 The raw source package is checkpointed into `research_payload.machine_raw_source_packages[<machine_key>]` immediately after fetch/verification and before the research-card LLM call. A failed or blocked card generation can therefore still be reviewed from the exact gathered excerpts instead of disappearing with the failed model pass.
 
+New source packages accept excerpt text only from a direct fetched page/PDF or Tavily `raw_content`. Tavily search-result `content` snippets are skipped because they are not reliable enough to serve as exact saved evidence. New excerpts carry `source_capture_method` so the review UI/prompt can distinguish `fetched_page`, `tavily_raw_content`, and legacy unmarked packages.
+
 Cached raw source packages are reused only when their saved `machine_key`/`machine` identity still matches the locked target machine. A package stored under the right JSON key but internally belonging to another machine is ignored for research and rejected for script preview before any paid script call.
 
 A successful selected-machine research pass sets `unit_research_hold_validation.target_machine_passed`, but it does not set the full `unit_research_hold_validation.passed` flag unless the entire locked roster is complete. UI progress and incomplete-research messages likewise count only cards that have a matching ready raw source package, so older legacy cards cannot make the new one-machine proof appear complete.

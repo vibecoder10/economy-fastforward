@@ -133,10 +133,12 @@ def test_verified_source_package_format_exposes_source_tier():
     segments = _evidence_segments()
     segments[0]["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
     package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"][0]["source_capture_method"] = "fetched_page"
 
     formatted = pe._format_verified_machine_source_package(package)
 
     assert "SOURCE_TIER: 4 - Tier 4 caution/general" in formatted
+    assert "SOURCE_CAPTURE_METHOD: fetched_page" in formatted
 
 
 def test_verified_source_package_quality_rejects_single_source_and_caution_only():
@@ -167,6 +169,13 @@ def test_verified_source_package_quality_rejects_single_source_and_caution_only(
     caution_errors = pe._verified_machine_source_package_quality_errors(caution_package)
 
     assert any("non-caution source" in error for error in caution_errors)
+
+    unsupported_capture_package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    unsupported_capture_package["candidate_excerpts"][0]["source_capture_method"] = "tavily_snippet"
+
+    unsupported_errors = pe._verified_machine_source_package_quality_errors(unsupported_capture_package)
+
+    assert any("unsupported source capture method" in error for error in unsupported_errors)
 
 
 def test_verified_source_package_identity_rejects_wrong_machine_metadata():
@@ -206,6 +215,117 @@ def test_verified_source_cache_ignores_wrong_machine_package(monkeypatch):
     assert result["passed"] is False
     assert "Tavily API key is required" in result["errors"][0]
     assert result["machine"] == "Boeing XB-15"
+
+
+def test_source_gathering_skips_tavily_content_snippets(monkeypatch):
+    import httpx
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "results": [
+                    {
+                        "url": "https://example.test/snippet-only",
+                        "title": "Snippet only result",
+                        "content": "The Boeing XB-15 appears in this search-result snippet, but no raw page text was captured.",
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_fetch_source_text(_client, _url):
+        return ""
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(executor, "_fetch_source_text", fake_fetch_source_text)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    assert result["passed"] is False
+    assert result["candidate_excerpts"] == []
+    assert result["sources"] == []
+
+
+def test_source_gathering_tags_tavily_raw_content_fallback(monkeypatch):
+    import httpx
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "results": [
+                    {
+                        "url": "https://example.test/raw-content",
+                        "title": "Raw content result",
+                        "raw_content": (
+                            "The Boeing XB-15 was built as an experimental long-range bomber before available "
+                            "engines could give the huge aircraft the intended performance."
+                        ),
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_fetch_source_text(_client, _url):
+        return ""
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(executor, "_fetch_source_text", fake_fetch_source_text)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    assert result["sources"][0]["source_capture_method"] == "tavily_raw_content"
+    assert result["candidate_excerpts"][0]["source_capture_method"] == "tavily_raw_content"
+    assert "Boeing XB-15" in result["candidate_excerpts"][0]["text"]
 
 
 def test_required_anton_slots_reject_tier_four_only_source_support():
