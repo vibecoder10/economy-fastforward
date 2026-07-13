@@ -81,6 +81,16 @@ def test_script_voice_preview_keeps_failed_reason_visible():
     assert "Preview stopped before a paragraph was generated." in text
 
 
+def test_script_voice_preview_refreshes_saved_video_state():
+    text = _script_voice_tab().read_text()
+    handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]
+
+    assert "const invalidateAll = useCallback" in text
+    assert "queryClient.invalidateQueries({ queryKey: [\"video\", video.id] })" in text
+    assert "setMachinePreview(result.preview);" in handler
+    assert "invalidateAll();" in handler
+
+
 def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     text = _script_voice_tab().read_text()
 
