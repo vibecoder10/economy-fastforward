@@ -551,7 +551,7 @@ _ANTON_SLOT_SPECS = (
     ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced."),
     ("historical_meaning", ("historical_meaning", "legacy", "validated_concept", "engineering_thesis"), "Optional sourced downstream consequence; do not use this as a pre-written conclusion beat."),
     ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
-    ("onscreen_label", ("onscreen_label",), "On-screen label ingredients: name, concise role, build count, and service/date range."),
+    ("onscreen_label", ("onscreen_label",), "On-screen metadata ingredients: full name, concise role, operator or build count, and service/date range; never spoken narration."),
 )
 
 
@@ -1075,7 +1075,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
             "early_human_detail_rule": "for the first three machines, prefer sourced human_detail, named decision, or official finding when available; never invent one",
             "conclusion_rule": "final sentence is editorial synthesis from the assembled paragraph only; no new sourced meaning beat, dates, specs, or numbers",
-            "onscreen_label": "derive only from onscreen_label evidence or sourced role/build/date slots",
+            "onscreen_label": "derive only from onscreen_label evidence or sourced role/operator/build/date slots; metadata for Producer File/on-screen text, never spoken narration",
         },
     }
 
@@ -3924,6 +3924,7 @@ class PipelineExecutor:
                 "- Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence.\n"
                 "- Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind.\n"
                 "- Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when directly supported by exact excerpts.\n"
+                "- onscreen_label is metadata for Producer File/on-screen text, never spoken narration; use only sourced full name, concise role, operator or build count, and service/date range.\n"
                 "- Each claim must be one concise factual proposition, maximum 35 words. A technical claim may bundle 2-4 related specifications only if the source excerpt contains them together and they serve the engineering_decision beat.\n"
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one research slot. Do not write narration or pre-assemble the paragraph.\n"
@@ -3968,6 +3969,7 @@ class PipelineExecutor:
                     "Do not create a pre-written meaning or conclusion beat. historical_meaning is optional only when an exact excerpt states a concrete downstream consequence. "
                     "Prefer SOURCE_TIER 1-2 excerpts. SOURCE_TIER 3 is acceptable when it is the best available support. Never use SOURCE_TIER 4/caution as the sole support for a required slot kind. "
                     "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "
+                    "onscreen_label is metadata for Producer File/on-screen text, never spoken narration; use only sourced full name, concise role, operator or build count, and service/date range. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_url, source_title, locator, numeric_tokens, and confidence. "
                     "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below; source_url and locator must match the same fetched excerpt row. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
@@ -4458,7 +4460,7 @@ class PipelineExecutor:
                     "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
                     "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
                     "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
-                    "- onscreen_label must be empty unless onscreen_label evidence or sourced role/build/date slots support it.\n"
+                    "- onscreen_label is metadata only, not narration. It must be empty unless onscreen_label evidence or sourced role/operator/build/date slots support it.\n"
                     "- No citations, headings, markdown, commentary, hype, or list transitions.\n\n"
                     f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
                 )

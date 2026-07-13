@@ -68,6 +68,8 @@ Research cards use `schema_version: 3` and `evidence_segments` with Anton slot k
 
 Do not research or pre-write a standalone "meaning" beat. The final sentence is editorial synthesis from the already-grounded paragraph and must not add new dates, numbers, events, specs, or sourced claims.
 
+`onscreen_label` is metadata for Producer File/on-screen text, never spoken narration. It may use only sourced full name, concise role, operator or build count, and service/date range. The script paragraph must remain clean voiceover text with no headers, labels, editor notes, thumbnail lines, or visual directions.
+
 `memorable_fact` must not be invented. The research prompt asks for it when exact excerpts support one; the script preview audit will mark the machine as needing review if the story plan has no sourced memorable fact or if the paragraph ignores the one research found.
 
 Each evidence segment must include an exact `source_excerpt`, `source_url`, `locator`, `numeric_tokens`, and `confidence`. Claims are constrained to words and numbers present in the copied excerpt.

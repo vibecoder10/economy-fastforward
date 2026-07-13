@@ -651,6 +651,8 @@ def test_story_plan_locks_research_into_anton_slots():
     assert "memorable_fact" in plan["contract"]["memorable_fact_rule"]
     assert "paragraph-derived conclusion" in plan["contract"]["movement"]
     assert "no new sourced meaning beat" in plan["contract"]["conclusion_rule"]
+    assert "Producer File/on-screen text" in plan["contract"]["onscreen_label"]
+    assert "never spoken narration" in plan["contract"]["onscreen_label"]
 
 
 def test_story_plan_attaches_first_three_anton_benchmark_profile():
@@ -1929,6 +1931,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "never invent one" in prompt
     assert "Be precise or be silent" in prompt
     assert "never pick the higher or more dramatic claim" in prompt
+    assert "onscreen_label is metadata for Producer File/on-screen text, never spoken narration" in prompt
     assert "For machines 1-3, prefer one verified human_detail" in prompt
     assert "Never invent a human account" in prompt
     assert "XB-15 leak" not in prompt
@@ -2349,6 +2352,7 @@ def test_research_card_repair_prompt_requires_source_url_and_locator():
     assert "source_url or locator" not in prompt
     assert "Be precise or be silent" in prompt
     assert "never pick the higher or more dramatic claim" in prompt
+    assert "onscreen_label is metadata for Producer File/on-screen text, never spoken narration" in prompt
 
 
 def test_compact_card_read_merges_partial_rows_in_roster_order_and_tenant_scope(monkeypatch):
