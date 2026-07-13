@@ -235,6 +235,25 @@ def test_script_voice_preview_refreshes_saved_video_state():
     assert "invalidateAll();" in handler
 
 
+def test_script_voice_readiness_button_is_no_spend():
+    text = _script_voice_tab().read_text()
+    handler = text[text.index("const handleMachineReadiness"):text.index("const handleMachinePreview")]
+
+    assert "const machine = previewMachine || machineRosterLabels[0]" in handler
+    assert "checkMachineScriptPreviewReadiness(video.id, machine)" in handler
+    assert "setMachinePreview(previewErrorArtifact(" in handler
+    assert '"readiness_preflight"' in handler
+    assert '"Readiness preflight"' in handler
+    assert "Readiness blocked:" in handler
+    assert "Production script unchanged." in handler
+    assert "runMachineScriptPreview(video.id, machine)" not in handler
+    assert 'runPipelineStage(video.id, "script")' not in handler
+    assert "advanceVideo(" not in handler
+    assert "resetPipeline(" not in handler
+    assert "generateVoice(" not in handler
+    assert "Check readiness" in text
+
+
 def test_script_voice_preview_button_calls_only_isolated_preview_route():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]

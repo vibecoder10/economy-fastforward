@@ -908,6 +908,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [selectedMachine, setSelectedMachine] = useState("");
   const [singleMachineRunning, setSingleMachineRunning] = useState(false);
   const [singlePreviewRunning, setSinglePreviewRunning] = useState(false);
+  const [readinessChecking, setReadinessChecking] = useState(false);
   const [localMachinePreview, setLocalMachinePreview] = useState<MachineScriptPreview | null>(null);
 
   const { message: taskMessage } = useTaskPoller({
@@ -977,6 +978,58 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       toast.error(`Machine research failed: ${(err as Error).message || "Unknown error"}`);
     } finally {
       setSingleMachineRunning(false);
+    }
+  }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
+
+  const handleOneMachineReadiness = useCallback(async () => {
+    setReadinessChecking(true);
+    let machine = selectedMachine || "";
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
+      const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+      machine = selectedMachine || machineLabel(roster[0]);
+      if (!machine) {
+        throw new Error("No locked machine selected.");
+      }
+      const readiness = await checkMachineScriptPreviewReadiness(video.id, machine);
+      if (readiness.research_payload) {
+        queryClient.setQueryData(["video", video.id], (current: any) => (
+          current ? { ...current, research_payload: readiness.research_payload } : current
+        ));
+      }
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      if (!readiness.ready) {
+        const message = readiness.summary || readiness.warnings?.[0] || "Single-machine preview readiness check failed.";
+        setLocalMachinePreview(previewErrorArtifact(
+          readiness.machine || machine,
+          message,
+          readiness.warnings,
+          readiness.scene || 0,
+          "readiness_preflight",
+          "readiness_preflight",
+          "Readiness preflight"
+        ));
+        toast.error(`Readiness blocked: ${message}. Production script unchanged.`);
+        return;
+      }
+      setLocalMachinePreview(null);
+      toast.success(`${readiness.machine || machine} is ready for one-machine script preview.`);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "Unknown error";
+      if (machine) {
+        setLocalMachinePreview(previewErrorArtifact(
+          machine,
+          message,
+          undefined,
+          0,
+          "readiness_preflight",
+          "readiness_preflight",
+          "Readiness preflight"
+        ));
+      }
+      toast.error(`Readiness check failed: ${message}. Production script unchanged.`);
+    } finally {
+      setReadinessChecking(false);
     }
   }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
 
@@ -1458,6 +1511,14 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   disabled={singleMachineRunning || isResearching || taskRunning}
                 >
                   {singleMachineRunning ? "Researching..." : "Research selected"}
+                </ActionButton>
+                <ActionButton
+                  variant="outline"
+                  icon={readinessChecking ? Loader2 : ShieldCheck}
+                  onClick={handleOneMachineReadiness}
+                  disabled={readinessChecking || singlePreviewRunning || isResearching || taskRunning}
+                >
+                  {readinessChecking ? "Checking..." : "Check readiness"}
                 </ActionButton>
                 <ActionButton
                   variant="filled"

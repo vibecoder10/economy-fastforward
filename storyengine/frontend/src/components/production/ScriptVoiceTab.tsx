@@ -1258,6 +1258,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const [approved, setApproved] = useState(false);
   const [previewMachine, setPreviewMachine] = useState("");
   const [previewGenerating, setPreviewGenerating] = useState(false);
+  const [readinessChecking, setReadinessChecking] = useState(false);
   const [machinePreview, setMachinePreview] = useState<MachineScriptPreview | null>(null);
 
   // Voice actions
@@ -2129,6 +2130,53 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     };
   });
 
+  const handleMachineReadiness = async () => {
+    const machine = previewMachine || machineRosterLabels[0];
+    if (!machine) return;
+    setReadinessChecking(true);
+    try {
+      const readiness = await checkMachineScriptPreviewReadiness(video.id, machine);
+      if (readiness.research_payload) {
+        queryClient.setQueryData(["video", video.id], (current: any) => (
+          current ? { ...current, research_payload: readiness.research_payload } : current
+        ));
+      }
+      setPreviewMachine(readiness.machine || machine);
+      invalidateAll();
+      if (!readiness.ready) {
+        const message = readiness.summary || readiness.warnings?.[0] || "Single-machine preview readiness check failed.";
+        setMachinePreview(previewErrorArtifact(
+          readiness.machine || machine,
+          message,
+          readiness.warnings,
+          readiness.scene || 0,
+          "readiness_preflight",
+          "readiness_preflight",
+          "Readiness preflight"
+        ));
+        toast.error(`Readiness blocked: ${message}. Production script unchanged.`);
+        return;
+      }
+      setMachinePreview(null);
+      toast.success(`${readiness.machine || machine} is ready for one-machine script preview.`);
+    } catch (err) {
+      const message = (err as Error).message || "Unknown error";
+      setMachinePreview(previewErrorArtifact(
+        machine,
+        message,
+        undefined,
+        0,
+        "readiness_preflight",
+        "readiness_preflight",
+        "Readiness preflight"
+      ));
+      setPreviewMachine(machine);
+      toast.error(`Readiness check failed: ${message}. Production script unchanged.`);
+    } finally {
+      setReadinessChecking(false);
+    }
+  };
+
   const handleMachinePreview = async () => {
     const machine = previewMachine || machineRosterLabels[0];
     if (!machine) return;
@@ -2238,6 +2286,15 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               >
                 {machineRosterLabels.map((machine: string, i: number) => <option key={machine} value={machine}>{i + 1}. {machine}</option>)}
               </select>
+              <button
+                onClick={handleMachineReadiness}
+                disabled={readinessChecking || previewGenerating}
+                className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                style={{ background: "rgba(255,255,255,.06)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                {readinessChecking ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+                {readinessChecking ? "Checking..." : "Check readiness"}
+              </button>
               <button
                 onClick={handleMachinePreview}
                 disabled={previewGenerating || !activePreviewReady}

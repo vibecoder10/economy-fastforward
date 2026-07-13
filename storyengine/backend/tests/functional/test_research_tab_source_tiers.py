@@ -321,7 +321,8 @@ def test_research_tab_does_not_offer_bulk_machine_research_action():
 
 def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     text = _research_tab().read_text()
-    research_handler = text[text.index("const handleOneMachineResearch"):text.index("const handleOneMachinePreview")]
+    research_handler = text[text.index("const handleOneMachineResearch"):text.index("const handleOneMachineReadiness")]
+    readiness_handler = text[text.index("const handleOneMachineReadiness"):text.index("const handleOneMachinePreview")]
     preview_handler = text[text.index("const handleOneMachinePreview"):text.index("const handleApproveResearch")]
 
     assert "const machine = selectedMachine || machineLabel(roster[0])" in research_handler
@@ -330,6 +331,19 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     assert 'runPipelineStage(video.id, "machine-research")' not in research_handler
     assert "advanceVideo(" not in research_handler
     assert "resetPipeline(" not in research_handler
+
+    assert "machine = selectedMachine || machineLabel(roster[0])" in readiness_handler
+    assert "checkMachineScriptPreviewReadiness(video.id, machine)" in readiness_handler
+    assert "setLocalMachinePreview(previewErrorArtifact(" in readiness_handler
+    assert '"readiness_preflight"' in readiness_handler
+    assert '"Readiness preflight"' in readiness_handler
+    assert "Readiness blocked:" in readiness_handler
+    assert "Production script unchanged." in readiness_handler
+    assert "runMachineScriptPreview(video.id, machine)" not in readiness_handler
+    assert 'runPipelineStage(video.id, "script")' not in readiness_handler
+    assert "advanceVideo(" not in readiness_handler
+    assert "resetPipeline(" not in readiness_handler
+    assert "Check readiness" in text
 
     assert "machine = selectedMachine || machineLabel(roster[0])" in preview_handler
     assert "checkMachineScriptPreviewReadiness(video.id, machine)" in preview_handler
