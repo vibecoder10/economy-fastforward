@@ -222,6 +222,12 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "previewFormulaRows" in text
     assert "machinePreviewPassesAntonGate(result.preview)" in text
     assert "const machinePreviewPassed = machinePreviewPassesAntonGate(activeMachinePreview)" in text
+    assert "function machinePreviewReviewMessages" in text
+    assert "const activePreviewReviewMessages = machinePreviewReviewMessages(activeMachinePreview)" in text
+    assert "preview?.quality_audit?.passed === false && preview?.quality_audit?.summary" in text
+    assert "check && check.passed === false && !check.advisory" in text
+    assert "Review reason" in text
+    assert "activePreviewReviewMessages.map" in text
     assert "Legacy preview missing Anton audit" in text
     assert "const spanMatchesSentence = span && (span === sentence || sentence.includes(span));" in text
     assert "return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));" in text

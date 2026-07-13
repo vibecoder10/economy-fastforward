@@ -207,6 +207,24 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
   );
 }
 
+function machinePreviewReviewMessages(preview: any): string[] {
+  if (!preview) return [];
+  const warningRows = Array.isArray(preview?.warnings)
+    ? preview.warnings.map((warning: any) => String(warning || "").trim()).filter(Boolean)
+    : [];
+  const auditSummary = preview?.quality_audit?.passed === false && preview?.quality_audit?.summary
+    ? [String(preview.quality_audit.summary)]
+    : [];
+  const failedAuditRows = Array.isArray(preview?.quality_audit?.checks)
+    ? preview.quality_audit.checks
+        .filter((check: any) => check && check.passed === false && !check.advisory)
+        .map((check: any) => [check.label || check.name, check.detail].filter(Boolean).join(": "))
+        .map((message: any) => String(message || "").trim())
+        .filter(Boolean)
+    : [];
+  return Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows])).slice(0, 6);
+}
+
 function cardMatchesMachine(card: any, machine: string): boolean {
   return machineLabelMatches(cardLabel(card), machine);
 }
@@ -1977,6 +1995,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     ? activeMachinePreview.claim_bundle.formula_sentences
     : [];
   const machinePreviewPassed = machinePreviewPassesAntonGate(activeMachinePreview);
+  const activePreviewReviewMessages = machinePreviewReviewMessages(activeMachinePreview);
   const previewEvidenceById = (() => {
     const rows: Record<string, {
       slot?: string;
@@ -2199,6 +2218,16 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     </p>
                   </div>
                 )}
+                {!machinePreviewPassed && activePreviewReviewMessages.length > 0 && (
+                  <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider">Review reason</div>
+                    <ul className="mt-1 space-y-1 text-xs leading-5">
+                      {activePreviewReviewMessages.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {activeMachinePreview.paragraph ? (
                   <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{activeMachinePreview.paragraph}</p>
                 ) : (
@@ -2293,7 +2322,6 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     })}
                   </div>
                 )}
-                {!!activeMachinePreview.warnings?.length && <p className="mt-2 text-xs" style={{ color: "var(--orange)" }}>{activeMachinePreview.warnings.join(" · ")}</p>}
               </div>
             )}
           </div>

@@ -124,6 +124,24 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
   );
 }
 
+function machinePreviewReviewMessages(preview: any): string[] {
+  if (!preview) return [];
+  const warningRows = Array.isArray(preview?.warnings)
+    ? preview.warnings.map((warning: any) => String(warning || "").trim()).filter(Boolean)
+    : [];
+  const auditSummary = preview?.quality_audit?.passed === false && preview?.quality_audit?.summary
+    ? [String(preview.quality_audit.summary)]
+    : [];
+  const failedAuditRows = Array.isArray(preview?.quality_audit?.checks)
+    ? preview.quality_audit.checks
+        .filter((check: any) => check && check.passed === false && !check.advisory)
+        .map((check: any) => [check.label || check.name, check.detail].filter(Boolean).join(": "))
+        .map((message: any) => String(message || "").trim())
+        .filter(Boolean)
+    : [];
+  return Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows])).slice(0, 6);
+}
+
 function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
   if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
   if (previews[machine]) return previews[machine] as MachineScriptPreview;
@@ -1102,6 +1120,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     ? selectedMachinePreview.claim_bundle.formula_sentences
     : [];
   const selectedMachinePreviewPassed = machinePreviewPassesAntonGate(selectedMachinePreview);
+  const selectedMachinePreviewReviewMessages = machinePreviewReviewMessages(selectedMachinePreview);
 
   const selectedPreviewEvidenceById = useMemo(() => {
     const rows: Record<string, {
@@ -1493,6 +1512,16 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                       </p>
                     </div>
                   )}
+                  {!selectedMachinePreviewPassed && selectedMachinePreviewReviewMessages.length > 0 && (
+                    <div className="rounded-md px-3 py-2" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider">Review reason</div>
+                      <ul className="mt-1 space-y-1 text-xs leading-5">
+                        {selectedMachinePreviewReviewMessages.map((message) => (
+                          <li key={message}>{message}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {selectedMachinePreview.paragraph ? (
                     <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{selectedMachinePreview.paragraph}</p>
                   ) : (
@@ -1602,10 +1631,6 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                         );
                       })}
                     </div>
-                  )}
-
-                  {!!selectedMachinePreview.warnings?.length && (
-                    <p className="text-xs" style={{ color: "var(--orange)" }}>{selectedMachinePreview.warnings.join(" · ")}</p>
                   )}
                 </div>
               ) : (

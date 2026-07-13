@@ -353,6 +353,12 @@ def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
     assert "selectedPreviewFormulaRows" in text
     assert "machinePreviewPassesAntonGate(result.preview)" in text
     assert "const selectedMachinePreviewPassed = machinePreviewPassesAntonGate(selectedMachinePreview)" in text
+    assert "function machinePreviewReviewMessages" in text
+    assert "const selectedMachinePreviewReviewMessages = machinePreviewReviewMessages(selectedMachinePreview)" in text
+    assert "preview?.quality_audit?.passed === false && preview?.quality_audit?.summary" in text
+    assert "check && check.passed === false && !check.advisory" in text
+    assert "Review reason" in text
+    assert "selectedMachinePreviewReviewMessages.map" in text
     assert "Legacy preview missing Anton audit" in text
     assert "const spanMatchesSentence = span && (span === sentence || sentence.includes(span));" in text
     assert "return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));" in text
