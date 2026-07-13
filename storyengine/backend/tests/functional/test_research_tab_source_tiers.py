@@ -214,8 +214,10 @@ def test_research_tab_shows_raw_source_beat_coverage():
     assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
     assert "requiredSourceTextById" in text
     assert "sourcePackage?.source_slot_coverage" in text
+    assert "sourcePackage?.traceable_source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text
+    assert "sourceSlotEvidenceBySlot(targetExcerpts.filter(sourceCandidateTraceable))" in text
     assert "const selectedSourceCoverageRows = sourceSlotCoverageRows(selectedSourcePackage, selectedMachineLabel)" in text
     assert "selectedSourceCoverageRows.map" in text
     assert 'original_problem: "Problem"' in text

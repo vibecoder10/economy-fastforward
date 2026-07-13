@@ -550,6 +550,10 @@ def _verified_machine_source_package_with_anton_metadata(package: Any, machine: 
         [item for item in hydrated_candidates if isinstance(item, dict)],
         machine,
     )
+    hydrated["traceable_source_slot_coverage"] = _anton_source_slot_coverage(
+        [item for item in hydrated_candidates if _verified_source_candidate_traceable(item)],
+        machine,
+    )
     return hydrated
 
 
@@ -3845,6 +3849,10 @@ class PipelineExecutor:
             "gathered_at": datetime.now(timezone.utc).isoformat(),
         }
         package["source_slot_coverage"] = _anton_source_slot_coverage(candidate_excerpts, machine)
+        package["traceable_source_slot_coverage"] = _anton_source_slot_coverage(
+            [item for item in candidate_excerpts if _verified_source_candidate_traceable(item)],
+            machine,
+        )
         quality_errors = _verified_machine_source_package_quality_errors(package, machine)
         if quality_errors:
             package["passed"] = False

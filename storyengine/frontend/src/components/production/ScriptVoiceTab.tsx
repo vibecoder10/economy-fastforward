@@ -607,13 +607,13 @@ function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
 
 function sourceSlotCoverageRows(sourcePackage: any, machine: string = "") {
   const requiredSlots = REQUIRED_ANTON_SOURCE_SLOTS;
-  const savedCoverage = sourcePackage?.source_slot_coverage;
+  const savedCoverage = sourcePackage?.traceable_source_slot_coverage;
   const savedEvidenceBySlot = savedCoverage && typeof savedCoverage === "object" && !Array.isArray(savedCoverage?.evidence_by_slot)
     ? savedCoverage.evidence_by_slot
     : {};
   const rawExcerpts = Array.isArray(sourcePackage?.candidate_excerpts) ? sourcePackage.candidate_excerpts : [];
   const targetExcerpts = machine ? rawExcerpts.filter((candidate: any) => textMentionsMachine(candidate?.text, machine)) : rawExcerpts;
-  const computedEvidenceBySlot = sourceSlotEvidenceBySlot(targetExcerpts);
+  const computedEvidenceBySlot = sourceSlotEvidenceBySlot(targetExcerpts.filter(sourceCandidateTraceable));
 
   const labelBySlot: Record<string, string> = {
     original_problem: "Problem",

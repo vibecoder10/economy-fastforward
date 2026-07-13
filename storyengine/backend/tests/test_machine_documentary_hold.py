@@ -518,6 +518,7 @@ def test_verified_source_cache_reuses_package_with_review_metadata(monkeypatch):
     executor.tenant_id = "tenant-test"
     package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
     package.pop("source_slot_coverage", None)
+    package.pop("traceable_source_slot_coverage", None)
     for candidate in package["candidate_excerpts"]:
         candidate.pop("anton_slot_hints", None)
     payload = {
@@ -539,8 +540,24 @@ def test_verified_source_cache_reuses_package_with_review_metadata(monkeypatch):
 
     assert result["passed"] is True
     assert result["source_slot_coverage"]["missing_slots"] == []
+    assert result["traceable_source_slot_coverage"]["missing_slots"] == []
     assert result["source_slot_coverage"]["needs_distinct_slot_excerpts"] is False
+    assert result["traceable_source_slot_coverage"]["needs_distinct_slot_excerpts"] is False
     assert result["candidate_excerpts"][0]["anton_slot_hints"]
+
+
+def test_verified_source_metadata_keeps_traceable_coverage_separate():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    package["candidate_excerpts"][0].pop("source_url")
+    package.pop("source_slot_coverage", None)
+    package.pop("traceable_source_slot_coverage", None)
+
+    hydrated = pe._verified_machine_source_package_with_anton_metadata(package, "Boeing XB-15")
+
+    assert hydrated["source_slot_coverage"]["missing_slots"] == []
+    assert "original_problem" in hydrated["traceable_source_slot_coverage"]["missing_slots"]
+    assert "S1-E1" in hydrated["source_slot_coverage"]["evidence_by_slot"]["original_problem"]
+    assert "S1-E1" not in hydrated["traceable_source_slot_coverage"]["evidence_by_slot"].get("original_problem", [])
 
 
 def test_source_gathering_skips_tavily_content_snippets(monkeypatch):
@@ -840,9 +857,18 @@ def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
 
     assert result["passed"] is True
     assert result["source_slot_coverage"]["missing_slots"] == []
+    assert result["traceable_source_slot_coverage"]["missing_slots"] == []
     assert result["source_slot_coverage"]["needs_distinct_slot_excerpts"] is False
+    assert result["traceable_source_slot_coverage"]["needs_distinct_slot_excerpts"] is False
     assert result["source_slot_coverage"]["distinct_slot_excerpt_count"] == 4
+    assert result["traceable_source_slot_coverage"]["distinct_slot_excerpt_count"] == 4
     assert set(result["source_slot_coverage"]["covered_slots"]) == {
+        "engineering_decision",
+        "original_problem",
+        "reality",
+        "tradeoff",
+    }
+    assert set(result["traceable_source_slot_coverage"]["covered_slots"]) == {
         "engineering_decision",
         "original_problem",
         "reality",
