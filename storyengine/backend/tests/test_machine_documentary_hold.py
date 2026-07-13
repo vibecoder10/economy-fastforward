@@ -28,7 +28,7 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
         "Engineering decision claim grounded in the supplied source.",
         "Tradeoff claim grounded in the supplied source.",
         "Reality claim grounded in the supplied source.",
-        "Together, those choices made the machine matter beyond its own service.",
+        "The proof survived the machine.",
     ]
     fill_index = 0
     while pe._spoken_word_count(" ".join(sentences)) < target_words:
@@ -67,8 +67,8 @@ def _problem_opening_story_bundle(machine: str, words_per_sentence: int = 19) ->
         new_span = new_span[:1].upper() + new_span[1:]
     bundle["claim_map"][0]["span"] = new_span
     bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span, 1)
-    old_final = "Together, those choices made the machine matter beyond its own service."
-    new_final = f"Together, those choices made the {machine} matter beyond its own service."
+    old_final = "The proof survived the machine."
+    new_final = f"The proof survived the {machine}."
     bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final, 1)
     bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
     while pe._spoken_word_count(bundle["paragraph"]) < 95:
@@ -1613,7 +1613,7 @@ def test_story_paragraph_validator_requires_five_sentence_formula_order():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
     extra_sentence_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
-    old_final = "Together, those choices made the machine matter beyond its own service."
+    old_final = "The proof survived the machine."
     extra_sentence = "Memorable fact claim grounded in the supplied source."
     extra_sentence_bundle["paragraph"] = extra_sentence_bundle["paragraph"].replace(
         old_final,
@@ -2039,8 +2039,8 @@ def test_first_three_anton_audit_reports_human_detail_advisory():
     human_bundle = copy.deepcopy(bundle)
     human_sentence = "Major William Snow account grounded in the supplied source."
     human_bundle["paragraph"] = human_bundle["paragraph"].replace(
-        "Together, those choices",
-        f"{human_sentence} Together, those choices",
+        "The proof survived",
+        f"{human_sentence} The proof survived",
     )
     human_bundle["claim_map"].append({
         "slot": "human_detail",
@@ -2089,6 +2089,24 @@ def test_story_paragraph_validator_allows_unmapped_final_synthesis_without_histo
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
     assert warnings == []
+
+
+def test_story_paragraph_validator_blocks_generic_final_synthesis_language():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    sentence_parts = [part for part in bundle["paragraph"].split(". ") if part]
+    old_final = sentence_parts[-1]
+    generic_final = "Together, those choices made the machine matter beyond its own service."
+    bundle["paragraph"] = bundle["paragraph"].replace(old_final, generic_final)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    audit = pe._anton_preview_quality_audit("B-52", plan, bundle, bundle["paragraph"], warnings)
+    final_check = next(check for check in audit["checks"] if check["name"] == "landed_final_line")
+
+    assert any("final sentence uses generic summary language" in warning for warning in warnings)
+    assert final_check["passed"] is False
 
 
 def test_story_paragraph_validator_blocks_claim_mapped_final_synthesis():

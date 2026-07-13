@@ -2278,7 +2278,11 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         last_wc = _spoken_word_count(last_sentence)
         if last_wc > 28:
             warnings.append(f"final sentence word count {last_wc} is too long to land cleanly")
-        if re.search(r"\b(in conclusion|overall|to summarize|this shows that)\b", last_sentence.lower()):
+        if re.search(
+            r"\b(in conclusion|overall|to summarize|this shows that|those choices|these choices|beyond its own service)\b"
+            r"|made\s+(?:the\s+)?(?:machine|aircraft|unit)\s+matter\b",
+            last_sentence.lower(),
+        ):
             warnings.append("final sentence uses generic summary language instead of a landed Anton line")
         final_sentence_for_numbers = last_sentence
         for designation in designation_tokens:
