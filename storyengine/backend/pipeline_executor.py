@@ -4062,6 +4062,36 @@ class PipelineExecutor:
             machine_key, json.dumps(source_package), video_id, self.tenant_id, locked_roster_snapshot,
         )
 
+    async def _checkpoint_one_machine_research_result(
+        self,
+        video_id: str,
+        review_cards: list[Any],
+        validation: dict,
+        locked_roster_snapshot: str,
+    ) -> Any:
+        """Persist only the review card array and validation for one-machine research."""
+        import json
+
+        return await execute(
+            """UPDATE videos SET research_payload = jsonb_set(
+                   jsonb_set(
+                     COALESCE(research_payload::jsonb, '{}'::jsonb),
+                     '{unit_research_cards}',
+                     $1::jsonb,
+                     true
+                   ),
+                   '{unit_research_hold_validation}',
+                   $2::jsonb,
+                   true
+               ), updated_at = now()
+               WHERE id = $3 AND tenant_id = $4
+                 AND (
+                     research_payload->'unit_roster' IS NULL
+                     OR research_payload->'unit_roster' = $5::jsonb
+                 )""",
+            json.dumps(review_cards), json.dumps(validation), video_id, self.tenant_id, locked_roster_snapshot,
+        )
+
     @staticmethod
     def _enabled_stages(video: Optional[dict]) -> Optional[list]:
         """The video's per-video stage plan (list of enabled stage keys), or
@@ -4816,13 +4846,13 @@ class PipelineExecutor:
             }
         final_save_result = await execute(
             """UPDATE videos
-               SET research_payload = $1, status = $2, updated_at = now()
-               WHERE id = $3 AND tenant_id = $4
+               SET status = $1, updated_at = now()
+               WHERE id = $2 AND tenant_id = $3
                  AND (
                      research_payload->'unit_roster' IS NULL
-                     OR research_payload->'unit_roster' = $5::jsonb
+                     OR research_payload->'unit_roster' = $4::jsonb
                  )""",
-            _json_one.dumps(payload), original_status, video_id, self.tenant_id, locked_roster_snapshot,
+            original_status, video_id, self.tenant_id, locked_roster_snapshot,
         )
         if self._db_write_missed(final_save_result):
             return {
@@ -5489,16 +5519,24 @@ class PipelineExecutor:
             if target_code:
                 payload["unit_research_hold_validation"]["target_machine"] = machine
                 payload["unit_research_hold_validation"]["target_machine_passed"] = target_machine_passed
-            checkpoint_result = await execute(
-                """UPDATE videos
-                   SET research_payload = $1, updated_at = now()
-                   WHERE id = $2 AND tenant_id = $3
-                     AND (
-                         research_payload->'unit_roster' IS NULL
-                         OR research_payload->'unit_roster' = $4::jsonb
-                     )""",
-                _json_uh.dumps(payload), video_id, self.tenant_id, locked_roster_snapshot,
-            )
+            if target_code:
+                checkpoint_result = await self._checkpoint_one_machine_research_result(
+                    video_id,
+                    payload.get("unit_research_cards") if isinstance(payload.get("unit_research_cards"), list) else [],
+                    payload.get("unit_research_hold_validation") if isinstance(payload.get("unit_research_hold_validation"), dict) else {},
+                    locked_roster_snapshot,
+                )
+            else:
+                checkpoint_result = await execute(
+                    """UPDATE videos
+                       SET research_payload = $1, updated_at = now()
+                       WHERE id = $2 AND tenant_id = $3
+                         AND (
+                             research_payload->'unit_roster' IS NULL
+                             OR research_payload->'unit_roster' = $4::jsonb
+                         )""",
+                    _json_uh.dumps(payload), video_id, self.tenant_id, locked_roster_snapshot,
+                )
             if self._db_write_missed(checkpoint_result):
                 conflict = "persisted unit_roster changed concurrently; stale research checkpoint refused"
                 validation_units[-1] = {"machine": machine, "passed": False, "warnings": [conflict]}

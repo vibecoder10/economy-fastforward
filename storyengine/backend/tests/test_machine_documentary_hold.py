@@ -4492,15 +4492,22 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert result["unit_research_cards"][0] == legacy_xb15_card
     assert result["unit_research_cards"][1] == legacy_b36_card
     assert result["unit_research_cards"][2]["unit"] == "Boeing B-52 Stratofortress"
-    saved_payloads = [
-        json.loads(args[0])
+    broad_payload_writes = [
+        (query, args)
         for query, args in writes
         if "UPDATE videos" in query and "SET research_payload = $1" in query
     ]
-    assert saved_payloads
-    assert saved_payloads[-1]["unit_research_cards"][0] == legacy_xb15_card
-    assert saved_payloads[-1]["unit_research_cards"][1] == legacy_b36_card
-    assert saved_payloads[-1]["unit_research_cards"][2]["unit"] == "Boeing B-52 Stratofortress"
+    assert broad_payload_writes == []
+    targeted_payload_writes = [
+        (query, args)
+        for query, args in writes
+        if "{unit_research_cards}" in query and "{unit_research_hold_validation}" in query
+    ]
+    assert targeted_payload_writes
+    saved_cards = json.loads(targeted_payload_writes[-1][1][0])
+    assert saved_cards[0] == legacy_xb15_card
+    assert saved_cards[1] == legacy_b36_card
+    assert saved_cards[2]["unit"] == "Boeing B-52 Stratofortress"
 
 
 def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(monkeypatch):
@@ -4551,9 +4558,11 @@ def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(mo
     assert result["machine"] == "Boeing XB-15"
     assert result["research_card"] == card
     assert result["research_payload"]["unit_research_hold_validation"]["target_machine_passed"] is True
-    assert json.loads(writes[0][1][0])["unit_research_hold_validation"]["passed"] is False
-    assert "research_payload->'unit_roster' = $5::jsonb" in writes[0][0]
-    assert json.loads(writes[0][1][4]) == roster_names
+    assert "SET status = $1" in writes[0][0]
+    assert "research_payload = $1" not in writes[0][0]
+    assert "research_payload->'unit_roster' = $4::jsonb" in writes[0][0]
+    assert writes[0][1][0] == "ready_for_research_review"
+    assert json.loads(writes[0][1][3]) == roster_names
 
 
 def test_run_one_machine_research_returns_reviewable_payload_when_card_fails(monkeypatch):
@@ -5383,3 +5392,37 @@ def test_raw_source_package_checkpoint_updates_single_machine_cell(monkeypatch):
         "tenant-a",
         '["Boeing XB-15"]',
     )
+
+
+def test_one_machine_research_checkpoint_updates_review_cells(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-a"
+    review_cards = [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]
+    validation = {
+        "passed": False,
+        "target_machine": "Boeing XB-15",
+        "target_machine_passed": True,
+        "units": [{"machine": "Boeing XB-15", "passed": True, "warnings": []}],
+    }
+    captured = {}
+
+    async def fake_execute(query, *args):
+        captured["query"] = query
+        captured["args"] = args
+        return "UPDATE 1"
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+
+    result = asyncio.run(
+        executor._checkpoint_one_machine_research_result(
+            "video-a", review_cards, validation, '["Boeing XB-15"]'
+        )
+    )
+
+    assert result == "UPDATE 1"
+    assert "{unit_research_cards}" in captured["query"]
+    assert "{unit_research_hold_validation}" in captured["query"]
+    assert "SET research_payload = $1" not in captured["query"]
+    assert "research_payload->'unit_roster' = $5::jsonb" in captured["query"]
+    assert json.loads(captured["args"][0]) == review_cards
+    assert json.loads(captured["args"][1]) == validation
