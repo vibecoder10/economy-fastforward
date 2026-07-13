@@ -901,6 +901,120 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
     assert "word count" in result["preview"]["warnings"][0]
 
 
+def test_machine_script_block_route_returns_saved_block(monkeypatch):
+    import routes.pipeline as route
+
+    class FakeExecutor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def run_machine_script_block(self, video_id, machine):
+            return {
+                "status": "completed",
+                "video_id": video_id,
+                "script_block": {
+                    "machine": machine,
+                    "scene": 2,
+                    "paragraph": "Saved paragraph.",
+                    "word_count": 2,
+                    "passed": True,
+                    "saved": True,
+                    "warnings": [],
+                },
+            }
+
+    monkeypatch.setattr(route, "PipelineExecutor", FakeExecutor)
+
+    result = asyncio.run(
+        route.run_machine_script_block(
+            "video-test",
+            route.MachineScriptBlockRequest(machine="Douglas XB-19"),
+            tenant_id="tenant-test",
+        )
+    )
+
+    assert result["script_block"]["saved"] is True
+    assert result["script_block"]["machine"] == "Douglas XB-19"
+
+
+def test_machine_script_block_save_updates_one_scene_and_progress(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_fetch_all(query, *args):
+        assert "FROM scripts" in query
+        assert args == ("video-test", "tenant-test")
+        return [{"scene": 1, "scene_text": "Existing XB-15 paragraph."}]
+
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+
+    transitions = []
+
+    async def fake_transition(video_id, old_status, new_status, source):
+        transitions.append((video_id, old_status, new_status, source))
+
+    def fake_skip(_video, status):
+        return status
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(executor, "_log_transition", fake_transition)
+    monkeypatch.setattr(executor, "_skip_disabled_next", fake_skip)
+
+    result = asyncio.run(
+        executor._save_machine_script_block(
+            video_id="video-test",
+            video={
+                "status": "ready_for_scripting",
+                "script_validation": {
+                    "script_hold": {
+                        "units": [
+                            {
+                                "scene": 1,
+                                "machine": "Boeing XB-15",
+                                "word_count": 104,
+                                "research_source": "compact_editorial_brief",
+                                "passed": True,
+                                "warnings": [],
+                            }
+                        ]
+                    }
+                },
+            },
+            roster=["Boeing XB-15", "Douglas XB-19"],
+            script_block={
+                "machine": "Douglas XB-19",
+                "scene": 2,
+                "paragraph": "Saved XB-19 paragraph.",
+                "word_count": 101,
+                "research_source": "compact_editorial_brief",
+                "passed": True,
+                "warnings": [],
+            },
+            title="Every US Strategic Bomber Ever Built",
+            voice_id="voice-test",
+        )
+    )
+
+    assert result["saved"] is True
+    assert result["new_status"] == "ready_for_voice"
+    assert len(writes) == 1
+    query, args = writes[0]
+    assert "UPDATE scripts" in query
+    assert "INSERT INTO scripts" in query
+    assert args[2] == 2
+    assert args[3] == "Saved XB-19 paragraph."
+    assert args[6] == "Existing XB-15 paragraph.\n\nSaved XB-19 paragraph."
+    validation = json.loads(args[7])
+    assert validation["script_hold"]["passed"] is True
+    assert validation["script_hold"]["completed_count"] == 2
+    assert validation["machine_script_blocks"]["Douglas XB-19"]["saved"] is True
+    assert transitions == [("video-test", "ready_for_scripting", "ready_for_voice", "api")]
+
+
 def test_script_generation_exception_preserves_existing_script_rows(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {

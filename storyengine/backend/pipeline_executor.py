@@ -3608,7 +3608,12 @@ class PipelineExecutor:
         return warnings
 
     async def _run_static_script_hold(
-        self, video_id: str, video: dict, roster: list[str], target_machine: Optional[str] = None
+        self,
+        video_id: str,
+        video: dict,
+        roster: list[str],
+        target_machine: Optional[str] = None,
+        save_target_script: bool = False,
     ) -> dict:
         """DVsU/static-docu script path: one locked machine paragraph at a time.
 
@@ -3913,7 +3918,7 @@ class PipelineExecutor:
                 "warnings": warnings,
             })
             if target_machine:
-                preview = {
+                script_block = {
                     "machine": machine,
                     "scene": i,
                     "paragraph": " ".join(paragraph.split()),
@@ -3924,7 +3929,28 @@ class PipelineExecutor:
                     "research_source": research_source_kind,
                     "story_plan": story_plan,
                     "claim_bundle": bundle,
+                    "saved": False,
                 }
+                if save_target_script and not warnings:
+                    script_block = await self._save_machine_script_block(
+                        video_id=video_id,
+                        video=video,
+                        roster=roster,
+                        script_block=script_block,
+                        title=title,
+                        voice_id=voice_id,
+                    )
+                    await self._log_activity(
+                        bot_name, video_id, "completed",
+                        f"Single-machine script block saved: {machine}",
+                    )
+                    return {"status": "completed", "video_id": video_id, "script_block": script_block}
+                if save_target_script:
+                    await self._log_activity(
+                        bot_name, video_id, "failed",
+                        f"Single-machine script block needs review: {machine}",
+                    )
+                    return {"status": "completed", "video_id": video_id, "script_block": script_block}
                 await execute(
                     """UPDATE videos SET research_payload = jsonb_set(
                            COALESCE(research_payload::jsonb, '{}'::jsonb),
@@ -3934,13 +3960,13 @@ class PipelineExecutor:
                            true
                        ), updated_at = now()
                        WHERE id = $3 AND tenant_id = $4""",
-                    machine, _json_sh.dumps(preview), video_id, self.tenant_id,
+                    machine, _json_sh.dumps(script_block), video_id, self.tenant_id,
                 )
                 await self._log_activity(
                     bot_name, video_id, "completed" if not warnings else "failed",
                     f"Single-machine script preview {'passed' if not warnings else 'needs review'}: {machine}",
                 )
-                return {"status": "completed", "video_id": video_id, "preview": preview}
+                return {"status": "completed", "video_id": video_id, "preview": script_block}
             if warnings:
                 validation = {"script_hold": {"passed": False, "units": validation_units}}
                 await execute(
@@ -4383,6 +4409,149 @@ separate scenes."""
                                  f"Modeled-style script complete ({len(scenes)} scenes, {len(full_script.split())} words)")
         return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}
 
+    async def _save_machine_script_block(
+        self,
+        *,
+        video_id: str,
+        video: dict,
+        roster: list[str],
+        script_block: dict,
+        title: str,
+        voice_id: str,
+    ) -> dict:
+        """Persist one validated machine paragraph as its real script scene."""
+        import json as _json_block
+
+        scene = int(script_block.get("scene") or 0)
+        machine = str(script_block.get("machine") or "").strip()
+        paragraph = " ".join(str(script_block.get("paragraph") or "").split())
+        if scene < 1 or not machine or not paragraph:
+            raise ValueError("Cannot save incomplete machine script block")
+
+        existing_rows = await fetch_all(
+            "SELECT scene, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
+            video_id, self.tenant_id,
+        )
+        scene_texts: dict[int, str] = {}
+        for row in existing_rows or []:
+            try:
+                row_scene = int(row.get("scene") or 0)
+            except Exception:
+                continue
+            row_text = " ".join(str(row.get("scene_text") or "").split())
+            if row_scene > 0 and row_text:
+                scene_texts[row_scene] = row_text
+        scene_texts[scene] = paragraph
+        full_script = "\n\n".join(scene_texts[idx] for idx in sorted(scene_texts))
+
+        existing_validation = video.get("script_validation")
+        try:
+            validation = (
+                _json_block.loads(existing_validation)
+                if isinstance(existing_validation, str) and existing_validation.strip()
+                else (existing_validation or {})
+            )
+        except Exception:
+            validation = {}
+        if not isinstance(validation, dict):
+            validation = {}
+
+        prior_hold = validation.get("script_hold") if isinstance(validation.get("script_hold"), dict) else {}
+        units_by_scene: dict[int, dict] = {}
+        for unit in prior_hold.get("units") or []:
+            if not isinstance(unit, dict):
+                continue
+            try:
+                unit_scene = int(unit.get("scene") or 0)
+            except Exception:
+                continue
+            if unit_scene > 0:
+                units_by_scene[unit_scene] = unit
+        units_by_scene[scene] = {
+            "scene": scene,
+            "machine": machine,
+            "word_count": script_block.get("word_count"),
+            "research_source": script_block.get("research_source"),
+            "passed": True,
+            "warnings": [],
+        }
+        units = [units_by_scene[idx] for idx in sorted(units_by_scene)]
+        passed_scenes = {
+            int(unit.get("scene") or 0)
+            for unit in units
+            if unit.get("passed") is True
+        }
+        all_passed = len(roster) > 0 and all(idx in passed_scenes for idx in range(1, len(roster) + 1))
+        validation["script_hold"] = {
+            "passed": all_passed,
+            "in_progress": not all_passed,
+            "completed_count": len(passed_scenes),
+            "total_count": len(roster),
+            "units": units,
+        }
+        blocks = validation.get("machine_script_blocks")
+        if not isinstance(blocks, dict):
+            blocks = {}
+        saved_block = dict(script_block)
+        saved_block["saved"] = True
+        blocks[machine] = saved_block
+        validation["machine_script_blocks"] = blocks
+
+        new_status = None
+        if all_passed:
+            new_status = self._skip_disabled_next(video, "ready_for_voice")
+
+        if new_status:
+            await execute(
+                """WITH updated AS (
+                       UPDATE scripts
+                          SET scene_text = $4, title = $5, script_status = 'Create',
+                              voice_status = NULL, voice_over_url = NULL,
+                              voice_duration_seconds = NULL, voice_id = $6,
+                              updated_at = now()
+                        WHERE tenant_id = $1 AND video_id = $2 AND scene = $3
+                        RETURNING 1
+                   ), inserted AS (
+                       INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                       SELECT $1, $2, $3, $4, $5, 'Create', $6
+                       WHERE NOT EXISTS (SELECT 1 FROM updated)
+                       RETURNING 1
+                   )
+                   UPDATE videos
+                      SET script = $7, script_validation = $8, status = $9, updated_at = now()
+                    WHERE id = $2 AND tenant_id = $1""",
+                self.tenant_id, video_id, scene, paragraph, title, voice_id,
+                full_script, _json_block.dumps(validation), new_status,
+            )
+            await self._log_transition(video_id, str(video.get("status") or ""), new_status, "api")
+        else:
+            await execute(
+                """WITH updated AS (
+                       UPDATE scripts
+                          SET scene_text = $4, title = $5, script_status = 'Create',
+                              voice_status = NULL, voice_over_url = NULL,
+                              voice_duration_seconds = NULL, voice_id = $6,
+                              updated_at = now()
+                        WHERE tenant_id = $1 AND video_id = $2 AND scene = $3
+                        RETURNING 1
+                   ), inserted AS (
+                       INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                       SELECT $1, $2, $3, $4, $5, 'Create', $6
+                       WHERE NOT EXISTS (SELECT 1 FROM updated)
+                       RETURNING 1
+                   )
+                   UPDATE videos
+                      SET script = $7, script_validation = $8, updated_at = now()
+                    WHERE id = $2 AND tenant_id = $1""",
+                self.tenant_id, video_id, scene, paragraph, title, voice_id,
+                full_script, _json_block.dumps(validation),
+            )
+
+        saved_block["script_hold"] = validation["script_hold"]
+        if new_status:
+            saved_block["new_status"] = new_status
+        return saved_block
+
     async def run_machine_script_preview(self, video_id: str, machine: str) -> dict:
         """Generate one isolated machine paragraph without touching production script rows or status."""
         await self._ensure_initialized()
@@ -4398,6 +4567,24 @@ separate scenes."""
         if not roster:
             return {"status": "failed", "error": "No locked machine roster found"}
         return await self._run_static_script_hold(video_id, video, roster, target_machine=machine)
+
+    async def run_machine_script_block(self, video_id: str, machine: str) -> dict:
+        """Generate and save one validated machine paragraph as script scene state."""
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        await self._load_prompt_overrides(video)
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"status": "failed", "error": "No locked machine roster found"}
+        return await self._run_static_script_hold(
+            video_id,
+            video,
+            roster,
+            target_machine=machine,
+            save_target_script=True,
+        )
 
     async def run_script(self, video_id: str) -> dict:
         """Generate script for a video.

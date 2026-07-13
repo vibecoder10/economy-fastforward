@@ -487,3 +487,8 @@ _After each session, add a one-line summary of what was done and any new lessons
 - Required single-machine script slots are `identity_origin`, `scale_specs`, `build_reality`, `service_reality`, `memorable_fact`, and `historical_meaning`.
 - Anton's desktop writing standard says every paragraph needs one surprising or memorable fact; if verified one-machine research cannot source that, the preview should fail instead of producing a generic catalog paragraph.
 - Keep the validator, research prompt, script prompt, and tests aligned so the model is not asked to cover a slot the code silently treats differently.
+
+### DVsU phase gates: preview is not a Research artifact (2026-07-13)
+- Research phase must only gather, verify, and save selected-machine research cards with exact evidence. Do not run or display script output from Research just because an endpoint exists.
+- Script phase owns one-machine writing. The operator action should be "write/save selected machine script block"; an internal preview/dry-run may exist for developer validation, but product UI should not present it as the script workflow.
+- Saving one machine script block should update only that machine's `scripts.scene_text`, keep script-hold progress in `script_validation`, and advance to voice only after every locked roster machine has passed.

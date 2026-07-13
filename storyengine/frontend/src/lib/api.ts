@@ -687,9 +687,21 @@ export type MachineScriptPreview = {
   };
 };
 
+export type MachineScriptBlock = MachineScriptPreview & {
+  saved?: boolean;
+  script_hold?: Record<string, unknown>;
+  new_status?: string;
+};
+
 export const runMachineScriptPreview = (videoId: string, machine: string) =>
   fetchApi<{ status: string; preview: MachineScriptPreview }>(
     `/api/pipeline/machine-script-preview/${videoId}`,
+    { method: "POST", body: JSON.stringify({ machine }) },
+  );
+
+export const runMachineScriptBlock = (videoId: string, machine: string) =>
+  fetchApi<{ status: string; script_block: MachineScriptBlock }>(
+    `/api/pipeline/machine-script-block/${videoId}`,
     { method: "POST", body: JSON.stringify({ machine }) },
   );
 

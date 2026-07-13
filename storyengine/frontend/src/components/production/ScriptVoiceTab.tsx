@@ -16,10 +16,10 @@ import {
   getDefaultScriptPrompt, rewriteSceneText,
   getDriveScriptStatus, pushScriptToDrive, syncScriptFromDrive,
   setApiKey, getApiKeyStatus, getDialogueMap, getAudioToken,
-  getPipelineTaskStatus, runMachineScriptPreview,
+  getPipelineTaskStatus, runMachineScriptBlock,
 } from "@/lib/api";
 import { API_URL } from "@/lib/env";
-import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview } from "@/lib/api";
+import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptBlock } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -99,6 +99,16 @@ function splitSentences(text: string): string[] {
     .split(/(?<=[.!?\u2014])\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function machineDisplayName(item: any): string {
+  if (typeof item === "string") return item;
+  return [item?.designation, item?.name || item?.unit || item?.machine].filter(Boolean).join(" — ");
+}
+
+function machineRequestName(item: any): string {
+  if (typeof item === "string") return item;
+  return item?.unit || item?.machine || item?.name || machineDisplayName(item);
 }
 
 /** Strip visual style directive lines from scene text for display. */
@@ -502,9 +512,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const [revisionNotes, setRevisionNotes] = useState("");
   const [revisionScope, setRevisionScope] = useState("Minor tweaks");
   const [approved, setApproved] = useState(false);
-  const [previewMachine, setPreviewMachine] = useState("");
-  const [previewGenerating, setPreviewGenerating] = useState(false);
-  const [machinePreview, setMachinePreview] = useState<MachineScriptPreview | null>(null);
+  const [scriptMachine, setScriptMachine] = useState("");
+  const [blockGenerating, setBlockGenerating] = useState(false);
+  const [machineScriptBlock, setMachineScriptBlock] = useState<MachineScriptBlock | null>(null);
 
   // Voice actions
   const [generatingVoiceAll, setGeneratingVoiceAll] = useState(false);
@@ -1216,6 +1226,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     } catch { return {}; }
   })();
   const machineRoster = Array.isArray(researchPayload?.unit_roster) ? researchPayload.unit_roster : [];
+  const machineOptions = machineRoster.map((item: any) => ({
+    label: machineDisplayName(item),
+    value: machineRequestName(item),
+  }));
   const isMachineDocumentary = video.render_mode === "static_docu" && machineRoster.length > 0;
   const scriptHold = parsedScriptValidation?.script_hold || null;
   const researchRosterGate = researchPayload?.unit_roster_validation || null;
@@ -1234,13 +1248,13 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   })();
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
-  const previewClaimMap = Array.isArray(machinePreview?.claim_bundle?.claim_map)
-    ? machinePreview.claim_bundle.claim_map
+  const blockClaimMap = Array.isArray(machineScriptBlock?.claim_bundle?.claim_map)
+    ? machineScriptBlock.claim_bundle.claim_map
     : [];
-  const previewEvidenceById = (() => {
+  const blockEvidenceById = (() => {
     const rows: Record<string, { slot?: string; claim?: string; source_title?: string }> = {};
-    const slots = Array.isArray((machinePreview?.story_plan as any)?.slots)
-      ? (machinePreview?.story_plan as any).slots
+    const slots = Array.isArray((machineScriptBlock?.story_plan as any)?.slots)
+      ? (machineScriptBlock?.story_plan as any).slots
       : [];
     for (const slot of slots) {
       const slotName = String(slot?.slot || "");
@@ -1258,23 +1272,28 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     return rows;
   })();
 
-  const handleMachinePreview = async () => {
-    const machine = previewMachine || machineRoster[0];
+  const handleMachineScriptBlock = async () => {
+    const machine = scriptMachine || machineOptions[0]?.value;
     if (!machine) return;
-    setPreviewGenerating(true);
+    setBlockGenerating(true);
     try {
-      const result = await runMachineScriptPreview(video.id, machine);
-      setMachinePreview(result.preview);
-      setPreviewMachine(machine);
-      if (result.preview.passed) {
-        toast.success(`${machine} preview generated. Production script unchanged.`);
+      const result = await runMachineScriptBlock(video.id, machine);
+      setMachineScriptBlock(result.script_block);
+      setScriptMachine(machine);
+      invalidateAll();
+      if (result.script_block.saved) {
+        await runSplit(video.id);
+        invalidateAll();
+      }
+      if (result.script_block.passed && result.script_block.saved) {
+        toast.success(`${machine} script block saved.`);
       } else {
-        toast.error(`${machine} preview needs review. Production script unchanged.`);
+        toast.error(`${machine} script block needs review.`);
       }
     } catch (err) {
-      toast.error(`Preview failed: ${(err as Error).message}`);
+      toast.error(`Script block failed: ${(err as Error).message}`);
     } finally {
-      setPreviewGenerating(false);
+      setBlockGenerating(false);
     }
   };
 
@@ -1325,47 +1344,47 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           <div className="mx-auto mb-6 max-w-2xl rounded-xl p-4 text-left" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.1)" }}>
             <div className="flex items-center gap-2 mb-1">
               <Wand2 size={16} style={{ color: "var(--turquoise)" }} />
-              <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Single-machine test pass</span>
+              <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Selected machine script block</span>
             </div>
-            <p className="text-xs mb-3" style={{ color: "var(--text-tertiary)" }}>Generate one isolated paragraph for calibration. This does not create scenes, advance the video, or touch the full script.</p>
+            <p className="text-xs mb-3" style={{ color: "var(--text-tertiary)" }}>Generate and save one researched machine paragraph into the script. Continue one machine at a time.</p>
             <div className="flex flex-col sm:flex-row gap-2">
               <select
-                value={previewMachine || machineRoster[0] || ""}
-                onChange={(e) => { setPreviewMachine(e.target.value); setMachinePreview(researchPayload?.machine_script_previews?.[e.target.value] || null); }}
+                value={scriptMachine || machineOptions[0]?.value || ""}
+                onChange={(e) => { setScriptMachine(e.target.value); setMachineScriptBlock(parsedScriptValidation?.machine_script_blocks?.[e.target.value] || null); }}
                 className="flex-1 rounded-lg px-3 py-2 text-sm"
                 style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
               >
-                {machineRoster.map((machine: string, i: number) => <option key={machine} value={machine}>{i + 1}. {machine}</option>)}
+                {machineOptions.map((machine: { label: string; value: string }, i: number) => <option key={`${machine.value}-${i}`} value={machine.value}>{i + 1}. {machine.label}</option>)}
               </select>
               <button
-                onClick={handleMachinePreview}
-                disabled={previewGenerating}
+                onClick={handleMachineScriptBlock}
+                disabled={blockGenerating}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
                 style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
               >
-                {previewGenerating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-                {previewGenerating ? "Generating one..." : machinePreview ? "Retry this machine" : "Generate one machine"}
+                {blockGenerating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                {blockGenerating ? "Writing block..." : machineScriptBlock ? "Rewrite this block" : "Write selected block"}
               </button>
             </div>
-            {machinePreview && (
-              <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreview.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
+            {machineScriptBlock && (
+              <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machineScriptBlock.passed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{machinePreview.machine}</span>
-                  <span className="text-xs font-mono" style={{ color: machinePreview.passed ? "var(--green)" : "var(--orange)" }}>{machinePreview.word_count} words · {machinePreview.passed ? "Passed" : "Needs review"}</span>
+                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{machineScriptBlock.machine}</span>
+                  <span className="text-xs font-mono" style={{ color: machineScriptBlock.passed ? "var(--green)" : "var(--orange)" }}>{machineScriptBlock.word_count} words · {machineScriptBlock.saved ? "Saved" : "Needs review"}</span>
                 </div>
-                <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machinePreview.paragraph}</p>
-                {previewClaimMap.length > 0 && (
+                <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{machineScriptBlock.paragraph}</p>
+                {blockClaimMap.length > 0 && (
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
                       <ShieldCheck size={13} />
                       Evidence map
                     </div>
-                    {previewClaimMap.slice(0, 8).map((row, index) => {
+                    {blockClaimMap.slice(0, 8).map((row, index) => {
                       const evidenceIds = Array.isArray(row.used_evidence_ids)
                         ? row.used_evidence_ids
                         : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
                       const sources = evidenceIds
-                        .map((id) => previewEvidenceById[id]?.source_title || id)
+                        .map((id) => blockEvidenceById[id]?.source_title || id)
                         .filter(Boolean);
                       return (
                         <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
@@ -1380,7 +1399,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     })}
                   </div>
                 )}
-                {!!machinePreview.warnings?.length && <p className="mt-2 text-xs" style={{ color: "var(--orange)" }}>{machinePreview.warnings.join(" · ")}</p>}
+                {!!machineScriptBlock.warnings?.length && <p className="mt-2 text-xs" style={{ color: "var(--orange)" }}>{machineScriptBlock.warnings.join(" · ")}</p>}
               </div>
             )}
           </div>
@@ -1433,6 +1452,27 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           <div className="mt-3 h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,.08)" }}>
             <div className="h-full rounded-full transition-all" style={{ width: `${machineRoster.length ? Math.round(((scriptHold?.units?.filter((unit: any) => unit?.passed).length || 0) / machineRoster.length) * 100) : 0}%`, background: scriptHold?.passed ? "var(--green)" : "var(--orange)" }} />
           </div>
+          {machineResearchGate?.passed && !scriptHold?.passed && (
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <select
+                value={scriptMachine || machineOptions[0]?.value || ""}
+                onChange={(e) => { setScriptMachine(e.target.value); setMachineScriptBlock(parsedScriptValidation?.machine_script_blocks?.[e.target.value] || null); }}
+                className="flex-1 rounded-lg px-3 py-2 text-sm"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                {machineOptions.map((machine: { label: string; value: string }, i: number) => <option key={`${machine.value}-${i}`} value={machine.value}>{i + 1}. {machine.label}</option>)}
+              </select>
+              <button
+                onClick={handleMachineScriptBlock}
+                disabled={blockGenerating}
+                className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+              >
+                {blockGenerating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                {blockGenerating ? "Writing block..." : machineScriptBlock ? "Rewrite selected block" : "Write selected block"}
+              </button>
+            </div>
+          )}
         </GlassCard>
       )}
       {/* Top action bar */}
@@ -1659,7 +1699,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       const rosterEntry = machineRoster[scene.sceneNumber - 1];
                       const holdUnit = scriptHold?.units?.find((unit: any) => Number(unit?.scene) === scene.sceneNumber);
                       const machineName = holdUnit?.machine
-                        || (typeof rosterEntry === "string" ? rosterEntry : rosterEntry?.machine || rosterEntry?.unit || rosterEntry?.title)
+                        || machineDisplayName(rosterEntry)
                         || null;
 
                       return (
