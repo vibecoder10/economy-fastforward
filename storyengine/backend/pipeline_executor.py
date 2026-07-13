@@ -467,6 +467,20 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -
     return candidates
 
 
+def _machine_source_variant_score(excerpts: list[str], machine: str) -> tuple[int, int, int]:
+    """Score a fetched/raw source variant by usable Anton beat coverage."""
+    coverage_candidates = [
+        {"excerpt_id": f"V-E{index}", "text": excerpt}
+        for index, excerpt in enumerate(excerpts or [], start=1)
+    ]
+    coverage = _anton_source_slot_coverage(coverage_candidates, machine)
+    return (
+        len(coverage.get("covered_slots") or []),
+        int(coverage.get("distinct_slot_excerpt_count") or 0),
+        len(excerpts or []),
+    )
+
+
 def _verified_machine_source_package_ready(package: Any) -> bool:
     if not isinstance(package, dict) or package.get("passed") is False:
         return False
@@ -3595,16 +3609,25 @@ class PipelineExecutor:
                 title_text = str(item.get("title") or url).strip()
                 fetched_text = await self._fetch_source_text(client, url)
                 raw_content = str(item.get("raw_content") or "")
-                source_text = ""
-                capture_method = ""
-                if fetched_text and _mentions_machine(fetched_text, machine):
-                    source_text = fetched_text
-                    capture_method = "fetched_page"
-                elif raw_content and _mentions_machine(raw_content, machine):
-                    source_text = raw_content
-                    capture_method = "tavily_raw_content"
-                if not source_text or not _mentions_machine(source_text, machine):
+                source_variants: list[tuple[tuple[int, int, int, int], str, str, list[str]]] = []
+                for capture_method, source_text in (
+                    ("fetched_page", fetched_text),
+                    ("tavily_raw_content", raw_content),
+                ):
+                    if not source_text or not _mentions_machine(source_text, machine):
+                        continue
+                    excerpt_candidates = _sentence_candidates_from_source(source_text, machine, limit=10)
+                    if not excerpt_candidates:
+                        continue
+                    coverage_score = _machine_source_variant_score(excerpt_candidates, machine)
+                    method_priority = 1 if capture_method == "fetched_page" else 0
+                    source_variants.append(((*coverage_score, method_priority), capture_method, source_text, excerpt_candidates))
+                if not source_variants:
                     continue
+                _score, capture_method, source_text, excerpt_candidates = max(
+                    source_variants,
+                    key=lambda row: row[0],
+                )
                 source_id = f"S{len(sources) + 1}"
                 source_hash = _source_text_fingerprint(source_text)
                 source_tier = _source_tier_for_url(url, title_text)
@@ -3619,7 +3642,7 @@ class PipelineExecutor:
                     "text_hash": source_hash,
                     "text_chars": len(source_text),
                 })
-                for excerpt in _sentence_candidates_from_source(source_text, machine, limit=10):
+                for excerpt in excerpt_candidates:
                     excerpt_id = f"{source_id}-E{len([e for e in candidate_excerpts if e.get('source_id') == source_id]) + 1}"
                     candidate_excerpts.append({
                         "excerpt_id": excerpt_id,
