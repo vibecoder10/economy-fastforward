@@ -142,6 +142,22 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "Raw source package needs distinct Anton excerpts" in text
 
 
+def test_research_tab_canonicalizes_legacy_meaning_slots():
+    text = _research_tab().read_text()
+
+    assert "function canonicalAntonSourceSlot" in text
+    assert "function canonicalAntonSourceSlotHints" in text
+    assert '"historical_meaning", "legacy"' in text
+    assert "const hints = canonicalAntonSourceSlotHints(rawHints)" in text
+    assert "? canonicalAntonSourceSlotHints(candidate.anton_slot_hints)" in text
+    assert "? canonicalAntonSourceSlotHints(sourcePackage.traceable_source_slot_coverage.missing_slots)" in text
+    assert "function canonicalEvidenceBySlot" in text
+    assert "const savedEvidenceBySlot = canonicalEvidenceBySlot(savedCoverage?.evidence_by_slot)" in text
+    assert "return canonicalAntonSourceSlot(kind)" in text
+    assert ".anton_slot_hints.map" not in text
+    assert "sourcePackage.traceable_source_slot_coverage.missing_slots.map((slot: any) => String(slot || \"\").trim()).filter(Boolean)" not in text
+
+
 def test_script_voice_tab_blocks_preview_without_authoritative_source():
     text = _script_voice_tab().read_text()
 
@@ -173,6 +189,22 @@ def test_script_voice_tab_blocks_preview_without_authoritative_source():
     assert "function tierFourOnlyAntonSourceSlots" in text
     assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
     assert "Raw source package Tier 4-only Anton slots ·" in text
+
+
+def test_script_voice_tab_canonicalizes_legacy_meaning_slots():
+    text = _script_voice_tab().read_text()
+
+    assert "function canonicalAntonSourceSlot" in text
+    assert "function canonicalAntonSourceSlotHints" in text
+    assert '"historical_meaning", "legacy"' in text
+    assert "const hints = canonicalAntonSourceSlotHints(rawHints)" in text
+    assert "? canonicalAntonSourceSlotHints(candidate.anton_slot_hints)" in text
+    assert "? canonicalAntonSourceSlotHints(sourcePackage.traceable_source_slot_coverage.missing_slots)" in text
+    assert "function canonicalEvidenceBySlot" in text
+    assert "const savedEvidenceBySlot = canonicalEvidenceBySlot(savedCoverage?.evidence_by_slot)" in text
+    assert "return canonicalAntonSourceSlot(kind)" in text
+    assert ".anton_slot_hints.map" not in text
+    assert "sourcePackage.traceable_source_slot_coverage.missing_slots.map((slot: any) => String(slot || \"\").trim()).filter(Boolean)" not in text
 
 
 def test_research_tab_counts_only_verified_machine_cards():
