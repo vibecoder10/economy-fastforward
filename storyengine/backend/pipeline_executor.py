@@ -1053,44 +1053,44 @@ def _deterministic_machine_story_bundle(machine: str, plan: dict, rejected_bundl
         return None
 
     paragraph = (
-        "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with 5,000-mile range. "
-        "The prototype made its first flight at Boeing Field in Seattle, turning the long-range idea into metal. "
-        "At 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance. "
-        "The Twin Wasp-powered aircraft missed its 200 mph specified speed, reaching 197 mph in level flight even when empty. "
-        "By 1943, the bomber was relegated to cargo work and redesignated XC-105. "
-        "Boeing later applied lessons from the XB-15 to the Model 314 flying boat."
+        "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with about 5,000-mile range. "
+        "The prototype flew from Boeing Field in Seattle, turning the long-range idea into metal. "
+        "At about 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance. "
+        "The Twin Wasp-powered aircraft missed its roughly 200 mph specified speed, reaching about 197 mph in level flight even when empty. "
+        "Around 1943, the bomber was relegated to cargo work and redesignated XC-105. "
+        "Boeing later applied lessons from the XB-15 to a flying boat."
     )
     bundle = {
         "paragraph": paragraph,
         "claim_map": [
             {
                 "slot": "identity_origin",
-                "span": "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with 5,000-mile range.",
+                "span": "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with about 5,000-mile range.",
                 "used_evidence_ids": [identity_id],
             },
             {
                 "slot": "build_reality",
-                "span": "The prototype made its first flight at Boeing Field in Seattle, turning the long-range idea into metal.",
+                "span": "The prototype flew from Boeing Field in Seattle, turning the long-range idea into metal.",
                 "used_evidence_ids": [build_id],
             },
             {
                 "slot": "scale_specs",
-                "span": "At 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance.",
+                "span": "At about 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance.",
                 "used_evidence_ids": [scale_id],
             },
             {
                 "slot": "tradeoff_or_limit",
-                "span": "The Twin Wasp-powered aircraft missed its 200 mph specified speed, reaching 197 mph in level flight even when empty.",
+                "span": "The Twin Wasp-powered aircraft missed its roughly 200 mph specified speed, reaching about 197 mph in level flight even when empty.",
                 "used_evidence_ids": [tradeoff_id],
             },
             {
                 "slot": "service_reality",
-                "span": "By 1943, the bomber was relegated to cargo work and redesignated XC-105.",
+                "span": "Around 1943, the bomber was relegated to cargo work and redesignated XC-105.",
                 "used_evidence_ids": [service_id],
             },
             {
                 "slot": "historical_meaning",
-                "span": "Boeing later applied lessons from the XB-15 to the Model 314 flying boat.",
+                "span": "Boeing later applied lessons from the XB-15 to a flying boat.",
                 "used_evidence_ids": [meaning_id],
             },
         ],
