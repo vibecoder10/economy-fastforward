@@ -43,6 +43,33 @@ function normalizedUnitCode(text: string): string {
   return unitCode(text).replace(/[^A-Z0-9]/g, "");
 }
 
+function machineLabelMatches(left: unknown, right: unknown): boolean {
+  const leftText = String(left || "").trim();
+  const rightText = String(right || "").trim();
+  if (!leftText || !rightText) return false;
+  const leftCode = normalizedUnitCode(leftText);
+  const rightCode = normalizedUnitCode(rightText);
+  if (leftCode && rightCode && leftCode === rightCode) return true;
+  return leftText.toLowerCase() === rightText.toLowerCase();
+}
+
+function cardMatchesMachine(card: any, machine: string): boolean {
+  return machineLabelMatches(cardLabel(card), machine);
+}
+
+function previewMatchesMachine(preview: any, machine: string): boolean {
+  return machineLabelMatches(preview?.machine, machine);
+}
+
+function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
+  if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
+  if (previews[machine]) return previews[machine] as MachineScriptPreview;
+  const match = Object.entries(previews).find(([key, preview]: [string, any]) => (
+    machineLabelMatches(key, machine) || previewMatchesMachine(preview, machine)
+  ));
+  return match ? match[1] as MachineScriptPreview : null;
+}
+
 function normalizedSourceText(text: unknown): string {
   return String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -378,12 +405,12 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
 
   const selectedResearchCard = useMemo(() => {
     if (!research || !selectedMachineLabel) return null;
-    return research.unit_research_cards.find((candidate: any) => cardLabel(candidate).toLowerCase() === selectedMachineLabel.toLowerCase()) || null;
+    return research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, selectedMachineLabel)) || null;
   }, [research, selectedMachineLabel]);
 
   const selectedMachinePreview = useMemo(() => {
-    if (localMachinePreview?.machine === selectedMachineLabel) return localMachinePreview;
-    return research?.machine_script_previews?.[selectedMachineLabel] || null;
+    if (localMachinePreview && previewMatchesMachine(localMachinePreview, selectedMachineLabel)) return localMachinePreview;
+    return previewForMachine(research?.machine_script_previews, selectedMachineLabel);
   }, [localMachinePreview, research?.machine_script_previews, selectedMachineLabel]);
 
   const selectedSourcePackage = useMemo(() => {
@@ -784,7 +811,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           <div className="mt-4 space-y-2">
             {research.unit_roster.map((item: any, index: number) => {
               const label = machineLabel(item);
-              const card = research.unit_research_cards.find((candidate: any) => cardLabel(candidate).toLowerCase() === label.toLowerCase());
+              const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
               return (
                 <details key={`${label}-${index}`} className="rounded-lg" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.06)" }}>
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">

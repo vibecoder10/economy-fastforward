@@ -60,3 +60,16 @@ def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
     assert "evidence?.claim" in text
     assert "evidence?.source_excerpt" in text
     assert "evidenceRows.map" in text
+
+
+def test_research_tab_matches_cards_and_previews_by_normalized_machine_code():
+    text = _research_tab().read_text()
+
+    assert "function machineLabelMatches" in text
+    assert "normalizedUnitCode(leftText)" in text
+    assert "normalizedUnitCode(rightText)" in text
+    assert "function cardMatchesMachine" in text
+    assert "cardMatchesMachine(candidate, selectedMachineLabel)" in text
+    assert "function previewForMachine" in text
+    assert "previewMatchesMachine(localMachinePreview, selectedMachineLabel)" in text
+    assert "previewForMachine(research?.machine_script_previews, selectedMachineLabel)" in text
