@@ -102,6 +102,9 @@ def test_script_voice_preview_blocks_without_ready_raw_package():
     assert "function sourceCandidateTraceable" in text
     assert "function untraceableAntonSourceSlots" in text
     assert "const untraceableSlots = untraceableAntonSourceSlots(targetExcerpts)" in text
+    assert "const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable)" in text
+    assert "const traceableEvidenceBySlot = sourceSlotEvidenceBySlot(traceableTargetExcerpts)" in text
+    assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
     assert "Raw source package untraceable Anton slots ·" in text
     assert "function tierFourOnlyAntonSourceSlots" in text
     assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
@@ -137,7 +140,7 @@ def test_script_voice_preview_shows_raw_source_beat_coverage():
     assert "function sourceExcerptTextById" in text
     assert "function sourceSlotEvidenceBySlot" in text
     assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
-    assert "sourceExcerptTextById(targetExcerpts)" in text
+    assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
     assert "requiredSourceTextById" in text
     assert "sourcePackage?.source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text

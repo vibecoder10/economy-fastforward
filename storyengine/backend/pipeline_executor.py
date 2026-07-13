@@ -725,16 +725,16 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         if len(quality_candidates) < 6:
             errors.append("Verified source package needs at least six exact excerpts mentioning the locked machine.")
         coverage = _anton_source_slot_coverage(quality_candidates, machine)
+        traceable_quality_candidates = [
+            item for item in quality_candidates
+            if _verified_source_candidate_traceable(item)
+        ]
+        traceable_coverage = _anton_source_slot_coverage(traceable_quality_candidates, machine)
         missing_slots = coverage.get("missing_slots") or []
         if missing_slots:
             errors.append(
                 "Verified source package needs exact excerpts plausibly covering Anton slot(s): "
                 + ", ".join(missing_slots)
-            )
-        if not missing_slots and coverage.get("needs_distinct_slot_excerpts"):
-            errors.append(
-                "Verified source package needs distinct raw excerpts for each Anton slot: "
-                + ", ".join(coverage.get("required_slots") or [])
             )
         untraceable_slots: list[str] = []
         tier_four_only_slots: list[str] = []
@@ -755,6 +755,11 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
             errors.append(
                 "Verified source package required Anton slot(s) need traceable source_url/locator excerpts: "
                 + ", ".join(sorted(untraceable_slots))
+            )
+        if not missing_slots and not untraceable_slots and traceable_coverage.get("needs_distinct_slot_excerpts"):
+            errors.append(
+                "Verified source package needs distinct raw excerpts for each Anton slot that are traceable: "
+                + ", ".join(traceable_coverage.get("required_slots") or [])
             )
         if tier_four_only_slots:
             errors.append(

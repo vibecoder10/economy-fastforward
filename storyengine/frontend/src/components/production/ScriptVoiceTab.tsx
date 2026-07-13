@@ -550,18 +550,20 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
     if (missingSlots.length > 0) {
       return { ready: false, message: `Raw source package missing Anton slots · ${missingSlots.join(", ")} · preview blocked` };
     }
-    const savedNeedsDistinct = sourcePackage?.source_slot_coverage?.needs_distinct_slot_excerpts === true;
-    const distinctAssignment = distinctAntonSlotAssignment(
-      computedEvidenceBySlot,
-      REQUIRED_ANTON_SOURCE_SLOTS,
-      sourceExcerptTextById(targetExcerpts)
-    );
-    if (savedNeedsDistinct || Object.keys(distinctAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
-      return { ready: false, message: "Raw source package needs distinct Anton excerpts · preview blocked" };
-    }
     const untraceableSlots = untraceableAntonSourceSlots(targetExcerpts);
     if (untraceableSlots.length > 0) {
       return { ready: false, message: `Raw source package untraceable Anton slots · ${untraceableSlots.join(", ")} · preview blocked` };
+    }
+    const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable);
+    const traceableEvidenceBySlot = sourceSlotEvidenceBySlot(traceableTargetExcerpts);
+    const savedNeedsDistinct = sourcePackage?.source_slot_coverage?.needs_distinct_slot_excerpts === true;
+    const distinctAssignment = distinctAntonSlotAssignment(
+      traceableEvidenceBySlot,
+      REQUIRED_ANTON_SOURCE_SLOTS,
+      sourceExcerptTextById(traceableTargetExcerpts)
+    );
+    if (savedNeedsDistinct || Object.keys(distinctAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
+      return { ready: false, message: "Raw source package needs distinct Anton excerpts · preview blocked" };
     }
     const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts);
     if (cautionOnlySlots.length > 0) {

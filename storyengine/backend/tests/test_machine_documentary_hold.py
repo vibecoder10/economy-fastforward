@@ -339,6 +339,31 @@ def test_verified_source_package_quality_uses_traceable_candidates_for_tier_four
     assert any("only with Tier 4/caution excerpts: original_problem" in error for error in errors)
 
 
+def test_verified_source_package_quality_requires_distinct_traceable_slot_excerpts():
+    package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
+    broad_traceable = (
+        "Boeing XB-15 was required for a long-range bomber program, built with "
+        "large wing and engine choices, but underpowered, and later served as a "
+        "World War II transport."
+    )
+    package["candidate_excerpts"][0]["text"] = broad_traceable
+    for index, candidate in enumerate(package["candidate_excerpts"][1:4], start=1):
+        candidate["text"] = [
+            "Boeing XB-15 was required for a long-range bomber program.",
+            "Boeing XB-15 was built with large wing and engine choices.",
+            "Boeing XB-15 was underpowered and later served as a World War II transport.",
+        ][index - 1]
+        candidate.pop("source_url")
+    for index, candidate in enumerate(package["candidate_excerpts"][4:], start=4):
+        candidate["text"] = f"Boeing XB-15 archived source row alpha bravo charlie delta {index}."
+        candidate["source_url"] = f"https://airandspace.si.edu/collection-objects/boeing-xb-15-{index}"
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert not any("need traceable source_url/locator excerpts" in error for error in errors)
+    assert any("distinct raw excerpts for each Anton slot that are traceable" in error for error in errors)
+
+
 def test_verified_source_package_quality_requires_anton_slot_coverage():
     package = _verified_package_for_segments("Boeing XB-15", _evidence_segments())
     for candidate in package["candidate_excerpts"]:

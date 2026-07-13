@@ -130,6 +130,8 @@ The raw source package gate now applies that Tier 4 rule before Claude writes th
 
 Each required Anton beat must also have at least one traceable raw excerpt candidate before card writing: exact text, source URL, locator or excerpt id, and an approved capture method (`fetched_page` or `tavily_raw_content`). Old or malformed rows with useful-looking text cannot unlock a paid research-card call if the later card validator would be unable to cite them.
 
+The distinct-excerpt gate is traceable-only as well. A package cannot satisfy the four-beat formula by using one citeable broad excerpt plus three separate untraceable rows; the required beats must be assignable to distinct raw excerpts that the later card and preview validators can cite.
+
 The desktop research standard's accuracy rule is enforced in the card prompts: be precise or be silent. If exact excerpts conflict or cannot verify a number, date, superlative, or specification, the card must use the more conservative supported wording, hedge it, or omit it rather than choosing the higher or more dramatic claim.
 
 StoryEngine's Research and Script/Voice tabs mirror the backend preview gate before enabling single-machine preview: a matching saved research card plus a ready raw source package with matching machine identity, at least six excerpts, at least two distinct source URLs, at least one non-caution source, and at least one Tier 1-2 primary/authoritative source. Missing-card, thin, wrong-machine, caution-only, or Tier 3-only packages show a blocked badge instead of a misleading ready state. If an older raw package lacks explicit `source_tier`, the UI infers tier from source URL using the same official/museum/caution hierarchy as the backend.
