@@ -84,6 +84,8 @@ All research saves, machine-research saves, and script-preview reads/writes are 
 
 Single-machine preview artifact writes also carry the locked `unit_roster` snapshot and refuse zero-row updates. A missed `machine_script_briefs` or `machine_story_plans` save stops before the paragraph LLM call; a missed `machine_script_previews` save returns failure instead of a false completed preview.
 
+Before either UI panel calls the paid single-machine preview route, it calls `/machine-script-preview-readiness/{video_id}`. That readiness preflight is read-only: it loads the locked roster, compact machine card, raw source package, and deterministic evidence gates, but it must not load prompt overrides, call Claude, look up voice/script rows, write preview artifacts, mutate `scripts`, update `script_validation`, or advance the video. If readiness fails, the UI shows a local `readiness_preflight` review artifact so the operator sees the blocking reason without mistaking it for a paid preview attempt.
+
 Selected-machine preview gates that fail before a paragraph LLM call still save a failed `machine_script_previews[<machine_key>]` artifact when the roster snapshot matches. Missing research cards, missing verified raw source packages, stale card locators, wrong-machine source packages, and story-plan evidence errors therefore appear as reviewable UI audit artifacts with `passed: false`, empty paragraph text, the blocking warning, and a failed `quality_audit` check. They still do not call Claude, mutate `scripts`, update `script_validation`, or advance the video.
 
 Saved `machine_script_briefs` are review aids only and are derived from validated evidence rows. They carry `source_contract: evidence_rows_only`, Anton slots, evidence IDs, copied source excerpts, URLs, locators, and source metadata. They must not contain unsourced top-level card summaries, script beats, visual directions, source notes, or other model-authored prose that could be mistaken for evidence.
@@ -164,7 +166,7 @@ After a selected-machine research or preview run, the API returns the updated `r
 
 The Research and Script/Voice single-machine preview panels both read persisted `machine_script_previews` for the active machine, falling back to local state only for a just-returned preview. This means the proof preview remains visible after refreshes and tab switches. Both panels display the saved `formula_sentences` as a review stack. Each of the first four sentences shows the selected source excerpts from its matching claim-map evidence IDs directly under the sentence, including the raw source slot hints that explain which Anton beat the fetched excerpt was meant to support; the fifth conclusion stays source-free because it is paragraph-derived synthesis only.
 
-If the preview route itself fails before it can return a persisted backend artifact, Research and Script/Voice still build a local `preview_error` artifact with the same failed `quality_audit` shape. That local fallback is only for immediate operator visibility; the persisted backend artifact remains the source of truth whenever the backend save succeeds.
+If the preview route itself fails before it can return a persisted backend artifact, Research and Script/Voice still build a local `preview_error` artifact with the same failed `quality_audit` shape. That local fallback is only for immediate operator visibility; the persisted backend artifact remains the source of truth whenever the backend save succeeds. A blocked readiness preflight uses `readiness_preflight` instead, so the operator can tell the paid preview did not run.
 
 ## Script Contract
 
@@ -224,10 +226,11 @@ For the current proof, only the selected first machine is researched or previewe
 
 1. Deploy only after Ryan approves the live StoryEngine update.
 2. In StoryEngine, run one-machine research for `Boeing XB-15` only if the existing locked research card needs refresh.
-3. Run only the single-machine script preview for `Boeing XB-15`.
-4. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
-5. If the preview returns a failed audit artifact, fix the selected machine's research/source package or compiler rule and rerun only `Boeing XB-15`.
-6. Confirm the saved preview remains visible after switching between Research and Script/Voice; this proves the UI is reading persisted machine artifacts, not only local component state.
-7. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
-8. Do not run broad research or full script generation until the single-machine preview passes the quality bar and Ryan explicitly approves moving to the next machine or full-roster path.
-9. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
+3. Let the StoryEngine UI call the no-spend readiness preflight for `Boeing XB-15`; if it shows `readiness_preflight`, fix the selected card/source package before paying for preview.
+4. Run only the single-machine script preview for `Boeing XB-15` after readiness passes.
+5. Review the returned paragraph, warnings, `claim_map`, and research-card evidence segments in the UI.
+6. If the preview returns a failed audit artifact, fix the selected machine's research/source package or compiler rule and rerun only `Boeing XB-15`.
+7. Confirm the saved preview remains visible after switching between Research and Script/Voice; this proves the UI is reading persisted machine artifacts, not only local component state.
+8. If the preview fails validation, do not save a deterministic fallback; use the audit to adjust the formula or rerun the single-machine step.
+9. Do not run broad research or full script generation until the single-machine preview passes the quality bar and Ryan explicitly approves moving to the next machine or full-roster path.
+10. Move to Machine 2 only after the XB-15 paragraph passes Ryan's quality bar.
