@@ -1630,6 +1630,71 @@ def _timeframe_warnings(
     return warnings
 
 
+def _research_card_contract_warnings(
+    machine: str,
+    card: dict,
+    source_package: Optional[dict] = None,
+    require_source_package: bool = False,
+) -> list[str]:
+    """Shared DVsU one-machine research-card contract before save or spend."""
+    warnings: list[str] = []
+    if not isinstance(card, dict):
+        return ["research card was not an object"]
+    card_unit = _unit_display_name(
+        card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+    )
+    if not card_unit or _normalized_unit_code(card_unit) != _normalized_unit_code(machine):
+        warnings.append(f"card unit does not match locked machine {machine}")
+    if len(str(card.get("engineering_thesis") or "").strip()) < 20:
+        warnings.append("missing/weak engineering_thesis")
+    warnings.extend(
+        _paragraph_worth_warnings(
+            machine,
+            str(card.get("why_this_unit_deserves_a_paragraph") or "").strip(),
+        )
+    )
+    evidence, evidence_errors = _normalize_machine_evidence(card, machine)
+    warnings.extend(
+        _visual_identity_warnings(
+            machine,
+            str(card.get("visual_identity") or "").strip(),
+            evidence,
+            card.get("visual_identity_evidence_ids"),
+        )
+    )
+    warnings.extend(
+        _timeframe_warnings(
+            machine,
+            str(card.get("timeframe") or "").strip(),
+            evidence,
+            card.get("timeframe_evidence_ids"),
+        )
+    )
+    if not str(card.get("surprising_fact") or "").strip():
+        warnings.append("missing surprising_fact")
+    source_notes = card.get("source_notes")
+    if not isinstance(source_notes, list) or not source_notes:
+        warnings.append("missing source_notes")
+    warnings.extend(evidence_errors)
+    if not evidence_errors and not any(
+        segment.get("slot_role") == "memorable_fact" for segment in evidence
+    ):
+        warnings.append("missing sourced memorable_fact evidence segment")
+    if source_package is not None or require_source_package:
+        warnings.extend(_verified_machine_source_package_quality_errors(source_package, machine))
+        warnings.extend(_verified_machine_source_package_identity_errors(source_package, machine))
+        warnings.extend(_validate_card_against_verified_sources(card, source_package))
+    if not evidence_errors:
+        plan = _machine_story_plan({"unit_research_cards": [card]}, machine)
+        missing_slots = [
+            slot["slot"] for slot in plan["slots"]
+            if slot.get("required") and not slot["evidence_ids"]
+        ]
+        if missing_slots:
+            warnings.append("evidence_segments missing required Anton slots for: " + ", ".join(missing_slots))
+    return list(dict.fromkeys(warnings))
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -4335,62 +4400,12 @@ class PipelineExecutor:
             source_package: Optional[dict] = None,
             require_source_package: bool = False,
         ) -> list[str]:
-            warnings: list[str] = []
-            if not isinstance(card, dict):
-                return ["research card was not an object"]
-            card_unit = _unit_display_name(
-                card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+            return _research_card_contract_warnings(
+                machine,
+                card,
+                source_package,
+                require_source_package=require_source_package,
             )
-            if not card_unit or _normalized_unit_code(card_unit) != _normalized_unit_code(machine):
-                warnings.append(f"card unit does not match locked machine {machine}")
-            if len(str(card.get("engineering_thesis") or "").strip()) < 20:
-                warnings.append("missing/weak engineering_thesis")
-            warnings.extend(
-                _paragraph_worth_warnings(
-                    machine,
-                    str(card.get("why_this_unit_deserves_a_paragraph") or "").strip(),
-                )
-            )
-            evidence, evidence_errors = _normalize_machine_evidence(card, machine)
-            warnings.extend(
-                _visual_identity_warnings(
-                    machine,
-                    str(card.get("visual_identity") or "").strip(),
-                    evidence,
-                    card.get("visual_identity_evidence_ids"),
-                )
-            )
-            warnings.extend(
-                _timeframe_warnings(
-                    machine,
-                    str(card.get("timeframe") or "").strip(),
-                    evidence,
-                    card.get("timeframe_evidence_ids"),
-                )
-            )
-            if not str(card.get("surprising_fact") or "").strip():
-                warnings.append("missing surprising_fact")
-            source_notes = card.get("source_notes")
-            if not isinstance(source_notes, list) or not source_notes:
-                warnings.append("missing source_notes")
-            warnings.extend(evidence_errors)
-            if not evidence_errors and not any(
-                segment.get("slot_role") == "memorable_fact" for segment in evidence
-            ):
-                warnings.append("missing sourced memorable_fact evidence segment")
-            if source_package is not None or require_source_package:
-                warnings.extend(_verified_machine_source_package_quality_errors(source_package, machine))
-                warnings.extend(_verified_machine_source_package_identity_errors(source_package, machine))
-                warnings.extend(_validate_card_against_verified_sources(card, source_package))
-            if not evidence_errors:
-                plan = _machine_story_plan({"unit_research_cards": [card]}, machine)
-                missing_slots = [
-                    slot["slot"] for slot in plan["slots"]
-                    if slot.get("required") and not slot["evidence_ids"]
-                ]
-                if missing_slots:
-                    warnings.append("evidence_segments missing required Anton slots for: " + ", ".join(missing_slots))
-            return list(dict.fromkeys(warnings))
 
         def _full_research_validation(cards: list[dict]) -> tuple[list[dict], bool]:
             cards_by_roster_code: dict[str, dict] = {}
@@ -5022,10 +5037,11 @@ class PipelineExecutor:
         for _, machine in selected_units:
             selected_card = _research_card_for_machine(rp, machine) or {}
             source_package = _verified_source_package_for_machine(rp, machine)
-            source_errors = (
-                _verified_machine_source_package_quality_errors(source_package, machine)
-                + _verified_machine_source_package_identity_errors(source_package, machine)
-                + _validate_card_against_verified_sources(selected_card, source_package)
+            source_errors = _research_card_contract_warnings(
+                machine,
+                selected_card,
+                source_package,
+                require_source_package=True,
             )
             if source_errors:
                 source_gate_failures.append(f"{machine}: " + "; ".join(source_errors))

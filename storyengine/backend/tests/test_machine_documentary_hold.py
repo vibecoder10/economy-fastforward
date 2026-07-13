@@ -114,6 +114,27 @@ def _evidence_segments() -> list[dict]:
     ]
 
 
+def _valid_research_card(machine: str, segments=None, **overrides) -> dict:
+    evidence = copy.deepcopy(segments if segments is not None else _evidence_segments())
+    card = {
+        "unit": machine,
+        "engineering_thesis": (
+            f"{machine} mattered because its bomber range decision exposed power tradeoffs in service."
+        ),
+        "why_this_unit_deserves_a_paragraph": (
+            f"{machine} deserves a paragraph because its range problem exposed a tradeoff "
+            "between bomber size, power, and service reality."
+        ),
+        "surprising_fact": "Memorable fact claim grounded in the supplied source.",
+        "source_notes": ["xb15-source"],
+        "evidence_segments": evidence,
+    }
+    card.update(_visual_identity_fields(machine))
+    card.update(_timeframe_fields(machine))
+    card.update(overrides)
+    return card
+
+
 def _verified_package_for_segments(machine: str, segments: list[dict]) -> dict:
     return {
         "passed": True,
@@ -1901,14 +1922,13 @@ def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
 def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
     roster = ["Boeing XB-15"]
     card = {
-        "unit": "Boeing XB-15",
+        **_valid_research_card("Boeing XB-15", _evidence_segments()),
         "design_problem": "A large bomber needed useful range despite limited engine power.",
         "engineering_response": "Boeing used an unusually large wing to create lift and carry fuel.",
         "tradeoff": "The aircraft gained range but remained too slow and underpowered for combat.",
         "actual_outcome": "It missed combat requirements and later proved useful hauling cargo.",
         "engineering_thesis": "The failed bomber taught Boeing how size, lift, and power had to balance.",
         "source_notes": ["machine-card-source"],
-        "evidence_segments": _evidence_segments(),
     }
     video = {
         "video_title": "World's Most Strategic Bombers Ever Built",
@@ -2035,7 +2055,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
 def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypatch):
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
     cards = [
-        {"unit": machine, "evidence_segments": _evidence_segments()}
+        _valid_research_card(machine, _evidence_segments())
         for machine in roster
     ]
     video = {
@@ -2122,7 +2142,7 @@ def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save
         "render_mode": "static_docu",
         "research_payload": {
             "unit_roster": roster,
-            "unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": segments}],
+            "unit_research_cards": [_valid_research_card("Boeing XB-15", segments)],
             "machine_raw_source_packages": {
                 pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
             },
@@ -2261,13 +2281,13 @@ def test_full_script_hold_requires_verified_source_packages_before_llm(monkeypat
 def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loaded_cards(monkeypatch):
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress"]
     xb15_segments = _evidence_segments()
-    xb15_card = {
-        "unit": "Boeing XB-15",
-        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
-        "surprising_fact": "XB-15 source-grounded fact.",
-        "source_notes": ["xb15-source"],
-        "evidence_segments": xb15_segments,
-    }
+    xb15_card = _valid_research_card(
+        "Boeing XB-15",
+        xb15_segments,
+        engineering_thesis="XB-15 source-grounded engineering thesis.",
+        surprising_fact="XB-15 source-grounded fact.",
+        source_notes=["xb15-source"],
+    )
     b17_card = {
         "unit": "Boeing B-17 Flying Fortress",
         "engineering_thesis": "B-17 SHOULD NOT LEAK INTO XB-15 PREVIEW",
@@ -2373,13 +2393,13 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
 def test_target_machine_preview_refuses_brief_save_miss_before_llm(monkeypatch):
     roster = ["Boeing XB-15"]
     segments = _evidence_segments()
-    card = {
-        "unit": "Boeing XB-15",
-        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
-        "surprising_fact": "XB-15 source-grounded fact.",
-        "source_notes": ["xb15-source"],
-        "evidence_segments": segments,
-    }
+    card = _valid_research_card(
+        "Boeing XB-15",
+        segments,
+        engineering_thesis="XB-15 source-grounded engineering thesis.",
+        surprising_fact="XB-15 source-grounded fact.",
+        source_notes=["xb15-source"],
+    )
     video = {
         "video_title": "Every US Strategic Bomber Ever Built",
         "render_mode": "static_docu",
@@ -2446,13 +2466,13 @@ def test_target_machine_preview_refuses_brief_save_miss_before_llm(monkeypatch):
 def test_target_machine_preview_refuses_zero_row_preview_save(monkeypatch):
     roster = ["Boeing XB-15"]
     segments = _evidence_segments()
-    card = {
-        "unit": "Boeing XB-15",
-        "engineering_thesis": "XB-15 source-grounded engineering thesis.",
-        "surprising_fact": "XB-15 source-grounded fact.",
-        "source_notes": ["xb15-source"],
-        "evidence_segments": segments,
-    }
+    card = _valid_research_card(
+        "Boeing XB-15",
+        segments,
+        engineering_thesis="XB-15 source-grounded engineering thesis.",
+        surprising_fact="XB-15 source-grounded fact.",
+        source_notes=["xb15-source"],
+    )
     video = {
         "video_title": "Every US Strategic Bomber Ever Built",
         "render_mode": "static_docu",
@@ -2572,6 +2592,76 @@ def test_target_machine_preview_requires_verified_raw_source_package_before_llm(
 
     assert result["status"] == "failed"
     assert "missing verified raw internet source package" in result["error"]
+    assert forbidden_anthropic.calls == 0
+    assert writes == []
+
+
+def test_target_machine_preview_requires_sourced_memorable_fact_before_llm(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = [
+        segment for segment in _evidence_segments()
+        if segment["evidence_id"] != "E-MEMORABLE"
+    ]
+    card = _valid_research_card(
+        "Boeing XB-15",
+        segments,
+        surprising_fact="Legacy surprising fact text is not enough without sourced evidence.",
+    )
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    class ForbiddenAnthropic:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("preview must fail before spending an LLM call")
+
+    forbidden_anthropic = ForbiddenAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": forbidden_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        assert target_machine == "Boeing XB-15"
+        return dict(payload)
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        raise AssertionError("preview evidence gate must fail before voice lookup")
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(
+        executor._run_static_script_hold("video-test", video, roster, target_machine="Boeing XB-15")
+    )
+
+    assert result["status"] == "failed"
+    assert "Script preview evidence gate failed" in result["error"]
+    assert "missing sourced memorable_fact evidence segment" in result["error"]
     assert forbidden_anthropic.calls == 0
     assert writes == []
 
@@ -2788,7 +2878,7 @@ def test_script_generation_exception_preserves_existing_script_rows(monkeypatch)
         "render_mode": "static_docu",
         "research_payload": {
             "unit_roster": roster,
-            "unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}],
+            "unit_research_cards": [_valid_research_card("Boeing XB-15", _evidence_segments())],
             "machine_raw_source_packages": {
                 pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", _evidence_segments()),
             },
