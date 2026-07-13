@@ -3673,7 +3673,12 @@ class PipelineExecutor:
             card.setdefault("high_risk_claims", [])
             return card
 
-        def _card_warnings(machine: str, card: dict) -> list[str]:
+        def _card_warnings(
+            machine: str,
+            card: dict,
+            source_package: Optional[dict] = None,
+            require_source_package: bool = False,
+        ) -> list[str]:
             warnings: list[str] = []
             if not isinstance(card, dict):
                 return ["research card was not an object"]
@@ -3691,8 +3696,10 @@ class PipelineExecutor:
                 warnings.append("missing source_notes")
             _, evidence_errors = _normalize_machine_evidence(card, machine)
             warnings.extend(evidence_errors)
-            if verified_source_package is not None:
-                warnings.extend(_validate_card_against_verified_sources(card, verified_source_package))
+            if source_package is not None or require_source_package:
+                warnings.extend(_verified_machine_source_package_quality_errors(source_package))
+                warnings.extend(_verified_machine_source_package_identity_errors(source_package, machine))
+                warnings.extend(_validate_card_against_verified_sources(card, source_package))
             if not evidence_errors:
                 plan = _machine_story_plan({"unit_research_cards": [card]}, machine)
                 missing_slots = [
@@ -3702,6 +3709,31 @@ class PipelineExecutor:
                 if missing_slots:
                     warnings.append("evidence_segments missing required Anton slots for: " + ", ".join(missing_slots))
             return list(dict.fromkeys(warnings))
+
+        def _full_research_validation(cards: list[dict]) -> tuple[list[dict], bool]:
+            cards_by_roster_code: dict[str, dict] = {}
+            for item in cards:
+                if not isinstance(item, dict):
+                    continue
+                raw_unit = item.get("unit") or item.get("machine") or item.get("name") or item.get("designation") or ""
+                key = _normalized_unit_code(_unit_display_name(raw_unit) or str(raw_unit))
+                if key:
+                    cards_by_roster_code[key] = item
+            units: list[dict] = []
+            for roster_machine in roster:
+                code = _normalized_unit_code(roster_machine)
+                card = cards_by_roster_code.get(code)
+                warnings = (
+                    _card_warnings(
+                        roster_machine,
+                        card,
+                        _verified_source_package_for_machine(payload, roster_machine),
+                        require_source_package=True,
+                    )
+                    if card else ["missing saved one-machine research card"]
+                )
+                units.append({"machine": roster_machine, "passed": not warnings, "warnings": warnings})
+            return units, all(unit.get("passed") for unit in units)
 
         anthropic_client = getattr(self._pipeline, "anthropic", None)
         if anthropic_client is None:
@@ -3727,7 +3759,15 @@ class PipelineExecutor:
             for i, machine in enumerate(roster, start=1):
                 code = _normalized_unit_code(machine)
                 card = cards_by_code.get(code)
-                warnings = _card_warnings(machine, card) if card else ["missing saved one-machine research card"]
+                warnings = (
+                    _card_warnings(
+                        machine,
+                        card,
+                        _verified_source_package_for_machine(payload, machine),
+                        require_source_package=True,
+                    )
+                    if card else ["missing saved one-machine research card"]
+                )
                 validation_units.append({"machine": machine, "passed": not warnings, "warnings": warnings})
                 if warnings:
                     invalid_or_missing.append(machine)
@@ -3813,7 +3853,12 @@ class PipelineExecutor:
                 continue
             if code and code in cards_by_code and not target_code:
                 card = cards_by_code[code]
-                warnings = _card_warnings(machine, card)
+                warnings = _card_warnings(
+                    machine,
+                    card,
+                    _verified_source_package_for_machine(payload, machine),
+                    require_source_package=True,
+                )
                 if not warnings:
                     unit_cards.append(card)
                     reused_validation = {"machine": machine, "passed": True, "reused_existing": True, "warnings": []}
@@ -3871,7 +3916,7 @@ class PipelineExecutor:
                     import re as _re_uh
                     text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
                 card = _hydrate_compatibility_fields(_json_uh.loads(text))
-                warnings = _card_warnings(machine, card)
+                warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
 
@@ -3906,7 +3951,7 @@ class PipelineExecutor:
                         import re as _re_uh2
                         text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
                     card = _hydrate_compatibility_fields(_json_uh.loads(text))
-                    warnings = _card_warnings(machine, card)
+                    warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
                     warnings = [f"invalid JSON after repair: {str(e)[:120]}"]
@@ -3934,11 +3979,15 @@ class PipelineExecutor:
             unit_cards.sort(key=lambda item: roster_order.get(_normalized_unit_code(_unit_display_name(item)), len(roster)))
             payload["unit_research_cards"] = unit_cards
             target_machine_passed = not warnings
-            full_hold_passed = target_machine_passed and (not target_code or len(roster) == 1)
+            full_validation_units, full_hold_passed = (
+                _full_research_validation(unit_cards)
+                if target_code else
+                (validation_units, not warnings and i == len(roster))
+            )
             payload["unit_research_hold_validation"] = {
-                "passed": full_hold_passed if target_code else not warnings and i == len(roster),
+                "passed": full_hold_passed,
                 "in_progress": False if target_code else not warnings and i < len(roster),
-                "units": validation_units,
+                "units": full_validation_units,
             }
             if target_code:
                 payload["unit_research_hold_validation"]["target_machine"] = machine
@@ -3969,11 +4018,15 @@ class PipelineExecutor:
                 return payload
 
         target_machine_passed = bool(validation_units and validation_units[-1].get("passed"))
-        full_hold_passed = target_machine_passed and (not target_code or len(roster) == 1)
+        full_validation_units, full_hold_passed = (
+            _full_research_validation(unit_cards)
+            if target_code else
+            (validation_units, True)
+        )
         payload["unit_research_hold_validation"] = {
-            "passed": full_hold_passed if target_code else True,
+            "passed": full_hold_passed,
             "in_progress": False,
-            "units": validation_units,
+            "units": full_validation_units,
         }
         if target_code and validation_units:
             payload["unit_research_hold_validation"]["target_machine"] = validation_units[-1].get("machine")

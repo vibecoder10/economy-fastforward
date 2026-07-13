@@ -1802,6 +1802,74 @@ def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(mo
     assert json.loads(writes[0][1][0])["unit_research_hold_validation"]["passed"] is False
 
 
+def test_target_machine_research_marks_full_hold_complete_after_final_verified_card(monkeypatch):
+    roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    existing_cards = []
+    source_packages = {}
+    for machine in roster_names[:2]:
+        card = {
+            "unit": machine,
+            "engineering_thesis": f"{machine} has a sufficiently detailed source-grounded engineering thesis.",
+            "surprising_fact": "Memorable fact claim grounded in the supplied source.",
+            "source_notes": ["https://example.test/source"],
+            "evidence_segments": _evidence_segments(),
+        }
+        existing_cards.append(card)
+        source_packages[pe._verified_source_cache_key(machine)] = _verified_package_for_segments(machine, _evidence_segments())
+    target_segments = _evidence_segments()
+    target_card = {
+        "unit": roster_names[2],
+        "engineering_thesis": "B-24 demonstrates a sufficiently detailed source-grounded engineering thesis.",
+        "evidence_segments": target_segments,
+    }
+    payload = {
+        "unit_roster": roster_names,
+        "unit_research_cards": existing_cards,
+        "machine_raw_source_packages": source_packages,
+    }
+
+    class FakeAnthropic:
+        async def generate(self, **_kwargs):
+            return json.dumps(target_card)
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": FakeAnthropic()})()
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_execute(*_args, **_kwargs):
+        return None
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_gather(_title, machine, _payload):
+        return _verified_package_for_segments(machine, target_segments)
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_gather_verified_machine_source_package", fake_gather)
+
+    result = asyncio.run(
+        executor._run_unit_research_hold(
+            "video-test",
+            "Every US Strategic Bomber Ever Built",
+            payload,
+            roster_names,
+            target_machine=roster_names[2],
+        )
+    )
+
+    validation = result["unit_research_hold_validation"]
+    assert validation["target_machine_passed"] is True
+    assert validation["passed"] is True
+    assert [unit["machine"] for unit in validation["units"]] == roster_names
+    assert all(unit["passed"] for unit in validation["units"])
+
+
 def test_target_machine_research_requires_verified_source_package_before_llm(monkeypatch):
     roster_names = ["Boeing XB-15", "Boeing B-52 Stratofortress", "Convair B-36"]
     payload = {"unit_roster": roster_names}
@@ -2042,7 +2110,13 @@ def test_compact_write_unavailable_reuses_legacy_without_generation(monkeypatch)
     roster = ["B-52"]
     card = {"unit": "B-52", "engineering_thesis": "A sufficiently detailed source-grounded engineering thesis.",
             "surprising_fact": "A fact", "source_notes": ["source"], "evidence_segments": _evidence_segments()}
-    payload = {"unit_roster": roster, "unit_research_cards": [card]}
+    payload = {
+        "unit_roster": roster,
+        "unit_research_cards": [card],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("B-52"): _verified_package_for_segments("B-52", _evidence_segments()),
+        },
+    }
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-a"
 
