@@ -683,6 +683,7 @@ export type MachineScriptPreview = {
       label?: string;
       passed?: boolean;
       detail?: string;
+      advisory?: boolean;
     }>;
   };
   claim_bundle?: {

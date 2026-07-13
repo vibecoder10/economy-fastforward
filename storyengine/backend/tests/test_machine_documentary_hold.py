@@ -464,6 +464,21 @@ def test_story_plan_locks_research_into_anton_slots():
     assert "no new sourced meaning beat" in plan["contract"]["conclusion_rule"]
 
 
+def test_story_plan_attaches_first_three_anton_benchmark_profile():
+    plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]},
+        "Boeing XB-15",
+    )
+
+    profile = plan["reference_benchmark"]
+    assert profile["source_video"] == "Every US Strategic Bomber Ever Built"
+    assert profile["reference_machine"] == "Boeing XB-15"
+    assert profile["word_count"] == 94
+    assert profile["sentence_count"] == 5
+    assert profile["opening_mode"] == "machine/date/significance"
+    assert any("landing" in job for job in profile["sentence_jobs"])
+
+
 def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
     plan = pe._machine_story_plan(
         {"unit_research_cards": [{"unit": "B-52", "engineering_thesis": "Untraceable prose."}]},
@@ -1131,10 +1146,16 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
         "four_evidence_beats",
         "memorable_fact",
     ]
+    reference_check = next(check for check in result["preview"]["quality_audit"]["checks"] if check["name"] == "reference_shape")
+    assert reference_check["advisory"] is True
+    assert "benchmark 94 words/5 sentences" in reference_check["detail"]
+    assert result["preview"]["story_plan"]["reference_benchmark"]["reference_machine"] == "Boeing XB-15"
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
+    assert "reference_benchmark" in fake_anthropic.prompts[0]
+    assert "Do not copy or infer unsourced facts from it" in fake_anthropic.prompts[0]
 
 
 def test_target_machine_preview_requires_verified_raw_source_package_before_llm(monkeypatch):

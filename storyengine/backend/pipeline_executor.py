@@ -135,6 +135,66 @@ _ANTON_PARAGRAPH_TARGET_WORDS = "100-112"
 _ANTON_PARAGRAPH_WORD_RANGE = f"{_ANTON_PARAGRAPH_MIN_WORDS}-{_ANTON_PARAGRAPH_MAX_WORDS}"
 _ANTON_PARAGRAPH_SENTENCE_RANGE = f"{_ANTON_PARAGRAPH_MIN_SENTENCES}-{_ANTON_PARAGRAPH_MAX_SENTENCES}"
 
+_ANTON_REFERENCE_BENCHMARKS = {
+    "XB15": {
+        "source_video": "Every US Strategic Bomber Ever Built",
+        "reference_machine": "Boeing XB-15",
+        "reference_order": 1,
+        "word_count": 94,
+        "sentence_count": 5,
+        "opening_mode": "machine/date/significance",
+        "sentence_jobs": [
+            "problem: experimental leap into long-range strategic bombing",
+            "decision: scale, engines, payload, and range as the design answer",
+            "tradeoff: one prototype, but proof that large multi-engine bombers could fly intercontinental distances",
+            "reality: wartime transport service instead of bomber combat",
+            "landing: validated concepts without adding a new event",
+        ],
+        "final_line_job": "land on validation of the larger strategic-aviation concept",
+    },
+    "B17": {
+        "source_video": "Every US Strategic Bomber Ever Built",
+        "reference_machine": "Boeing B-17 Flying Fortress",
+        "reference_order": 2,
+        "word_count": 116,
+        "sentence_count": 7,
+        "opening_mode": "machine/service/significance",
+        "sentence_jobs": [
+            "problem: daylight precision bombing over Europe",
+            "decision: four-engine bomber with selected capability specs",
+            "tradeoff: defensive-gun belief before escort reality",
+            "reality: production scale and Eighth Air Force losses",
+            "landing: daylight precision worked, but at severe human cost",
+        ],
+        "final_line_job": "land on cost, not retirement or generic importance",
+    },
+    "B24": {
+        "source_video": "Every US Strategic Bomber Ever Built",
+        "reference_machine": "Consolidated B-24 Liberator",
+        "reference_order": 3,
+        "word_count": 110,
+        "sentence_count": 6,
+        "opening_mode": "machine/date/production significance",
+        "sentence_jobs": [
+            "problem: wartime need for range, efficiency, and mass",
+            "decision: Davis wing plus selected range/payload facts",
+            "tradeoff: less forgiving than B-17 despite stronger output",
+            "reality: every-theater service and production scale",
+            "landing: industrial scale as the real strategic answer",
+        ],
+        "final_line_job": "land on industrial consequence, not a list ending",
+    },
+}
+
+
+def _anton_reference_benchmark_profile(machine: str) -> Optional[dict]:
+    """Shape-only benchmark from Anton's first strategic-bomber paragraphs."""
+    key = _normalized_unit_code(machine)
+    profile = _ANTON_REFERENCE_BENCHMARKS.get(key)
+    if not profile:
+        return None
+    return dict(profile)
+
 
 def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
     """Return the one-machine research card matching a locked roster item.
@@ -901,6 +961,7 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
     return {
         "schema_version": 3,
         "machine": machine,
+        "reference_benchmark": _anton_reference_benchmark_profile(machine),
         "evidence_errors": evidence_errors,
         "slots": slots,
         "slot_order": [slot["slot"] for slot in slots],
@@ -1284,10 +1345,14 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "orphan facts",
     ]
 
-    def check(name: str, label: str, passed: bool, detail: str) -> dict:
-        return {"name": name, "label": label, "passed": bool(passed), "detail": detail}
+    def check(name: str, label: str, passed: bool, detail: str, advisory: bool = False) -> dict:
+        row = {"name": name, "label": label, "passed": bool(passed), "detail": detail}
+        if advisory:
+            row["advisory"] = True
+        return row
 
     word_count = _spoken_word_count(paragraph)
+    reference_benchmark = plan.get("reference_benchmark") if isinstance(plan, dict) else None
     checks = [
         check(
             "word_range",
@@ -1338,10 +1403,33 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "clean" if not any(token in warning_text for token in catalog_warnings) else "catalog pattern flagged",
         ),
     ]
+    if isinstance(reference_benchmark, dict):
+        try:
+            benchmark_words = int(reference_benchmark.get("word_count") or 0)
+        except Exception:
+            benchmark_words = 0
+        try:
+            benchmark_sentences = int(reference_benchmark.get("sentence_count") or 0)
+        except Exception:
+            benchmark_sentences = 0
+        word_delta = abs(word_count - benchmark_words) if benchmark_words else 0
+        sentence_delta = abs(len(sentence_parts) - benchmark_sentences) if benchmark_sentences else 0
+        checks.append(check(
+            "reference_shape",
+            "Reference shape",
+            bool(benchmark_words and benchmark_sentences and word_delta <= 8 and sentence_delta <= 1),
+            (
+                f"{word_count} words/{len(sentence_parts)} sentences; "
+                f"benchmark {benchmark_words} words/{benchmark_sentences} sentences; "
+                f"{reference_benchmark.get('opening_mode') or 'shape only'}"
+            ),
+            advisory=True,
+        ))
+    hard_checks_passed = all(item["passed"] or item.get("advisory") for item in checks)
     return {
-        "passed": all(item["passed"] for item in checks),
+        "passed": hard_checks_passed,
         "checks": checks,
-        "summary": "Anton quality audit passed" if all(item["passed"] for item in checks) else "Anton quality audit needs review",
+        "summary": "Anton quality audit passed" if hard_checks_passed else "Anton quality audit needs review",
     }
 
 
@@ -4077,6 +4165,7 @@ class PipelineExecutor:
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
                     "- The paragraph should read like Anton: facts serve the engineering meaning, not an encyclopedia checklist.\n"
+                    "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
                     "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
                     "- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be 28 words or fewer and contain no dates, specs, production counts, or new events.\n"
                     "- onscreen_label must be empty unless onscreen_label evidence or sourced role/build/date slots support it.\n"

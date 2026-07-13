@@ -31,6 +31,8 @@ Anton's desktop writing standards add two quality locks to this formula:
 | Boeing B-17 Flying Fortress | America bet on daylight precision bombing over Europe | Defensive gunship-like bomber with range, payload, and thirteen machine guns | Crews believed it could defend itself without fighter escort; losses proved the cost | Heavy Eighth Air Force losses over Europe | 4,735 B-17s lost over Europe, 47% of heavy bomber losses in the script | Daylight precision bombing worked, but at a severe human cost |
 | Consolidated B-24 Liberator | America needed mass, range, and fuel efficiency at global scale | Davis wing and production scale favored range and volume | Less forgiving than the B-17 despite stronger industrial output | Served in every theater, from Ploesti to Atlantic patrols | The most-produced American military aircraft was less forgiving than its famous rival | Industrial scale could overwhelm the enemy |
 
+The first three benchmark profiles are also carried into the StoryEngine story plan as shape-only metadata: reference order, word count, sentence count, opening mode, sentence jobs, and final-line job. For the XB-15 proof, this means the compiler sees `94 words / 5 sentences / machine-date-significance opening` as a rhythm target, but it still may use only the locked source excerpts for facts.
+
 ## Research Contract
 
 Research runs one locked roster machine at a time. The model may use only fetched raw internet excerpts saved in `machine_raw_source_packages`.
@@ -90,7 +92,7 @@ Validation requires:
 - unsupported designations, high-risk terms, hype, list transitions, and semicolons rejected
 - no deterministic extractive fallback can pass as final quality
 
-The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 90-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern.
+The preview payload also includes `quality_audit.checks` so the StoryEngine UI can show the concrete Anton gate: 90-120 words, 4-7 sentences, four grounded beats, sourced memorable fact, concrete editorial thesis, landed final line, and no catalog/spec-dump pattern. When a first-three benchmark profile exists, the UI also shows an advisory `reference_shape` check against the actual Anton paragraph shape.
 
 ## Isolation Rule
 
