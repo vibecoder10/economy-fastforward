@@ -206,6 +206,30 @@ def test_verified_machine_source_queries_cover_anton_research_slots():
     assert "pilot crew memoir oral history official inquiry unusual fact" in joined
 
 
+def test_machine_mentions_use_designation_boundaries():
+    assert pe._mentions_machine("The Northrop B-2 Spirit entered service as a stealth bomber.", "B-2")
+    assert pe._mentions_machine("The B2 bomber appears without a hyphen in this source.", "B-2")
+    assert pe._mentions_machine("The B-2A variant is still evidence for the B-2.", "B-2")
+    assert not pe._mentions_machine("The B-21 Raider is a different bomber.", "B-2")
+
+    assert pe._mentions_machine("The B-1B Lancer changed the bomber's mission profile.", "B-1")
+    assert not pe._mentions_machine("The Martin B-10 was an earlier bomber.", "B-1")
+    assert pe._mentions_machine("The Boeing XB-15 was built as an experimental bomber.", "Boeing XB-15")
+
+
+def test_verified_source_package_quality_rejects_designation_substring_collision():
+    package = _verified_package_for_segments("B-2", _evidence_segments())
+    for candidate in package["candidate_excerpts"]:
+        candidate["text"] = (
+            "The B-21 Raider source discusses requirement, engineering decision, "
+            "tradeoff, and service reality details for a different bomber."
+        )
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "B-2")
+
+    assert any("mentioning the locked machine" in error for error in errors)
+
+
 def test_verified_source_package_format_exposes_source_tier():
     segments = _evidence_segments()
     segments[0]["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"

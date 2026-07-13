@@ -386,10 +386,20 @@ def _machine_mention_terms(machine: str) -> set[str]:
 
 
 def _mentions_machine(text: str, machine: str) -> bool:
-    normalized = _normalized_source_text(text)
-    compact = re.sub(r"[^a-z0-9]", "", normalized)
+    normalized = _normalized_source_text(text).replace("–", "-").replace("—", "-")
     for term in _machine_mention_terms(machine):
-        if term in normalized or re.sub(r"[^a-z0-9]", "", term) in compact:
+        pieces = re.findall(r"[a-z0-9]+", term.lower())
+        if not pieces:
+            continue
+        if any(char.isdigit() for char in term):
+            pattern = r"(?<![a-z0-9])" + r"[\s.\-]*".join(re.escape(piece) for piece in pieces)
+            if not pieces[-1][-1:].isdigit():
+                pattern += r"(?![a-z0-9])"
+            else:
+                pattern += r"(?:[a-z])?(?![a-z0-9])"
+        else:
+            pattern = r"(?<![a-z0-9])" + r"[\s.\-']+".join(re.escape(piece) for piece in pieces) + r"(?![a-z0-9])"
+        if re.search(pattern, normalized, flags=re.IGNORECASE):
             return True
     return False
 
