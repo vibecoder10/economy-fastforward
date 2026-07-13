@@ -1922,6 +1922,29 @@ def test_first_three_anton_benchmark_profiles_match_extracted_script_shape():
         assert profile["final_line_job"]
 
 
+def test_first_three_anton_benchmark_profiles_are_shape_only():
+    forbidden_fact_terms = (
+        "experimental leap",
+        "long-range strategic bombing",
+        "payload",
+        "wartime transport",
+        "daylight precision",
+        "europe",
+        "eighth air force",
+        "davis wing",
+        "b-17",
+        "ploesti",
+    )
+
+    for machine in ("Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"):
+        profile = pe._anton_reference_benchmark_profile(machine)
+        shape_text = " ".join(profile["sentence_jobs"] + [profile["final_line_job"]]).lower()
+
+        assert "landing" in shape_text
+        for term in forbidden_fact_terms:
+            assert term not in shape_text
+
+
 def test_story_plan_refuses_legacy_card_without_source_addressable_evidence():
     plan = pe._machine_story_plan(
         {"unit_research_cards": [{"unit": "B-52", "engineering_thesis": "Untraceable prose."}]},
