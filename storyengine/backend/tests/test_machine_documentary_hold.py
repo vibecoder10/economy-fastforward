@@ -182,8 +182,8 @@ def test_verified_machine_source_queries_cover_anton_research_slots():
     assert "national museum" in joined
     assert "specifications range payload wingspan engines" in joined
     assert "production prototype built service operational history" in joined
-    assert "design tradeoff limitation lessons learned" in joined
-    assert "pilot crew engineer account unusual fact test report" in joined
+    assert "design tradeoff limitation lessons learned test report" in joined
+    assert "pilot crew memoir oral history official inquiry unusual fact" in joined
 
 
 def test_verified_source_package_format_exposes_source_tier():

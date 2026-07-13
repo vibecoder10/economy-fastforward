@@ -722,8 +722,8 @@ def _verified_machine_source_queries(title: str, machine: str) -> list[str]:
         f'"{machine}" {manufacturer} development design history'.strip(),
         f'"{machine}" specifications range payload wingspan engines',
         f'"{machine}" production prototype built service operational history',
-        f'"{machine}" design tradeoff limitation lessons learned',
-        f'"{machine}" pilot crew engineer account unusual fact test report',
+        f'"{machine}" design tradeoff limitation lessons learned test report',
+        f'"{machine}" pilot crew memoir oral history official inquiry unusual fact',
     ]))[:8]
 
 
