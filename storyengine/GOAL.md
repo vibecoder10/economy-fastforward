@@ -165,8 +165,12 @@ his only future input is a list of titles. Tenant 561b872d, static_docu render m
   (one white-studio image per machine + Ken Burns + animated chyrons) + 2 thumbnails; upload manual.
   Full plan: ~/.claude/plans/purring-baking-conway.md
 - G3a quality proof on 3 machines (XB-15 rerun, B-17, B-52): research -> script preview, judged
-  vs Anton's real paragraphs with notes/dvsu-paragraph-rubric.md. `[in progress 2026-07-15:
-  XB-15 research rerun launched from the UI]`
+  vs Anton's real paragraphs with notes/dvsu-paragraph-rubric.md. `[RESEARCH HALF DONE 2026-07-16
+  @ 35bb428f: roster orchestrator shipped (5 surgical verbs, Repair buttons, dashboard) and all
+  three cards cleared to VERIFIED for ~$0.10, zero full re-runs. XB-15 refusal trap root-caused
+  and fixed (formatter hid conversion-signal excerpts the gate demanded). Script previews ran
+  under full law: 0/3 passed, ALL failures writer-side - the writer pass is the remaining half.
+  See HANDOFF.md + memory storyengine-dvsu-writer-gap.]`
 - G3b encode the missing script laws: verdict-punch + no-redundancy + spec-block validators in
   pipeline_executor.py, tenant script prompt upgrade, preview promotion, park-don't-halt,
   category-aware Tavily queries. `[todo]`
@@ -242,6 +246,10 @@ any clip spend.
 - Multi-language until the Slow Spanish channel is the active model.
 
 ## Log
+- 2026-07-15 (later): 3-way divergence reconciled and deployed @ 37469540 (chain + WIP + tier fix,
+  226 tests green, tsc clean; VPS hot patches archived in stash@{0} on the box - verified byte-subset,
+  nothing lost). Census-format section LIVE in tenant script prompt (14,269 chars). ElevenLabs key in
+  vault. 3 image style exemplars filed + blueprint JSON committed.
 - 2026-07-15: Phase G restructured into G3a-G3d after a full map (5-agent sweep + live UI walk).
   New operating mode approved: Osiris drives the UI autonomously, $20/video cap. Quality bar
   distilled into notes/dvsu-paragraph-rubric.md (Anton 6-beat anatomy; current engine misses the
