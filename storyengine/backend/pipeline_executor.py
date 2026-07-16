@@ -3130,6 +3130,7 @@ async def enrich_research_payload_readiness(tenant_id: str, video_id: str, resea
 
 _REPAIR_VERB_EST_COST_USD = {
     "promote_excerpt": 0.0,
+    "rekind_segments": 0.0,
     "targeted_fetch": 0.02,
     "select_excerpt": 0.01,
     "rewrite_field": 0.02,
@@ -3315,6 +3316,140 @@ def _warning_targets_field(warning: str, field: str) -> bool:
     return field in str(warning or "")
 
 
+def _segment_slot_hint_mismatches(card: Optional[dict], package: Optional[dict]) -> list[dict]:
+    """Required-beat segments whose raw excerpt is hinted for a DIFFERENT beat.
+
+    These are the referee's "maps X to raw excerpt hinted for Y" warnings,
+    recomputed structurally so repair never string-parses warning text."""
+    if not isinstance(card, dict) or not isinstance(package, dict):
+        return []
+    mismatches: list[dict] = []
+    for segment in card.get("evidence_segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
+        if role not in _ANTON_REQUIRED_SLOT_ROLES:
+            continue
+        identity = str(segment.get("source_excerpt_id") or segment.get("excerpt_id") or "").strip() \
+            or str(segment.get("locator") or "").strip()
+        candidate = _find_candidate_excerpt(package, identity)
+        if candidate is None:
+            continue
+        hints = [str(h).strip() for h in (candidate.get("anton_slot_hints") or []) if str(h).strip()]
+        if hints and role not in hints:
+            mismatches.append({
+                "segment": segment,
+                "role": role,
+                "hints": hints,
+                "excerpt_id": str(candidate.get("excerpt_id") or "").strip(),
+            })
+    return mismatches
+
+
+def _promotable_slot_excerpt(
+    package: Optional[dict], card: Optional[dict], slot: str, machine: str, max_tier: int = 3
+) -> Optional[dict]:
+    """Best uncited, traceable, slot-hinted package excerpt (lowest tier first)."""
+    if not isinstance(package, dict):
+        return None
+    cited = _card_cited_excerpt_ids(card)
+    ranked = sorted(
+        (
+            item for item in package.get("candidate_excerpts") or []
+            if isinstance(item, dict)
+            and str(item.get("excerpt_id") or "").strip()
+            and str(item.get("excerpt_id") or "").strip() not in cited
+            and slot in (item.get("anton_slot_hints") or [])
+            and _source_tier_number(item) <= max_tier
+            and _mentions_machine(str(item.get("text") or ""), machine)
+        ),
+        key=lambda item: (_source_tier_number(item), str(item.get("excerpt_id") or "")),
+    )
+    for item in ranked:
+        if not _promote_excerpt_precheck_error(item, slot, machine):
+            return item
+    return None
+
+
+def _tier4_only_required_slots(card: Optional[dict]) -> list[str]:
+    """Required beats whose every sourced segment sits on Tier 4/caution rows."""
+    if not isinstance(card, dict):
+        return []
+    tiers_by_role: dict[str, list[int]] = {}
+    for segment in card.get("evidence_segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
+        if role not in _ANTON_REQUIRED_SLOT_ROLES:
+            continue
+        if not str(segment.get("source_url") or "").strip():
+            continue
+        tier = _source_tier_number(segment)
+        if tier > 0:
+            tiers_by_role.setdefault(role, []).append(tier)
+    return sorted(
+        role for role, tiers in tiers_by_role.items()
+        if tiers and all(tier >= 4 for tier in tiers)
+    )
+
+
+def _segment_surgery_plan(card: Optional[dict], package: Optional[dict], machine: str) -> dict:
+    """Shared deterministic plan for rekind_segments.
+
+    rekinds: segments to re-label toward their excerpt's hint.
+    promotes: hinted excerpts to lift so no required beat loses coverage.
+    blocked: beats the PACKAGE cannot back-fill (targeted_fetch territory)."""
+    plan: dict = {"rekinds": [], "promotes": [], "blocked": []}
+    if not isinstance(card, dict) or not isinstance(package, dict):
+        return plan
+    segments = card.get("evidence_segments") or []
+    mismatches = _segment_slot_hint_mismatches(card, package)
+    mismatched_ids = {id(m["segment"]) for m in mismatches}
+    planned_excerpts: set[str] = set()
+    for mismatch in mismatches:
+        segment, role, hints = mismatch["segment"], mismatch["role"], mismatch["hints"]
+        covered = any(
+            isinstance(other, dict) and other is not segment
+            and id(other) not in mismatched_ids
+            and _anton_slot_role_for_kind(str(other.get("kind") or "")) == role
+            for other in segments
+        )
+        replacement = None
+        if not covered:
+            replacement = _promotable_slot_excerpt(package, card, role, machine)
+            if replacement is not None and str(replacement.get("excerpt_id") or "") in planned_excerpts:
+                replacement = None
+            if replacement is None:
+                plan["blocked"].append({"role": role, "evidence_id": segment.get("evidence_id")})
+                continue
+        plan["rekinds"].append({
+            "segment": segment,
+            "evidence_id": segment.get("evidence_id"),
+            "old_kind": str(segment.get("kind") or ""),
+            "new_kind": hints[0],
+        })
+        if replacement is not None:
+            plan["promotes"].append({"item": replacement, "kind": role})
+            planned_excerpts.add(str(replacement.get("excerpt_id") or ""))
+    for slot in _tier4_only_required_slots(card):
+        item = _promotable_slot_excerpt(package, card, slot, machine)
+        if item is not None and str(item.get("excerpt_id") or "") not in planned_excerpts:
+            plan["promotes"].append({"item": item, "kind": slot})
+            planned_excerpts.add(str(item.get("excerpt_id") or ""))
+        elif item is None:
+            plan["blocked"].append({"role": slot, "evidence_id": None})
+    return plan
+
+
+# Slot-focused append-only fetch queries (targeted_fetch focus="slot:<role>").
+_SLOT_FETCH_QUERY_TERMS = {
+    "original_problem": "requirement program specification designed to need",
+    "engineering_decision": "design engineering configuration engine wing development",
+    "tradeoff": "limitation problem compromise drawback lessons learned",
+    "reality": "service history operational use combat fate",
+}
+
+
 def _package_gap_hunt_already_ran(package: Optional[dict]) -> bool:
     """True when an append-only reality/use-story hunt already extended this package."""
     if not isinstance(package, dict):
@@ -3389,6 +3524,22 @@ def _classify_repair_actions(machine: str, card: Optional[dict], package: Option
                 "reason": "package excerpt carries the timeframe's dated anchor: " + ", ".join(row["covered"]),
             })
             break
+
+    # 2b. Slot-hint mismatches and Tier-4-only required beats: free structural
+    #     surgery (re-kind toward the hint, back-fill with hinted promotes).
+    #     Beats the package cannot back-fill route to an append-only fetch.
+    surgery = _segment_surgery_plan(card, package, machine)
+    if surgery["rekinds"] or surgery["promotes"]:
+        actions.append({
+            "verb": "rekind_segments",
+            "reason": "segments contradict their excerpts' slot hints or a required beat is Tier 4-only",
+        })
+    for blocked in surgery["blocked"][:2]:
+        actions.append({
+            "verb": "targeted_fetch",
+            "focus": f"slot:{blocked['role']}",
+            "reason": f"package holds no promotable {blocked['role']} excerpt to back-fill the beat",
+        })
 
     # 3. Tier demands: promote a Tier 1-2 excerpt when the package has one,
     #    else append-fetch primary domains.
@@ -7227,6 +7378,65 @@ class PipelineExecutor:
             "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, ctx["payload"]),
         })
 
+    async def repair_rekind_segments(self, video_id: str, machine: str) -> dict:
+        """Free structural surgery on evidence segments. Two deterministic moves:
+
+        1. A required-beat segment whose raw excerpt is hinted for a DIFFERENT
+           beat gets re-kinded TOWARD the hint (the compliant direction under
+           the relabel law), and the vacated beat is back-filled by promoting a
+           correctly-hinted Tier 1-3 excerpt from the package.
+        2. A required beat sitting only on Tier 4/caution rows gets a Tier 1-3
+           hinted excerpt promoted alongside it."""
+        await self._ensure_initialized()
+        ctx = await self._load_machine_repair_context(video_id, machine)
+        if ctx.get("error"):
+            return {"status": "failed", "error": ctx["error"]}
+        card, package = ctx["card"], ctx["package"]
+        if card is None or package is None:
+            return {"status": "failed", "error": "Segment surgery needs a saved card and verified source package"}
+        machine_name = ctx["machine"]
+        segments = card.get("evidence_segments") if isinstance(card.get("evidence_segments"), list) else []
+        card["evidence_segments"] = segments
+        plan = _segment_surgery_plan(card, package, machine_name)
+        if not plan["rekinds"] and not plan["promotes"]:
+            blocked = ", ".join(sorted({str(b["role"]) for b in plan["blocked"]})) or "none"
+            return {
+                "status": "failed",
+                "error": f"No structural segment surgery applies; beats blocked on package gaps: {blocked}",
+            }
+        changes: list[str] = []
+        for rekind in plan["rekinds"]:
+            rekind["segment"]["kind"] = rekind["new_kind"]
+            changes.append(f"re-kinded {rekind['evidence_id']} {rekind['old_kind']} -> {rekind['new_kind']}")
+        for promote in plan["promotes"]:
+            existing_ids = {
+                str(seg.get("evidence_id") or "").strip()
+                for seg in segments if isinstance(seg, dict)
+            }
+            segment = _promoted_evidence_segment(promote["item"], promote["kind"], machine_name, existing_ids)
+            segments.append(segment)
+            notes = card.get("source_notes") if isinstance(card.get("source_notes"), list) else []
+            if segment["source_url"] and segment["source_url"] not in notes:
+                card["source_notes"] = list(notes) + [segment["source_url"]]
+            changes.append(f"promoted {segment['source_excerpt_id']} as {promote['kind']}")
+        for blocked in plan["blocked"]:
+            changes.append(f"blocked: no promotable {blocked['role']} excerpt in package")
+        card = _normalize_card_field_citations(card, machine_name)
+        _stamp_card_segment_provenance(card, package)
+        warnings = _research_card_contract_warnings(machine_name, card, package, require_source_package=True)
+        error = await self._persist_repaired_card(video_id, ctx, card, warnings, "rekind_segments")
+        if error:
+            return {"status": "failed", "error": error}
+        await self._log_activity(
+            "Research Agent", video_id, "completed",
+            f"rekind_segments -> {machine_name}: " + "; ".join(changes[:4])
+            + (" (card passes)" if not warnings else f" ({len(warnings)} warnings remain)"),
+        )
+        return self._repair_response(ctx, "rekind_segments", warnings, {
+            "changes": changes,
+            "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, ctx["payload"]),
+        })
+
     async def repair_rewrite_field(self, video_id: str, machine: str, field: Optional[str] = None) -> dict:
         """Rewrite exactly ONE card field with a small LLM call; evidence untouched."""
         import json as _json_rw
@@ -7344,7 +7554,15 @@ class PipelineExecutor:
                 "slots" if package_errors else "tier"
             )
         include_domains: Optional[list[str]] = None
-        if focus == "tier":
+        if focus.startswith("slot:"):
+            slot = focus.split(":", 1)[1]
+            terms = _SLOT_FETCH_QUERY_TERMS.get(slot, "history development service")
+            queries = [
+                f'"{machine_name}" {terms}',
+                f'"{machine_name}" fact sheet history',
+                f'"{machine_name}" development program history',
+            ]
+        elif focus == "tier":
             include_domains = list(_TARGETED_FETCH_PRIMARY_DOMAINS)
             queries = [
                 f'"{machine_name}" fact sheet',
@@ -7647,6 +7865,8 @@ class PipelineExecutor:
             return await self.repair_promote_excerpt(
                 video_id, machine, str(action.get("excerpt_id") or ""), str(action.get("kind") or "reality")
             )
+        if verb == "rekind_segments":
+            return await self.repair_rekind_segments(video_id, machine)
         if verb == "targeted_fetch":
             return await self.repair_targeted_fetch(video_id, machine, action.get("focus"))
         if verb == "rewrite_field":
@@ -7692,8 +7912,14 @@ class PipelineExecutor:
                 warnings = ["missing saved one-machine research card"]
             if not warnings:
                 break
+            # Seen-keys carry a state fingerprint so a FREE deterministic verb
+            # may run again after another verb changed the card or package
+            # (fetch appends an excerpt -> rekind gets a second pass), while
+            # identical state never repeats an action.
+            excerpt_count = len((package or {}).get("candidate_excerpts") or []) if isinstance(package, dict) else 0
+            fingerprint = f"@{excerpt_count}|{len(warnings)}|{abs(hash(tuple(sorted(warnings)))) % 10**8}"
             plan = _classify_repair_actions(ctx["machine"], card, package)
-            action = next((a for a in plan if _repair_action_key(a) not in seen), None)
+            action = next((a for a in plan if _repair_action_key(a) + fingerprint not in seen), None)
             if action is None:
                 break
             if action["verb"] == "full_rerun" and not allow_full_rerun:
@@ -7703,7 +7929,7 @@ class PipelineExecutor:
             if spend + cost > budget_usd:
                 actions_log.append({**action, "status": "skipped", "detail": f"budget cap ${budget_usd:.2f} reached"})
                 break
-            seen.add(_repair_action_key(action))
+            seen.add(_repair_action_key(action) + fingerprint)
             result = await self._execute_repair_action(video_id, ctx["machine"], action)
             spend += cost
             actions_log.append({

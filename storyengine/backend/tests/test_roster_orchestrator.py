@@ -179,6 +179,36 @@ def test_repair_action_key_distinguishes_actions():
 
 
 # ---------------------------------------------------------------------------
+# segment surgery plan (rekind_segments)
+# ---------------------------------------------------------------------------
+
+_CARD_B17 = _load_fixture("card_b17.json")
+
+
+def test_surgery_plan_blocks_unbackfillable_beat_and_routes_to_fetch():
+    machine = _MACHINES["B17"]
+    package = _package_for("B17")
+    card = copy.deepcopy(_CARD_B17["card"])
+    plan = pe._segment_surgery_plan(card, package, machine)
+    # the golden B-17 card's original_problem cites an excerpt hinted for a
+    # different beat, and the package has no promotable replacement: the plan
+    # must refuse the re-kind (never break required coverage) and report it
+    blocked_roles = {b["role"] for b in plan["blocked"]}
+    assert "original_problem" in blocked_roles
+    assert all(r["new_kind"] != r["old_kind"] for r in plan["rekinds"])
+    actions = pe._classify_repair_actions(machine, card, package)
+    fetches = [a for a in actions if a["verb"] == "targeted_fetch"]
+    assert any(a.get("focus") == "slot:original_problem" for a in fetches)
+
+
+def test_surgery_plan_empty_for_passing_card():
+    machine = _MACHINES["XB19"]
+    package = _package_for("XB19")
+    plan = pe._segment_surgery_plan(_xb19_card(), package, machine)
+    assert plan["rekinds"] == [] and plan["promotes"] == []
+
+
+# ---------------------------------------------------------------------------
 # review-list merge + hold validation update
 # ---------------------------------------------------------------------------
 

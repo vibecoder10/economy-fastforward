@@ -761,9 +761,9 @@ async def run_machine_repair(
     if not machine:
         raise HTTPException(status_code=400, detail="machine is required")
     verb = (body.verb or "auto").strip().lower()
-    if verb not in {"auto", "promote_excerpt", "rewrite_field", "targeted_fetch", "mark_bare"}:
+    if verb not in {"auto", "promote_excerpt", "rekind_segments", "rewrite_field", "targeted_fetch", "mark_bare"}:
         raise HTTPException(status_code=400, detail=f"Unknown repair verb: {verb}")
-    if verb != "promote_excerpt" and not body.confirmed_paid_run:
+    if verb not in {"promote_excerpt", "rekind_segments"} and not body.confirmed_paid_run:
         raise HTTPException(
             status_code=400,
             detail="Paid machine repair requires explicit confirmation.",
@@ -776,6 +776,8 @@ async def run_machine_repair(
             result = await executor.repair_promote_excerpt(
                 video_id, machine, body.excerpt_id.strip(), (body.kind or "reality").strip()
             )
+        elif verb == "rekind_segments":
+            result = await executor.repair_rekind_segments(video_id, machine)
         elif verb == "rewrite_field":
             result = await executor.repair_rewrite_field(video_id, machine, body.field)
         elif verb == "targeted_fetch":
