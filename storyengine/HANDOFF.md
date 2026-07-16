@@ -1,13 +1,13 @@
 # HANDOFF - 2026-07-16 (late night) WRITER PASS 5 DONE: 3/3 previews PASS (XB-15, B-17, B-52)
 
 ## State
-- Prod: 4270bd22 deployed, healthy. Three deploys this session (51daa8df writer
-  prompts/plan flag, e5d91977 repair mechanics, 4270bd22 citation hygiene).
+- Prod: cec7bc6d deployed, healthy. Six deploys this session (51daa8df writer
+  prompts/plan flag, e5d91977 repair mechanics, 4270bd22 citation hygiene,
+  80212c88 designation/abbreviation laws, 37d81ce4 token cap, cec7bc6d
+  number floor).
 - Branch: main - clean except this wrap and untracked storyengine/.claude/.
-- **XB-15 preview PASSES the full frozen law + Anton quality audit** (green
-  SCRIPT TEST PASSED in the UI, 2/23 with the XB-19 control). Verified live.
-- B-17/B-52: reran twice, each round strictly better; final blockers are FIXED
-  in 4270bd22 but the proof rerun is BLOCKED (below).
+- **XB-15, B-17, and B-52 previews ALL PASS the full frozen law + Anton
+  quality audit** (4/23 with the XB-19 control). Verified live on prod.
 
 ## RESOLVED late night: key topped up; 3/3 PASS
 After credits landed, B-52 passed on its first roll. B-17 took three more
@@ -52,13 +52,15 @@ survival, not victory.").
 - Tests: 10 new locks; suite 718 pass / same 16+1 pre-existing fails.
 
 ## Next action (start here cold)
-1. Confirm Ryan topped up the tenant key.
-2. Rerun B-17 + B-52 previews from the Script tab (paid confirm ~cents).
-3. Judge vs notes/dvsu-paragraph-rubric.md. XB-15's passed paragraph is 5/6
-   beats: beat 1 lacks the year, beat 3 lacks "only one was built" - both
-   facts are in evidence; tune by re-roll or a one-line prompt nudge later,
-   do not reopen laws.
-4. Then the batch: B-24 + XB-39 repair, 17 machines' first research runs.
+1. The batch: B-24 + XB-39 repair ("Repair All" then Run Research per card),
+   then 17 machines' first research runs, then their script cards. The
+   proven recipe per machine: research VERIFIED -> preview roll -> if the
+   audit flags a missing beat/number, promote the package excerpt that
+   carries it (FREE) -> one more roll.
+2. Rubric fine-tuning stays optional, laws stay frozen: XB-15 beat 1 lacks
+   the year and beat 3 lacks "only one was built"; B-52 could carry its
+   wingspan/production numbers. All facts sit in evidence - one-line prompt
+   nudge or re-roll later if Anton fidelity demands it.
 
 ## Gotchas learned this session
 - Browser pane screenshots sometimes capture OFFSET (black band on top);
