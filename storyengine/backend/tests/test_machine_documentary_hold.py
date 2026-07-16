@@ -8697,15 +8697,47 @@ def test_package_conversion_signal_scan_positive_and_negative():
     line = pe._conversion_signal_prompt_line([hit])
     assert "MUST-SELECT" in line and "S9-E1" in line and "XC105" in line
 
-    # Negative: the base package (no conversion vocabulary, no foreign-prefix
-    # designations in machine-mentioning excerpts) yields no signals.
+    # Negative: the base package (no conversion vocabulary anywhere) yields
+    # no signals.
     clean = pe._package_conversion_signals(_verified_package_for_segments(machine, segments), machine)
     assert clean == []
-    # An excerpt that does not mention the locked machine never signals.
-    unrelated = _package_with_extra_excerpt(
+
+    # Round-9 recalibration: the package is machine-scoped by construction, so
+    # vocabulary-bearing excerpts signal WITHOUT naming the locked machine -
+    # the live XB-15 miss was exactly a pronoun-carried conversion excerpt.
+    pronoun_carried = _package_with_extra_excerpt(
+        machine, segments,
+        "The sole example was redesignated XC-105 and used for cargo.", "S9-E3",
+    )
+    pronoun_hit = next(
+        s for s in pe._package_conversion_signals(pronoun_carried, machine)
+        if s["excerpt_id"] == "S9-E3"
+    )
+    assert pronoun_hit["enforce"] is True
+    assert "XC105" in pronoun_hit["tokens"]
+    assert "cargo" in pronoun_hit["terms"] and "redesignated" in pronoun_hit["terms"]
+
+    # A vocabulary excerpt with a different machine name also signals (the
+    # package scoping makes it this machine's evidence by construction).
+    cross_named = _package_with_extra_excerpt(
         machine, segments, "The C-47 hauled cargo across every theater.", "S9-E2",
     )
-    assert all(s["excerpt_id"] != "S9-E2" for s in pe._package_conversion_signals(unrelated, machine))
+    cross_hit = next(
+        s for s in pe._package_conversion_signals(cross_named, machine)
+        if s["excerpt_id"] == "S9-E2"
+    )
+    assert cross_hit["enforce"] is True
+
+    # Prefix-only hits (no vocabulary) still require the machine mention and
+    # never enforce - they only guide the prompt.
+    prefix_only = _package_with_extra_excerpt(
+        machine, segments, "The Boeing XB-15 flew alongside the B-10 in trials.", "S9-E4",
+    )
+    prefix_hit = next(
+        s for s in pe._package_conversion_signals(prefix_only, machine)
+        if s["excerpt_id"] == "S9-E4"
+    )
+    assert prefix_hit["enforce"] is False and "B10" in prefix_hit["tokens"]
 
 
 def test_gap_stays_when_conversion_signal_unselected():

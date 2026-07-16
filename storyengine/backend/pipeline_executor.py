@@ -2676,13 +2676,16 @@ def _package_conversion_signals(package: Optional[dict], machine: str) -> list[d
     """Deterministic scan for REDESIGNATION/CONVERSION signals in a raw
     source package (Round-8 FIX 1). No LLM involved.
 
-    A package excerpt is a conversion signal when it mentions the locked
-    machine AND carries (a) role-conversion vocabulary and/or (b) a
-    designation token whose letter-prefix differs from the locked machine's
-    (XB-15 -> XC-105). Signals with vocabulary are ENFORCED by the gap gate
-    (a prefix-only hit can be a mere comparison mention, so it guides the
-    prompt but never blocks on its own). Live evidence: XB-15's package held
-    the XC-105/cargo transport story and the model selected none of it."""
+    Round-9 recalibration (2026-07-16): the package is already MACHINE-SCOPED
+    by construction (_checkpoint_machine_raw_source_package keys by machine),
+    so a mentions-the-locked-machine guard is redundant and misses excerpts
+    that carry the conversion by pronoun or cross-designation ("the sole
+    example was redesignated XC-105 and used for cargo" - the live XB-15
+    miss). ANY candidate excerpt carrying role-conversion vocabulary is an
+    enforceable signal. Cross-prefix designation tokens (XB-15 -> XC-105) are
+    recorded as additional signal data; a prefix-only hit (no vocabulary)
+    still requires the machine mention and guides the prompt without ever
+    blocking (comparison-mention noise bound)."""
     if not isinstance(package, dict):
         return []
     locked_codes = {code for code in _target_machine_designation_codes(machine) if code}
@@ -2696,7 +2699,7 @@ def _package_conversion_signals(package: Optional[dict], machine: str) -> list[d
         if not isinstance(item, dict):
             continue
         text = str(item.get("text") or "").strip()
-        if not text or not _mentions_machine(text, machine):
+        if not text:
             continue
         lower = text.lower()
         terms = sorted(
@@ -2712,14 +2715,22 @@ def _package_conversion_signals(package: Optional[dict], machine: str) -> list[d
             if prefix_match and prefix_match.group(0) not in locked_prefixes:
                 if code not in tokens:
                     tokens.append(code)
-        if terms or tokens:
+        if terms:
+            # Vocabulary-bearing excerpts are enforceable signals - no mention
+            # guard (the package is machine-scoped by construction).
             signals.append({
                 "excerpt_id": str(item.get("excerpt_id") or item.get("locator") or "").strip(),
                 "terms": terms,
                 "tokens": tokens,
-                # Enforced by the gap gate only when conversion vocabulary is
-                # present (prefix-only = prompt guidance, not a block).
-                "enforce": bool(terms),
+                "enforce": True,
+            })
+        elif tokens and _mentions_machine(text, machine):
+            # Prefix-only hit: prompt guidance, never a block.
+            signals.append({
+                "excerpt_id": str(item.get("excerpt_id") or item.get("locator") or "").strip(),
+                "terms": [],
+                "tokens": tokens,
+                "enforce": False,
             })
     return signals
 
