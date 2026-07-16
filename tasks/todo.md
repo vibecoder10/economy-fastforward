@@ -1,5 +1,27 @@
 # Task Tracking
 
+## Handoff - 2026-07-16 (Modal close wedge FIXED - on main, NOT pushed, NOT deployed)
+
+The shared Modal (`ui/modal.tsx`) never unmounted after close: AnimatePresence held the exited
+backdrop + card in the DOM forever (keyless fragment root; framer-motion 12.38 + React 19.2), so
+an invisible `fixed inset-0 z-50` layer blocked every click after closing any dialog. Fixed at all
+3 sites and verified like a user on local dev against the prod API (se devtoken ladder):
+
+- `ui/modal.tsx` - backdrop and card are now two KEYED direct children of AnimatePresence (covers
+  ModelVideoModal, pipeline Delete + New Video modals, discovery Manage Channels + Launch). Added
+  `data-testid="modal-backdrop"` / `"modal-card"` for future smoke tests.
+- `ReadinessCheck.tsx` + `FirstVideoFlow.tsx` - each rolled its own copy of the same broken shape;
+  root is now ONE motion.div owning the only exit, backdrop is a plain div, card keeps its enter
+  spring (no exit). `pipeline/page.tsx` mounts got explicit keys. data-testids added.
+- Proof: pre-fix reproduced locally (React state closed, DOM stuck, backdrop intercepted a real
+  click on "New Video"); post-fix all three dialogs open AND close clean via Escape, X button, and
+  the readiness->create cascade; zero full-screen blockers left in DOM; `tsc --noEmit` clean.
+- Deploy note: frontend-only change, needs `se deploy <session> --with-frontend` when Ryan ships it.
+- `confirm.tsx` header comment updated (bug fixed); moving it back onto Modal is optional.
+- ⚠ Same broken fragment shape still exists un-fixed in `components/detail-panel.tsx`,
+  `components/storyboard/panel-detail.tsx`, `components/nav/bottom-tabs.tsx` (More menu) - same
+  latent wedge, fix with the same pattern + a browser walk.
+
 ## Handoff — 2026-07-13 (DVsU Anton one-machine pipeline)
 
 Current DVsU bomber proof state:
