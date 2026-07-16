@@ -2098,14 +2098,57 @@ def _paragraph_worth_warnings(machine: str, paragraph_worth: str) -> list[str]:
     return warnings
 
 
-def _normalize_card_field_citations(card: dict) -> dict:
-    """Deterministically remap or drop dangling *_evidence_ids citations.
+def _auto_cite_field_from_segments(
+    field_text: str,
+    segments: list[dict],
+    machine: str,
+) -> list[str]:
+    """Greedily pick the segments whose text grounds the field's words.
+
+    Citation selection is a set-cover problem code solves deterministically;
+    asking the model to do this bookkeeping failed five straight XB-15 runs.
+    Only segments that actually contain the field's factual words are cited -
+    nothing is invented. Returns at most 3 evidence IDs."""
+    text = " ".join(str(field_text or "").split())
+    if not text:
+        return []
+    usable = [
+        segment for segment in segments
+        if isinstance(segment, dict) and str(segment.get("evidence_id") or "").strip()
+    ]
+    chosen: list[str] = []
+    cited_text = ""
+    remaining = len(_ungrounded_factual_words(text, cited_text, machine))
+    for _ in range(3):
+        if remaining == 0:
+            break
+        best_id, best_left, best_seg_text = "", remaining, ""
+        for segment in usable:
+            evidence_id = str(segment.get("evidence_id") or "").strip()
+            if evidence_id in chosen:
+                continue
+            seg_text = f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+            left = len(_ungrounded_factual_words(text, f"{cited_text} {seg_text}", machine))
+            if left < best_left:
+                best_id, best_left, best_seg_text = evidence_id, left, seg_text
+        if not best_id:
+            break
+        chosen.append(best_id)
+        cited_text = f"{cited_text} {best_seg_text}"
+        remaining = best_left
+    return chosen
+
+
+def _normalize_card_field_citations(card: dict, machine: str = "") -> dict:
+    """Deterministically remap, drop, or derive *_evidence_ids citations.
 
     Models routinely cite package EXCERPT_IDs they never returned as segments
-    (XB-15 attempt 4, 2026-07-16: timeframe cited S4-E5/S1-E7 which matched no
-    segment). Bookkeeping is code's job, not the model's: remap a dangling ID
-    to the segment carrying that source_excerpt_id when one exists, otherwise
-    drop it. Never invents citations; an emptied list is left for the
+    (XB-15 attempts 4-5, 2026-07-16). Bookkeeping is code's job, not the
+    model's: remap a dangling ID to the segment carrying that
+    source_excerpt_id; drop what cannot be remapped; and when a field's list
+    ends up EMPTY while its text exists, auto-cite the segments that ground
+    the field's words (_auto_cite_field_from_segments). Only existing
+    segments are ever cited; a list that stays empty is left for the
     validators so the repair pass hears a precise warning."""
     if not isinstance(card, dict):
         return card
@@ -2125,7 +2168,11 @@ def _normalize_card_field_citations(card: dict) -> dict:
         evidence_id = str(segment.get("evidence_id") or "").strip()
         if excerpt_id and evidence_id and excerpt_id not in excerpt_to_evidence:
             excerpt_to_evidence[excerpt_id] = evidence_id
-    for field in ("timeframe_evidence_ids", "visual_identity_evidence_ids"):
+    field_to_text = {
+        "timeframe_evidence_ids": str(card.get("timeframe") or ""),
+        "visual_identity_evidence_ids": str(card.get("visual_identity") or ""),
+    }
+    for field, field_text in field_to_text.items():
         cited = card.get(field)
         if not isinstance(cited, list):
             continue
@@ -2137,6 +2184,8 @@ def _normalize_card_field_citations(card: dict) -> dict:
             mapped = token if token in valid_ids else excerpt_to_evidence.get(token, "")
             if mapped and mapped not in cleaned:
                 cleaned.append(mapped)
+        if not cleaned:
+            cleaned = _auto_cite_field_from_segments(field_text, segments, machine)
         card[field] = cleaned
     return card
 
@@ -6288,7 +6337,7 @@ class PipelineExecutor:
                     text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
                 card = _hydrate_compatibility_fields(_json_uh.loads(text))
                 card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
-                card = _normalize_card_field_citations(card)
+                card = _normalize_card_field_citations(card, machine)
                 warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
@@ -6349,7 +6398,7 @@ class PipelineExecutor:
                         text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
                     card = _hydrate_compatibility_fields(_json_uh.loads(text))
                     card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
-                    card = _normalize_card_field_citations(card)
+                    card = _normalize_card_field_citations(card, machine)
                     warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
