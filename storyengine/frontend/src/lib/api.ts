@@ -718,16 +718,28 @@ export const checkMachineScriptPreviewReadiness = (videoId: string, machine: str
     { method: "POST", body: JSON.stringify({ machine }) },
   );
 
-export const runMachineScriptPreview = (videoId: string, machine: string) =>
+export const runMachineScriptPreview = (videoId: string, machine: string, confirmedPaidRun: true) =>
   fetchApi<{ status: string; preview: MachineScriptPreview; research_payload?: Record<string, unknown> }>(
     `/api/pipeline/machine-script-preview/${videoId}`,
-    { method: "POST", body: JSON.stringify({ machine }) },
+    { method: "POST", body: JSON.stringify({ machine, confirmed_paid_run: confirmedPaidRun }) },
   );
 
-export const runOneMachineResearch = (videoId: string, machine: string) =>
-  fetchApi<{ status: string; video_id: string; machine: string; research_card?: Record<string, unknown>; research_payload?: Record<string, unknown>; warnings?: string[]; error?: string }>(
+export type OneMachineResearchResult = {
+  status: string;
+  video_id: string;
+  machine: string;
+  research_card?: Record<string, unknown>;
+  research_payload?: Record<string, unknown>;
+  summary?: string;
+  warnings?: string[];
+  error?: string;
+  next_action?: string;
+};
+
+export const runOneMachineResearch = (videoId: string, machine: string, confirmedPaidRun: true) =>
+  fetchApi<OneMachineResearchResult>(
     `/api/pipeline/machine-research-one/${videoId}`,
-    { method: "POST", body: JSON.stringify({ machine }) },
+    { method: "POST", body: JSON.stringify({ machine, confirmed_paid_run: confirmedPaidRun }) },
   );
 
 export const runNextStep = (videoId: string) =>

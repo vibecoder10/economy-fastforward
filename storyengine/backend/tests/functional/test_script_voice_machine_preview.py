@@ -239,7 +239,7 @@ def test_script_voice_readiness_button_is_no_spend():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachineReadiness"):text.index("const handleMachinePreview")]
 
-    assert "const machine = previewMachine || machineRosterLabels[0]" in handler
+    assert "const machine = machineOverride || previewMachine || machineRosterLabels[0]" in handler
     assert "checkMachineScriptPreviewReadiness(video.id, machine)" in handler
     assert "setMachinePreview(previewErrorArtifact(" in handler
     assert "readinessWarningsWithNextAction(readiness, message)" in handler
@@ -250,7 +250,7 @@ def test_script_voice_readiness_button_is_no_spend():
     assert '"Readiness preflight"' in handler
     assert "Readiness blocked:" in handler
     assert "Production script unchanged." in handler
-    assert "runMachineScriptPreview(video.id, machine)" not in handler
+    assert "runMachineScriptPreview(video.id, machine, true)" not in handler
     assert 'runPipelineStage(video.id, "script")' not in handler
     assert "advanceVideo(" not in handler
     assert "resetPipeline(" not in handler
@@ -262,10 +262,14 @@ def test_script_voice_preview_button_calls_only_isolated_preview_route():
     text = _script_voice_tab().read_text()
     handler = text[text.index("const handleMachinePreview"):text.index("// ---------------------------------------------------------------------------", text.index("const handleMachinePreview"))]
 
-    assert "const machine = previewMachine || machineRosterLabels[0]" in handler
+    assert "const machine = machineOverride || previewMachine || machineRosterLabels[0]" in handler
     assert "checkMachineScriptPreviewReadiness(video.id, machine)" in handler
-    assert "runMachineScriptPreview(video.id, machine)" in handler
-    assert handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < handler.index("runMachineScriptPreview(video.id, machine)")
+    assert "confirmPaidOneMachineAction(" in handler
+    assert "paid single-machine script preview" in handler
+    assert "runMachineScriptPreview(video.id, machine, true)" in handler
+    assert handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < handler.index("runMachineScriptPreview(video.id, machine, true)")
+    assert handler.index("confirmPaidOneMachineAction(") < handler.index("runMachineScriptPreview(video.id, machine, true)")
+    assert "Single-machine script preview canceled before any provider call." in handler
     assert "if (!readiness.ready)" in handler
     assert '"readiness_preflight"' in handler
     assert '"Readiness preflight"' in handler
@@ -299,9 +303,10 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "Sentence assembly" in text
     assert '["problem", "decision", "tradeoff", "reality"][index] : "conclusion"' in text
     assert "Editorial thesis" in text
-    assert "activeMachinePreview.claim_bundle?.editorial_thesis" in text
+    assert "activeMachinePreview?.claim_bundle?.editorial_thesis" in text
     assert "Anton quality audit" in text
-    assert "activeMachinePreview.quality_audit?.checks" in text
+    assert "activeMachinePreview?.quality_audit?.checks" in text
+    assert "const checkPassedOrAdvisory = check.passed || check.advisory" in text
     assert 'check.advisory ? " · advisory" : ""' in text
     assert "source_excerpt: String(segment?.source_excerpt" in text
     assert "evidenceRows.map" in text

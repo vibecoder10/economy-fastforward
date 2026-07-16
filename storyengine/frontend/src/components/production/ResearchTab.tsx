@@ -15,7 +15,7 @@ import {
   runOneMachineResearch,
   runMachineScriptPreview,
 } from "@/lib/api";
-import type { MachineScriptPreview, MachineScriptPreviewReadiness } from "@/lib/api";
+import type { MachineScriptPreview, MachineScriptPreviewReadiness, OneMachineResearchResult } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 
@@ -192,6 +192,23 @@ function readinessWarningsWithNextAction(
     : warnings;
 }
 
+function researchWarningsWithNextAction(
+  result: OneMachineResearchResult,
+  fallbackMessage: string
+): string[] {
+  const warnings = Array.isArray(result.warnings) && result.warnings.length
+    ? result.warnings
+    : [result.error || fallbackMessage];
+  const nextAction = String(result.next_action || "").trim();
+  return nextAction
+    ? [`Next action: ${nextAction}`, ...warnings]
+    : warnings;
+}
+
+function confirmPaidOneMachineAction(message: string): boolean {
+  return typeof window !== "undefined" && window.confirm(message);
+}
+
 function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
   if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
   if (previews[machine]) return previews[machine] as MachineScriptPreview;
@@ -199,6 +216,14 @@ function previewForMachine(previews: any, machine: string): MachineScriptPreview
     machineLabelMatches(key, machine) || previewMatchesMachine(preview, machine)
   ));
   return match ? match[1] as MachineScriptPreview : null;
+}
+
+interface MachineEvidencePreview {
+  source_capture_method?: string;
+  source_variant_selection?: any;
+  source_slot_hints?: string[];
+  source_excerpt_id?: string;
+  source_excerpt_hash?: string;
 }
 
 function normalizedSourceText(text: unknown): string {
@@ -312,14 +337,22 @@ function canonicalAntonSourceSlotHints(rawHints: unknown[]): string[] {
 
 function sourceSlotHintsForEvidence(segment: any, sourcePackage: any): string[] {
   const match = sourceCandidateForEvidence(segment, sourcePackage);
-  const rawHints = Array.isArray(match?.anton_slot_hints) ? match.anton_slot_hints : [];
+  const rawHints = Array.isArray(match?.anton_slot_hints)
+    ? match.anton_slot_hints
+    : Array.isArray(match?.source_slot_hints)
+      ? match.source_slot_hints
+      : [];
   const hints = canonicalAntonSourceSlotHints(rawHints);
   if (hints.length > 0) return hints;
   return match ? Array.from(antonSourceSlotHints(match?.text)) : [];
 }
 
 function sourceSlotHintsForCandidate(candidate: any): string[] {
-  const rawHints = Array.isArray(candidate?.anton_slot_hints) ? candidate.anton_slot_hints : [];
+  const rawHints = Array.isArray(candidate?.anton_slot_hints)
+    ? candidate.anton_slot_hints
+    : Array.isArray(candidate?.source_slot_hints)
+      ? candidate.source_slot_hints
+      : [];
   const hints = canonicalAntonSourceSlotHints(rawHints);
   if (hints.length > 0) return hints;
   return Array.from(antonSourceSlotHints(candidate?.text));
@@ -920,9 +953,13 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [taskRunning, setTaskRunning] = useState(false);
   const [selectedMachine, setSelectedMachine] = useState("");
+  const [allMachineResearchRunning, setAllMachineResearchRunning] = useState(false);
   const [singleMachineRunning, setSingleMachineRunning] = useState(false);
+  const [researchRunningMachine, setResearchRunningMachine] = useState("");
   const [singlePreviewRunning, setSinglePreviewRunning] = useState(false);
+  const [previewRunningMachine, setPreviewRunningMachine] = useState("");
   const [readinessChecking, setReadinessChecking] = useState(false);
+  const [readinessCheckingMachine, setReadinessCheckingMachine] = useState("");
   const [localMachinePreview, setLocalMachinePreview] = useState<MachineScriptPreview | null>(null);
 
   const { message: taskMessage } = useTaskPoller({
@@ -932,6 +969,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     onComplete: () => {
       setTaskRunning(false);
       setIsResearching(false);
+      setAllMachineResearchRunning(false);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
@@ -939,6 +977,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     onFailed: (error) => {
       setTaskRunning(false);
       setIsResearching(false);
+      setAllMachineResearchRunning(false);
       toast.error(`Research failed: ${error}`);
     },
   });
@@ -966,16 +1005,66 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     }
   }, [video.id]);
 
-  const handleOneMachineResearch = useCallback(async () => {
-    setSingleMachineRunning(true);
+  const handleRunAllMachineResearch = useCallback(async () => {
+    let rosterCount = 0;
     try {
       const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
       const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
-      const machine = selectedMachine || machineLabel(roster[0]);
+      rosterCount = roster.length;
+    } catch {
+      rosterCount = 0;
+    }
+    if (rosterCount <= 0) {
+      toast.error("No locked machine roster found.");
+      return;
+    }
+    if (!confirm(`Run research for all ${rosterCount} machine cards? This uses the locked roster and updates each research card in order.`)) {
+      return;
+    }
+    setAllMachineResearchRunning(true);
+    setIsResearching(true);
+    try {
+      await runPipelineStage(video.id, "machine-research");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "machine-research");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          toast.error(`Run all research failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        toast.error(`Run all research failed: ${message}`);
+      }
+      setAllMachineResearchRunning(false);
+      setIsResearching(false);
+    }
+  }, [video.id, video.research_payload, toast]);
+
+  const handleOneMachineResearch = useCallback(async (machineOverride?: string) => {
+    let started = false;
+    try {
+      const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
+      const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+      const machine = machineOverride || selectedMachine || machineLabel(roster[0]);
       if (!machine) {
         throw new Error("No locked machine selected.");
       }
-      const result = await runOneMachineResearch(video.id, machine);
+      setSelectedMachine(machine);
+      if (!confirmPaidOneMachineAction(
+        `Run paid one-machine research refresh for ${machine}? This calls Tavily search plus Claude card writing, then replaces only this machine's raw package/card/preview artifacts.`
+      )) {
+        toast.error("One-machine research refresh canceled before any provider call.");
+        return;
+      }
+      setSingleMachineRunning(true);
+      setResearchRunningMachine(machine);
+      started = true;
+      const result = await runOneMachineResearch(video.id, machine, true);
       setLocalMachinePreview(null);
       if (result.research_payload) {
         queryClient.setQueryData(["video", video.id], (current: any) => (
@@ -984,27 +1073,33 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       }
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       if (result.status === "needs_review") {
-        toast.error("Raw source package saved. Machine card needs review.");
+        const message = result.summary || result.error || result.warnings?.[0] || "Raw source package saved. Research card needs review before script preview.";
+        toast.error(researchWarningsWithNextAction(result, message).join(" "));
       } else {
         toast.success("Machine research saved.");
       }
     } catch (err: unknown) {
       toast.error(`Machine research failed: ${(err as Error).message || "Unknown error"}`);
     } finally {
-      setSingleMachineRunning(false);
+      if (started) {
+        setSingleMachineRunning(false);
+        setResearchRunningMachine("");
+      }
     }
   }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
 
-  const handleOneMachineReadiness = useCallback(async () => {
+  const handleOneMachineReadiness = useCallback(async (machineOverride?: string) => {
     setReadinessChecking(true);
-    let machine = selectedMachine || "";
+    let machine = machineOverride || selectedMachine || "";
     try {
       const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
       const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
-      machine = selectedMachine || machineLabel(roster[0]);
+      machine = machineOverride || selectedMachine || machineLabel(roster[0]);
       if (!machine) {
         throw new Error("No locked machine selected.");
       }
+      setSelectedMachine(machine);
+      setReadinessCheckingMachine(machine);
       const readiness = await checkMachineScriptPreviewReadiness(video.id, machine);
       if (readiness.research_payload) {
         queryClient.setQueryData(["video", video.id], (current: any) => (
@@ -1044,19 +1139,22 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       toast.error(`Readiness check failed: ${message}. Production script unchanged.`);
     } finally {
       setReadinessChecking(false);
+      setReadinessCheckingMachine("");
     }
   }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
 
-  const handleOneMachinePreview = useCallback(async () => {
+  const handleOneMachinePreview = useCallback(async (machineOverride?: string) => {
     setSinglePreviewRunning(true);
-    let machine = selectedMachine || "";
+    let machine = machineOverride || selectedMachine || "";
     try {
       const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : video.research_payload;
       const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
-      machine = selectedMachine || machineLabel(roster[0]);
+      machine = machineOverride || selectedMachine || machineLabel(roster[0]);
       if (!machine) {
         throw new Error("No locked machine selected.");
       }
+      setSelectedMachine(machine);
+      setPreviewRunningMachine(machine);
       const readiness = await checkMachineScriptPreviewReadiness(video.id, machine);
       if (readiness.research_payload) {
         queryClient.setQueryData(["video", video.id], (current: any) => (
@@ -1075,10 +1173,16 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           "Readiness preflight"
         ));
         queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-        toast.error(`Script preview blocked: ${message}. Production script unchanged.`);
+        toast.error(`Preview blocked: ${message}. Production script unchanged.`);
         return;
       }
-      const result = await runMachineScriptPreview(video.id, machine);
+      if (!confirmPaidOneMachineAction(
+        `Run paid single-machine script preview for ${readiness.machine || machine}? This calls Claude to compile the Anton-style preview paragraph. Production script remains unchanged.`
+      )) {
+        toast.error("Single-machine script preview canceled before any provider call.");
+        return;
+      }
+      const result = await runMachineScriptPreview(video.id, machine, true);
       setLocalMachinePreview(result.preview);
       if (result.research_payload) {
         queryClient.setQueryData(["video", video.id], (current: any) => (
@@ -1087,18 +1191,17 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       }
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       if (machinePreviewPassesAntonGate(result.preview)) {
-        toast.success("Single-machine preview passed. Production script unchanged.");
+        toast.success(`${machine} preview generated. Production script unchanged.`);
       } else {
-        toast.error("Single-machine preview needs review. Production script unchanged.");
+        toast.error(`${machine} preview needs review. Production script unchanged.`);
       }
     } catch (err: unknown) {
       const message = (err as Error).message || "Unknown error";
-      if (machine) {
-        setLocalMachinePreview(previewErrorArtifact(machine, message));
-      }
-      toast.error(`Script preview failed: ${message}. Production script unchanged.`);
+      if (machine) setLocalMachinePreview(previewErrorArtifact(machine, message));
+      toast.error(`Preview failed: ${message}. Production script unchanged.`);
     } finally {
       setSinglePreviewRunning(false);
+      setPreviewRunningMachine("");
     }
   }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
 
@@ -1205,11 +1308,6 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     return research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, selectedMachineLabel)) || null;
   }, [research, selectedMachineLabel]);
 
-  const selectedMachinePreview = useMemo(() => {
-    if (localMachinePreview && previewMatchesMachine(localMachinePreview, selectedMachineLabel)) return localMachinePreview;
-    return previewForMachine(research?.machine_script_previews, selectedMachineLabel);
-  }, [localMachinePreview, research?.machine_script_previews, selectedMachineLabel]);
-
   const selectedSourcePackage = useMemo(() => {
     if (!research || !selectedMachineLabel) return null;
     return sourcePackageForMachine(research.machine_raw_source_packages, selectedMachineLabel);
@@ -1226,81 +1324,53 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       : excerpts
     ).slice(0, 8);
   }, [selectedSourcePackage, selectedMachineLabel]);
+  const selectedSourceAuditRows = useMemo(() => {
+    const rows = Array.isArray(selectedSourcePackage?.search_result_audit)
+      ? selectedSourcePackage.search_result_audit
+      : [];
+    return rows.slice(0, 12);
+  }, [selectedSourcePackage]);
   const selectedResearchCardStatus = machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage);
   const selectedResearchReady = selectedResearchCardStatus.ready && selectedSourcePackageReady;
   const selectedResearchStatusMessage = selectedResearchCardStatus.ready
     ? selectedSourcePackageStatus.message
     : selectedResearchCardStatus.message;
-  const verifiedMachineResearchCount = useMemo(() => {
-    if (!research) return 0;
-    return research.unit_roster.filter((item: any) => {
-      const label = machineLabel(item);
-      const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-      const sourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
-      return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
-    }).length;
-  }, [research]);
-  const fullMachineResearchPassed = fullMachineResearchGatePassed(
-    research?.unit_research_hold_validation,
-    verifiedMachineResearchCount,
-    research?.unit_roster?.length || 0
-  );
-  const machineResearchIsolatedMode = (research?.unit_roster?.length || 0) > 0;
-
+  const selectedMachinePreview = useMemo(() => (
+    localMachinePreview && previewMatchesMachine(localMachinePreview, selectedMachineLabel)
+      ? localMachinePreview
+      : previewForMachine(research?.machine_script_previews, selectedMachineLabel)
+  ), [localMachinePreview, research?.machine_script_previews, selectedMachineLabel]);
   const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
     ? selectedMachinePreview.claim_bundle.claim_map
     : [];
   const selectedPreviewFormulaSentences = Array.isArray(selectedMachinePreview?.claim_bundle?.formula_sentences)
     ? selectedMachinePreview.claim_bundle.formula_sentences
     : [];
+  const selectedPreviewEvidenceSegments = Array.isArray(selectedResearchCard?.evidence_segments)
+    ? selectedResearchCard.evidence_segments
+    : [];
+  const selectedPreviewEvidenceById: Record<string, any> = selectedPreviewEvidenceSegments.reduce((rows: Record<string, any>, segment: any) => {
+    const evidenceId = String(segment?.evidence_id || "").trim();
+    if (!evidenceId) return rows;
+    const tier = sourceTierForEvidence(segment, selectedSourcePackage);
+    const source_slot_hints = sourceSlotHintsForEvidence(segment, selectedSourcePackage);
+    rows[evidenceId] = {
+      ...segment,
+      source_excerpt: String(segment?.source_excerpt || "").trim(),
+      source_excerpt_id: segment?.source_excerpt_id || sourceCandidateForEvidence(segment, selectedSourcePackage)?.excerpt_id,
+      source_excerpt_hash: segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, selectedSourcePackage)?.text_hash,
+      source_tier: tier?.tier ? `Tier ${tier.tier}` : segment?.source_tier,
+      source_capture_method: sourceCaptureMethodForEvidence(segment, selectedSourcePackage),
+      source_variant_selection: sourceVariantSelectionForEvidence(segment, selectedSourcePackage),
+      source_slot_hints,
+    };
+    return rows;
+  }, {});
   const selectedMachinePreviewPassed = machinePreviewPassesAntonGate(selectedMachinePreview);
   const selectedMachinePreviewReviewMessages = machinePreviewReviewMessages(selectedMachinePreview);
-
-  const selectedPreviewEvidenceById = useMemo(() => {
-    const rows: Record<string, {
-      slot?: string;
-      claim?: string;
-      source_excerpt?: string;
-      source_title?: string;
-      source_url?: string;
-      locator?: string;
-      source_excerpt_id?: string;
-      source_excerpt_hash?: string;
-      source_tier?: string;
-      source_capture_method?: string;
-      source_variant_selection?: any;
-      source_slot_hints?: string[];
-    }> = {};
-    const slots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
-      ? (selectedMachinePreview?.story_plan as any).slots
-      : [];
-    for (const slot of slots) {
-      const slotName = String(slot?.slot || "");
-      const segments = Array.isArray(slot?.evidence_segments) ? slot.evidence_segments : [];
-      for (const segment of segments) {
-        const id = String(segment?.evidence_id || "");
-        if (!id) continue;
-        rows[id] = {
-          slot: slotName,
-          claim: String(segment?.claim || ""),
-          source_excerpt: String(segment?.source_excerpt || ""),
-          source_title: String(segment?.source_title || ""),
-          source_url: String(segment?.source_url || ""),
-          locator: String(segment?.locator || ""),
-          source_excerpt_id: String(segment?.source_excerpt_id || sourceCandidateForEvidence(segment, selectedSourcePackage)?.excerpt_id || ""),
-          source_excerpt_hash: String(segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, selectedSourcePackage)?.text_hash || ""),
-          source_tier: sourceTierForEvidence(segment, selectedSourcePackage)?.label,
-          source_capture_method: sourceCaptureMethodForEvidence(segment, selectedSourcePackage),
-          source_variant_selection: sourceVariantSelectionForEvidence(segment, selectedSourcePackage),
-          source_slot_hints: sourceSlotHintsForEvidence(segment, selectedSourcePackage),
-        };
-      }
-    }
-    return rows;
-  }, [selectedMachinePreview?.story_plan, selectedSourcePackage]);
   const selectedPreviewFormulaRows = selectedPreviewFormulaSentences.map((sentence: string, index: number) => {
     const expectedSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
-    const expectedSlot = expectedSlots[index] || "conclusion";
+    const expectedSlot = expectedSlots[index] || "paragraph_derived_conclusion";
     const claimRows = index < expectedSlots.length
       ? selectedPreviewClaimMap.filter((row: any) => {
           const span = String(row?.span || "").trim();
@@ -1316,18 +1386,28 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         return [];
       }).map((id: any) => String(id || "").trim()).filter(Boolean)
     ));
-    const evidenceRows = evidenceIds.map((id) => ({ id, evidence: selectedPreviewEvidenceById[id] }));
     return {
       sentence,
       slot: expectedSlot,
       label: index < expectedSlots.length ? ["problem", "decision", "tradeoff", "reality"][index] : "conclusion",
-      evidenceRows,
+      evidenceRows: evidenceIds.map((id) => ({ id, evidence: selectedPreviewEvidenceById[id] })),
     };
   });
-
-  const selectedPreviewSlots = Array.isArray((selectedMachinePreview?.story_plan as any)?.slots)
-    ? (selectedMachinePreview?.story_plan as any).slots
-    : [];
+  const verifiedMachineResearchCount = useMemo(() => {
+    if (!research) return 0;
+    return research.unit_roster.filter((item: any) => {
+      const label = machineLabel(item);
+      const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
+      const sourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
+      return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
+    }).length;
+  }, [research]);
+  const fullMachineResearchPassed = fullMachineResearchGatePassed(
+    research?.unit_research_hold_validation,
+    verifiedMachineResearchCount,
+    research?.unit_roster?.length || 0
+  );
+  const machineResearchIsolatedMode = (research?.unit_roster?.length || 0) > 0;
 
   if (!research || !research.headline) {
     return (
@@ -1353,8 +1433,52 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
 
   return (
     <div className="space-y-4">
+      {machineResearchIsolatedMode && (
+        <GlassCard className="p-4" style={{ borderLeftWidth: 3, borderLeftColor: fullMachineResearchPassed ? "var(--green)" : "var(--turquoise)" }}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Research command</span>
+                <span className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ background: fullMachineResearchPassed ? "rgba(0,230,138,.1)" : "rgba(79,214,198,.1)", color: fullMachineResearchPassed ? "var(--green)" : "var(--turquoise)" }}>
+                  {verifiedMachineResearchCount}/{research.unit_roster.length} verified
+                </span>
+              </div>
+              <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{research.headline}</p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                Work the roster one card at a time. Use the inspector only when a card needs review.
+              </p>
+            </div>
+            {!approved ? (
+              <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
+                <button
+                  className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110"
+                  style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+                  onClick={() => setShowFeedback(true)}
+                >
+                  <FileText size={14} /> Request Changes
+                </button>
+                <button
+                  className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-50"
+                  style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                  onClick={handleApproveResearch}
+                  disabled={isApproving || !fullMachineResearchPassed}
+                  title={!fullMachineResearchPassed ? "Finish every verified machine research card before approving." : undefined}
+                >
+                  {isApproving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  {isApproving ? "Advancing..." : fullMachineResearchPassed ? "Approve Research" : "Research incomplete"}
+                </button>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--green)" }}>
+                <Check size={16} /> Research Approved
+              </div>
+            )}
+          </div>
+        </GlassCard>
+      )}
+
       {/* Headline */}
-      <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--gold)" }}>
+      {!machineResearchIsolatedMode && <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--gold)" }}>
         <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
           Headline
         </h3>
@@ -1366,9 +1490,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--gold)"; }}
           onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
         />
-      </GlassCard>
+      </GlassCard>}
 
-      {research.unit_roster_validation && (
+      {research.unit_roster_validation && !machineResearchIsolatedMode && (
         <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: research.unit_roster_validation.passed ? "var(--green)" : "var(--orange)" }}>
           <div className="flex items-start justify-between gap-3 mb-3">
             <div>
@@ -1491,25 +1615,108 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
 
       {research.unit_roster.length > 0 && research.unit_roster_validation?.passed && (
         <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: fullMachineResearchPassed ? "var(--green)" : "var(--turquoise)" }}>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <FileText size={15} style={{ color: "var(--turquoise)" }} />
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Step 2 · Machine research cards</h3>
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Machine research roster</h3>
               </div>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                {verifiedMachineResearchCount}/{research.unit_roster.length} verified machines researched. Each selected-machine card is saved with a raw source package before the next machine begins.
+                {verifiedMachineResearchCount}/{research.unit_roster.length} cards verified. Run one machine from its card, or use Run all research when the roster looks right.
               </p>
               <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
                 <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (verifiedMachineResearchCount / research.unit_roster.length) * 100)}%`, background: fullMachineResearchPassed ? "var(--green)" : "var(--turquoise)" }} />
               </div>
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            </div>
+            <ActionButton
+              variant="filled"
+              icon={allMachineResearchRunning || taskRunning ? Loader2 : RefreshCw}
+              onClick={handleRunAllMachineResearch}
+              disabled={allMachineResearchRunning || taskRunning || singleMachineRunning || singlePreviewRunning || readinessChecking}
+              className="w-full lg:w-auto"
+            >
+              {allMachineResearchRunning || taskRunning ? (taskMessage || "Running all...") : "Run All Research Cards"}
+            </ActionButton>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            {research.unit_roster.map((item: any, index: number) => {
+              const label = machineLabel(item);
+              const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
+              const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
+              const cardStatus = machineResearchCardStatus(card, label, cardSourcePackage);
+              const cardReady = cardStatus.ready;
+              const cardSourceReady = sourcePackageReady(cardSourcePackage, label);
+              const cardVerified = cardReady && cardSourceReady;
+              const cardStatusLabel = cardVerified ? "Verified" : card ? (cardReady ? "Needs source" : "Needs card data") : "Not run";
+              const cardSelected = machineLabelMatches(selectedMachineLabel, label);
+              const cardResearchRunning = researchRunningMachine === label;
+              const cardReadinessRunning = readinessCheckingMachine === label;
+              return (
+                <div
+                  key={`${label}-${index}`}
+                  className="rounded-lg p-3 transition-all"
+                  style={{
+                    background: cardSelected ? "rgba(79,214,198,.07)" : "rgba(255,255,255,.04)",
+                    border: `1px solid ${cardSelected ? "rgba(79,214,198,.28)" : "rgba(255,255,255,.08)"}`,
+                  }}
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMachine(label)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{String(index + 1).padStart(2, "0")}</span>
+                        <span className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{label}</span>
+                        <span className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ background: cardVerified ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: cardVerified ? "var(--green)" : "var(--orange)" }}>
+                          {cardStatusLabel}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                        {cardVerified ? sourcePackageStatus(cardSourcePackage, label).message : cardStatus.message}
+                      </p>
+                    </button>
+                    <div className="flex shrink-0 flex-col gap-2 sm:flex-row md:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleOneMachineResearch(label)}
+                        disabled={singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-40"
+                        style={{ background: cardVerified ? "transparent" : "var(--turquoise)", color: cardVerified ? "var(--turquoise)" : "var(--bg-void)", border: "1px solid var(--turquoise)" }}
+                      >
+                        {cardResearchRunning ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                        {cardResearchRunning ? "Running..." : cardVerified ? "Rerun Research" : "Run Research"}
+                      </button>
+                    </div>
+                  </div>
+                  {cardReadinessRunning && (
+                    <div className="mt-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>Checking script readiness...</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <details className="mt-5 rounded-lg p-4" style={{ background: "rgba(0,0,0,.12)", border: "1px solid rgba(255,255,255,.08)" }}>
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Selected machine inspector</div>
+                  <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{selectedMachineLabel}</p>
+                </div>
+                <span className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
+                  <ShieldCheck size={12} />
+                  {selectedResearchStatusMessage}
+                </span>
+              </div>
+            </summary>
+            <div className="mt-3">
+            <div className="flex flex-col gap-2 sm:flex-row">
                 <select
                   value={selectedMachine || machineLabel(research.unit_roster[0]) || ""}
-                  onChange={(e) => {
-                    setSelectedMachine(e.target.value);
-                    setLocalMachinePreview(null);
-                  }}
+                  onChange={(e) => setSelectedMachine(e.target.value)}
                   className="flex-1 rounded-lg px-3 py-2 text-sm"
                   style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
                 >
@@ -1521,26 +1728,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 <ActionButton
                   variant="outline"
                   icon={singleMachineRunning ? Loader2 : RefreshCw}
-                  onClick={handleOneMachineResearch}
-                  disabled={singleMachineRunning || isResearching || taskRunning}
+                  onClick={() => handleOneMachineResearch(selectedMachineLabel)}
+                  disabled={singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning}
                 >
                   {singleMachineRunning ? "Researching..." : "Research selected"}
-                </ActionButton>
-                <ActionButton
-                  variant="outline"
-                  icon={readinessChecking ? Loader2 : ShieldCheck}
-                  onClick={handleOneMachineReadiness}
-                  disabled={readinessChecking || singlePreviewRunning || isResearching || taskRunning}
-                >
-                  {readinessChecking ? "Checking..." : "Check readiness"}
-                </ActionButton>
-                <ActionButton
-                  variant="filled"
-                  icon={singlePreviewRunning ? Loader2 : ShieldCheck}
-                  onClick={handleOneMachinePreview}
-                  disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchReady}
-                >
-                  {singlePreviewRunning ? "Previewing..." : selectedMachinePreview ? "Preview selected" : "Script preview"}
                 </ActionButton>
               </div>
               <div className="mt-2 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
@@ -1598,73 +1789,66 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                   </div>
                 </details>
               )}
-            </div>
-          </div>
-
-          {research.unit_research_hold_validation?.warnings?.length > 0 && (
-            <ul className="mt-3 space-y-1">
-              {research.unit_research_hold_validation.warnings.map((warning: string, i: number) => (
-                <li key={i} className="text-xs" style={{ color: "var(--orange)" }}>• {warning}</li>
-              ))}
-            </ul>
-          )}
-
-          {selectedResearchCard && (
-            <div
-              className="mt-4 rounded-lg p-4"
-              style={{
-                background: "rgba(0,0,0,.18)",
-                border: `1px solid ${selectedMachinePreviewPassed ? "rgba(74,222,128,.28)" : "rgba(255,255,255,.09)"}`,
-              }}
-            >
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck size={14} style={{ color: selectedMachinePreviewPassed ? "var(--green)" : "var(--turquoise)" }} />
-                    <h4 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                      Single-machine script preview
-                    </h4>
+              {selectedSourceAuditRows.length > 0 && (
+                <details className="mt-3 rounded-md" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  <summary className="cursor-pointer px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                    Search result audit
+                  </summary>
+                  <div className="space-y-2 px-3 pb-3">
+                    {selectedSourceAuditRows.map((row: any, auditIndex: number) => {
+                      const accepted = row?.accepted === true;
+                      const variants = Array.isArray(row?.variants) ? row.variants : [];
+                      const variantSummary = variants
+                        .map((variant: any) => {
+                          const method = String(variant?.source_capture_method || "").trim();
+                          const status = variant?.selected
+                            ? "selected"
+                            : String(variant?.rejected_reason || "").replace(/_/g, " ");
+                          const slots = Number.isFinite(Number(variant?.covered_slot_count))
+                            ? `${Number(variant.covered_slot_count)} slots`
+                            : "";
+                          return [method, status, slots].filter(Boolean).join(" ");
+                        })
+                        .filter(Boolean)
+                        .join(" · ");
+                      return (
+                        <div key={`${row?.url || "audit"}-${auditIndex}`} className="rounded px-2 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.06)" }}>
+                          <p className="truncate text-[10px]" style={{ color: accepted ? "var(--green)" : "var(--orange)" }}>
+                            {[
+                              accepted ? `accepted ${row?.source_id || ""}`.trim() : `rejected ${String(row?.rejected_reason || "unknown").replace(/_/g, " ")}`,
+                              row?.selected_capture_method,
+                              row?.source_tier ? `Tier ${row.source_tier}` : "",
+                              sourceVariantSelectionLabel(row?.source_variant_selection),
+                            ].filter(Boolean).join(" · ")}
+                          </p>
+                          <p className="mt-1 truncate text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                            {[row?.title, row?.url].filter(Boolean).join(" · ")}
+                          </p>
+                          {variantSummary && (
+                            <p className="mt-1 text-[10px]" style={{ color: "var(--text-tertiary)" }}>{variantSummary}</p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>{selectedMachineLabel}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedMachinePreviewPassed ? "rgba(0,230,138,.12)" : "rgba(255,255,255,.06)", color: selectedMachinePreviewPassed ? "var(--green)" : "var(--text-tertiary)" }}>
-                    {selectedMachinePreview ? (selectedMachinePreviewPassed ? "Passed" : "Needs review") : "Not previewed"}
-                  </span>
-                  {selectedMachinePreview?.word_count !== undefined && (
-                    <span className="rounded-md px-2 py-1 text-[10px] font-mono" style={{ background: "rgba(255,255,255,.06)", color: "var(--text-tertiary)" }}>
-                      {selectedMachinePreview.word_count} words
-                    </span>
-                  )}
-                  {selectedMachinePreview?.research_source && (
-                    <span className="rounded-md px-2 py-1 text-[10px] font-mono" style={{ background: "rgba(255,255,255,.06)", color: "var(--text-tertiary)" }}>
-                      {selectedMachinePreview.research_source}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {selectedMachinePreview ? (
-                <div className="space-y-4">
+                </details>
+              )}
+              {selectedMachinePreview && (
+                <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${selectedMachinePreviewPassed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{selectedMachinePreview.machine}</span>
+                    <span className="text-xs font-mono" style={{ color: selectedMachinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{selectedMachinePreview.word_count} words · {selectedMachinePreviewPassed ? "Passed" : "Needs review"}</span>
+                  </div>
                   {selectedMachinePreview.claim_bundle?.editorial_thesis && (
-                    <div className="rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
+                    <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
                       <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>Editorial thesis</div>
-                      <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
-                        {selectedMachinePreview.claim_bundle.editorial_thesis}
-                      </p>
-                    </div>
-                  )}
-                  {(selectedMachinePreview.onscreen_label || selectedMachinePreview.claim_bundle?.onscreen_label) && (
-                    <div className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>On-screen label</div>
-                      <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
-                        {selectedMachinePreview.onscreen_label || selectedMachinePreview.claim_bundle?.onscreen_label}
-                      </p>
+                      <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>{selectedMachinePreview.claim_bundle.editorial_thesis}</p>
                     </div>
                   )}
                   {!selectedMachinePreviewPassed && selectedMachinePreviewReviewMessages.length > 0 && (
-                    <div className="rounded-md px-3 py-2" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                    <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                       <div className="text-[10px] font-semibold uppercase tracking-wider">Review reason</div>
+                      <div className="sr-only">One-machine research review</div>
                       <ul className="mt-1 space-y-1 text-xs leading-5">
                         {selectedMachinePreviewReviewMessages.map((message) => (
                           <li key={message}>{message}</li>
@@ -1680,19 +1864,18 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                     </div>
                   )}
                   {!selectedMachinePreview.quality_audit?.checks?.length && (
-                    <div className="rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+                    <div className="mt-3 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                       Legacy preview missing Anton audit. Regenerate this machine before accepting it.
                     </div>
                   )}
-
                   {selectedPreviewFormulaRows.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                        <ShieldCheck size={12} />
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                        <ShieldCheck size={13} />
                         Sentence assembly
                       </div>
                       {selectedPreviewFormulaRows.map((row, index) => (
-                        <div key={`selected-formula-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
+                        <div key={`formula-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
                           <span className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: index < 4 ? "var(--turquoise)" : "var(--orange)", background: index < 4 ? "rgba(79,214,198,.1)" : "rgba(255,120,73,.1)" }}>
                             {row.label}
                           </span>
@@ -1713,44 +1896,32 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                       ))}
                     </div>
                   )}
-
                   {!!selectedMachinePreview.quality_audit?.checks?.length && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: selectedMachinePreview.quality_audit.passed ? "var(--green)" : "var(--orange)" }}>
-                        <ShieldCheck size={12} />
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: selectedMachinePreview.quality_audit.passed ? "var(--green)" : "var(--orange)" }}>
+                        <ShieldCheck size={13} />
                         Anton quality audit
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        {selectedMachinePreview.quality_audit.checks.map((check, index) => (
-                          <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: check.passed ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${check.passed ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: check.passed ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}{check.advisory ? " · advisory" : ""}</div>
-                            {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
-                          </div>
-                        ))}
+                        {selectedMachinePreview.quality_audit.checks.map((check, index) => {
+                          const checkPassedOrAdvisory = check.passed || check.advisory;
+                          return (
+                            <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: checkPassedOrAdvisory ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${checkPassedOrAdvisory ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
+                              <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: checkPassedOrAdvisory ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}{check.advisory ? " · advisory" : ""}</div>
+                              {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
-
-                  {selectedPreviewSlots.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {selectedPreviewSlots.map((slot: any) => {
-                        const evidenceCount = Array.isArray(slot?.evidence_ids) ? slot.evidence_ids.length : 0;
-                        return (
-                          <span key={slot.slot} className="rounded-md px-2 py-1 text-[10px] font-mono" style={{ background: slot.required ? "rgba(79,214,198,.1)" : "rgba(255,255,255,.055)", color: slot.required ? "var(--turquoise)" : "var(--text-tertiary)", border: "1px solid rgba(255,255,255,.08)" }}>
-                            {slot.slot}: {evidenceCount}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-
                   {selectedPreviewClaimMap.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                        <ShieldCheck size={12} />
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                        <ShieldCheck size={13} />
                         Evidence map
                       </div>
-                      {selectedPreviewClaimMap.slice(0, 10).map((row: any, index: number) => {
+                      {selectedPreviewClaimMap.slice(0, 8).map((row: any, index: number) => {
                         const evidenceIds = Array.isArray(row.used_evidence_ids)
                           ? row.used_evidence_ids
                           : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
@@ -1763,7 +1934,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                               <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{row.slot || "slot"}</span>
                               <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{evidenceIds.join(", ")}</span>
                             </div>
-                            {row.span && <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>}
+                            <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>
                             {evidenceRows.length > 0 && (
                               <div className="mt-2 space-y-2">
                                 {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
@@ -1783,87 +1954,53 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                     </div>
                   )}
                 </div>
-              ) : (
-                <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,255,255,.035)", color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,.08)" }}>
-                  Research card saved. Script preview pending.
-                </div>
               )}
-            </div>
+          </div>
+          </details>
+
+          {research.unit_research_hold_validation?.warnings?.length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {research.unit_research_hold_validation.warnings.map((warning: string, i: number) => (
+                <li key={i} className="text-xs" style={{ color: "var(--orange)" }}>• {warning}</li>
+              ))}
+            </ul>
           )}
 
-          <div className="mt-4 space-y-2">
-            {research.unit_roster.map((item: any, index: number) => {
-              const label = machineLabel(item);
-              const card = research.unit_research_cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-              const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label);
-              const cardStatus = machineResearchCardStatus(card, label, cardSourcePackage);
-              const cardReady = cardStatus.ready;
-              const cardSourceReady = sourcePackageReady(cardSourcePackage, label);
-              const cardVerified = cardReady && cardSourceReady;
-              const cardStatusLabel = cardVerified ? "Verified" : card ? (cardReady ? "Needs source" : "Needs card data") : "Waiting";
-              return (
-                <details key={`${label}-${index}`} className="rounded-lg" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.06)" }}>
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">
-                    <span style={{ color: card ? "var(--text-primary)" : "var(--text-tertiary)" }}>{index + 1}. {label}</span>
-                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider" style={{ color: cardVerified ? "var(--green)" : card ? "var(--orange)" : "var(--text-tertiary)" }}>{cardStatusLabel}</span>
-                  </summary>
-                  {card && (
-                    <div className="space-y-3 border-t px-3 py-3" style={{ borderColor: "rgba(255,255,255,.06)" }}>
-                      {card.engineering_thesis && <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>{card.engineering_thesis}</p>}
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {card.why_this_unit_deserves_a_paragraph && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Why it matters</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.why_this_unit_deserves_a_paragraph}</p></div>}
-                        {card.actual_outcome && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>What happened</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.actual_outcome}</p></div>}
-                        {card.design_problem && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Engineering problem</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.design_problem}</p></div>}
-                        {card.tradeoff && <div><div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Design tradeoff</div><p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{card.tradeoff}</p></div>}
-                      </div>
-                      {Array.isArray(card.source_notes) && card.source_notes.length > 0 && <div className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>Sources: {card.source_notes.join(" · ")}</div>}
-                      {Array.isArray(card.evidence_segments) && card.evidence_segments.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                            <ShieldCheck size={12} />
-                            Exact evidence segments
-                          </div>
-                          <div className="space-y-2">
-                            {card.evidence_segments.slice(0, 12).map((segment: any, segmentIndex: number) => {
-                              const sourceTier = sourceTierForEvidence(segment, cardSourcePackage);
-                              const sourceCaptureMethod = sourceCaptureMethodForEvidence(segment, cardSourcePackage);
-                              const sourceSlotHints = sourceSlotHintsForEvidence(segment, cardSourcePackage);
-                              return (
-                                <div key={`${segment.evidence_id || segment.kind || "evidence"}-${segmentIndex}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
-                                  <div className="mb-1 flex flex-wrap items-center gap-2">
-                                    <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{segment.kind || "slot"}</span>
-                                    {segment.evidence_id && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{segment.evidence_id}</span>}
-                                    {sourceTier && (
-                                      <span className="rounded px-1.5 py-0.5 text-[10px] font-mono" style={{ color: sourceTier.tier >= 4 ? "var(--orange)" : "var(--green)", background: sourceTier.tier >= 4 ? "rgba(255,166,77,.12)" : "rgba(0,230,138,.1)" }}>
-                                        Tier {sourceTier.tier}
-                                      </span>
-                                    )}
-                                    {segment.confidence && <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{segment.confidence}</span>}
-                                    {sourceCaptureMethod && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{sourceCaptureMethod}</span>}
-                                    {sourceSlotHints.length > 0 && <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>hints {sourceSlotHints.join(", ")}</span>}
-                                  </div>
-                                  {segment.claim && <p className="text-xs leading-5" style={{ color: "var(--text-primary)" }}>{segment.claim}</p>}
-                                  {segment.source_excerpt && <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{segment.source_excerpt}</p>}
-                                  {(segment.source_title || sourceTier || segment.source_url || segment.locator) && (
-                                    <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                      {[segment.source_title, sourceTier?.label, segment.source_url, segment.locator].filter(Boolean).join(" · ")}
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </details>
-              );
-            })}
-          </div>
         </GlassCard>
       )}
 
+      {machineResearchIsolatedMode && (research.thesis || research.executive_hook || research.fact_sheet || research.source_bibliography) && (
+        <CollapsibleSection label="Global research packet" borderColor="var(--turquoise)">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {research.thesis && (
+              <div>
+                <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Thesis</h4>
+                <EditableText text={research.thesis} />
+              </div>
+            )}
+            {research.executive_hook && (
+              <div>
+                <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Executive Hook</h4>
+                <EditableText text={research.executive_hook} />
+              </div>
+            )}
+            {research.fact_sheet && (
+              <div>
+                <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Fact Sheet</h4>
+                <BulletList text={research.fact_sheet} />
+              </div>
+            )}
+            {research.source_bibliography && (
+              <div>
+                <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Sources</h4>
+                <SourceList text={research.source_bibliography} />
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {!machineResearchIsolatedMode && <>
       {/* Thesis — full width with accent border */}
       {research.thesis && (
         <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
@@ -1957,6 +2094,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           <SourceList text={research.source_bibliography} />
         </CollapsibleSection>
       )}
+      </>}
 
       {/* Actions */}
       {approveError && (
@@ -1964,7 +2102,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           Failed to approve: {approveError}
         </div>
       )}
-      <div className="flex gap-3 justify-end flex-wrap">
+      {!machineResearchIsolatedMode && <div className="flex gap-3 justify-end flex-wrap">
         {!approved && (
           <>
             {!machineResearchIsolatedMode && (
@@ -2001,7 +2139,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
             <Check size={16} /> Research Approved
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Feedback Modal */}
       {showFeedback && (

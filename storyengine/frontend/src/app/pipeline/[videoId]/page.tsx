@@ -405,6 +405,20 @@ export default function VideoDetailPage() {
     uploadDate: video?.created_at?.split("T")[0] ?? null,
     thumbnailUrl: video?.thumbnail_url ?? null,
   };
+  let parsedResearchPayload: any = {};
+  try {
+    parsedResearchPayload = typeof video?.research_payload === "string"
+      ? JSON.parse(video.research_payload || "{}")
+      : (video?.research_payload || {});
+  } catch {
+    parsedResearchPayload = {};
+  }
+  const machineResearchIncomplete = Boolean(
+    video?.render_mode === "static_docu"
+    && Array.isArray(parsedResearchPayload?.unit_roster)
+    && parsedResearchPayload.unit_roster.length > 0
+    && parsedResearchPayload?.unit_research_hold_validation?.passed === false
+  );
 
   return (
     <div
@@ -689,7 +703,7 @@ export default function VideoDetailPage() {
       {/* Guided next step — the one big button that always knows what's next.
           Hidden on the Scenes tab: the workspace's own green command bar (status +
           "Animate everything") is the single banner there, so they don't stack. */}
-      {currentTab !== "scenes" && (
+      {currentTab !== "scenes" && !machineResearchIncomplete && (
         <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} />
       )}
 

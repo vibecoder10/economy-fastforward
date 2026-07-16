@@ -17,6 +17,8 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     assert "Raw source package" in text or "raw source package" in text
     assert "`source_variant_selection`" in text
     assert "the evaluated capture methods, selected method, coverage counts, exact-text hashes, and the tie-break rule" in text
+    assert "`search_result_audit`" in text
+    assert "accepted sources, duplicate URLs, empty captures, machine-missing captures, selected capture methods, and rejected exact-text variants" in text
     assert "and to carry `source_variant_selection`" in text
     assert "compact `SOURCE_SELECTION`, `EXCERPT_TEXT_HASH`, `ANTON_SLOT_HINTS`" in text
     assert "provenance is supplied for grounding and then backfilled by validation" in text
@@ -36,8 +38,12 @@ def test_dvsu_anton_runbook_keeps_one_machine_evidence_contract():
     assert "reports whether the next action is research refresh or readiness/preview" in text
     assert "`--source supabase-rest`" in text
     assert "`--supabase-resolve-ip <ip>`" in text
+    assert "`confirmed_paid_run: true`" in text
+    assert "The no-spend readiness endpoint does not require this flag" in text
+    assert "After Ryan explicitly approves spend, use StoryEngine's `Research selected` button for `Boeing XB-15`" in text
+    assert "`source_capture_method`, `source_variant_selection`, `search_result_audit`, Anton slot hints" in text
     assert "no-spend readiness preflight for `Boeing XB-15`" in text
-    assert "Run only the single-machine script preview for `Boeing XB-15` after readiness passes" in text
+    assert "After readiness passes and Ryan explicitly approves spend, run only the single-machine script preview for `Boeing XB-15`" in text
     assert "`benchmark_cadence` is hard-gated from the claim map" in text
     assert "claim-mapped `engineering_decision` sentence" in text
 

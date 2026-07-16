@@ -154,20 +154,31 @@ his only future input is a list of titles. Tenant 561b872d, static_docu render m
 - G2 fixed narrator voice: vault->env wiring for elevenlabs_voice_id/model_id/voice_style
   (was silently ignored), multilingual-v2 pin + style honored in the client, .env defaults
   restored for tenants without overrides. `[done 2026-07-07, main @ 34f276c3, deployed +
-  test_narrator_voice_wiring.py ALL PASS on prod]` OPEN: tenant has NO direct elevenlabs_api_key
-  (Kie roster rejects custom voices) - Ryan decides whose key goes in before the beta.
+  test_narrator_voice_wiring.py ALL PASS on prod]` RESOLVED 2026-07-15: direct elevenlabs_api_key
+  is now in the tenant vault (verified via secrets names query) - voice gate unblocked.
 - G3 beta test video (switched to "Every US Strategic Bomber Ever Built" - his real #1, direct
-  script comparison possible): Ryan walks gates in the UI, I verify data-side. `[in progress
-  2026-07-13: active one-machine proof row is fc73860c-a9af-444f-95a5-7f86d60503e0, 23-machine
-  static_docu roster, first machine Boeing XB-15. A read-only evidence gate check found the saved
-  XB-15 raw package is legacy and fails before Anthropic because its excerpts lack source capture
-  method and source-selection provenance, and card evidence no longer maps to verified fetched
-  source text. Next paid action is XB-15 one-machine research refresh only after Ryan explicitly
-  approves; script preview waits for the no-spend readiness preflight to pass. The older
+  script comparison possible). `[restructured 2026-07-15 into G3a-G3d below; active proof row is
+  still fc73860c-a9af-444f-95a5-7f86d60503e0, 23-machine static_docu roster. The older
   6398a4e5-6aaa-4e8b-855d-b6c439323c32 13-scene beta is stale and not the current proof row.]`
+  NEW OPERATING MODE (Ryan approved 2026-07-15): Osiris drives the UI autonomously as channel
+  manager, $20/video spend cap, Ryan reviews at gates. V1 finish line = title -> rendered MP4
+  (one white-studio image per machine + Ken Burns + animated chyrons) + 2 thumbnails; upload manual.
+  Full plan: ~/.claude/plans/purring-baking-conway.md
+- G3a quality proof on 3 machines (XB-15 rerun, B-17, B-52): research -> script preview, judged
+  vs Anton's real paragraphs with notes/dvsu-paragraph-rubric.md. `[in progress 2026-07-15:
+  XB-15 research rerun launched from the UI]`
+- G3b encode the missing script laws: verdict-punch + no-redundancy + spec-block validators in
+  pipeline_executor.py, tenant script prompt upgrade, preview promotion, park-don't-halt,
+  category-aware Tavily queries. `[todo]`
+- G3c UI rework for the channel-manager loop: inline card inspectors on Research + Script tabs,
+  editable preview paragraphs, fix silent-save traps, jump links, batch confirms, DvsU-aware
+  guided banner. `[todo]`
+- G3d full bomber video end-to-end: 23/23 research + scripts, voice (Ryan's ElevenLabs key via
+  masked box), images, Ken Burns render + chyron check, 2 thumbnails. MP4 delivered for review,
+  NO upload. `[todo]`
 - G4 production: Anton's first 3-5 real titles through the same flow; monitor 2-3 weeks;
-  enhancements (thumbnail A/B via YouTube Experiments, autopilot scoring on his format table)
-  only after baseline parity. `[todo]`
+  roster-walk orchestrator (one button per video); warship-title Tavily proofing; thumbnail A/B
+  via YouTube Experiments only after baseline parity. `[todo]`
 
 ---
 
@@ -231,6 +242,10 @@ any clip spend.
 - Multi-language until the Slow Spanish channel is the active model.
 
 ## Log
+- 2026-07-15: Phase G restructured into G3a-G3d after a full map (5-agent sweep + live UI walk).
+  New operating mode approved: Osiris drives the UI autonomously, $20/video cap. Quality bar
+  distilled into notes/dvsu-paragraph-rubric.md (Anton 6-beat anatomy; current engine misses the
+  verdict punch + has a redundancy bug, XB-19 sample). G3a started: XB-15 research rerun launched.
 - 2026-07-07: Phase G (first customer DvsU) started and G1+G2 landed same day: six hand-written
   prompt overrides live on the DvsU tenant (6/6 CUSTOM via API), profile filled, format locked,
   package archived to the vault; narrator-voice vault wiring fixed + deployed (main @ 34f276c3,

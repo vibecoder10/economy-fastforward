@@ -274,6 +274,10 @@ function readinessWarningsWithNextAction(
     : warnings;
 }
 
+function confirmPaidOneMachineAction(message: string): boolean {
+  return typeof window !== "undefined" && window.confirm(message);
+}
+
 function cardMatchesMachine(card: any, machine: string): boolean {
   return machineLabelMatches(cardLabel(card), machine);
 }
@@ -1272,7 +1276,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const [approved, setApproved] = useState(false);
   const [previewMachine, setPreviewMachine] = useState("");
   const [previewGenerating, setPreviewGenerating] = useState(false);
+  const [previewGeneratingMachine, setPreviewGeneratingMachine] = useState("");
   const [readinessChecking, setReadinessChecking] = useState(false);
+  const [readinessCheckingMachine, setReadinessCheckingMachine] = useState("");
   const [machinePreview, setMachinePreview] = useState<MachineScriptPreview | null>(null);
 
   // Voice actions
@@ -1587,6 +1593,8 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     (Array.isArray(video.pipeline_stages) && !video.pipeline_stages.includes("voice"));
   const allReady = totalScenes > 0 && scenesWithScript === totalScenes &&
     (voiceSkipped || scenesWithVoice === totalScenes);
+  const scriptDone = scenesWithScript === totalScenes && totalScenes > 0;
+  const voiceDone = voiceSkipped || (scenesWithVoice === totalScenes && totalScenes > 0);
 
   // ---------------------------------------------------------------------------
   // Script handlers
@@ -2050,6 +2058,28 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
   const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
   const scriptGenerationBlockedByRoster = Boolean(activeRosterGate?.complete_title && activeRosterGate?.passed === false);
+  const scriptRosterGatePanel = activeRosterGate ? (
+    <div className="rounded-xl p-4" style={{ background: activeRosterGate.passed ? "rgba(0,230,138,.06)" : "rgba(255,120,73,.08)", border: `1px solid ${activeRosterGate.passed ? "rgba(0,230,138,.22)" : "rgba(255,120,73,.25)"}` }}>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2" style={{ color: activeRosterGate.passed ? "var(--green)" : "var(--orange)" }}>
+          {activeRosterGate.passed ? <ShieldCheck size={16} /> : <AlertCircle size={16} />}
+          <span className="text-xs font-semibold uppercase tracking-wider">Script roster gate</span>
+        </div>
+        <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+          {activeRosterGate.roster_count || 0} locked item(s)
+        </span>
+      </div>
+      {activeRosterGate.passed ? (
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Script matches the locked research roster.</p>
+      ) : (
+        <ul className="space-y-1">
+          {(activeRosterGate.warnings || ["Roster validation failed."]).map((w: string, i: number) => (
+            <li key={i} className="text-sm" style={{ color: "var(--text-secondary)" }}>• {w}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  ) : null;
   const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
   const activePreviewMachine = previewMachine || machineRosterLabels[0] || "";
   const activePreviewResearchCard = (Array.isArray(researchPayload?.unit_research_cards) ? researchPayload.unit_research_cards : [])
@@ -2068,10 +2098,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     return previewForMachine(researchPayload?.machine_script_previews, activePreviewMachine);
   }, [machinePreview, researchPayload?.machine_script_previews, activePreviewMachine]);
   const previewClaimMap = Array.isArray(activeMachinePreview?.claim_bundle?.claim_map)
-    ? activeMachinePreview.claim_bundle.claim_map
+    ? activeMachinePreview?.claim_bundle?.claim_map
     : [];
   const previewFormulaSentences = Array.isArray(activeMachinePreview?.claim_bundle?.formula_sentences)
-    ? activeMachinePreview.claim_bundle.formula_sentences
+    ? activeMachinePreview?.claim_bundle?.formula_sentences
     : [];
   const machinePreviewPassed = machinePreviewPassesAntonGate(activeMachinePreview);
   const activePreviewReviewMessages = machinePreviewReviewMessages(activeMachinePreview);
@@ -2144,10 +2174,11 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     };
   });
 
-  const handleMachineReadiness = async () => {
-    const machine = previewMachine || machineRosterLabels[0];
+  const handleMachineReadiness = async (machineOverride?: string) => {
+    const machine = machineOverride || previewMachine || machineRosterLabels[0];
     if (!machine) return;
     setReadinessChecking(true);
+    setReadinessCheckingMachine(machine);
     try {
       const readiness = await checkMachineScriptPreviewReadiness(video.id, machine);
       if (readiness.research_payload) {
@@ -2188,13 +2219,16 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       toast.error(`Readiness check failed: ${message}. Production script unchanged.`);
     } finally {
       setReadinessChecking(false);
+      setReadinessCheckingMachine("");
     }
   };
 
-  const handleMachinePreview = async () => {
-    const machine = previewMachine || machineRosterLabels[0];
+  const handleMachinePreview = async (machineOverride?: string) => {
+    const machine = machineOverride || previewMachine || machineRosterLabels[0];
     if (!machine) return;
     setPreviewGenerating(true);
+    setPreviewGeneratingMachine(machine);
+    setPreviewMachine(machine);
     try {
       const readiness = await checkMachineScriptPreviewReadiness(video.id, machine);
       if (readiness.research_payload) {
@@ -2218,7 +2252,13 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         toast.error(`Preview blocked: ${message}. Production script unchanged.`);
         return;
       }
-      const result = await runMachineScriptPreview(video.id, machine);
+      if (!confirmPaidOneMachineAction(
+        `Run paid single-machine script preview for ${readiness.machine || machine}? This calls Claude to compile the Anton-style preview paragraph. Production script remains unchanged.`
+      )) {
+        toast.error("Single-machine script preview canceled before any provider call.");
+        return;
+      }
+      const result = await runMachineScriptPreview(video.id, machine, true);
       setMachinePreview(result.preview);
       setPreviewMachine(machine);
       if (result.research_payload) {
@@ -2238,8 +2278,147 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       toast.error(`Preview failed: ${message}. Production script unchanged.`);
     } finally {
       setPreviewGenerating(false);
+      setPreviewGeneratingMachine("");
     }
   };
+
+  const machineScriptPreviewPassCount = machineRosterLabels.filter((machine: string) => (
+    machinePreviewPassesAntonGate(previewForMachine(researchPayload?.machine_script_previews, machine))
+  )).length;
+  const machineScriptProductionCount = scriptHold?.units?.filter((unit: any) => unit?.passed).length || scenesWithScript;
+  const machineScriptRosterPanel = isMachineDocumentary ? (
+    <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: scriptDone ? "var(--green)" : "var(--orange)" }}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <Pencil size={15} style={{ color: "var(--orange)" }} />
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Machine script roster</h3>
+          </div>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            {machineScriptPreviewPassCount}/{machineRosterLabels.length} single-machine script tests passed. Run one card to tune the paragraph, or run all script cards to create production scenes.
+          </p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
+            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (Math.max(machineScriptPreviewPassCount, machineScriptProductionCount) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: scriptDone ? "var(--green)" : "var(--orange)" }} />
+          </div>
+        </div>
+        <ActionButton
+          variant="filled"
+          icon={regeneratingScript || scriptTaskRunning ? Loader2 : Pencil}
+          onClick={handleRegenerateScript}
+          disabled={regeneratingScript || scriptTaskRunning || previewGenerating || scriptGenerationBlockedByRoster}
+          className="w-full lg:w-auto"
+        >
+          {scriptTaskRunning ? scriptTaskMessage || "Running all..." : regeneratingScript ? "Starting..." : "Run All Script Cards"}
+        </ActionButton>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        {machineRosterLabels.map((machine: string, index: number) => {
+          const researchCard = (Array.isArray(researchPayload?.unit_research_cards) ? researchPayload.unit_research_cards : [])
+            .find((candidate: any) => cardMatchesMachine(candidate, machine));
+          const sourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, machine);
+          const cardResearchStatus = machineResearchCardStatus(researchCard, machine, sourcePackage);
+          const cardSourceStatus = sourcePackageStatus(sourcePackage, machine);
+          const researchReady = cardResearchStatus.ready && cardSourceStatus.ready;
+          const preview = previewForMachine(researchPayload?.machine_script_previews, machine);
+          const previewPassed = machinePreviewPassesAntonGate(preview);
+          const holdUnit = Array.isArray(scriptHold?.units)
+            ? scriptHold.units.find((unit: any) => machineLabelMatches(unit?.machine || unit?.unit, machine))
+            : null;
+          const scene = scenes.find((candidate) => candidate.sceneNumber === index + 1);
+          const productionDone = Boolean(holdUnit?.passed || scene?.narrationText?.trim());
+          const selected = machineLabelMatches(activePreviewMachine, machine);
+          const statusLabel = productionDone
+            ? "Production scene"
+            : previewPassed
+              ? "Script test passed"
+              : preview
+                ? "Needs review"
+                : researchReady ? "Ready to script" : "Research blocked";
+          const statusColor = productionDone || previewPassed ? "var(--green)" : researchReady ? "var(--orange)" : "var(--text-tertiary)";
+          const runningThisPreview = previewGeneratingMachine === machine;
+          const checkingThisMachine = readinessCheckingMachine === machine;
+          return (
+            <div
+              key={`${machine}-${index}`}
+              className="rounded-lg p-3 transition-all"
+              style={{
+                background: selected ? "rgba(255,120,73,.08)" : "rgba(255,255,255,.04)",
+                border: `1px solid ${selected ? "rgba(255,120,73,.28)" : "rgba(255,255,255,.08)"}`,
+              }}
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewMachine(machine);
+                    setMachinePreview(preview);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{String(index + 1).padStart(2, "0")}</span>
+                    <span className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{machine}</span>
+                    <span className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ background: productionDone || previewPassed ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: statusColor }}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                    {productionDone
+                      ? `Scene ${scene?.sceneNumber || index + 1} has script text.`
+                      : researchReady
+                        ? cardSourceStatus.message
+                        : "Run or fix this machine on the Research tab before scripting."}
+                  </p>
+                </button>
+                <div className="flex shrink-0 flex-col gap-2 sm:flex-row md:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleMachinePreview(machine)}
+                    disabled={previewGenerating || scriptTaskRunning || regeneratingScript || !researchReady}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-40"
+                    style={{ background: previewPassed ? "transparent" : "var(--orange)", color: previewPassed ? "var(--orange)" : "var(--bg-void)", border: "1px solid var(--orange)" }}
+                  >
+                    {runningThisPreview ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+                    {runningThisPreview ? "Running..." : preview ? "Rerun Script" : "Run Script"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleMachineReadiness(machine)}
+                    disabled={readinessChecking || previewGenerating}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-40"
+                    style={{ background: "transparent", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.14)" }}
+                  >
+                    {checkingThisMachine ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                    {checkingThisMachine ? "Checking..." : "Check"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {activeMachinePreview && (
+        <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.16)", border: `1px solid ${machinePreviewPassed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{activeMachinePreview?.machine}</span>
+            <span className="text-xs font-mono" style={{ color: machinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{activeMachinePreview?.word_count} words · {machinePreviewPassed ? "Passed" : "Needs review"}</span>
+          </div>
+          {activePreviewReviewMessages.length > 0 && !machinePreviewPassed && (
+            <ul className="mb-3 space-y-1 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
+              {activePreviewReviewMessages.map((message) => <li key={message}>{message}</li>)}
+            </ul>
+          )}
+          {activeMachinePreview?.paragraph ? (
+            <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{activeMachinePreview?.paragraph}</p>
+          ) : (
+            <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>No script paragraph saved for this machine yet.</p>
+          )}
+        </div>
+      )}
+    </GlassCard>
+  ) : null;
 
   // ---------------------------------------------------------------------------
   // Loading state
@@ -2260,9 +2439,12 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   // Empty state
   // ---------------------------------------------------------------------------
 
-  if (!apiScenes || apiScenes.length === 0) {
-    return (
-      <GlassCard className="p-12 text-center">
+	  if (!apiScenes || apiScenes.length === 0) {
+	    return (
+	      <div className="space-y-4">
+	      {isMachineDocumentary && machineScriptRosterPanel}
+	      {isMachineDocumentary && scriptRosterGatePanel}
+	      {!isMachineDocumentary && <GlassCard className="p-12 text-center">
         <Pencil size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
         <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
           Script Not Generated Yet
@@ -2284,7 +2466,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             </ul>
           </div>
         )}
-        {isMachineDocumentary && verifiedMachineResearchCount > 0 && (
+        {false && isMachineDocumentary && verifiedMachineResearchCount > 0 && (
           <div className="mx-auto mb-6 max-w-2xl rounded-xl p-4 text-left" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.1)" }}>
             <div className="flex items-center gap-2 mb-1">
               <Wand2 size={16} style={{ color: "var(--turquoise)" }} />
@@ -2301,7 +2483,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 {machineRosterLabels.map((machine: string, i: number) => <option key={machine} value={machine}>{i + 1}. {machine}</option>)}
               </select>
               <button
-                onClick={handleMachineReadiness}
+                onClick={() => handleMachineReadiness()}
                 disabled={readinessChecking || previewGenerating}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
                 style={{ background: "rgba(255,255,255,.06)", color: "var(--text-primary)", border: "1px solid rgba(255,255,255,.12)" }}
@@ -2310,7 +2492,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                 {readinessChecking ? "Checking..." : "Check readiness"}
               </button>
               <button
-                onClick={handleMachinePreview}
+                onClick={() => handleMachinePreview()}
                 disabled={previewGenerating || !activePreviewReady}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
                 style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
@@ -2352,14 +2534,14 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             {activeMachinePreview && (
               <div className="mt-4 rounded-lg p-4" style={{ background: "rgba(0,0,0,.2)", border: `1px solid ${machinePreviewPassed ? "rgba(74,222,128,.28)" : "rgba(255,120,73,.35)"}` }}>
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{activeMachinePreview.machine}</span>
-                  <span className="text-xs font-mono" style={{ color: machinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{activeMachinePreview.word_count} words · {machinePreviewPassed ? "Passed" : "Needs review"}</span>
+                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{activeMachinePreview?.machine}</span>
+                  <span className="text-xs font-mono" style={{ color: machinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{activeMachinePreview?.word_count} words · {machinePreviewPassed ? "Passed" : "Needs review"}</span>
                 </div>
-                {activeMachinePreview.claim_bundle?.editorial_thesis && (
+                {activeMachinePreview?.claim_bundle?.editorial_thesis && (
                   <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
                     <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>Editorial thesis</div>
                     <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
-                      {activeMachinePreview.claim_bundle.editorial_thesis}
+                      {activeMachinePreview?.claim_bundle?.editorial_thesis}
                     </p>
                   </div>
                 )}
@@ -2373,14 +2555,14 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     </ul>
                   </div>
                 )}
-                {activeMachinePreview.paragraph ? (
-                  <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{activeMachinePreview.paragraph}</p>
+                {activeMachinePreview?.paragraph ? (
+                  <p className="text-sm leading-6" style={{ color: "var(--text-primary)" }}>{activeMachinePreview?.paragraph}</p>
                 ) : (
                   <div className="rounded-md px-3 py-2 text-sm" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     Preview stopped before a paragraph was generated.
                   </div>
                 )}
-                {!activeMachinePreview.quality_audit?.checks?.length && (
+                {!activeMachinePreview?.quality_audit?.checks?.length && (
                   <div className="mt-3 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     Legacy preview missing Anton audit. Regenerate this machine before accepting it.
                   </div>
@@ -2413,19 +2595,22 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                     ))}
                   </div>
                 )}
-                {!!activeMachinePreview.quality_audit?.checks?.length && (
+                {!!activeMachinePreview?.quality_audit?.checks?.length && (
                   <div className="mt-4 space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: activeMachinePreview.quality_audit.passed ? "var(--green)" : "var(--orange)" }}>
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: activeMachinePreview?.quality_audit?.passed ? "var(--green)" : "var(--orange)" }}>
                       <ShieldCheck size={13} />
                       Anton quality audit
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {activeMachinePreview.quality_audit.checks.map((check, index) => (
-                        <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: check.passed ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${check.passed ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
-                          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: check.passed ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}{check.advisory ? " · advisory" : ""}</div>
-                          {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
-                        </div>
-                      ))}
+                      {activeMachinePreview?.quality_audit?.checks?.map((check, index) => {
+                        const checkPassedOrAdvisory = check.passed || check.advisory;
+                        return (
+                          <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: checkPassedOrAdvisory ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${checkPassedOrAdvisory ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
+                            <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: checkPassedOrAdvisory ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}{check.advisory ? " · advisory" : ""}</div>
+                            {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -2471,26 +2656,52 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             )}
           </div>
         )}
-        <button
-          onClick={handleRegenerateScript}
-          disabled={regeneratingScript || scriptTaskRunning || scriptGenerationBlockedByRoster}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-        >
-          {regeneratingScript || scriptTaskRunning ? (
-            <Loader2 size={18} className="animate-spin" />
-          ) : (
-            <Pencil size={18} />
-          )}
-          {scriptTaskRunning
-            ? scriptTaskMessage || "Generating Script..."
-            : regeneratingScript
-              ? "Starting..."
-              : "Generate Script"}
-        </button>
-      </GlassCard>
-    );
-  }
+        {!isMachineDocumentary && (
+          <button
+            onClick={handleRegenerateScript}
+            disabled={regeneratingScript || scriptTaskRunning || scriptGenerationBlockedByRoster}
+            className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          >
+            {regeneratingScript || scriptTaskRunning ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Pencil size={18} />
+            )}
+            {scriptTaskRunning
+              ? scriptTaskMessage || "Generating Script..."
+              : regeneratingScript
+                ? "Starting..."
+                : "Generate Script"}
+          </button>
+        )}
+      </GlassCard>}
+	      </div>
+	    );
+	  }
+
+	  if (isMachineDocumentary && scriptGenerationBlockedByRoster) {
+	    return (
+	      <div className="space-y-4 pb-24">
+	        {machineScriptRosterPanel}
+	        {scriptRosterGatePanel}
+	        <SystemPromptEditor
+	          label="Script System Prompt"
+	          currentValue={video.script_system_prompt}
+	          onSave={async (text) => {
+	            await updateVideo(video.id, { script_system_prompt: text || null });
+	            queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+	          }}
+	          onReset={async () => {
+	            const res = await getDefaultScriptPrompt();
+	            await updateVideo(video.id, { script_system_prompt: null });
+	            queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+	            return res.prompt;
+	          }}
+	        />
+	      </div>
+	    );
+	  }
 
   // ---------------------------------------------------------------------------
   // Render
@@ -2498,13 +2709,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
 
   const isVoiceBusy = generatingVoiceAll || generatingVoiceScene !== null || voiceTaskRunning;
 
-  // ---- Script pipeline stepper ----
-  const scriptDone = scenesWithScript === totalScenes && totalScenes > 0;
-  const voiceDone = voiceSkipped || (scenesWithVoice === totalScenes && totalScenes > 0);
-
   return (
     <div className="space-y-6 pb-24">
-      {isMachineDocumentary && (
+      {false && isMachineDocumentary && (
         <GlassCard className="p-5">
           <div className="flex items-center gap-3">
             <ShieldCheck size={18} style={{ color: scriptHold?.passed ? "var(--green)" : "var(--orange)" }} />
@@ -2521,6 +2728,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           </div>
         </GlassCard>
       )}
+      {machineScriptRosterPanel}
       {/* Top action bar */}
       <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -2528,37 +2736,16 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             <span>Script {scenesWithScript}/{totalScenes}</span>
             <span>Voice {voiceSkipped ? "off" : `${scenesWithVoice}/${totalScenes}`}</span>
           </div>
-          <button onClick={handleAdvanceStage} disabled={advancing}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
-            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+	          <button onClick={handleAdvanceStage} disabled={advancing}
+	            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
+	            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
             {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
             Advance Stage <ChevronRight size={12} />
           </button>
         </div>
       </div>
 
-      {activeRosterGate && (
-        <div className="rounded-xl p-4" style={{ background: activeRosterGate.passed ? "rgba(0,230,138,.06)" : "rgba(255,120,73,.08)", border: `1px solid ${activeRosterGate.passed ? "rgba(0,230,138,.22)" : "rgba(255,120,73,.25)"}` }}>
-          <div className="flex items-start justify-between gap-3 mb-2">
-            <div className="flex items-center gap-2" style={{ color: activeRosterGate.passed ? "var(--green)" : "var(--orange)" }}>
-              {activeRosterGate.passed ? <ShieldCheck size={16} /> : <AlertCircle size={16} />}
-              <span className="text-xs font-semibold uppercase tracking-wider">Script roster gate</span>
-            </div>
-            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-              {activeRosterGate.roster_count || 0} locked item(s)
-            </span>
-          </div>
-          {activeRosterGate.passed ? (
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Script matches the locked research roster.</p>
-          ) : (
-            <ul className="space-y-1">
-              {(activeRosterGate.warnings || ["Roster validation failed."]).map((w: string, i: number) => (
-                <li key={i} className="text-sm" style={{ color: "var(--text-secondary)" }}>• {w}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+	      {scriptRosterGatePanel}
 
       {/* Script System Prompt */}
       <SystemPromptEditor

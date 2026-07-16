@@ -52,8 +52,10 @@ def test_one_machine_api_wrappers_use_isolated_endpoints():
     assert "`/api/pipeline/machine-research-one/${videoId}`" in research_wrapper
     assert "`/api/pipeline/machine-script-preview/${videoId}`" in preview_wrapper
     assert "body: JSON.stringify({ machine })" in readiness_wrapper
-    assert "body: JSON.stringify({ machine })" in research_wrapper
-    assert "body: JSON.stringify({ machine })" in preview_wrapper
+    assert "confirmedPaidRun: true" in research_wrapper
+    assert "confirmed_paid_run: confirmedPaidRun" in research_wrapper
+    assert "confirmedPaidRun: true" in preview_wrapper
+    assert "confirmed_paid_run: confirmedPaidRun" in preview_wrapper
     assert "next_action?: string" in text
     assert "/api/pipeline/machine-research/" not in research_wrapper
     assert "/api/pipeline/script/" not in preview_wrapper
@@ -131,17 +133,22 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert "function sourceSlotHintsForCandidate" in text
     assert "anton_slot_hints" in text
     assert "source_slot_hints" in text
-    assert "hints {sourceSlotHints.join(\", \")}" in text
+    assert "hints ${hints.join(\", \")}" in text
     assert "hints ${evidence.source_slot_hints.join(\", \")}" in text
     assert "const selectedRawSourceExcerpts = useMemo" in text
+    assert "const selectedSourceAuditRows = useMemo" in text
+    assert "search_result_audit" in text
     assert "Raw source package excerpts" in text
+    assert "Search result audit" in text
+    assert "accepted ${row?.source_id || \"\"}" in text
+    assert "rejected ${String(row?.rejected_reason || \"unknown\").replace(/_/g, \" \")}" in text
     assert "No matching raw excerpts saved for the selected machine" in text
     assert "function antonSlotRoleForEvidenceKind" in text
     assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
     assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text
     assert "machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage)" in text
     assert "machineResearchCardReady(card, label, sourcePackage)" in text
-    assert "disabled={singlePreviewRunning || isResearching || taskRunning || !selectedResearchReady}" in text
+    assert "disabled={singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning}" in text
     assert "Raw source package missing · preview blocked" in text
     assert "Raw source package target-thin ·" in text
     assert "Raw source package thin ·" in text
@@ -176,7 +183,9 @@ def test_research_tab_blocks_preview_without_ready_raw_package():
     assert text.count("{ ...current, research_payload: result.research_payload }") >= 2
     research_handler = text[text.index("const handleOneMachineResearch"):text.index("const handleOneMachinePreview")]
     assert "setLocalMachinePreview(null)" in research_handler
-    assert "Raw source package saved. Machine card needs review." in text
+    assert "Raw source package saved. Research card needs review before script preview." in text
+    assert "One-machine research review" in text
+    assert "researchWarningsWithNextAction(result, message)" in text
     assert "Raw source package missing Anton slots ·" in text
     assert "sourcePackage?.traceable_source_slot_coverage?.missing_slots" in text
     assert "antonSourceSlotHints(candidate?.text)" in text
@@ -274,8 +283,8 @@ def test_research_tab_counts_only_verified_machine_cards():
     assert "machineResearchCardReady(card, label, sourcePackage)" in text
     assert "const sourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label)" in text
     assert "sourcePackageReady(sourcePackage, label)" in text
-    assert "verified machines researched" in text
-    assert "verifiedMachineResearchCount / research.unit_roster.length" in text
+    assert "cards verified" in text
+    assert "verifiedMachineResearchCount / research.unit_roster.length" in text or "verifiedMachineResearchCount}/{research.unit_roster.length" in text
     assert "const fullMachineResearchPassed = fullMachineResearchGatePassed" in text
     assert "!fullMachineResearchGatePassed(machineResearchGate, verifiedCount, lockedRoster.length)" in text
     assert "return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label)" in text
@@ -308,13 +317,12 @@ def test_research_tab_shows_raw_source_beat_coverage():
     assert "row.evidenceIds.join" in text
 
 
-def test_research_tab_does_not_offer_bulk_machine_research_action():
+def test_research_tab_offers_bulk_machine_research_action():
     text = _research_tab().read_text()
 
-    assert 'runPipelineStage(video.id, "machine-research")' not in text
-    assert "handleMachineResearch" not in text
-    assert "Start machine research" not in text
-    assert "Continue machine research" not in text
+    assert 'runPipelineStage(video.id, "machine-research")' in text
+    assert "handleRunAllMachineResearch" in text
+    assert "Run All Research Cards" in text
     assert "Research selected" in text
     assert "const machineResearchIsolatedMode = (research?.unit_roster?.length || 0) > 0" in text
     assert "{!machineResearchIsolatedMode && (" in text
@@ -326,14 +334,18 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     readiness_handler = text[text.index("const handleOneMachineReadiness"):text.index("const handleOneMachinePreview")]
     preview_handler = text[text.index("const handleOneMachinePreview"):text.index("const handleApproveResearch")]
 
-    assert "const machine = selectedMachine || machineLabel(roster[0])" in research_handler
-    assert "runOneMachineResearch(video.id, machine)" in research_handler
+    assert "const machine = machineOverride || selectedMachine || machineLabel(roster[0])" in research_handler
+    assert "confirmPaidOneMachineAction(" in research_handler
+    assert "paid one-machine research refresh" in research_handler
+    assert "runOneMachineResearch(video.id, machine, true)" in research_handler
+    assert research_handler.index("confirmPaidOneMachineAction(") < research_handler.index("runOneMachineResearch(video.id, machine, true)")
+    assert "One-machine research refresh canceled before any provider call." in research_handler
     assert "setLocalMachinePreview(null)" in research_handler
     assert 'runPipelineStage(video.id, "machine-research")' not in research_handler
     assert "advanceVideo(" not in research_handler
     assert "resetPipeline(" not in research_handler
 
-    assert "machine = selectedMachine || machineLabel(roster[0])" in readiness_handler
+    assert "machine = machineOverride || selectedMachine || machineLabel(roster[0])" in readiness_handler
     assert "checkMachineScriptPreviewReadiness(video.id, machine)" in readiness_handler
     assert "setLocalMachinePreview(previewErrorArtifact(" in readiness_handler
     assert "readinessWarningsWithNextAction(readiness, message)" in readiness_handler
@@ -344,16 +356,20 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     assert '"Readiness preflight"' in readiness_handler
     assert "Readiness blocked:" in readiness_handler
     assert "Production script unchanged." in readiness_handler
-    assert "runMachineScriptPreview(video.id, machine)" not in readiness_handler
+    assert "runMachineScriptPreview(video.id, machine, true)" not in readiness_handler
     assert 'runPipelineStage(video.id, "script")' not in readiness_handler
     assert "advanceVideo(" not in readiness_handler
     assert "resetPipeline(" not in readiness_handler
-    assert "Check readiness" in text
+    assert "Check readiness" not in text
 
-    assert "machine = selectedMachine || machineLabel(roster[0])" in preview_handler
+    assert "machine = machineOverride || selectedMachine || machineLabel(roster[0])" in preview_handler
     assert "checkMachineScriptPreviewReadiness(video.id, machine)" in preview_handler
-    assert "runMachineScriptPreview(video.id, machine)" in preview_handler
-    assert preview_handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < preview_handler.index("runMachineScriptPreview(video.id, machine)")
+    assert "confirmPaidOneMachineAction(" in preview_handler
+    assert "paid single-machine script preview" in preview_handler
+    assert "runMachineScriptPreview(video.id, machine, true)" in preview_handler
+    assert preview_handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < preview_handler.index("runMachineScriptPreview(video.id, machine, true)")
+    assert preview_handler.index("confirmPaidOneMachineAction(") < preview_handler.index("runMachineScriptPreview(video.id, machine, true)")
+    assert "Single-machine script preview canceled before any provider call." in preview_handler
     assert "if (!readiness.ready)" in preview_handler
     assert '"readiness_preflight"' in preview_handler
     assert '"Readiness preflight"' in preview_handler
@@ -411,14 +427,14 @@ def test_research_tab_surfaces_source_capture_method():
     assert "evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : \"\"" in text
     assert "sourceCaptureMethod" in text
     assert "const cardSourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label)" in text
-    assert "sourceCaptureMethodForEvidence(segment, cardSourcePackage)" in text
+    assert "sourceCaptureMethodForEvidence(segment, selectedSourcePackage)" in text
 
 
 def test_research_tab_surfaces_tier_badges_and_labels():
     text = _research_tab().read_text()
 
-    assert "Tier {sourceTier.tier}" in text
-    assert "sourceTier?.label" in text
+    assert "Tier ${tier}" in text
+    assert "match?.source_tier_label || segment?.source_tier_label || `Tier ${tier}`" in text
     assert "source_tier_label" in text
     assert "source_tier" in text
     assert "sourceTierNumber(match)" in text
@@ -465,6 +481,7 @@ def test_research_tab_preview_evidence_map_shows_claims_and_excerpts():
     assert "selectedMachinePreview.claim_bundle?.editorial_thesis" in text
     assert "Anton quality audit" in text
     assert "selectedMachinePreview.quality_audit?.checks" in text
+    assert "const checkPassedOrAdvisory = check.passed || check.advisory" in text
     assert 'check.advisory ? " · advisory" : ""' in text
     assert "source_excerpt: String(segment?.source_excerpt" in text
     assert "evidence?.claim" in text
