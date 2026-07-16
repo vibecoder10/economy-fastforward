@@ -43,6 +43,8 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
     ]
     return json.dumps({
         "editorial_thesis": f"{machine} mattered because its design promise had to survive real operating limits.",
+        # QL-3/QL-4: every entry declares its designed-vs-used twist.
+        "twist": {"type": "role_change", "substitute": None, "summary": "Built for the promise, used as the proof."},
         "formula_sentences": sentences,
         "paragraph": " ".join(sentences),
         "claim_map": [
@@ -66,6 +68,7 @@ def _claim_bundle_from_sentences(machine: str, sentences: list[str]) -> dict:
     ]
     return {
         "editorial_thesis": f"{machine} mattered because its design promise had to survive real operating limits.",
+        "twist": {"type": "role_change", "substitute": None, "summary": "Built for the promise, used as the proof."},
         "formula_sentences": sentences,
         "paragraph": " ".join(sentences),
         "claim_map": [
@@ -1115,7 +1118,7 @@ def test_required_anton_slots_accept_tier_four_when_cross_checked_by_better_sour
 
     warnings = pe._validate_card_against_verified_sources(card, package)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
 
 
 def test_required_anton_slots_accept_authoritative_source_support():
@@ -1127,7 +1130,7 @@ def test_required_anton_slots_accept_authoritative_source_support():
 
     warnings = pe._validate_card_against_verified_sources(card, package)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
 
 
 def test_validate_card_against_verified_sources_rejects_unapproved_capture_method():
@@ -1237,7 +1240,7 @@ def test_verified_card_validation_backfills_raw_excerpt_identity():
 
     warnings = pe._validate_card_against_verified_sources(card, package)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert segments[0]["source_excerpt_id"] == "S1-E1"
     assert segments[0]["source_id"] == "S1"
     assert segments[0]["source_excerpt_hash"] == "excerpt-hash-1"
@@ -1932,24 +1935,35 @@ def test_animated_video_with_roster_shape_still_runs_global_writer(monkeypatch):
     assert pipeline.global_writer_calls == 1
 
 
-def test_hard_word_bounds_are_95_through_120_inclusive():
+def test_word_gates_hard_80_warn_band_95_ceiling_170():
+    """QD-6/QL-1 (approved): universal hard floor 80 and ceiling 170; 80-95 is
+    an ADVISORY warn band (confirm terse on purpose); register bands are
+    guidance handled elsewhere. Supersedes the provisional 95-120 hard range."""
     validate = pe.PipelineExecutor._validate_static_unit_paragraph
 
-    assert any("word count 94" in warning for warning in validate("XB-15", _words("XB-15", 94)))
+    assert any("under the 80-word hard floor" in warning for warning in validate("XB-15", _words("XB-15", 79)))
+    warn_band = validate("XB-15", _words("XB-15", 85))
+    assert pe._blocking_warnings(warn_band) == []
+    assert any("warn band" in warning for warning in warn_band)
     assert validate("XB-15", _words("XB-15", 95)) == []
     assert validate("XB-15", _words("XB-15", 120)) == []
-    assert any("word count 121" in warning for warning in validate("XB-15", _words("XB-15", 121)))
+    assert pe._blocking_warnings(validate("XB-15", _words("XB-15", 170))) == []
+    assert any("over the 170-word hard ceiling" in warning for warning in validate("XB-15", _words("XB-15", 171)))
     two_paragraphs = _words("XB-15", 48) + "\n\n" + _words("XB-15", 47)
     assert "must be exactly one paragraph" in validate("XB-15", two_paragraphs)
     assert validate("B52", _words("B-52", 95)) == []
 
 
-def test_voiceover_digit_gate_keeps_designations_but_flags_quantities():
+def test_voiceover_digit_gate_keeps_designations_years_and_exact_figures():
+    """QL-10/QL-11 (OR-4 approved): digits stay legal for designations,
+    calendar years (1937), and exact 4+ digit figures (5,130); sub-1000
+    spoken measures (47%, 30 knots) must be spelled."""
     mentions = pe._raw_digit_mentions_for_voiceover(
         "B-52, XB-15, MiG-21, F-86, J57, and TF30 stay, but 1937, 5,130 miles, and 47% should be spoken."
     )
-
-    assert mentions == ["1937", "5,130", "47%"]
+    assert mentions == ["47%"]
+    assert pe._raw_digit_mentions_for_voiceover("It made 30 knots and carried 87 rounds.") == ["30", "87"]
+    assert pe._raw_digit_mentions_for_voiceover("The toll reached 1,177 sailors in 1941.") == []
 
 
 def test_voiceover_unit_gate_flags_written_units_but_keeps_designations():
@@ -1964,10 +1978,13 @@ def test_static_validator_requires_spoken_numbers_but_keeps_designations():
     validate = pe.PipelineExecutor._validate_static_unit_paragraph
 
     clean_designations = _words("B-52", 95)
-    raw_quantity = " ".join(["B-52"] + ["word"] * 93 + ["1937"])
+    raw_quantity = " ".join(["B-52"] + ["word"] * 93 + ["47"])
+    year_mention = " ".join(["B-52"] + ["word"] * 93 + ["1937"])
 
     assert not any("raw numeric digit" in warning for warning in validate("B-52", clean_designations))
-    assert any("raw numeric digit" in warning and "1937" in warning for warning in validate("B-52", raw_quantity))
+    assert any("raw numeric digit" in warning and "47" in warning for warning in validate("B-52", raw_quantity))
+    # QL-10: calendar years legally stay digits.
+    assert not any("raw numeric digit" in warning for warning in validate("B-52", year_mention))
 
 
 def test_static_validator_requires_spoken_unit_words():
@@ -2190,9 +2207,9 @@ def test_story_plan_locks_research_into_anton_slots():
         for segment in slot.get("evidence_segments", [])
     )
     assert "must not enter the plan" not in json.dumps(plan)
-    assert plan["contract"]["maximum_numerical_details"] == 8
+    assert plan["contract"]["maximum_numerical_details"] == 15
     assert plan["contract"]["narrative_weight"]["label"] == "standard"
-    assert plan["contract"]["narrative_weight"]["target_words"] == "100-112"
+    assert plan["contract"]["narrative_weight"]["target_words"] == "100-120"
     assert plan["contract"]["paragraph_shape"] == "one Anton/DVsU paragraph, 5 natural formula sentences"
     assert plan["contract"]["sentence_formula"] == "4 evidence-backed sentences + 1 paragraph-derived conclusion"
     assert "engineering decision" in plan["contract"]["movement"]
@@ -2230,9 +2247,9 @@ def test_story_plan_sets_narrative_weight_for_major_and_transitional_machines():
     )
 
     assert major_plan["contract"]["narrative_weight"]["label"] == "major"
-    assert major_plan["contract"]["narrative_weight"]["target_words"] == "112-120"
+    assert major_plan["contract"]["narrative_weight"]["target_words"] == "110-150"
     assert transitional_plan["contract"]["narrative_weight"]["label"] == "transitional"
-    assert transitional_plan["contract"]["narrative_weight"]["target_words"] == "95-103"
+    assert transitional_plan["contract"]["narrative_weight"]["target_words"] == "80-95"
 
 
 def test_story_plan_attaches_first_three_anton_benchmark_profile():
@@ -2413,7 +2430,7 @@ def test_story_paragraph_validator_accepts_anton_slot_bundle():
 
     paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert pe._spoken_word_count(paragraph) == 95
     assert [row["used_evidence_ids"][0] for row in bundle["claim_map"]] == [
         "E-PROBLEM", "E-DECISION", "E-TRADEOFF", "E-REALITY"
@@ -2473,7 +2490,7 @@ def test_story_paragraph_validator_accepts_anton_benchmark_shape():
 
     paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert pe._spoken_word_count(paragraph) == 116
 
 
@@ -2497,7 +2514,10 @@ def test_story_paragraph_validator_requires_five_sentence_formula_order():
 
     _paragraph, extra_warnings = pe._validate_machine_story_sentences("B-52", plan, extra_sentence_bundle)
 
-    assert any("paragraph must follow Anton formula" in warning for warning in extra_warnings)
+    assert any(
+        warning.startswith(pe._ADVISORY_PREFIX) and "the Anton formula target is" in warning
+        for warning in extra_warnings
+    )
 
     wrong_order_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
     wrong_order_bundle["claim_map"][0]["slot"] = "engineering_decision"
@@ -2561,45 +2581,23 @@ def test_story_paragraph_validator_assembles_paragraph_in_code():
     assert "B-52" in paragraph
     assert "B-about 52" not in paragraph
     assert mangled_bundle["paragraph"] == paragraph  # bundle synced to code-assembly
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert not any("assemble exactly" in warning for warning in warnings)
 
     # Legacy bundles without formula_sentences still fail the count contract.
     missing_bundle = copy.deepcopy(bundle)
     missing_bundle.pop("formula_sentences", None)
     _paragraph, missing_warnings = pe._validate_machine_story_sentences("B-52", plan, missing_bundle)
-    assert any("formula_sentences must contain 5 assembled sentences" in warning for warning in missing_warnings)
-
-
-def test_final_sentence_novelty_check_is_stem_and_contraction_aware():
-    """LAW (2026-07-16): the conclusion-novelty check must not flag reused word
-    FORMS. XB-15's live false flags: 'couldn, t' (tokenizer splitting couldn't)
-    and 'bombing' vs paragraph 'bomber' (stemming gap). Genuinely new facts
-    still flag."""
-    prior = (
-        "The experimental bomber promised a five-thousand-mile range. "
-        "Its engines could not deliver the speed the Army wanted."
+    assert any(
+        warning.startswith(pe._ADVISORY_PREFIX) and "the Anton formula target is" in warning
+        for warning in missing_warnings
     )
 
-    # Stem variant (bombing/bomber) + contraction (couldn't/could) + reused
-    # words (promise/promised, deliver) -> no novel words.
-    assert pe._final_sentence_novel_words(
-        "That bombing promise couldn't deliver.", prior, "Boeing XB-15"
-    ) == []
 
-    # A genuinely new fact still flags (new place/noun words).
-    novel = pe._final_sentence_novel_words(
-        "It later flew patrols over Vietnam.", prior, "Boeing XB-15"
-    )
-    assert "vietnam" in novel
-    assert "patrols" in novel
-
-    # The apostrophe split itself can never flag: no lone 't' token survives.
-    flagged = pe._final_sentence_novel_words(
-        "The Army couldn't ignore it.", prior, "Boeing XB-15"
-    )
-    assert "t" not in flagged
-    assert "couldn" not in flagged
+# (Removed 2026-07-16: QD-1 deleted the closer word-novelty mechanism entirely -
+# the final sentence has vocabulary freedom and only the banned classes gate.
+# Entity/number bans are pinned in
+# test_story_paragraph_validator_gives_closer_vocabulary_freedom.)
 
 
 def test_two_source_numeric_check_scans_all_locked_evidence():
@@ -2679,7 +2677,7 @@ def test_designations_are_identifiers_never_numbers_in_script_checks():
         for sentence in bundle["formula_sentences"]
     ]
     _paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
 
     # ...while a real raw digit in a sentence still fails the number checks,
     # and no check ever names the designation's "15".
@@ -2735,12 +2733,14 @@ def test_row_word_grounding_scans_all_locked_evidence_with_glue_stoplist():
     _p, cross_warnings = pe._validate_machine_story_sentences("B-52", plan, cross_row)
     assert not any("unsupported factual word" in warning for warning in cross_warnings)
 
-    # A genuinely ungrounded colorful noun still fails ("giant" is nowhere in
-    # the locked evidence; the model must use grounded vocabulary).
+    # A genuinely ungrounded colorful noun still flags - as an ADVISORY
+    # vocabulary warning under QD-2 ("giant" is nowhere in the locked
+    # evidence; the model should prefer the evidence's own wording).
     ungrounded = _bundle_with_sentence2_suffix(" with the giant wing.")
     _p, giant_warnings = pe._validate_machine_story_sentences("B-52", plan, ungrounded)
     assert any(
-        "unsupported factual word(s)" in warning and "giant" in warning
+        warning.startswith(pe._ADVISORY_PREFIX)
+        and "vocabulary outside the locked evidence" in warning and "giant" in warning
         for warning in giant_warnings
     )
 
@@ -2882,26 +2882,34 @@ def test_story_paragraph_validator_requires_memorable_fact_in_story_plan():
     paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
     audit = pe._anton_preview_quality_audit("B-52", plan, bundle, paragraph, warnings)
 
+    # QL-9 (OR-7 approved): memorable-fact is WARN severity - flagged for
+    # review, never blocking, until research coverage is proven reliable.
     assert any("story plan missing sourced memorable_fact" in warning for warning in warnings)
-    assert audit["passed"] is False
+    assert not any(
+        "memorable_fact" in warning for warning in pe._blocking_warnings(warnings)
+    )
     memorable_check = next(check for check in audit["checks"] if check["name"] == "memorable_fact")
     assert memorable_check["passed"] is False
+    assert memorable_check.get("advisory") is True
     assert "no sourced memorable_fact" in memorable_check["detail"]
+    assert audit["passed"] is True
 
 
 def test_anton_preview_quality_audit_reports_passed_checks():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
-    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    # 20 words/sentence = 100 words: inside the spec-block register band.
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 20))
     paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
     audit = pe._anton_preview_quality_audit("B-52", plan, bundle, paragraph, warnings)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert audit["passed"] is True
     assert [check["name"] for check in audit["checks"]] == [
         "word_range",
         "sentence_shape",
+        "twist_gate",
         "sentence_assembly",
         "four_evidence_beats",
         "memorable_fact",
@@ -2913,6 +2921,7 @@ def test_anton_preview_quality_audit_reports_passed_checks():
         "narrative_weight",
         "not_catalog_copy",
     ]
+    assert next(check for check in audit["checks"] if check["name"] == "twist_gate")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "memorable_fact")["detail"] == "used E-MEMORABLE"
     assert next(check for check in audit["checks"] if check["name"] == "sentence_assembly")["passed"] is True
     assert next(check for check in audit["checks"] if check["name"] == "clean_voiceover")["passed"] is True
@@ -2933,11 +2942,15 @@ def test_story_paragraph_validator_enforces_major_narrative_weight_target():
     paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
     audit = pe._anton_preview_quality_audit("B-52", plan, bundle, paragraph, warnings)
 
-    assert any("narrative_weight target major 112-120 words" in warning for warning in warnings)
+    # QL-1/QL-2 (approved): register/weight targets are GUIDANCE - the miss is
+    # advisory, never blocking (only 80/170 are hard).
+    assert any("narrative_weight target major 110-150 words" in warning for warning in warnings)
+    assert pe._blocking_warnings(warnings) == []
     narrative_check = next(check for check in audit["checks"] if check["name"] == "narrative_weight")
-    assert audit["passed"] is False
     assert narrative_check["passed"] is False
-    assert narrative_check["detail"] == "major target 112-120; 95 words"
+    assert narrative_check.get("advisory") is True
+    assert narrative_check["detail"] == "major target 110-150; 95 words"
+    assert audit["passed"] is True
 
 
 def test_story_paragraph_validator_accepts_transitional_narrative_weight_target():
@@ -2955,7 +2968,7 @@ def test_story_paragraph_validator_accepts_transitional_narrative_weight_target(
 
     assert not any("narrative_weight target" in warning for warning in warnings)
     assert narrative_check["passed"] is True
-    assert narrative_check["detail"] == "transitional target 95-103; 95 words"
+    assert narrative_check["detail"] == "transitional target 80-95; 95 words"
 
 
 def test_anton_preview_quality_audit_flags_voiceover_artifacts():
@@ -3314,7 +3327,7 @@ def test_story_paragraph_validator_allows_unmapped_final_synthesis_without_histo
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
 
 
 def test_story_paragraph_validator_blocks_generic_final_synthesis_language():
@@ -3343,7 +3356,8 @@ def test_story_paragraph_validator_requires_compressed_anton_final_line():
     old_final = sentence_parts[-1]
     long_final = (
         "The original problem and engineering decision survived the tradeoff because "
-        "reality grounded the source claim in the same machine proof again."
+        "reality grounded the source claim in the very same machine proof again "
+        "and again for every crew involved."
     )
     bundle["paragraph"] = bundle["paragraph"].replace(old_final, long_final)
     bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
@@ -3352,7 +3366,7 @@ def test_story_paragraph_validator_requires_compressed_anton_final_line():
     audit = pe._anton_preview_quality_audit("B-52", plan, bundle, bundle["paragraph"], warnings)
     final_check = next(check for check in audit["checks"] if check["name"] == "landed_final_line")
 
-    assert any("final sentence word count" in warning and "maximum is 18" in warning for warning in warnings)
+    assert any("final sentence word count" in warning and "maximum is 25" in warning for warning in warnings)
     assert final_check["passed"] is False
 
 
@@ -3388,8 +3402,15 @@ def test_story_paragraph_validator_blocks_fact_heavy_final_synthesis():
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert any("final sentence must be paragraph-derived synthesis without new numerical detail" in warning for warning in warnings)
-    assert not any("paragraph introduced unsupported numerical detail" in warning for warning in warnings)
+    # B1 (2026-07-16): a new number ALONE in the closer is advisory; it hard-
+    # blocks only when paired with a new hard entity (fabricated-fact shape).
+    assert any(
+        warning.startswith(pe._ADVISORY_PREFIX) and "closer introduces number(s) not in the body" in warning
+        and "1950" in warning
+        for warning in warnings
+    )
+    assert not any("pairs a new number with a new entity" in warning for warning in pe._blocking_warnings(warnings))
+    assert not any("paragraph introduced unsupported numerical detail" in warning for warning in pe._blocking_warnings(warnings))
 
 
 def test_story_paragraph_validator_blocks_new_named_entity_in_final_synthesis():
@@ -3398,17 +3419,35 @@ def test_story_paragraph_validator_blocks_new_named_entity_in_final_synthesis():
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
     sentence_parts = [part for part in bundle["paragraph"].split(". ") if part]
     old_final = sentence_parts[-1]
-    new_final = old_final.rstrip(".") + " over Vietnam."
+    new_final = old_final.rstrip(".") + " under Operation Chromedome."
     bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final)
     bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert any("final sentence must not introduce new named entity/event detail(s): Vietnam" in warning for warning in warnings)
-    assert not any("paragraph introduced unsupported numerical detail" in warning for warning in warnings)
+    assert any(
+        "final sentence must not introduce new named entity/event detail(s):" in warning
+        and "Operation Chromedome" in warning
+        for warning in pe._blocking_warnings(warnings)
+    )
+    # B1(a): geographic/nationality words are editorial color - advisory only.
+    color_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    color_final = old_final.rstrip(".") + " over Vietnam."
+    color_bundle["paragraph"] = color_bundle["paragraph"].replace(old_final, color_final)
+    color_bundle["formula_sentences"] = _formula_sentences_from_paragraph(color_bundle["paragraph"])
+    _paragraph, color_warnings = pe._validate_machine_story_sentences("B-52", plan, color_bundle)
+    assert any(
+        warning.startswith(pe._ADVISORY_PREFIX) and "geographic/nationality color" in warning and "Vietnam" in warning
+        for warning in color_warnings
+    )
+    assert not any("new named entity" in warning for warning in pe._blocking_warnings(color_warnings))
 
 
-def test_story_paragraph_validator_blocks_new_lowercase_fact_in_final_synthesis():
+def test_story_paragraph_validator_gives_closer_vocabulary_freedom():
+    """QD-1 (approved): the closer may use ANY editorial or abstract vocabulary
+    ("against missiles", "written in blood over German skies" - Anton's own
+    closers). Only the banned classes still gate: new named entities, new
+    numbers, new designations. Replaces the old lowercase-word novelty ban."""
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
@@ -3420,9 +3459,20 @@ def test_story_paragraph_validator_blocks_new_lowercase_fact_in_final_synthesis(
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
+    # Free vocabulary: no factual-word novelty flag exists any more.
+    assert not any("final sentence must not introduce new factual word" in warning for warning in warnings)
+    assert pe._blocking_warnings(warnings) == []
+
+    # The banned classes still gate: a new person/org/operation name blocks.
+    entity_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    entity_final = old_final.rstrip(".") + " for General LeMay."
+    entity_bundle["paragraph"] = entity_bundle["paragraph"].replace(old_final, entity_final)
+    entity_bundle["formula_sentences"] = _formula_sentences_from_paragraph(entity_bundle["paragraph"])
+    _paragraph, entity_warnings = pe._validate_machine_story_sentences("B-52", plan, entity_bundle)
     assert any(
-        "final sentence must not introduce new factual word(s)" in warning and "missiles" in warning
-        for warning in warnings
+        "final sentence must not introduce new named entity/event detail(s):" in warning
+        and "General LeMay" in warning
+        for warning in pe._blocking_warnings(entity_warnings)
     )
 
 
@@ -3490,19 +3540,41 @@ def test_story_paragraph_validator_requires_sentence_words_inside_claim_map_span
     )
 
 
-def test_story_paragraph_validator_blocks_unsupported_factual_words_in_claim_span():
+def test_story_paragraph_validator_grades_checkable_facts_hard_and_vocab_advisory():
+    """QD-2 (approved): grounding is HARD only for checkable facts (proper
+    nouns, months); common-word vocabulary outside the evidence is warn-only
+    (colorful concrete nouns prefer evidence wording). Replaces the blanket
+    unsupported-word block."""
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
+
+    # Lowercase concrete words outside evidence: ADVISORY vocabulary flag only.
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
     old_span = bundle["claim_map"][0]["span"]
-    new_span = old_span.rstrip(".") + " with a pressurized cockpit."
-    bundle["claim_map"][0]["span"] = new_span
-    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
-
+    vocab_span = old_span.rstrip(".") + " with a pressurized cockpit."
+    bundle["claim_map"][0]["span"] = vocab_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, vocab_span)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    assert not any("introduced unsupported factual word" in warning for warning in warnings)
+    assert any(
+        warning.startswith(pe._ADVISORY_PREFIX) and "vocabulary outside the locked evidence" in warning
+        and "pressurized" in warning and "cockpit" in warning
+        for warning in warnings
+    )
+    assert pe._blocking_warnings(warnings) == []
 
-    assert any("unsupported factual word(s)" in warning for warning in warnings)
-    assert any("pressurized" in warning and "cockpit" in warning for warning in warnings)
+    # A checkable fact (ungrounded proper noun mid-sentence) still BLOCKS.
+    fact_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    fact_span = old_span.rstrip(".") + " under Operation Chromedome."
+    fact_bundle["claim_map"][0]["span"] = fact_span
+    fact_bundle["paragraph"] = fact_bundle["paragraph"].replace(old_span, fact_span)
+    fact_bundle["formula_sentences"] = _formula_sentences_from_paragraph(fact_bundle["paragraph"])
+    _paragraph, fact_warnings = pe._validate_machine_story_sentences("B-52", plan, fact_bundle)
+    assert any(
+        "introduced unsupported factual word(s)" in warning and "chromedome" in warning
+        for warning in pe._blocking_warnings(fact_warnings)
+    )
 
 
 def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
@@ -3626,7 +3698,7 @@ def test_story_paragraph_validator_accepts_anton_style_xb15_slots():
 
     paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert pe._spoken_word_count(paragraph) == 102
 
 
@@ -3638,7 +3710,7 @@ def test_story_sentence_parser_accepts_paragraph_object_shape():
     bundle = pe._parse_machine_story_sentences(json.dumps(canonical))
     paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert bundle["paragraph"] == canonical["paragraph"]
     assert pe._spoken_word_count(paragraph) == 95
 
@@ -3666,7 +3738,7 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
 
     paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
 
-    assert warnings == []
+    assert pe._blocking_warnings(warnings) == []
     assert "five thousand miles" in paragraph
 
     bad_bundle = copy.deepcopy(bundle)
@@ -3766,7 +3838,7 @@ def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
 
     _, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
-    assert any("unsupported designation" in warning for warning in warnings)
+    assert any("designation(s) not grounded in locked evidence" in warning for warning in warnings)
     assert any("high-risk term" in warning for warning in warnings)
 
 
@@ -3790,7 +3862,25 @@ def test_story_sentence_validator_blocks_non_target_designation_even_when_source
 
     _, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
 
-    assert any("outside the locked machine" in warning for warning in warnings)
+    # Recalibrated (2026-07-16): a designation GROUNDED in locked evidence is a
+    # legal long-arc callback (QL-8; engine models like J57 are spec content).
+    assert not any("not grounded in locked evidence" in warning for warning in warnings)
+
+    # An UNSOURCED foreign designation still blocks.
+    unsourced = pe._parse_machine_story_sentences(_story_bundle("Douglas XB-19", 19))
+    old_span_u = unsourced["claim_map"][3]["span"]
+    new_span_u = old_span_u.replace("Reality claim", "B-36 reality claim", 1)
+    unsourced["claim_map"][3]["span"] = new_span_u
+    unsourced["paragraph"] = unsourced["paragraph"].replace(old_span_u, new_span_u)
+    unsourced["formula_sentences"] = [
+        new_span_u if sentence == old_span_u else sentence
+        for sentence in unsourced["formula_sentences"]
+    ]
+    _, unsourced_warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, unsourced)
+    assert any(
+        "designation(s) not grounded in locked evidence" in warning and "B36" in warning
+        for warning in pe._blocking_warnings(unsourced_warnings)
+    )
 
 
 def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_slot_mismatch():
@@ -3955,7 +4045,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
         def __init__(self):
             self.prompts = []
             self.system_prompts = []
-            self.outputs = [_story_bundle("XB-15", 17), _story_bundle("XB-15", 19)]
+            self.outputs = [_story_bundle("XB-15", 15), _story_bundle("XB-15", 20)]
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
@@ -4017,8 +4107,8 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
-    assert "NARRATIVE WEIGHT: standard / target 100-112 words" in fake_anthropic.prompts[0]
-    assert "Follow NARRATIVE WEIGHT as the target inside the hard range" in fake_anthropic.prompts[0]
+    assert "NARRATIVE WEIGHT: standard / target 100-120 words" in fake_anthropic.prompts[0]
+    assert "Follow NARRATIVE WEIGHT as the register target" in fake_anthropic.prompts[0]
     for required_slot in ["original_problem", "engineering_decision", "tradeoff", "reality"]:
         assert required_slot in fake_anthropic.prompts[0]
     assert "original_problem, engineering_decision, tradeoff, and reality" in fake_anthropic.prompts[0]
@@ -4026,19 +4116,42 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
-    assert "joined they must total 95-120 words" in fake_anthropic.prompts[0]
+    # QD-6/QL-1: universal hard floor/ceiling with register targets.
+    assert "WORD LAW: hard floor 80 words, hard ceiling 170" in fake_anthropic.prompts[0]
+    assert "spec-block register 100-120" in fake_anthropic.prompts[0]
+    # QL-2 position/importance guidance travels in the build prompt.
+    assert "POSITION LAW" in fake_anthropic.prompts[0]
+    assert "never runs shortest" in fake_anthropic.prompts[0]
+    assert "plus ten to thirty words and folds the outro" in fake_anthropic.prompts[0]
+    # QL-3/QL-4 twist declaration in shape and law text.
+    assert '"twist":{"type":"role_change","substitute":null,"summary":"built for X, used as Y in one line"}' in fake_anthropic.prompts[0]
+    assert "TWIST LAW (hard)" in fake_anthropic.prompts[0]
+    assert "superlative, legacy, irony, anti_twist" in fake_anthropic.prompts[0]
+    # QL-5/QL-6 verdict punch + house punch preference.
+    assert "VERDICT PUNCH (hard)" in fake_anthropic.prompts[0]
+    assert "They ordered an ambulance. They got an air force." in fake_anthropic.prompts[0]
+    # QL-7/QL-8 opener budget + bridge guidance.
+    assert "OPENER BUDGET" in fake_anthropic.prompts[0]
+    assert "BRIDGE LAW" in fake_anthropic.prompts[0]
+    # QD-1/QD-2/QD-3/QD-4 dial laws.
+    assert "CLOSER FREEDOM" in fake_anthropic.prompts[0]
+    assert "GROUNDING LAW: freedom in HOW it is said, zero freedom in WHAT is claimed" in fake_anthropic.prompts[0]
+    assert "hedged, direction-consistent round of a sourced value is legal" in fake_anthropic.prompts[0]
+    assert "Exact dates need one locked source; quantities need two." in fake_anthropic.prompts[0]
     assert "4 evidence-backed sentences + 1 paragraph-derived conclusion" in fake_anthropic.prompts[0]
-    assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
+    assert "Use at most 15 numerical details total (the register cap)" in fake_anthropic.prompts[0]
     # LAW: two-source support is graded against ALL locked evidence, not only cited IDs.
     assert "two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs)" in fake_anthropic.prompts[0]
-    assert "final sentence must be 18 words or fewer" in fake_anthropic.prompts[0]
-    assert "End with a short verdict" in fake_anthropic.prompts[0]
+    assert "It must be 25 words or fewer" in fake_anthropic.prompts[0]
+    assert "VERDICT PUNCH (hard): the closer must be single-hammer, antithesis, concede-then-cut, or triad" in fake_anthropic.prompts[1]
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
     assert "Do not use ranked-list connectors" in fake_anthropic.prompts[0]
     assert "Use voice-ready spoken number words" in fake_anthropic.prompts[0]
     assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[0]
     # LAW: designations are names - digits kept, never spelled out, never hedged.
-    assert "Designations like XB-15, B-52, and F-86 are NAMES, not numbers" in fake_anthropic.prompts[0]
+    assert "Designations are NAMES, not numbers" in fake_anthropic.prompts[0]
+    # QL-10 (OR-4): the number-rendering law in the build prompt.
+    assert "exact figures of four or more digits (casualty tolls like 1,177, costs, hull numbers)" in fake_anthropic.prompts[0]
     assert "never spell them out, never hedge them" in fake_anthropic.prompts[0]
     assert "Designations are exempt: never hedge, source-check, or reword a designation" in fake_anthropic.prompts[0]
     assert "Designations are exempt: never hedge, source-check, or reword a designation" in fake_anthropic.prompts[1]
@@ -4054,20 +4167,23 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs)" in fake_anthropic.prompts[1]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[1]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[1]
-    assert "NARRATIVE WEIGHT: standard / target 100-112 words" in fake_anthropic.prompts[1]
-    assert "Follow NARRATIVE WEIGHT as the target" in fake_anthropic.prompts[1]
+    assert "NARRATIVE WEIGHT: standard / target 100-120 words" in fake_anthropic.prompts[1]
+    assert "hit the register target in NARRATIVE WEIGHT" in fake_anthropic.prompts[1]
+    assert "TWIST LAW (hard)" in fake_anthropic.prompts[1]
+    assert "GROUNDING LAW" in fake_anthropic.prompts[1]
+    assert "CLOSER FREEDOM" in fake_anthropic.prompts[1]
     assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
     assert "Remove ranked-list connectors" in fake_anthropic.prompts[1]
     assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
     assert "Vary sentence length for spoken delivery; do not write three long sentences in a row" in fake_anthropic.prompts[1]
     assert "Do not write a chronological biography" in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
-    assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
+    assert "Use at most 15 numerical details total (the register cap)" in fake_anthropic.prompts[1]
     assert "must appear in locked evidence from two independent sources" in fake_anthropic.prompts[1]
     assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[1]
-    assert "18 words or fewer" in fake_anthropic.prompts[1]
+    assert "25 words or fewer" in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("You are a source-grounded Anton/DVsU paragraph compiler")
     assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
@@ -4080,7 +4196,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
     assert len(atomic_replacements) == 1
     saved_paragraph = json.loads(atomic_replacements[0][1][2])[0]["scene_text"]
-    assert pe._spoken_word_count(saved_paragraph) == 95
+    assert pe._spoken_word_count(saved_paragraph) == 100
     assert "XB-15" in saved_paragraph
 
 
@@ -4403,9 +4519,10 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
         if check["name"] == "benchmark_cadence"
     )
     assert cadence_check["passed"] is False
-    assert [check["name"] for check in result["preview"]["quality_audit"]["checks"]][:4] == [
+    assert [check["name"] for check in result["preview"]["quality_audit"]["checks"]][:5] == [
         "word_range",
         "sentence_shape",
+        "twist_gate",
         "sentence_assembly",
         "four_evidence_beats",
     ]
@@ -4414,7 +4531,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "benchmark 94 words/5 sentences" in reference_check["detail"]
     assert result["preview"]["story_plan"]["reference_benchmark"]["reference_machine"] == "Boeing XB-15"
     assert result["preview"]["story_plan"]["contract"]["opening_assignment"].startswith("A machine-name opening is allowed")
-    assert result["preview"]["story_plan"]["contract"]["narrative_weight"]["target_words"] == "100-112"
+    assert result["preview"]["story_plan"]["contract"]["narrative_weight"]["target_words"] == "100-120"
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
     saved_brief_rows = [(query, args) for query, args in writes if "machine_script_briefs" in query]
     saved_plan_rows = [(query, args) for query, args in writes if "machine_story_plans" in query]
@@ -4711,7 +4828,7 @@ def test_target_machine_preview_pass_state_follows_anton_quality_audit(monkeypat
     )
 
     assert result["status"] == "completed"
-    assert result["preview"]["warnings"] == []
+    assert pe._blocking_warnings(result["preview"]["warnings"]) == []
     assert result["preview"]["quality_audit"]["passed"] is False
     assert result["preview"]["passed"] is False
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
@@ -4793,7 +4910,7 @@ def test_target_machine_preview_rechecks_blocking_audit_rows(monkeypatch):
     )
 
     assert result["status"] == "completed"
-    assert result["preview"]["warnings"] == []
+    assert pe._blocking_warnings(result["preview"]["warnings"]) == []
     assert result["preview"]["quality_audit"]["passed"] is True
     assert result["preview"]["quality_audit"]["checks"][0]["passed"] is False
     assert result["preview"]["passed"] is False
@@ -4861,7 +4978,7 @@ def test_target_machine_preview_requires_visible_quality_audit_checks(monkeypatc
     )
 
     assert result["status"] == "completed"
-    assert result["preview"]["warnings"] == []
+    assert pe._blocking_warnings(result["preview"]["warnings"]) == []
     assert result["preview"]["quality_audit"]["passed"] is True
     assert result["preview"]["quality_audit"]["checks"] == []
     assert result["preview"]["passed"] is False
@@ -7974,3 +8091,567 @@ def test_normalize_card_field_citations_drops_dangling_and_remaps():
         {"timeframe_evidence_ids": ["NOPE"], "evidence_segments": [{"evidence_id": "E1", "source_excerpt_id": "X1"}]}
     )
     assert empty["timeframe_evidence_ids"] == []
+
+
+# ---------------------------------------------------------------------------
+# Round-6 quality-law build (approved 2026-07-16): per-law gate pins.
+# ---------------------------------------------------------------------------
+
+def test_script_twist_gate_is_hard_with_substitute_and_bare_exemption():
+    """QL-3 (OR-1 approved, HARD): every entry declares its designed-vs-used
+    twist; `absent` requires a named substitute; deliberately-bare is the only
+    exemption. QL-4: off-menu types are advisory (counted as `other`)."""
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+
+    # Undeclared twist -> hard reject.
+    undeclared = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    undeclared.pop("twist", None)
+    _p, undeclared_warnings = pe._validate_machine_story_sentences("B-52", plan, undeclared)
+    assert any("entry declares no designed-vs-used twist" in w for w in pe._blocking_warnings(undeclared_warnings))
+
+    # Used-as-designed WITH a named substitute -> legal.
+    substituted = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    substituted["twist"] = {"type": "absent", "substitute": "superlative", "summary": "The biggest of its kind."}
+    _p, substituted_warnings = pe._validate_machine_story_sentences("B-52", plan, substituted)
+    assert not any("twist" in w for w in pe._blocking_warnings(substituted_warnings))
+
+    # Absent with NO substitute -> the worst entry in the corpus, hard reject.
+    bare_absent = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bare_absent["twist"] = {"type": "absent", "substitute": None, "summary": ""}
+    _p, bare_absent_warnings = pe._validate_machine_story_sentences("B-52", plan, bare_absent)
+    assert any("no gap and no substitute - reads as a spec dump" in w for w in pe._blocking_warnings(bare_absent_warnings))
+
+    # Off-menu type -> advisory only, counted as `other` (QL-4).
+    offmenu = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    offmenu["twist"] = {"type": "weird_new_thing", "substitute": None, "summary": "?"}
+    _p, offmenu_warnings = pe._validate_machine_story_sentences("B-52", plan, offmenu)
+    assert any(w.startswith(pe._ADVISORY_PREFIX) and "not on the menu" in w for w in offmenu_warnings)
+    assert not any("twist" in w for w in pe._blocking_warnings(offmenu_warnings))
+
+    # Deliberately-bare tag: twist requirement and memorable demand both exempt.
+    bare_payload = {"unit_research_cards": [{
+        "unit": "B-52",
+        "deliberately_bare": True,
+        "gap_hunt_summary": "Searched service, conversion, and disposal records; the type never left acceptance trials.",
+        "evidence_segments": [s for s in _evidence_segments() if s["kind"] != "memorable_fact"],
+    }]}
+    bare_plan = pe._machine_story_plan(bare_payload, "B-52")
+    assert bare_plan["contract"]["deliberately_bare"] is True
+    bare_bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bare_bundle.pop("twist", None)
+    bare_bundle["claim_map"][3]["used_evidence_ids"] = ["E-REALITY"]
+    _p, bare_warnings = pe._validate_machine_story_sentences("B-52", bare_plan, bare_bundle)
+    assert not any("twist" in w for w in bare_warnings)
+    assert not any("memorable" in w for w in bare_warnings)
+
+
+def test_verdict_punch_gate_rejects_recap_closers():
+    """QL-5 (HARD): summary/recap closers are banned. Heuristic: a closer over
+    12 spoken words whose content stems are >80% body repeats with no contrast
+    marker is a recap. Short hammers and contrast-bearing closers stay legal."""
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    base = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    old_final = "The proof survived the machine."
+
+    def _with_closer(closer: str) -> dict:
+        bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+        bundle["formula_sentences"] = [
+            closer if sentence == old_final else sentence
+            for sentence in bundle["formula_sentences"]
+        ]
+        return bundle
+
+    # Long recap: all content words repeat the body, no turn -> hard reject.
+    recap = _with_closer(
+        "The reality claim grounded in the supplied source proved the engineering decision claim clear."
+    )
+    _p, recap_warnings = pe._validate_machine_story_sentences("B-52", plan, recap)
+    assert any("closer restates facts" in w for w in pe._blocking_warnings(recap_warnings))
+
+    # The same words WITH a contrast marker carry a turn -> legal.
+    turned = _with_closer(
+        "The reality claim grounded in the supplied source proved the engineering decision claim, but not the tradeoff."
+    )
+    _p, turned_warnings = pe._validate_machine_story_sentences("B-52", plan, turned)
+    assert not any("closer restates facts" in w for w in turned_warnings)
+
+    # A short hammer is legal by construction (base bundle closer, 5 words).
+    _p, base_warnings = pe._validate_machine_story_sentences("B-52", plan, base)
+    assert not any("closer restates facts" in w for w in base_warnings)
+
+
+def test_opener_classifier_types_ql7():
+    """QL-7: deterministic opener classification feeding the name-opener budget."""
+    machine = "Boeing XB-15"
+    assert pe._classify_opener_type("The Boeing XB-15 answered a range problem. More.", machine) == "name"
+    assert pe._classify_opener_type("Boeing XB-15 answered a range problem.", machine) == "name"
+    assert pe._classify_opener_type("While the B-17 flew on, this one stalled.", machine) == "bridge"
+    assert pe._classify_opener_type("In 1937 the answer appeared over Seattle.", machine) == "date_era"
+    assert pe._classify_opener_type("Nine were built before the order died.", machine) == "count_fragment"
+    assert pe._classify_opener_type("America's bomber ambitions needed proof.", machine) == "role_thesis"
+    assert pe._classify_opener_type("Nobody wanted the result.", machine) == "other"
+
+
+def test_hedged_rounding_is_legal_qd3():
+    """QD-3 (approved): a hedged, direction-consistent round of a sourced value
+    is warn-only ("over eight thousand feet" for a sourced 8,200); the same
+    round UNHEDGED stays a hard flag."""
+    evidence = _evidence_segments()
+    evidence[2]["claim"] = evidence[2]["claim"].rstrip(".") + " with a ceiling of 8,200 feet."
+    evidence[2]["source_excerpt"] = evidence[2]["claim"]
+    evidence[2]["numeric_tokens"] = ["8200"]
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+
+    def _with_suffix(suffix: str) -> dict:
+        bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+        old_span = bundle["claim_map"][1]["span"]
+        new_span = old_span.rstrip(".") + suffix
+        bundle["claim_map"][1]["span"] = new_span
+        bundle["formula_sentences"] = [
+            new_span if sentence == old_span else sentence
+            for sentence in bundle["formula_sentences"]
+        ]
+        return bundle
+
+    hedged = _with_suffix(" reaching over eight thousand feet.")
+    _p, hedged_warnings = pe._validate_machine_story_sentences("B-52", plan, hedged)
+    assert any(
+        w.startswith(pe._ADVISORY_PREFIX) and "rounds a sourced value with a hedge" in w
+        for w in hedged_warnings
+    )
+    assert not any("unsupported numerical detail" in w for w in pe._blocking_warnings(hedged_warnings))
+
+    unhedged = _with_suffix(" reaching eight thousand feet.")
+    _p, unhedged_warnings = pe._validate_machine_story_sentences("B-52", plan, unhedged)
+    assert any(
+        "unsupported numerical detail(s)" in w and "eight thousand" in w
+        for w in pe._blocking_warnings(unhedged_warnings)
+    )
+
+
+def test_exact_dates_single_source_qd4():
+    """QD-4 (approved): exact dates are identity facts - one locked source
+    suffices; the two-source demand applies to quantities only."""
+    evidence = _evidence_segments()
+    dated = dict(evidence[4])
+    dated.update({
+        "evidence_id": "E-DATED",
+        "kind": "reality",
+        "claim": "The bomber flew again in 1937 carrying 5,000 pounds of ballast.",
+        "source_excerpt": "The bomber flew again in 1937 carrying 5,000 pounds of ballast.",
+        "source_url": "https://airandspace.si.edu/test/dated",
+        "locator": "S9-E1",
+        "numeric_tokens": ["1937", "5000"],
+    })
+    evidence.append(dated)
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+
+    def _with_reality_suffix(suffix: str) -> dict:
+        bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+        old_span = bundle["claim_map"][3]["span"]
+        new_span = old_span.rstrip(".") + suffix
+        bundle["claim_map"][3]["span"] = new_span
+        bundle["claim_map"][3]["used_evidence_ids"] = ["E-REALITY", "E-MEMORABLE", "E-DATED"]
+        bundle["formula_sentences"] = [
+            new_span if sentence == old_span else sentence
+            for sentence in bundle["formula_sentences"]
+        ]
+        return bundle
+
+    # A single-sourced YEAR needs no second source.
+    dated_bundle = _with_reality_suffix(" and flew again in nineteen thirty seven.")
+    _p, dated_warnings = pe._validate_machine_story_sentences("B-52", plan, dated_bundle)
+    assert not any("two independent sources" in w for w in dated_warnings)
+
+    # A single-sourced QUANTITY still demands two sources or a hedge.
+    quantity_bundle = _with_reality_suffix(" carrying five thousand pounds of ballast.")
+    _p, quantity_warnings = pe._validate_machine_story_sentences("B-52", plan, quantity_bundle)
+    assert any(
+        "two independent sources" in w and "five thousand" in w
+        for w in pe._blocking_warnings(quantity_warnings)
+    )
+
+
+def test_editorial_thesis_is_warn_only_qd5():
+    """QD-5 (approved): thesis grading never blocks."""
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["editorial_thesis"] = "Too short."
+    _p, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    assert any(w.startswith(pe._ADVISORY_PREFIX) and "editorial_thesis" in w for w in warnings)
+    assert not any("editorial_thesis" in w for w in pe._blocking_warnings(warnings))
+
+
+def test_dvsu_mode_profile_or5():
+    """OR-5 (approved): Most-Hated exists as a named mode flag whose register /
+    opener-budget / memorable-source overrides travel in the plan contract."""
+    default_profile = pe._dvsu_mode_profile({}, {})
+    assert default_profile == {
+        "mode": "spec_block",
+        "register": "spec_block",
+        "opener_name_budget": 0.6,
+        "memorable_source": "sticky_fact",
+    }
+    hated_profile = pe._dvsu_mode_profile({"dvsu_mode": "most_hated"}, {})
+    assert hated_profile["mode"] == "most_hated"
+    assert hated_profile["register"] == "long_form"
+    assert hated_profile["opener_name_budget"] == 0.2
+    assert hated_profile["memorable_source"] == "crew_testimony"
+
+    # Register wires into the narrative-weight standard target (QL-1).
+    plan = pe._machine_story_plan(
+        {"dvsu_mode": "most_hated", "unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]},
+        "B-52",
+    )
+    assert plan["contract"]["mode_profile"]["mode"] == "most_hated"
+    assert plan["contract"]["narrative_weight"]["register"] == "long_form"
+    assert plan["contract"]["narrative_weight"]["target_words"] == "110-130"
+    assert plan["contract"]["twist_menu"] == list(pe._DVSU_TWIST_TYPES)
+    assert plan["contract"]["verdict_punch_forms"] == ["single_hammer", "antithesis", "concede_then_cut", "triad"]
+
+
+def test_research_gap_gate_requires_actual_use_story():
+    """QL-3 research leg (OR-1): the card must surface employment or fate, not
+    delivery/acceptance logistics; the deliberately-bare tag is exempt."""
+    evidence, _errors = pe._normalize_machine_evidence(
+        {"evidence_segments": _evidence_segments()}, "B-52"
+    )
+    # The test evidence's reality claim carries "Cold War service period" -> passes.
+    assert pe._designed_vs_used_gap_warnings({"unit": "B-52"}, evidence) == []
+
+    # Delivery-only reality: no employment/fate marker -> fails.
+    delivery_only = [dict(s) for s in evidence]
+    for segment in delivery_only:
+        if segment.get("slot_role") == "reality":
+            segment["claim"] = "Delivered to Wright Field in October and accepted for testing."
+            segment["source_excerpt"] = segment["claim"]
+    assert pe._designed_vs_used_gap_warnings({"unit": "B-52"}, delivery_only) == [
+        "no designed-vs-used gap found - research must surface how it was ACTUALLY used; "
+        "if the hunt already ran and no gap exists, mark deliberately_bare with gap_hunt_summary"
+    ]
+
+    # The deliberately-bare tag exempts the research gap demand ONLY with
+    # hunt evidence (B2).
+    assert pe._designed_vs_used_gap_warnings(
+        {"unit": "B-52", "deliberately_bare": True,
+         "gap_hunt_summary": "Searched service, conversion, and disposal records; the type never left acceptance trials."},
+        delivery_only,
+    ) == []
+    assert pe._designed_vs_used_gap_warnings({"unit": "B-52", "deliberately_bare": True}, delivery_only) != []
+
+
+def test_script_run_flags_over_forty_percent_other_twists(monkeypatch):
+    """QL-4 run budget: a full script run over 40% `other` twists carries the
+    advisory in script_hold warnings; opener/twist types are stored per unit."""
+    roster = ["Boeing XB-15"]
+    cards = [_valid_research_card(machine, _evidence_segments()) for machine in roster]
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": cards,
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key(machine): _verified_package_for_segments(machine, _evidence_segments())
+                for machine in roster
+            },
+        },
+    }
+    other_bundle = json.loads(_story_bundle(roster[0], 20))
+    other_bundle["twist"] = {"type": "other", "substitute": None, "summary": "Unclassified."}
+
+    class FakeAnthropic:
+        def __init__(self):
+            self.prompts = []
+            self.outputs = [json.dumps(other_bundle)]
+
+        async def generate(self, **kwargs):
+            self.prompts.append(kwargs["prompt"])
+            return self.outputs.pop(0)
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": FakeAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(_query, *_args):
+        return []
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    async def fake_validate(_video_id):
+        return {"passed": True}
+
+    def passed_quality_audit(*_args, **_kwargs):
+        return {
+            "passed": True,
+            "checks": [{"name": "validator_warnings", "label": "Validator warnings", "passed": True, "detail": "clean"}],
+            "summary": "Anton quality audit passed",
+        }
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "_anton_preview_quality_audit", passed_quality_audit)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+    monkeypatch.setattr(executor, "_validate_static_script_roster", fake_validate)
+    monkeypatch.setattr(executor, "_update_video_status", noop)
+    monkeypatch.setattr(executor, "_skip_disabled_next", lambda _video, status: status)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "ready_for_voice"
+    hold_writes = [
+        json.loads(arg)
+        for query, args in writes
+        if "script_validation" in query
+        for arg in args
+        if isinstance(arg, str) and '"script_hold"' in arg
+    ]
+    assert hold_writes, "script_hold validation must be persisted"
+    final_hold = hold_writes[-1].get("script_hold") or hold_writes[-1]
+    assert final_hold["passed"] is True
+    assert final_hold["units"][0]["twist_type"] == "other"
+    assert final_hold["units"][0]["opener_type"]
+    assert any(
+        w.startswith(pe._ADVISORY_PREFIX) and "twists fell to `other`" in w
+        for w in final_hold.get("warnings", [])
+    )
+
+
+# ---------------------------------------------------------------------------
+# Round-7 calibration (2026-07-16): B1/B2/I1/I3/I4 + corpus recalibrations.
+# ---------------------------------------------------------------------------
+
+def _minimal_plan() -> dict:
+    return {
+        "contract": {
+            "deliberately_bare": False,
+            "narrative_weight": {"label": "standard", "target_words": "100-120"},
+        },
+        "slots": [],
+    }
+
+
+def _closer_probe(machine: str, body_sentences: list, closer_sentences: list):
+    bundle = {
+        "formula_sentences": list(body_sentences) + list(closer_sentences),
+        "editorial_thesis": "the design intent was inverted by how the machine was actually used",
+        "twist": {"type": "role_change", "substitute": None, "summary": "built for X used as Y"},
+        "claim_map": [],
+    }
+    _p, warnings = pe._validate_machine_story_sentences(machine, _minimal_plan(), bundle)
+    return warnings
+
+
+def test_anton_corpus_punches_never_hard_recap():
+    """I1 calibration law: 308 verbatim Anton punches (12 scripts, bodies from
+    the raw voiceovers) run through the REAL closer path - ZERO may trip the
+    HARD recap gate. Frozen fixture: fixtures/anton_corpus_punches.json."""
+    import os
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "anton_corpus_punches.json")
+    with open(fixture_path) as handle:
+        punches = json.load(handle)
+    assert len(punches) >= 300
+
+    hard_blocked = []
+    for record in punches:
+        body_sentences = [
+            part.strip() for part in
+            __import__("re").split(r"(?<=[.!?])\s+", str(record["body"] or "").strip())
+            if part.strip()
+        ]
+        closer_sentences = [
+            part.strip() for part in
+            __import__("re").split(r"(?<=[.!?])\s+", str(record["punch"] or "").strip())
+            if part.strip()
+        ]
+        if not body_sentences or not closer_sentences:
+            continue
+        warnings = _closer_probe("Boeing B-52 Stratofortress", body_sentences, closer_sentences)
+        if any("closer restates facts" in w for w in pe._blocking_warnings(warnings)):
+            hard_blocked.append((record["script"], record["entry"], record["punch"]))
+    assert hard_blocked == [], f"{len(hard_blocked)} Anton punches hard-blocked: {hard_blocked[:5]}"
+
+
+def test_closer_entity_parser_and_geographic_color_b1():
+    """B1: sentence-initial capitals ("Though", "American", "Intercontinental")
+    are grammar, not entities; nationality/geographic words are advisory color;
+    person/org/operation names stay hard; entity+number pairing stays hard."""
+    body = [
+        "The bomber answered a range problem with size and fuel.",
+        "Engineers traded speed for endurance across the design.",
+        "The tradeoff kept it out of frontline combat service.",
+        "It hauled cargo across the ocean war instead of bombing.",
+    ]
+    # Sentence-initial connective + geographic color + body-echoed number: clean of hard flags.
+    anton_like = _closer_probe(
+        "Boeing XB-15", body,
+        ["Though never a bomber, it validated concepts that would define American strategic aviation for the next eight decades."],
+    )
+    assert not any("new named entity" in w for w in pe._blocking_warnings(anton_like))
+    assert not any("pairs a new number" in w for w in pe._blocking_warnings(anton_like))
+    assert any(
+        w.startswith(pe._ADVISORY_PREFIX) and "geographic/nationality color" in w and "American" in w
+        for w in anton_like
+    )
+    # Word cap is 25 now: that closer is 19 words and legal; 26+ still flags.
+    assert not any("final sentence word count" in w for w in anton_like)
+
+    # A person/operation name stays HARD.
+    named = _closer_probe(
+        "Boeing XB-15", body,
+        ["The program answered to General Arnold in the end."],
+    )
+    assert any(
+        "new named entity" in w and "General Arnold" in w
+        for w in pe._blocking_warnings(named)
+    )
+
+    # never/only are legal punch machinery in closers; absolutes alone advise.
+    contrastive = _closer_probe(
+        "Boeing XB-15", body,
+        ["It was never the weapon, only the proof."],
+    )
+    assert not any("high-risk" in w for w in pe._blocking_warnings(contrastive))
+    absolute = _closer_probe(
+        "Boeing XB-15", body,
+        ["It remains the largest promise the program ever made."],
+    )
+    assert any(
+        w.startswith(pe._ADVISORY_PREFIX) and "absolute term(s)" in w and "largest" in w
+        for w in absolute
+    )
+    assert not any("absolute term" in w for w in pe._blocking_warnings(absolute))
+
+
+def test_recap_gate_recalibrated_i1_i4():
+    """I1+I4: HARD recap only for a SINGLE-sentence closer with repeat ratio
+    >= 0.9 and no contrast marker; fragment-ending closers are never hard;
+    recap-ish shapes are advisory."""
+    body = [
+        "The plane was slow and heavy and it was expensive and it was cancelled early.",
+        "The program spent years proving the airframe could not be saved.",
+        "Its engines burned money while its rivals burned records.",
+        "The service walked away from the slow heavy expensive machine entirely.",
+    ]
+    # Single-sentence, ratio ~1.0, no marker, >12 words -> HARD.
+    recap = _closer_probe(
+        "Boeing B-52 Stratofortress", body,
+        ["The plane was slow and heavy and expensive and it was cancelled early in the program."],
+    )
+    assert any("closer restates facts" in w for w in pe._blocking_warnings(recap))
+
+    # The SAME words split into trailing fragments -> punch units, never hard.
+    fragments = _closer_probe(
+        "Boeing B-52 Stratofortress", body,
+        ["The machine stayed slow and heavy through every fix the program funded.", "Slow. Heavy. Cancelled early."],
+    )
+    assert not any("closer restates facts" in w for w in pe._blocking_warnings(fragments))
+
+    # Recap-ish but below 0.9 -> advisory, not hard.
+    recapish = _closer_probe(
+        "Boeing B-52 Stratofortress", body,
+        ["The plane stayed slow and heavy and expensive while its doubters multiplied yearly."],
+    )
+    assert not any("closer restates facts" in w for w in pe._blocking_warnings(recapish))
+
+
+def test_hedged_rounding_enforces_direction_i3():
+    """I3: over/more-than requires the sourced value at or above the stated
+    round; under/nearly at or below; about within 20 percent; matching is
+    nearest-number only and never across magnitudes."""
+    evidence = _evidence_segments()
+    evidence[2]["claim"] = evidence[2]["claim"].rstrip(".") + " with a ceiling of 8,200 feet."
+    evidence[2]["source_excerpt"] = evidence[2]["claim"]
+    evidence[2]["numeric_tokens"] = ["8200"]
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+
+    def _with_suffix(suffix: str) -> list:
+        bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+        old_span = bundle["claim_map"][1]["span"]
+        new_span = old_span.rstrip(".") + suffix
+        bundle["claim_map"][1]["span"] = new_span
+        bundle["formula_sentences"] = [
+            new_span if sentence == old_span else sentence
+            for sentence in bundle["formula_sentences"]
+        ]
+        _p, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+        return warnings
+
+    # "over eight thousand" with sourced 8,200 (sourced >= stated) -> legal round.
+    over_ok = _with_suffix(" reaching over eight thousand feet.")
+    assert any("rounds a sourced value with a hedge" in w for w in over_ok)
+    assert not any("unsupported numerical detail" in w for w in pe._blocking_warnings(over_ok))
+
+    # "over eight thousand five hundred" (sourced 8,200 BELOW the stated round)
+    # is direction-inconsistent -> hard.
+    over_bad = _with_suffix(" reaching over eight thousand five hundred feet.")
+    assert any("unsupported numerical detail" in w for w in pe._blocking_warnings(over_bad))
+
+    # "nearly eight thousand five hundred" (sourced below stated) -> legal.
+    nearly_ok = _with_suffix(" reaching nearly eight thousand five hundred feet.")
+    assert any("rounds a sourced value with a hedge" in w for w in nearly_ok)
+    assert not any("unsupported numerical detail" in w for w in pe._blocking_warnings(nearly_ok))
+
+    # Magnitude guard: "about four hundred" cannot borrow the 8,200 source.
+    magnitude = _with_suffix(" holding about four hundred instruments.")
+    assert any(
+        "unsupported numerical detail" in w and "four hundred" in w
+        for w in pe._blocking_warnings(magnitude)
+    )
+
+
+def test_bare_tag_requires_hunt_evidence_b2():
+    """B2: deliberately_bare is honored only with a non-trivial
+    gap_hunt_summary; a bare tag without hunt evidence is a hard warning."""
+    evidence = _evidence_segments()
+    card = _valid_research_card("Boeing XB-15", evidence)
+    card["deliberately_bare"] = True
+    warnings = pe._research_card_contract_warnings("Boeing XB-15", card)
+    assert any("bare tag without hunt evidence" in w for w in warnings)
+
+    card_with_summary = _valid_research_card("Boeing XB-15", evidence)
+    card_with_summary["deliberately_bare"] = True
+    card_with_summary["gap_hunt_summary"] = (
+        "Searched combat, conversion, and disposal records across all sources; the type never left acceptance trials."
+    )
+    summary_warnings = pe._research_card_contract_warnings("Boeing XB-15", card_with_summary)
+    assert not any("bare tag without hunt evidence" in w for w in summary_warnings)
+    assert pe._bare_tag_is_valid(card_with_summary) is True
+    assert pe._bare_tag_is_valid(card) is False
+
+
+def test_register_density_and_fragment_folding():
+    """Corpus recalibrations: spec-block density cap is 15 (Anton B-17/B-52
+    carry 14); tight-production keeps 8; trailing punch fragments fold into
+    the conclusion so a triad never blows the sentence range."""
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    assert plan["contract"]["maximum_numerical_details"] == 15
+
+    # Fragment folding: 4 beats + conclusion + a triad = 8 raw sentences ->
+    # effective 5; no sentence-range warning, formula note advisory only.
+    body = [
+        "The bomber answered a range problem with size and fuel to spare.",
+        "Engineers traded speed for endurance across the whole design envelope.",
+        "The tradeoff kept it out of frontline combat service for years.",
+        "It hauled cargo across the ocean war instead of dropping bombs.",
+        "The concept outlived the airframe by a full generation of designers.",
+    ]
+    warnings = _closer_probe("Boeing B-52 Stratofortress", body, ["Big wings.", "Bigger patience.", "No combat."])
+    assert not any("sentence count" in w for w in pe._blocking_warnings(warnings))
+    assert not any("closer restates facts" in w for w in pe._blocking_warnings(warnings))

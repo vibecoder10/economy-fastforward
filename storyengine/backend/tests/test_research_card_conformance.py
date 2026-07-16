@@ -63,11 +63,21 @@ _GOLDEN_XB19 = []
 
 # Scope-change ruling: the timeframe words "flew"/"December" DO appear in an
 # (uncited) evidence segment, so the old timeframe grounding warning is CLEARED.
-# The visual_identity words and the number "four" appear in NO segment, so only
+# The visual_identity words and the number "four" appear in NO segment, so
 # those two visual_identity warnings remain.
+#
+# Gold re-pinned for QL-3/OR-1 (research twist gate, approved 2026-07-16),
+# 2 -> 3 warnings: ADDED the designed-vs-used gap warning. This is the RULED
+# fixture expectation: XB-15's stored card's actual-use story ("flew from
+# Seattle to Wright Field to be accepted for testing") merely completes the
+# design intent - delivery/acceptance logistics, no employment or fate story
+# (the real XB-15 became the XC-105 cargo conversion, which research never
+# surfaced). The gate demands research surface how it was ACTUALLY used.
 _GOLDEN_XB15 = [
     "visual_identity contains detail(s) not grounded in evidence segments: mid, wing, monoplane, retractable, landing, gear",
     "visual_identity introduced unsupported numerical detail(s): four",
+    "no designed-vs-used gap found - research must surface how it was ACTUALLY used; "
+    "if the hunt already ran and no gap exists, mark deliberately_bare with gap_hunt_summary",
 ]
 
 # Fails across multiple families: empty thesis, ungrounded visual/timeframe,
@@ -109,8 +119,9 @@ def test_conformance_xb19_passes_clean():
     assert warnings == _GOLDEN_XB19
 
 
-def test_conformance_xb15_two_visual_identity_warnings():
-    """Boeing XB-15: exactly the two visual_identity warnings, NO timeframe warning."""
+def test_conformance_xb15_visual_identity_and_missing_gap_warnings():
+    """Boeing XB-15: the two visual_identity warnings plus the QL-3 research
+    twist-gate warning (actual_outcome restates design intent), NO timeframe warning."""
     row = _CARD_XB15
     warnings = pe._research_card_contract_warnings(
         row["machine_name"], row["card"], _package_for("XB15"), require_source_package=True

@@ -148,14 +148,21 @@ def _parse_script_validation(val: Any) -> Optional[str]:
     checks = []
     for line in lines[1:]:
         line = line.strip()
-        # Match "[PASS] name: detail" or "[FAIL] name: detail"
-        m = re.match(r"\[(PASS|FAIL)\]\s+(\w+):\s*(.*)", line)
+        # Match "[PASS] name: detail", "[FAIL] name: detail", or "[WARN] name: detail".
+        m = re.match(r"\[(PASS|FAIL|WARN)\]\s+(\w+):\s*(.*)", line)
         if m:
+            detail = m.group(3)
+            # N5: carry advisory flags honestly - a WARN tag or an
+            # "advisory: "-prefixed detail is warn-severity, and the raw
+            # prefix is a machine tag, not user-facing copy.
+            advisory = m.group(1) == "WARN" or detail.lower().startswith("advisory: ")
+            if detail.lower().startswith("advisory: "):
+                detail = detail[len("advisory: "):]
             checks.append({
                 "name": m.group(2),
-                "passed": m.group(1) == "PASS",
-                "detail": m.group(3),
-                "advisory": False,
+                "passed": m.group(1) != "FAIL",
+                "detail": detail,
+                "advisory": advisory,
             })
 
     if not checks:
@@ -164,7 +171,9 @@ def _parse_script_validation(val: Any) -> Optional[str]:
     result = {
         "passed": overall_passed,
         "checks": checks,
-        "advisory_warnings": [],
+        "advisory_warnings": [
+            check["detail"] for check in checks if check.get("advisory")
+        ],
     }
     return json.dumps(result)
 

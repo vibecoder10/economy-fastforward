@@ -153,8 +153,86 @@ def _spoken_word_count(text: str) -> int:
     return len(re.findall(r"\b[\w]+(?:[-'][\w]+)*\b", str(text or "")))
 
 
-_ANTON_PARAGRAPH_MIN_WORDS = 95
-_ANTON_PARAGRAPH_MAX_WORDS = 120
+# QD-6 / QL-1 word law (approved 2026-07-16): universal HARD floor/ceiling with
+# an advisory warn band and per-register targets. 80 passes 96% of the Anton
+# corpus; a 90+ floor rejects the median entry of two shipped scripts.
+_ANTON_PARAGRAPH_HARD_MIN_WORDS = 80
+_ANTON_PARAGRAPH_HARD_MAX_WORDS = 170
+_ANTON_PARAGRAPH_MIN_WORDS = 95   # warn-band top: 80-95 = advisory "confirm terse"
+_ANTON_PARAGRAPH_MAX_WORDS = 120  # spec-block register ceiling (guidance band)
+
+# QL-1 registers: the law names the register and its band, not one number.
+# The bomber-style spec-block video targets 100-120.
+_DVSU_REGISTER_TARGETS = {
+    "tight_production": "85-105",
+    "spec_block": "100-120",
+    "long_form": "110-130",
+}
+_DVSU_DEFAULT_REGISTER = "spec_block"
+
+# Advisory channel: warn-severity law flags carry this prefix. They surface in
+# stored warnings for review but never block, never trigger a repair round.
+_ADVISORY_PREFIX = "advisory: "
+
+
+def _blocking_warnings(warnings: list) -> list:
+    """Warn-severity (advisory-prefixed) flags never block or trigger repair."""
+    return [
+        warning for warning in (warnings or [])
+        if not str(warning).startswith(_ADVISORY_PREFIX)
+    ]
+
+
+def _review_messages(warnings: list) -> list:
+    """N5: user-facing review text drops the raw machine tag and labels
+    warn-severity flags plainly."""
+    rendered = []
+    for warning in warnings or []:
+        text = str(warning)
+        if text.startswith(_ADVISORY_PREFIX):
+            rendered.append(text[len(_ADVISORY_PREFIX):] + " (advisory)")
+        else:
+            rendered.append(text)
+    return rendered
+
+
+# QL-4 (OR-3 approved): expanded twist taxonomy - 5 canonical types + 11 named
+# subtypes. "other" is a last resort; a script run over 40% "other" warns.
+_DVSU_TWIST_TYPES = (
+    "role_change", "obsolete_but_enduring", "myth_vs_reality", "cheap_beats_good",
+    "ambition_outran_tech",
+    "lost_fly_off", "treaty_politics_cancelled", "cost_killed",
+    "mission_obsoleted_by_countermeasure", "redundant_backup", "incremental_stopgap",
+    "peaked_obsolete_concept", "killed_by_secondary_threat", "self_destruction",
+    "role_discontinued_by_budget", "built_for_a_threat_that_never_existed",
+)
+# QL-3: when the machine was used exactly as designed ("absent"), the entry
+# MUST substitute one of these payloads.
+_DVSU_TWIST_SUBSTITUTES = ("superlative", "legacy", "irony", "anti_twist")
+
+# B1 closer ruling (2026-07-16): nationality/geographic proper adjectives and
+# place nouns are EDITORIAL COLOR in a closer ("over German skies") - advisory,
+# never blocking. Curated for the military-history domain; extend as needed.
+_GEOGRAPHIC_COLOR_WORDS = {
+    "africa", "african", "america", "american", "asia", "asian", "atlantic",
+    "australia", "australian", "berlin", "britain", "british", "china",
+    "chinese", "europe", "european", "france", "french", "german", "germany",
+    "hawaii", "hawaiian", "italian", "italy", "japan", "japanese", "korea",
+    "korean", "london", "mediterranean", "moscow", "pacific", "russia",
+    "russian", "soviet", "soviets", "tokyo", "vietnam", "vietnamese",
+    "washington",
+}
+
+# QL-5 verdict-punch gate: contrast markers that mark a "turn" in the closer.
+_DVSU_CONTRAST_MARKERS = (
+    "but", "yet", "instead", "not", "never", "no", "still", "though", "although",
+    "while", "whereas", "until", "only", "however", "except", "without",
+)
+
+_MONTH_NAMES = {
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+}
 _ANTON_PARAGRAPH_MIN_SENTENCES = 4
 _ANTON_PARAGRAPH_MAX_SENTENCES = 7
 _ANTON_PARAGRAPH_FORMULA_SENTENCES = 5
@@ -162,7 +240,7 @@ _ANTON_PARAGRAPH_TARGET_WORDS = "100-112"
 _ANTON_PARAGRAPH_WORD_RANGE = f"{_ANTON_PARAGRAPH_MIN_WORDS}-{_ANTON_PARAGRAPH_MAX_WORDS}"
 _ANTON_PARAGRAPH_SENTENCE_RANGE = f"{_ANTON_PARAGRAPH_MIN_SENTENCES}-{_ANTON_PARAGRAPH_MAX_SENTENCES}"
 _ANTON_PARAGRAPH_FORMULA = "4 evidence-backed sentences + 1 paragraph-derived conclusion"
-_ANTON_FINAL_SENTENCE_MAX_WORDS = 18
+_ANTON_FINAL_SENTENCE_MAX_WORDS = 25
 
 _ANTON_REFERENCE_BENCHMARKS = {
     "XB15": {
@@ -1601,7 +1679,12 @@ def _strip_designations_for_numbers(text: str, machine: str = "") -> str:
 
 
 def _raw_digit_mentions_for_voiceover(text: str) -> list[str]:
-    """Find non-designation digits that should be spoken words in DVsU narration."""
+    """Find digits that should be spoken words in DVsU narration.
+
+    QL-10/QL-11 (OR-4 approved): digits are LEGAL for alphanumeric
+    designations, calendar years, and exact figures of four or more digits
+    (casualty tolls like 1,177, costs, hull numbers). Everything smaller (30
+    knots, 87) is a spoken measure and must be spelled."""
     scrubbed = str(text or "")
     designation_pattern = (
         r"\b(?:"
@@ -1613,10 +1696,18 @@ def _raw_digit_mentions_for_voiceover(text: str) -> list[str]:
     # LAW (2026-07-16): digits inside ANY designation-shaped token are legal
     # and expected voiceover ("XB-15" is spoken as a name), never raw numerals.
     scrubbed = _AIRCRAFT_DESIGNATION_RE.sub(" ", scrubbed)
-    return list(dict.fromkeys(
-        match.group(0)
-        for match in re.finditer(_NUMERIC_DIGIT_PATTERN, scrubbed)
-    ))
+    mentions: list[str] = []
+    for match in re.finditer(_NUMERIC_DIGIT_PATTERN, scrubbed):
+        token = match.group(0)
+        try:
+            value = float(token.rstrip("%sthndr").replace(",", ""))
+        except (TypeError, ValueError):
+            value = 0.0
+        # Years and exact 4+ digit figures stay digits by law.
+        if value >= 1000:
+            continue
+        mentions.append(token)
+    return list(dict.fromkeys(mentions))
 
 
 def _written_unit_abbreviations_for_voiceover(text: str) -> list[str]:
@@ -1871,11 +1962,61 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
     return normalized, list(dict.fromkeys(errors))
 
 
+def _dvsu_mode_profile(payload: dict, card: Optional[dict] = None) -> dict:
+    """OR-5 (approved): 'Most Hated' crew-testimony is a distinct named mode.
+
+    The mode exists as a flag with its register / opener-budget /
+    memorable-source overrides recorded in the format contract; the full
+    crew-testimony build is a later phase. Default = the spec-block mode."""
+    raw_mode = str(
+        (card or {}).get("dvsu_mode")
+        or (payload or {}).get("dvsu_mode")
+        or ""
+    ).strip().lower().replace("-", "_").replace(" ", "_")
+    if raw_mode in {"most_hated", "crew_testimony", "crew_hate"}:
+        return {
+            "mode": "most_hated",
+            "register": "long_form",
+            # QL-7 crew variant: near-zero bare name-openers.
+            "opener_name_budget": 0.2,
+            # QL-9 crew variant: testimony is the memorable-fact source.
+            "memorable_source": "crew_testimony",
+        }
+    return {
+        "mode": "spec_block",
+        "register": _DVSU_DEFAULT_REGISTER,
+        "opener_name_budget": 0.6,
+        "memorable_source": "sticky_fact",
+    }
+
+
+def _bare_tag_is_valid(card: dict) -> bool:
+    """B2 (2026-07-16): the deliberately_bare tag is honored ONLY with a
+    non-trivial gap_hunt_summary (what was searched, why no use-story exists).
+    A bare tag without hunt evidence is a hard warning, never an exemption."""
+    if not isinstance(card, dict) or card.get("deliberately_bare") is not True:
+        return False
+    return _spoken_word_count(str(card.get("gap_hunt_summary") or "")) >= 8
+
+
+def _card_is_deliberately_bare(card: dict, narrative_weight: Optional[dict] = None) -> bool:
+    """QL-3/QL-9 exemption: the deliberately-bare tag.
+
+    The explicit card tag counts only with hunt evidence (B2); a transitional
+    narrative weight (bare loser-prototype / connective entries) counts as the
+    tag at the script stage, matching the six legitimately bare corpus entries."""
+    if _bare_tag_is_valid(card):
+        return True
+    label = str((narrative_weight or {}).get("label") or "").strip().lower()
+    return label == "transitional"
+
+
 def _machine_story_plan(payload: dict, machine: str) -> dict:
     """Compile source-addressable evidence into Anton-style paragraph slots."""
     card = _research_card_for_machine(payload, machine) or {}
     evidence, evidence_errors = _normalize_machine_evidence(card, machine)
-    narrative_weight = _anton_narrative_weight_profile(card, evidence)
+    mode_profile = _dvsu_mode_profile(payload, card)
+    narrative_weight = _anton_narrative_weight_profile(card, evidence, register=mode_profile["register"])
     # LAW (2026-07-16): the timeframe/visual_identity SUPPORT slots carry the
     # union of (segments with the matching support kind) AND (segments the
     # card's *_evidence_ids cite, whatever their kind), deduplicated. Leaving
@@ -1942,7 +2083,19 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "sentence_formula": _ANTON_PARAGRAPH_FORMULA,
             "paragraph_words": _ANTON_PARAGRAPH_WORD_RANGE,
             "narrative_weight": narrative_weight,
-            "maximum_numerical_details": 8,
+            # OR-5: the named DvsU mode with its overrides travels with the plan.
+            "mode_profile": mode_profile,
+            # QL-3/QL-9: the deliberately-bare tag is the only twist/memorable exemption.
+            "deliberately_bare": _card_is_deliberately_bare(card, narrative_weight),
+            # QL-4 (OR-3): the expanded twist menu the model must classify against.
+            "twist_menu": list(_DVSU_TWIST_TYPES),
+            "twist_substitutes": list(_DVSU_TWIST_SUBSTITUTES),
+            # QL-5: the four legal verdict-punch forms; QL-6 house punch first.
+            "verdict_punch_forms": ["single_hammer", "antithesis", "concede_then_cut", "triad"],
+            # Corpus recalibration (2026-07-16): Anton B-17/B-52 carry 14
+            # claim-mapped numbers - spec-block and long-form allow 15;
+            # tight-production keeps 8.
+            "maximum_numerical_details": 8 if mode_profile["register"] == "tight_production" else 15,
             "editorial_thesis": "single engineering decision, tradeoff, or contrast; not a catalog summary",
             "benchmark_style_rule": "for Strategic Bomber benchmark machines, preserve Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, while using only locked evidence",
             "memorable_fact_rule": "if a sourced memorable_fact slot exists, fold it into the strongest required beat; do not create a separate fifth factual sentence",
@@ -1975,6 +2128,9 @@ def _parse_machine_story_sentences(raw: str) -> dict:
         "paragraph",
         "claim_map",
         "onscreen_label",
+        # QL-3/QL-4: the model declares the designed-vs-used twist
+        # {"type": <menu>, "substitute": <payload-or-null>, "summary": <text>}.
+        "twist",
     }
     extra_keys = sorted(
         str(key) for key in parsed.keys()
@@ -2044,7 +2200,7 @@ def _parse_machine_story_sentences(raw: str) -> dict:
     return sanitized
 
 
-def _anton_narrative_weight_profile(card: dict, evidence: list[dict]) -> dict:
+def _anton_narrative_weight_profile(card: dict, evidence: list[dict], register: str = _DVSU_DEFAULT_REGISTER) -> dict:
     """Advisory Anton paragraph weight: richer for pivotal machines, tighter for transitional ones."""
     import re as _re
 
@@ -2098,18 +2254,25 @@ def _anton_narrative_weight_profile(card: dict, evidence: list[dict]) -> dict:
     else:
         label = "standard"
 
+    # QL-1/QL-2 (approved 2026-07-16): per-register bands, weight-scaled.
+    # Marquee machines run 110-150; bare prototypes and connective entries run
+    # 80-95 (the QD-6 warn band is their legal home); standard = register band.
+    register = str(register or _DVSU_DEFAULT_REGISTER)
+    register_band = _DVSU_REGISTER_TARGETS.get(register, _DVSU_REGISTER_TARGETS[_DVSU_DEFAULT_REGISTER])
     if label == "major":
-        target_words = "112-120"
-        guidance = "richer paragraph; keep the required four beats, then use one extra sourced human, combat, production, or memorable detail only if it strengthens the thesis"
+        target_words = "110-150"
+        guidance = "marquee paragraph; keep the required four beats, then use extra sourced human, combat, production, or memorable detail only if it strengthens the thesis"
     elif label == "transitional":
-        target_words = "95-103"
-        guidance = "shorter focused paragraph; prove the machine's role, cut secondary specs, and land the contrast quickly"
+        target_words = "80-95"
+        guidance = "deliberately bare paragraph; prove the machine's role, cut secondary specs, and land the contrast quickly"
     else:
-        target_words = _ANTON_PARAGRAPH_TARGET_WORDS
+        target_words = register_band
         guidance = "balanced paragraph; do not pad or compress unless the sourced role clearly deserves it"
     return {
         "label": label,
         "target_words": target_words,
+        "register": register,
+        "register_target_words": register_band,
         "major_score": major_score,
         "transitional_score": transitional_score,
         "guidance": guidance,
@@ -2125,7 +2288,7 @@ def _narrative_weight_target_warning(paragraph: str, plan: dict) -> Optional[str
     if not isinstance(narrative_weight, dict):
         return None
     label = str(narrative_weight.get("label") or "").strip().lower()
-    if label not in {"major", "transitional"}:
+    if label not in {"major", "transitional", "standard"}:
         return None
     target_words = str(narrative_weight.get("target_words") or "").strip()
     match = _re.search(r"(\d+)\s*-\s*(\d+)", target_words)
@@ -2135,7 +2298,8 @@ def _narrative_weight_target_warning(paragraph: str, plan: dict) -> Optional[str
     word_count = _spoken_word_count(paragraph)
     if low <= word_count <= high:
         return None
-    return (
+    # QL-1/QL-2 register targets are guidance (QD-6: only 80/170 are hard).
+    return _ADVISORY_PREFIX + (
         f"paragraph misses narrative_weight target {label} {low}-{high} words "
         f"({word_count} words)"
     )
@@ -2500,6 +2664,81 @@ def _timeframe_warnings(
     return warnings
 
 
+def _designed_vs_used_gap_warnings(card: dict, evidence: list[dict]) -> list[str]:
+    """QL-3 research leg (OR-1 approved): research must surface the GAP.
+
+    The channel engine runs on built-for-X-used-as-Y. If the card's
+    actual-use story (reality-family evidence plus actual_outcome) adds almost
+    no content beyond the design-intent story (original_problem and
+    engineering_decision evidence plus the design fields), research has merely
+    restated the design intent and the writer has no gap to run on.
+    Deterministic form: the used-side text must carry at least three novel
+    content stems absent from the design-side text. The explicit
+    deliberately_bare tag is the only exemption."""
+    import re as _re
+
+    if not isinstance(card, dict) or _bare_tag_is_valid(card):
+        return []
+    design_texts = [
+        str(card.get("design_problem") or ""),
+        str(card.get("engineering_response") or ""),
+        str(card.get("engineering_thesis") or ""),
+    ]
+    used_texts = [str(card.get("actual_outcome") or "")]
+    for segment in evidence or []:
+        if not isinstance(segment, dict):
+            continue
+        role = segment.get("slot_role") or _anton_slot_role_for_kind(str(segment.get("kind") or ""))
+        segment_text = f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        if role in {"original_problem", "engineering_decision", "identity_origin", "scale_specs"}:
+            design_texts.append(segment_text)
+        elif role in {"reality", "build_reality", "service_reality"}:
+            used_texts.append(segment_text)
+    used_blob = " ".join(used_texts)
+    if not used_blob.strip():
+        return [
+            "no designed-vs-used gap found - research must surface how it was ACTUALLY used; "
+            "if the hunt already ran and no gap exists, mark deliberately_bare with gap_hunt_summary"
+        ]
+    # The used-side must tell an EMPLOYMENT or FATE story, not delivery /
+    # acceptance / first-flight logistics (which merely complete the design
+    # intent - XB-15's stored card is the proven offender: "flew to Wright
+    # Field to be accepted for testing"). Deterministic form: the used side
+    # needs (a) at least one actual-use/fate marker word AND (b) at least
+    # three content stems absent from the design side.
+    use_or_fate_markers = (
+        "abandoned", "bombed", "cancelled", "canceled", "cancellation", "cargo",
+        "combat", "converted", "conversion", "convoy", "crashed", "damaged",
+        "deployed", "deployment", "destroyed", "dropped", "exported", "ferried",
+        "ferry", "fought", "losses", "lost", "mission", "missions", "modified",
+        "mothballed", "museum", "operational", "operationally", "operations",
+        "patrol", "patrols", "redesignated", "relegated", "retired",
+        "retirement", "scrap", "scrapped", "served", "service", "serving",
+        "shot", "sold", "sorties", "sortie", "sunk", "sank", "surplus",
+        "trainer", "transport", "transported", "war", "warfare", "wartime",
+    )
+    used_lower = used_blob.lower()
+    has_use_marker = any(
+        _re.search(rf"\b{marker}\b", used_lower) for marker in use_or_fate_markers
+    )
+    ignore = _STORY_UNIQUENESS_STOPWORDS | _SCRIPT_GLUE_STOPWORDS
+    design_stems = {
+        _grounding_stem(token)
+        for token in _re.findall(r"[a-z]+", " ".join(design_texts).lower())
+    }
+    novel_stems = {
+        _grounding_stem(token)
+        for token in _re.findall(r"[a-z]+", used_lower)
+        if len(token) >= 4 and token not in ignore and _grounding_stem(token) not in design_stems
+    }
+    if not has_use_marker or len(novel_stems) < 3:
+        return [
+            "no designed-vs-used gap found - research must surface how it was ACTUALLY used; "
+            "if the hunt already ran and no gap exists, mark deliberately_bare with gap_hunt_summary"
+        ]
+    return []
+
+
 def _research_card_contract_warnings(
     machine: str,
     card: dict,
@@ -2565,10 +2804,20 @@ def _research_card_contract_warnings(
         # Mirror the UI's "Research card needs selected Tier 1-2 evidence" gate.
         if sourced_tiers and all(tier > 2 for tier in sourced_tiers):
             warnings.append("evidence_segments cite no Tier 1-2 source; cite at least one Tier 1-2 excerpt")
-    if not evidence_errors and not any(
+    # B2: a bare tag is only honored with hunt evidence.
+    if card.get("deliberately_bare") is True and not _bare_tag_is_valid(card):
+        warnings.append(
+            "bare tag without hunt evidence - deliberately_bare requires a non-trivial gap_hunt_summary"
+        )
+    # QL-9 / D4: the (valid) deliberately-bare tag exempts the memorable-fact demand.
+    if not evidence_errors and not _bare_tag_is_valid(card) and not any(
         segment.get("slot_role") == "memorable_fact" for segment in evidence
     ):
         warnings.append("missing sourced memorable_fact evidence segment")
+    # QL-3 research leg (OR-1 approved): the card must surface how the machine
+    # was ACTUALLY used, not restate its design intent.
+    if not evidence_errors:
+        warnings.extend(_designed_vs_used_gap_warnings(card, evidence))
     if source_package is not None or require_source_package:
         warnings.extend(_verified_machine_source_package_quality_errors(source_package, machine))
         warnings.extend(_verified_machine_source_package_identity_errors(source_package, machine))
@@ -3037,47 +3286,85 @@ _SCRIPT_GLUE_STOPWORDS = {
 }
 
 
-def _final_sentence_novel_words(
-    last_sentence: str,
-    prior_text: str,
-    machine: str,
-    extra_stopwords: Optional[set[str]] = None,
-) -> list[str]:
-    """Novelty check for the editorial final sentence, stem- and contraction-aware.
+def _classify_opener_type(paragraph: str, machine: str) -> str:
+    """QL-7: classify how an entry opens, for the name-opener budget.
 
-    LAW (2026-07-16): the conclusion is synthesis of the paragraph, so reused
-    word FORMS must not flag. Two proven false-flag classes (XB-15 preview):
-    "couldn, t" - the tokenizer splitting the contraction "couldn't" - and
-    "bombing" vs paragraph "bomber" - a stemming gap ("bomb" is under the
-    grounding checker's 5-char prefix floor). Contractions collapse to one
-    token before tokenizing, and a flagged word is cleared when its grounding
-    stem shares a 4+ character prefix with any stem in the paragraph/machine
-    vocabulary. Genuinely new facts (new nouns, places, events) still flag."""
+    Types mirror the corpus analysis: bare name-opener ("The [Maker]
+    [Designation]..."), bridge (chains from another machine/era), date/era
+    context, count-fragment, role/thesis claim, other."""
     import re as _re
 
-    def _collapse_contractions(text: str) -> str:
-        return _re.sub(r"([A-Za-z])['’]([A-Za-z])", r"\1\2", str(text or ""))
+    first_sentence = ""
+    for part in _re.split(r"(?<=[.!?])\s+", str(paragraph or "").strip()):
+        if part.strip():
+            first_sentence = part.strip()
+            break
+    if not first_sentence:
+        return "other"
+    head = " ".join(first_sentence.split()[:8])
+    head_lower = head.lower()
+    machine_words = [word for word in _unit_display_name(machine).split() if word]
+    machine_head = " ".join(machine_words[:2]).lower()
+    stripped = _re.sub(r"^(?:the|a|an)\s+", "", head_lower)
+    # Bridge: opens by chaining (connective word, or a different designation
+    # inside the opening words).
+    bridge_starts = ("while ", "after ", "when ", "where ", "alongside ", "unlike ", "from the ", "as the ", "then ")
+    machine_codes = _target_machine_designation_codes(machine)
+    foreign_designation = any(
+        _normalized_unit_code(token) not in machine_codes
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(head.upper())
+        if _normalized_unit_code(token)
+    )
+    if head_lower.startswith(bridge_starts) or foreign_designation:
+        return "bridge"
+    # Date/era context: a year or era phrase in the opening words.
+    if _re.search(r"\b(1[6-9]\d{2}|20\d{2})s?\b", head) or head_lower.startswith(("in the ", "by the ", "by ", "in ")):
+        return "date_era"
+    # Count-fragment: opens on a number word (crew-register cold symptom).
+    first_word = head_lower.split()[0] if head_lower.split() else ""
+    if first_word in _NUMBER_WORD_VOCABULARY or _re.match(r"^\d", first_word):
+        return "count_fragment"
+    # Bare name-opener: "The [Maker] [Designation] ..." (locked machine first).
+    if machine_head and stripped.startswith(machine_head):
+        return "name"
+    if any(_normalized_unit_code(token) in machine_codes for token in _AIRCRAFT_DESIGNATION_RE.findall(head.upper())):
+        return "name"
+    # Role/thesis claim: opens on a role noun phrase or possessive thesis.
+    if _re.match(r"^(?:america|britain|russia|germany|japan)", stripped) or stripped.startswith(("its ", "it was", "this was", "here was")):
+        return "role_thesis"
+    return "other"
 
-    last = _collapse_contractions(last_sentence)
-    prior = _collapse_contractions(prior_text)
-    flagged = _ungrounded_factual_words(last, prior, machine, extra_stopwords=extra_stopwords)
-    if not flagged:
-        return []
-    vocabulary_stems = {
-        _grounding_stem(token)
-        for token in _re.findall(r"[a-z]+", f"{prior} {machine}".lower())
-    }
 
-    def _stem_prefix_grounded(word: str) -> bool:
-        stem = _grounding_stem(word)
-        if len(stem) < 4:
-            return False
-        return any(
-            len(candidate) >= 4 and candidate[:4] == stem[:4]
-            for candidate in vocabulary_stems
-        )
+def _checkable_fact_words(text: str) -> set[str]:
+    """QD-2 (approved): grounding is HARD only for checkable facts.
 
-    return [word for word in flagged if not _stem_prefix_grounded(word)]
+    Checkable = proper nouns (capitalized mid-sentence tokens: places, people,
+    programs, operators) and calendar-month words. Numbers, dates, and
+    designations are policed by their own checks. Everything else - abstract
+    nouns, common verbs, adjectives - is free vocabulary; colorful concrete
+    nouns are warn-only. Returns the lowercase word set that must ground."""
+    import re as _re
+
+    checkable: set[str] = set()
+    for match in _re.finditer(r"(?<![.!?]\s)(?<!^)\b([A-Z][a-z]{2,})\b", str(text or "")):
+        checkable.add(match.group(1).lower())
+    lower = str(text or "").lower()
+    for month in _MONTH_NAMES:
+        if _re.search(rf"\b{month}\b", lower):
+            checkable.add(month)
+    return checkable
+
+
+def _is_year_like_key(key: Any) -> bool:
+    """QD-4 (approved): exact dates are identity facts - single source suffices."""
+    import re as _re
+    return bool(_re.fullmatch(r"(1[6-9]\d{2}|20\d{2})s?", str(key or "")))
+
+
+# QD-1 (approved 2026-07-16) removed the closer word-novelty check entirely:
+# the final sentence has vocabulary freedom, and only the banned classes (new
+# named entities, numbers, designations, high-risk claims) are gated. The old
+# _final_sentence_novel_words helper is gone with it.
 
 
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
@@ -3113,21 +3400,48 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if narrative_warning:
         warnings.append(narrative_warning)
 
+    # QD-5 (approved): editorial_thesis is graded warn-only, never blocking.
     editorial_thesis = " ".join(str(bundle.get("editorial_thesis") or "").split())
     if not editorial_thesis:
-        warnings.append("story distiller must declare editorial_thesis for the machine's engineering decision or contrast")
+        warnings.append(_ADVISORY_PREFIX + "story distiller must declare editorial_thesis for the machine's engineering decision or contrast")
     else:
         thesis_wc = _spoken_word_count(editorial_thesis)
         thesis_lower = editorial_thesis.lower()
         if thesis_wc < 6 or thesis_wc > 26:
-            warnings.append(f"editorial_thesis word count {thesis_wc} outside 6-26 range")
+            warnings.append(_ADVISORY_PREFIX + f"editorial_thesis word count {thesis_wc} outside 6-26 range")
         if re.search(r"\b(?:this|the)\s+(?:machine|aircraft|unit)\s+(?:mattered|was important|was significant)\b", thesis_lower):
-            warnings.append("editorial_thesis is generic; name the specific engineering decision, tradeoff, or contrast")
+            warnings.append(_ADVISORY_PREFIX + "editorial_thesis is generic; name the specific engineering decision, tradeoff, or contrast")
         if not re.search(
             r"\b(?:because|but|despite|instead|rather|decision|chose|choice|balanced|trade|traded|tradeoff|tension|contrast|proved|validated|failed|solved|created|answered|sacrificed|compromise|consequence|outpaced|survived|needed)\b",
             thesis_lower,
         ):
-            warnings.append("editorial_thesis must state a concrete engineering decision, tradeoff, or contrast")
+            warnings.append(_ADVISORY_PREFIX + "editorial_thesis must state a concrete engineering decision, tradeoff, or contrast")
+
+    # QL-3 (OR-1 approved, HARD) + QL-4 (OR-3 approved): every entry declares
+    # its designed-vs-used twist from the expanded menu; a machine used exactly
+    # as designed ("absent") MUST name a substitute payload. The deliberately-
+    # bare tag is the only exemption.
+    deliberately_bare = bool(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("deliberately_bare"))
+    twist = bundle.get("twist") if isinstance(bundle.get("twist"), dict) else {}
+    twist_type = str(twist.get("type") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    twist_substitute = str(twist.get("substitute") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not deliberately_bare:
+        if not twist_type:
+            warnings.append(
+                "entry declares no designed-vs-used twist - built for X, used as Y is the engine; "
+                "declare twist.type from the menu or tag the entry deliberately bare"
+            )
+        elif twist_type == "absent":
+            if twist_substitute not in _DVSU_TWIST_SUBSTITUTES:
+                warnings.append(
+                    "no gap and no substitute - reads as a spec dump; a used-as-designed entry must "
+                    "substitute one of: " + ", ".join(_DVSU_TWIST_SUBSTITUTES)
+                )
+        elif twist_type != "other" and twist_type not in _DVSU_TWIST_TYPES:
+            warnings.append(
+                _ADVISORY_PREFIX + f"twist type `{twist_type}` is not on the menu - pick the closest named subtype "
+                "(counted as `other` for the script-run budget)"
+            )
 
     evidence_by_id: dict[str, dict] = {}
     role_by_id: dict[str, str] = {}
@@ -3151,13 +3465,61 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
         for segment in evidence_by_id.values()
     )
+    # QL-19/QD-2: numbers are claims too - graded against ALL locked evidence.
+    all_locked_number_keys = {
+        _numeric_token_key(token)
+        for segment in evidence_by_id.values()
+        for token in (segment.get("numeric_tokens") or [])
+    }
+    all_locked_number_values = set()
+    for key in all_locked_number_keys:
+        try:
+            all_locked_number_values.add(float(str(key).replace(",", "")))
+        except (TypeError, ValueError):
+            continue
 
+    def _hedged_round_of_sourced_value(mention_key: str, span_lower: str) -> bool:
+        """QD-3 + I3 (recalibrated 2026-07-16): a hedged round is legal only
+        when DIRECTION-consistent with the NEAREST sourced value.
+
+        - over / more than / at least: the sourced value must sit at or above
+          the stated round ("over eight thousand" is true of a sourced 8,200).
+        - under / up to / nearly / almost / close to / approaching: the sourced
+          value must sit at or below the stated round.
+        - about / around / approximately / roughly / some / estimated /
+          claimed / on the order of: within +/-20 percent.
+        Matching runs against the NEAREST sourced number only, and never
+        across magnitudes (nearest must sit within 2x either way), so a round
+        can never borrow support from an unrelated figure."""
+        try:
+            value = float(str(mention_key).replace(",", ""))
+        except (TypeError, ValueError):
+            return False
+        if value <= 0 or not all_locked_number_values:
+            return False
+        nearest = min(all_locked_number_values, key=lambda sourced: abs(sourced - value))
+        if nearest <= 0 or not (0.5 <= value / nearest <= 2.0):
+            return False
+        import re as _re_hedge
+        def _has(*phrases: str) -> bool:
+            return any(_re_hedge.search(rf"\b{phrase}\b", span_lower) for phrase in phrases)
+        if _has("over", "more than", "at least") and nearest >= value:
+            return True
+        if _has("under", "up to", "nearly", "almost", "close to", "approaching") and nearest <= value:
+            return True
+        if _has("about", "around", "approximately", "roughly", "some", "estimated", "claimed", "on the order of") and 0.8 <= value / nearest <= 1.2:
+            return True
+        return False
+
+    plan_supplies_evidence = bool(evidence_by_id)
     claim_rows = bundle.get("claim_map")
     if not isinstance(claim_rows, list) or not claim_rows:
-        warnings.append("paragraph must include a non-empty claim_map")
+        if plan_supplies_evidence:
+            warnings.append("paragraph must include a non-empty claim_map")
         claim_rows = []
     used_ids: list[str] = []
     claim_span_details: list[dict[str, Any]] = []
+    hedged_rounded_keys: set[str] = set()
     high_risk_terms = {"first", "only", "largest", "fastest", "most", "never"}
     for index, row in enumerate(claim_rows, start=1):
         if not isinstance(row, dict):
@@ -3203,34 +3565,51 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 for evidence_id in row_ids
                 if evidence_id in evidence_by_id
             )
+            span_lower = span.lower()
+            hedged = bool(_HEDGE_WORDS_RE.search(span_lower))
             if all_locked_evidence_text:
-                unsupported_words = _ungrounded_factual_words(
+                # QD-2 (approved): HARD grounding only for checkable facts
+                # (proper nouns, month words); the rest of the vocabulary is
+                # free, with colorful concrete nouns warn-only.
+                ungrounded = _ungrounded_factual_words(
                     span,
                     all_locked_evidence_text,
                     machine,
                     extra_stopwords=_SCRIPT_GLUE_STOPWORDS,
                 )
-                if unsupported_words:
+                checkable = _checkable_fact_words(span)
+                unsupported_facts = [word for word in ungrounded if word in checkable]
+                unsupported_vocab = [word for word in ungrounded if word not in checkable]
+                if unsupported_facts:
                     warnings.append(
                         f"claim_map row {index} introduced unsupported factual word(s): "
-                        + ", ".join(unsupported_words[:10])
+                        + ", ".join(unsupported_facts[:10])
+                    )
+                if unsupported_vocab:
+                    warnings.append(
+                        _ADVISORY_PREFIX + f"claim_map row {index} uses vocabulary outside the locked evidence "
+                        "(prefer evidence wording for concrete nouns): " + ", ".join(unsupported_vocab[:10])
                     )
             span_number_keys = {mention["key"] for mention in row_mentions}
-            row_number_keys = {
-                _numeric_token_key(token)
-                for evidence_id in row_ids
-                for token in evidence_by_id.get(evidence_id, {}).get("numeric_tokens", [])
-            }
-            row_unsupported_numbers = [
-                mention["raw"] for mention in row_mentions
-                if mention["key"] not in row_number_keys
-            ]
+            # QL-19: numbers ground against ALL locked evidence, not only the
+            # row's citations; QD-3 legalizes hedged direction-consistent rounds.
+            row_unsupported_numbers: list[str] = []
+            for mention in row_mentions:
+                if mention["key"] in all_locked_number_keys:
+                    continue
+                if hedged and _hedged_round_of_sourced_value(mention["key"], span_lower):
+                    hedged_rounded_keys.add(mention["key"])
+                    warnings.append(
+                        _ADVISORY_PREFIX + f"claim_map row {index} rounds a sourced value with a hedge: "
+                        + str(mention["raw"])
+                    )
+                    continue
+                row_unsupported_numbers.append(mention["raw"])
             if row_unsupported_numbers:
                 warnings.append(
                     f"claim_map row {index} introduced unsupported numerical detail(s): "
                     + ", ".join(row_unsupported_numbers)
                 )
-            span_lower = span.lower()
             span_risk_terms = {
                 term for term in high_risk_terms
                 if re.search(rf"\b{re.escape(term)}\b", span_lower)
@@ -3244,13 +3623,16 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                     "evidence_text": row_evidence_text,
                 })
             has_high_risk_term = bool(span_risk_terms)
-            hedged = bool(_HEDGE_WORDS_RE.search(span_lower))
             if row_mentions and not hedged:
                 insufficient_number_sources: list[str] = []
                 seen_insufficient_number_keys: set[str] = set()
                 for mention in row_mentions:
                     mention_key = mention.get("key")
                     if not mention_key or mention_key in seen_insufficient_number_keys:
+                        continue
+                    # QD-4 (approved): exact dates are identity facts - a single
+                    # locked source suffices; two-source applies to quantities.
+                    if _is_year_like_key(mention_key):
                         continue
                     # LAW (2026-07-16): the two-independent-sources requirement is
                     # graded against ALL of the story plan's locked evidence
@@ -3306,10 +3688,13 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         if str(slot.get("slot") or "") == "memorable_fact"
         for evidence_id in (slot.get("evidence_ids") or [])
     ]
-    if not memorable_ids:
-        warnings.append("story plan missing sourced memorable_fact for Anton paragraph")
-    elif not any(evidence_id in used_ids for evidence_id in memorable_ids):
-        warnings.append("paragraph must use sourced memorable_fact when the story plan provides one")
+    # QL-9 (OR-7 approved): memorable-fact stays WARN until research coverage
+    # is proven; the deliberately-bare tag is exempt entirely.
+    if not deliberately_bare:
+        if not memorable_ids:
+            warnings.append(_ADVISORY_PREFIX + "story plan missing sourced memorable_fact for Anton paragraph")
+        elif not any(evidence_id in used_ids for evidence_id in memorable_ids):
+            warnings.append(_ADVISORY_PREFIX + "paragraph must use sourced memorable_fact when the story plan provides one")
     reference_benchmark = plan.get("reference_benchmark") if isinstance(plan, dict) else None
     try:
         reference_order = int((reference_benchmark or {}).get("reference_order") or 0)
@@ -3326,43 +3711,51 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     ):
         warnings.append("first-three Anton paragraph must use sourced human_detail when the story plan provides one")
     missing_required = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
-    if missing_required:
+    if plan_supplies_evidence and missing_required:
         warnings.append("paragraph missing required Anton slot evidence: " + ", ".join(missing_required))
-    if len(covered_roles) < 4:
+    if plan_supplies_evidence and len(covered_roles) < 4:
         warnings.append("paragraph must use evidence from at least four Anton slots")
 
-    # LAW: designations are identifiers, never numbers.
+    # LAW: designations are identifiers, never numbers. QL-19: paragraph
+    # numbers ground against ALL locked evidence; QD-3 keeps row-accepted
+    # hedged rounds legal here too.
     paragraph_numbers = _numeric_mentions_from_text(_strip_designations_for_numbers(paragraph, machine))
-    allowed_number_keys = {
-        _numeric_token_key(token)
-        for evidence_id in used_ids
-        for token in evidence_by_id.get(evidence_id, {}).get("numeric_tokens", [])
-    }
     unsupported_numbers = [
         mention["raw"] for mention in paragraph_numbers
-        if mention["key"] not in allowed_number_keys
+        if mention["key"] not in all_locked_number_keys
+        and mention["key"] not in hedged_rounded_keys
     ]
-    if unsupported_numbers:
+    if plan_supplies_evidence and unsupported_numbers:
         warnings.append("paragraph introduced unsupported numerical detail(s): " + ", ".join(unsupported_numbers))
-    if len(paragraph_numbers) > int((plan.get("contract") or {}).get("maximum_numerical_details") or 8):
-        warnings.append(f"paragraph contains {len(paragraph_numbers)} numerical details; maximum is 8")
+    numeric_density_cap = int((plan.get("contract") or {}).get("maximum_numerical_details") or 15)
+    if len(paragraph_numbers) > numeric_density_cap:
+        warnings.append(f"paragraph contains {len(paragraph_numbers)} numerical details; maximum is {numeric_density_cap}")
+    # QL-10 (OR-4 approved): spell what a narrator speaks; digits stay legal
+    # for designations, calendar years, and exact 4-plus-digit figures. Warn-only.
     raw_digit_mentions = _raw_digit_mentions_for_voiceover(paragraph)
     if raw_digit_mentions:
         warnings.append(
-            "paragraph uses raw numeric digit(s); write spoken numbers as words: "
+            _ADVISORY_PREFIX + "paragraph uses raw numeric digit(s); write spoken numbers as words: "
             + ", ".join(raw_digit_mentions)
         )
     unit_abbreviations = _written_unit_abbreviations_for_voiceover(paragraph)
     if unit_abbreviations:
         warnings.append(
-            "paragraph uses written unit abbreviation(s); spell out for voiceover: "
+            _ADVISORY_PREFIX + "paragraph uses written unit abbreviation(s); spell out for voiceover: "
             + ", ".join(
                 f"{abbr} -> {_VOICEOVER_UNIT_ABBREVIATIONS.get(abbr, 'spoken words')}"
                 for abbr in unit_abbreviations
             )
         )
 
-    allowed_designations = _target_machine_designation_codes(machine)
+    allowed_designations = set(_target_machine_designation_codes(machine))
+    # QL-19 scope: designations named anywhere in the LOCKED evidence (engine
+    # models like J57, gun designations) are grounded facts, not leakage.
+    allowed_designations.update(
+        _normalized_unit_code(token)
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(all_locked_evidence_text.upper())
+        if _normalized_unit_code(token)
+    )
     allowed_evidence_text = " ".join(
         f"{evidence_by_id.get(eid, {}).get('claim', '')} {evidence_by_id.get(eid, {}).get('source_excerpt', '')}"
         for eid in used_ids
@@ -3371,40 +3764,76 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         _normalized_unit_code(token)
         for token in _AIRCRAFT_DESIGNATION_RE.findall(paragraph.upper())
     }
-    unsupported_designations = sorted(token for token in paragraph_designations if token and token not in allowed_designations)
-    if unsupported_designations:
-        warnings.append("paragraph introduced unsupported designation(s) outside the locked machine: " + ", ".join(unsupported_designations))
+    unsupported_designations = sorted(
+        token for token in paragraph_designations
+        if token
+        and token not in allowed_designations
+        # Plural surface form of an allowed designation ("B-52s") is legal.
+        and not (token.endswith("S") and token[:-1] in allowed_designations)
+    )
+    if plan_supplies_evidence and unsupported_designations:
+        warnings.append("paragraph designation(s) not grounded in locked evidence or the locked machine: " + ", ".join(unsupported_designations))
 
-    if sentence_count < _ANTON_PARAGRAPH_MIN_SENTENCES or sentence_count > _ANTON_PARAGRAPH_MAX_SENTENCES:
+    # Corpus recalibration (2026-07-16): trailing punch FRAGMENTS (six spoken
+    # words or fewer, up to three, at the paragraph end) are punch units that
+    # belong to the single conclusion slot - Anton's triads ("Eight engines.
+    # Intercontinental range. The bomber that refuses to retire.") never blow
+    # the sentence range or the formula.
+    trailing_fragment_count = 0
+    for candidate in reversed(sentence_parts):
+        if trailing_fragment_count >= 3 or len(sentence_parts) - trailing_fragment_count <= 1:
+            break
+        if _spoken_word_count(candidate) <= 6:
+            trailing_fragment_count += 1
+        else:
+            break
+    # Folding absorbs EXTRA punch units only - it never shrinks a paragraph
+    # below the five-slot formula (a normal five-sentence entry with a short
+    # hammer keeps its five counted sentences).
+    trailing_fragment_count = min(
+        trailing_fragment_count,
+        max(0, sentence_count - _ANTON_PARAGRAPH_FORMULA_SENTENCES),
+    )
+    effective_sentence_count = sentence_count - trailing_fragment_count
+    if effective_sentence_count < _ANTON_PARAGRAPH_MIN_SENTENCES or effective_sentence_count > _ANTON_PARAGRAPH_MAX_SENTENCES:
         warnings.append(
-            f"paragraph sentence count {sentence_count} outside Anton {_ANTON_PARAGRAPH_SENTENCE_RANGE} range"
+            f"paragraph sentence count {effective_sentence_count} outside Anton {_ANTON_PARAGRAPH_SENTENCE_RANGE} range"
         )
-    if sentence_count != _ANTON_PARAGRAPH_FORMULA_SENTENCES:
+    if effective_sentence_count != _ANTON_PARAGRAPH_FORMULA_SENTENCES:
+        # Corpus recalibration: Anton runs 4-7 counted units (B-17 runs 7);
+        # the five-slot formula is the design target, not a hard shape.
         warnings.append(
-            f"paragraph must follow Anton formula: {_ANTON_PARAGRAPH_FORMULA} ({_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences)"
+            _ADVISORY_PREFIX + f"paragraph runs {effective_sentence_count} counted sentences; the Anton formula target is "
+            f"{_ANTON_PARAGRAPH_FORMULA} ({_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences)"
         )
     if len(formula_sentences) != _ANTON_PARAGRAPH_FORMULA_SENTENCES:
         warnings.append(
-            f"formula_sentences must contain {_ANTON_PARAGRAPH_FORMULA_SENTENCES} assembled sentences: {_ANTON_PARAGRAPH_FORMULA}"
+            _ADVISORY_PREFIX + f"formula_sentences carries {len(formula_sentences)} slots; the Anton formula target is "
+            f"{_ANTON_PARAGRAPH_FORMULA_SENTENCES}: {_ANTON_PARAGRAPH_FORMULA}"
         )
     # No assembly-mismatch warning: the paragraph IS the code-assembled join of
     # formula_sentences (see _assemble_story_paragraph_from_sentences), so a
     # model-side mismatch is structurally impossible.
-    last_sentence = sentence_parts[-1] if sentence_parts else ""
+    # The CLOSER UNIT = the trailing fragments when they exist (they are the
+    # punch), else the last sentence.
+    closer_start_index = len(sentence_parts) - (trailing_fragment_count or (1 if sentence_parts else 0)) + 1
+    closer_sentences = sentence_parts[closer_start_index - 1:] if sentence_parts else []
+    last_sentence = " ".join(closer_sentences)
     final_sentence_index = len(sentence_parts)
     formula_roles = ["original_problem", "engineering_decision", "tradeoff", "reality"]
     for sentence_index, sentence in enumerate(sentence_parts, start=1):
+        in_closer_unit = sentence_index >= closer_start_index
         sentence_claim_spans = [
             detail for detail in claim_span_details
             if detail.get("span") and (detail["span"] == sentence or detail["span"] in sentence)
         ]
-        if sentence_index == final_sentence_index and sentence_claim_spans:
+        if in_closer_unit and sentence_claim_spans:
             warnings.append("final sentence must be paragraph-derived synthesis, not source-backed claim_map evidence")
         if not sentence_claim_spans:
-            if sentence_index != final_sentence_index:
+            if not in_closer_unit and plan_supplies_evidence:
                 warnings.append(f"sentence {sentence_index} is not covered by claim_map evidence")
             continue
-        if sentence_count == _ANTON_PARAGRAPH_FORMULA_SENTENCES and sentence_index <= len(formula_roles):
+        if effective_sentence_count == _ANTON_PARAGRAPH_FORMULA_SENTENCES and sentence_index <= len(formula_roles):
             sentence_roles = {
                 role
                 for detail in sentence_claim_spans
@@ -3453,7 +3882,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 f"sentence {sentence_index} high-risk term(s) outside claim_map span coverage: "
                 + ", ".join(uncovered_risk_terms)
             )
-        if sentence_index != final_sentence_index:
+        if not in_closer_unit:
             uncovered_text = sentence
             for detail in sentence_claim_spans:
                 span = str(detail.get("span") or "")
@@ -3475,6 +3904,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                         + ", ".join(unsupported_unmapped_words[:10])
                     )
     if sentence_parts:
+        # The closer unit = trailing fragments when present, else last sentence.
+        prior_paragraph_text = " ".join(sentence_parts[:closer_start_index - 1])
         last_wc = _spoken_word_count(last_sentence)
         if last_wc > _ANTON_FINAL_SENTENCE_MAX_WORDS:
             warnings.append(
@@ -3487,65 +3918,50 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             last_sentence.lower(),
         ):
             warnings.append("final sentence uses generic summary language instead of a landed Anton line")
-        # LAW: designations are identifiers, never numbers - the closer may
-        # name the machine without its digits counting as new numbers.
-        final_numbers = _numeric_mentions_from_text(_strip_designations_for_numbers(last_sentence, machine))
-        if final_numbers:
-            warnings.append(
-                "final sentence must be paragraph-derived synthesis without new numerical detail(s): "
-                + ", ".join(mention["raw"] for mention in final_numbers)
-            )
-        final_risk_terms = sorted(
-            term for term in high_risk_terms
-            if re.search(rf"\b{re.escape(term)}\b", last_sentence.lower())
-        )
-        if final_risk_terms:
-            warnings.append(
-                "final sentence must not introduce high-risk exact term(s): "
-                + ", ".join(final_risk_terms)
-            )
-        prior_paragraph_text = " ".join(sentence_parts[:-1])
-        unsupported_final_words = _final_sentence_novel_words(
-            last_sentence,
-            prior_paragraph_text,
-            machine,
-            extra_stopwords={
-                "argument", "became", "becoming", "concept", "cost", "costs",
-                "design", "idea", "itself", "lesson", "lessons", "mature",
-                "maturity", "power", "price", "proof", "proved", "proving",
-                "range", "result", "results", "showed", "showing", "size",
-                "survive", "survived", "surviving", "weapon", "written",
-            },
-        )
-        if unsupported_final_words:
-            warnings.append(
-                "final sentence must not introduce new factual word(s): "
-                + ", ".join(unsupported_final_words[:10])
-            )
+        # B1 (2026-07-16): the closer may reuse the body's numbers ("Eight
+        # engines." echoes the body's eight turbojets). Only NEW numbers flag,
+        # and a new number ALONE is advisory - it hard-blocks only when it
+        # co-occurs with a new entity (see below). Designation digits never count.
+        prior_number_keys = {
+            mention["key"]
+            for mention in _numeric_mentions_from_text(_strip_designations_for_numbers(prior_paragraph_text, machine))
+        }
+        final_numbers = [
+            mention for mention in _numeric_mentions_from_text(_strip_designations_for_numbers(last_sentence, machine))
+            if mention["key"] not in prior_number_keys
+        ]
+        # B1: entity parser fixed outright - a capitalized sentence START
+        # ("Though...", "American...", "Intercontinental range.") is grammar,
+        # not an entity. Only capitalized runs that continue past the sentence
+        # start, or capitalized tokens mid-sentence, are entity candidates.
+        closer_entity_candidates: list[str] = []
+        for closer_sentence in closer_sentences:
+            for match in re.finditer(
+                r"\b(?:[A-Z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?|[A-Z]{2,}|[IVX]{1,4})"
+                r"(?:\s+(?:[A-Z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?|[A-Z]{2,}|[IVX]{1,4}))*\b",
+                closer_sentence,
+            ):
+                entity = " ".join(match.group(0).split())
+                if match.start() == 0:
+                    # Drop the sentence-initial token; keep any capitalized
+                    # continuation ("Though the Air Force..." -> "Air Force").
+                    entity_tokens = entity.split()[1:]
+                    entity = " ".join(entity_tokens)
+                if entity:
+                    closer_entity_candidates.append(entity)
         known_entity_text = f"{prior_paragraph_text} {machine}"
         ignored_final_entities = {
             "a", "an", "and", "as", "but", "it", "its", "so", "that", "the",
             "these", "this", "those", "together",
         }
-        final_entities = [
-            " ".join(match.split())
-            for match in re.findall(
-                r"\b(?:[A-Z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?|[A-Z]{2,}|[IVX]{1,4})"
-                r"(?:\s+(?:[A-Z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?|[A-Z]{2,}|[IVX]{1,4}))*\b",
-                last_sentence,
-            )
-        ]
         machine_code = _normalized_unit_code(machine)
-        new_final_entities = []
-        for entity in final_entities:
-            if entity.lower() in ignored_final_entities:
-                continue
-            # LAW (2026-07-16): the locked machine's own name/designation is
-            # always legal in the closer, including sentence-glued forms like
-            # "The XB-15" where the leading article joined the entity match.
-            entity_tokens = entity.split()
-            while entity_tokens and entity_tokens[0].lower() in ignored_final_entities:
-                entity_tokens = entity_tokens[1:]
+        new_hard_entities: list[str] = []
+        new_color_entities: list[str] = []
+        for entity in closer_entity_candidates:
+            entity_tokens = [
+                token for token in entity.split()
+                if token.lower() not in ignored_final_entities
+            ]
             stripped_entity = " ".join(entity_tokens)
             if not stripped_entity:
                 continue
@@ -3553,12 +3969,90 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 continue
             if machine_code and _normalized_unit_code(stripped_entity) == machine_code:
                 continue
-            new_final_entities.append(entity)
-        if new_final_entities:
+            # B1(a): nationality/geographic color is editorial - advisory.
+            if all(token.lower() in _GEOGRAPHIC_COLOR_WORDS for token in entity_tokens):
+                new_color_entities.append(stripped_entity)
+            else:
+                new_hard_entities.append(stripped_entity)
+        if new_hard_entities:
             warnings.append(
                 "final sentence must not introduce new named entity/event detail(s): "
-                + ", ".join(dict.fromkeys(new_final_entities))
+                + ", ".join(dict.fromkeys(new_hard_entities))
             )
+        if new_color_entities:
+            warnings.append(
+                _ADVISORY_PREFIX + "closer uses geographic/nationality color outside the body: "
+                + ", ".join(dict.fromkeys(new_color_entities))
+            )
+        # B1(b): a NEW number co-occurring with ANY new entity (color included)
+        # is a fabricated-fact shape - hard. A new number alone is advisory.
+        if final_numbers and new_hard_entities:
+            warnings.append(
+                "final sentence pairs a new number with a new entity - fabricated-fact shape: "
+                + ", ".join(mention["raw"] for mention in final_numbers)
+            )
+        elif final_numbers:
+            warnings.append(
+                _ADVISORY_PREFIX + "closer introduces number(s) not in the body: "
+                + ", ".join(mention["raw"] for mention in final_numbers)
+            )
+        # B1(d): contrast machinery (never/only/still) is LEGAL punch-form
+        # vocabulary in a closer. Guarantee-style absolutes remain gated, and
+        # hard only when attached to a new number or new entity.
+        closer_absolute_terms = sorted(
+            term for term in ("first", "largest", "fastest", "most")
+            if re.search(rf"\b{re.escape(term)}\b", last_sentence.lower())
+        )
+        if closer_absolute_terms and (final_numbers or new_hard_entities):
+            warnings.append(
+                "final sentence must not attach absolute term(s) to new facts: "
+                + ", ".join(closer_absolute_terms)
+            )
+        elif closer_absolute_terms:
+            warnings.append(
+                _ADVISORY_PREFIX + "closer uses absolute term(s) - confirm the body earns them: "
+                + ", ".join(closer_absolute_terms)
+            )
+        # QL-5 recap heuristic, RECALIBRATED (I1+I4, 2026-07-16): HARD only
+        # when the closer is a SINGLE sentence (no punch fragments - a closer
+        # ending in fragments is never hard-recap), its repeat ratio vs the
+        # body is >= 0.9, it carries no contrast marker, and it runs over 12
+        # spoken words. Anything else recap-ish (ratio > 0.8) is advisory.
+        closer_wc = _spoken_word_count(last_sentence)
+        if closer_wc > 12 and len(sentence_parts) > 1 and prior_paragraph_text.strip():
+            closer_lower = last_sentence.lower()
+            has_contrast_marker = any(
+                re.search(rf"\b{re.escape(marker)}\b", closer_lower)
+                for marker in _DVSU_CONTRAST_MARKERS
+            )
+            body_stems = {
+                _grounding_stem(token)
+                for token in re.findall(r"[a-z]+", prior_paragraph_text.lower())
+            }
+            closer_content_stems = [
+                _grounding_stem(token)
+                for token in re.findall(r"[a-z]+", closer_lower)
+                if len(token) >= 4
+            ]
+            repeat_ratio = (
+                sum(1 for stem in closer_content_stems if stem in body_stems) / len(closer_content_stems)
+                if closer_content_stems else 0.0
+            )
+            is_single_sentence_closer = trailing_fragment_count == 0
+            if (
+                is_single_sentence_closer
+                and repeat_ratio >= 0.9
+                and not has_contrast_marker
+            ):
+                warnings.append(
+                    "closer restates facts - rewrite as an antithesis or a single hammer "
+                    "(legal punch forms: single-hammer, antithesis, concede-then-cut, triad)"
+                )
+            elif repeat_ratio > 0.8 and not has_contrast_marker:
+                warnings.append(
+                    _ADVISORY_PREFIX + "closer leans recap-ish (most content words repeat the body) - "
+                    "consider a sharper turn or the house punch"
+                )
     if ";" in paragraph:
         warnings.append("paragraph may not use semicolons")
 
@@ -3567,7 +4061,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         term for term in high_risk_terms
         if re.search(rf"\b{term}\b", paragraph.lower()) and not re.search(rf"\b{term}\b", evidence_text)
     )
-    if unsupported_risk_terms:
+    if plan_supplies_evidence and unsupported_risk_terms:
         warnings.append("paragraph used high-risk term(s) absent from sourced evidence: " + ", ".join(unsupported_risk_terms))
 
     warnings.extend(PipelineExecutor._validate_static_unit_paragraph(machine, paragraph))
@@ -3579,8 +4073,23 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
     import re
 
     paragraph = " ".join(str(paragraph or "").split())
-    warning_text = " | ".join(str(item) for item in (warnings or [])).lower()
+    # Token-matched pass/fail keys off BLOCKING warnings only; advisory
+    # (warn-severity) flags surface via the advisory validator_warnings row.
+    warning_text = " | ".join(str(item) for item in _blocking_warnings(warnings or [])).lower()
     sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
+    audit_trailing_fragments = 0
+    for candidate in reversed(sentence_parts):
+        if audit_trailing_fragments >= 3 or len(sentence_parts) - audit_trailing_fragments <= 1:
+            break
+        if _spoken_word_count(candidate) <= 6:
+            audit_trailing_fragments += 1
+        else:
+            break
+    audit_trailing_fragments = min(
+        audit_trailing_fragments,
+        max(0, len(sentence_parts) - _ANTON_PARAGRAPH_FORMULA_SENTENCES),
+    )
+    audit_effective_sentences = len(sentence_parts) - audit_trailing_fragments
     claim_rows = bundle.get("claim_map") if isinstance(bundle, dict) else []
     claim_rows = claim_rows if isinstance(claim_rows, list) else []
     formula_sentences = bundle.get("formula_sentences") if isinstance(bundle, dict) else []
@@ -3627,6 +4136,8 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "final sentence must be paragraph-derived",
         "final sentence must not introduce",
         "final sentence ends on",
+        # QL-5: summary/recap closers are banned.
+        "closer restates facts",
     ]
     voiceover_clean_warnings = [
         "production cue/label",
@@ -3670,23 +4181,41 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
     narrative_label = str(narrative_weight.get("label") or "standard").strip() or "standard"
     narrative_target = str(narrative_weight.get("target_words") or _ANTON_PARAGRAPH_TARGET_WORDS).strip()
     reference_benchmark = plan.get("reference_benchmark") if isinstance(plan, dict) else None
+    twist = bundle.get("twist") if isinstance(bundle, dict) and isinstance(bundle.get("twist"), dict) else {}
+    twist_type = str(twist.get("type") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    deliberately_bare = bool(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("deliberately_bare"))
+    twist_tokens = ["designed-vs-used twist", "no gap and no substitute"]
     checks = [
         check(
             "word_range",
-            f"{_ANTON_PARAGRAPH_WORD_RANGE} words",
-            _ANTON_PARAGRAPH_MIN_WORDS <= word_count <= _ANTON_PARAGRAPH_MAX_WORDS,
-            f"{word_count} words",
+            # QD-6: hard window 80-170; the register band is guidance.
+            f"{_ANTON_PARAGRAPH_HARD_MIN_WORDS}-{_ANTON_PARAGRAPH_HARD_MAX_WORDS} words hard window",
+            _ANTON_PARAGRAPH_HARD_MIN_WORDS <= word_count <= _ANTON_PARAGRAPH_HARD_MAX_WORDS,
+            f"{word_count} words (register target {narrative_target})",
         ),
         check(
             "sentence_shape",
-            f"{_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula sentences",
-            len(sentence_parts) == _ANTON_PARAGRAPH_FORMULA_SENTENCES,
-            f"{len(sentence_parts)} sentences; {_ANTON_PARAGRAPH_FORMULA}",
+            f"{_ANTON_PARAGRAPH_SENTENCE_RANGE} counted sentences",
+            _ANTON_PARAGRAPH_MIN_SENTENCES <= audit_effective_sentences <= _ANTON_PARAGRAPH_MAX_SENTENCES,
+            f"{audit_effective_sentences} counted sentences ({len(sentence_parts)} raw); {_ANTON_PARAGRAPH_FORMULA}",
+        ),
+        check(
+            # QL-3 (OR-1): the designed-vs-used engine, or a named substitute.
+            "twist_gate",
+            "Designed-vs-used twist",
+            deliberately_bare or (
+                bool(twist_type) and not any(token in warning_text for token in twist_tokens)
+            ),
+            (
+                "deliberately bare (exempt)" if deliberately_bare
+                else f"twist: {twist_type or 'undeclared'}"
+                + (f" / substitute: {twist.get('substitute')}" if twist.get("substitute") else "")
+            ),
         ),
         check(
             "sentence_assembly",
             "Sentence assembly",
-            len(formula_sentences) == _ANTON_PARAGRAPH_FORMULA_SENTENCES
+            bool(formula_sentences)
             and " ".join(" ".join(str(item or "").split()) for item in formula_sentences) == paragraph
             and not any(token in warning_text for token in assembly_warnings),
             "formula_sentences assemble into paragraph" if not any(token in warning_text for token in assembly_warnings) else "formula_sentences mismatch",
@@ -3696,17 +4225,20 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             "Four grounded beats",
             not missing_roles,
             "covered" if not missing_roles else "missing " + ", ".join(missing_roles),
+            advisory=not any(slot_ids.get(role) for role in _ANTON_REQUIRED_SLOT_ROLES),
         ),
         check(
             "memorable_fact",
             "Sourced memorable fact",
-            bool(memorable_used),
+            deliberately_bare or bool(memorable_used),
             (
+                "deliberately bare (exempt)" if deliberately_bare and not memorable_used else
                 "used " + ", ".join(memorable_used)
                 if memorable_used else
                 "research plan has no sourced memorable_fact" if not memorable_ids else
                 "available but unused"
             ),
+            advisory=True,  # QL-9 (OR-7): warn until research coverage is proven.
         ),
         check(
             "editorial_thesis",
@@ -3714,6 +4246,7 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             isinstance(bundle, dict) and bool(str(bundle.get("editorial_thesis") or "").strip())
             and "editorial_thesis" not in warning_text,
             str(bundle.get("editorial_thesis") or "").strip() if isinstance(bundle, dict) else "",
+            advisory=True,  # QD-5: thesis is graded warn-only, never blocking.
         ),
         check(
             "landed_final_line",
@@ -3742,8 +4275,11 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         check(
             "narrative_weight",
             "Narrative weight",
-            not any(token in warning_text for token in narrative_weight_warnings),
+            (lambda match: not match or int(match.group(1)) <= word_count <= int(match.group(2)))(
+                re.search(r"(\d+)\s*-\s*(\d+)", narrative_target)
+            ),
             f"{narrative_label} target {narrative_target}; {word_count} words",
+            advisory=True,  # QL-1/QL-2: register targets are guidance.
         ),
         check(
             "not_catalog_copy",
@@ -3788,12 +4324,22 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
                 f"production/service reality {'present' if has_production_or_service else 'missing'}"
             ),
         ))
-    if warnings:
+    # Advisory (warn-severity) validator flags never block the audit.
+    blocking_validator_warnings = _blocking_warnings(warnings)
+    if blocking_validator_warnings:
         checks.append(check(
             "validator_warnings",
             "Validator warnings",
             False,
-            "; ".join(str(item) for item in warnings[:3])[:240],
+            "; ".join(str(item) for item in blocking_validator_warnings[:3])[:240],
+        ))
+    elif warnings:
+        checks.append(check(
+            "validator_warnings",
+            "Validator warnings",
+            True,
+            "advisory only: " + "; ".join(str(item) for item in warnings[:3])[:220],
+            advisory=True,
         ))
     if isinstance(reference_benchmark, dict):
         try:
@@ -6480,6 +7026,8 @@ class PipelineExecutor:
                 f"- Research/enrich only THIS machine enough to support one Anton-quality {_ANTON_PARAGRAPH_WORD_RANGE} word DVsU paragraph and one image brief.\n"
                 "- Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine.\n"
                 "- If an excerpt mentions a different aircraft or machine designation, ignore that excerpt.\n"
+                "- HUNT THE GAP: DVsU runs on built-as-X-actually-used-as-Y. Prioritize evidence for how the machine was ACTUALLY used or ended - combat, service, conversion, redesignation, cancellation, scrapping - not its delivery, acceptance, or first flight. A card whose actual-use story merely restates the design intent fails review.\n"
+                "- Only when the hunt genuinely finds no use-story may you set \"deliberately_bare\": true, and then you MUST also return \"gap_hunt_summary\": one or two sentences stating what was searched and why no use-story exists. A bare tag without that summary is rejected.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
@@ -6571,6 +7119,7 @@ class PipelineExecutor:
                     "If only one source supports a high-risk exact fact, prefer a qualitative claim from a better-supported slot instead of making that fact central to the card. "
                     "Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine. "
                     "If an excerpt mentions a different aircraft or machine designation, ignore that excerpt. "
+                    "HUNT THE GAP: if review says no designed-vs-used gap was found, FIRST attempt the hunt - return reality/service evidence for how the machine was ACTUALLY used or ended (combat, service, conversion, redesignation, cancellation, scrapping); delivery, acceptance, or first-flight logistics merely restate the design intent. Only after that hunt finds nothing may you set \"deliberately_bare\": true together with a required \"gap_hunt_summary\" (what was searched, why no use-story exists) - a bare tag without the summary is rejected. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
                     "memorable_fact is REQUIRED: return exactly one memorable_fact segment carrying the most surprising verified excerpt; nearly every package contains one and the card fails review without it. Do not invent trivia. "
                     "For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it; never invent a human account. "
@@ -6885,10 +7434,23 @@ class PipelineExecutor:
             warnings.append("empty paragraph")
         if "\n" in text:
             warnings.append("must be exactly one paragraph")
-        # Anton/DVsU hard production range. Code is authoritative; model
-        # self-counts are ignored.
-        if wc < _ANTON_PARAGRAPH_MIN_WORDS or wc > _ANTON_PARAGRAPH_MAX_WORDS:
-            warnings.append(f"word count {wc} outside {_ANTON_PARAGRAPH_WORD_RANGE} script-hold range")
+        # QD-6/QL-1 (approved): universal hard floor 80 and ceiling 170; 80-95
+        # is an advisory warn band ("confirm terse on purpose"); the register
+        # band itself is guidance handled by the narrative-weight advisory.
+        # Code is authoritative; model self-counts are ignored.
+        if text and wc < _ANTON_PARAGRAPH_HARD_MIN_WORDS:
+            warnings.append(
+                f"word count {wc} under the {_ANTON_PARAGRAPH_HARD_MIN_WORDS}-word hard floor - thicken or fold the entry"
+            )
+        elif wc > _ANTON_PARAGRAPH_HARD_MAX_WORDS:
+            warnings.append(
+                f"word count {wc} over the {_ANTON_PARAGRAPH_HARD_MAX_WORDS}-word hard ceiling - split or cut the entry"
+            )
+        elif text and wc < _ANTON_PARAGRAPH_MIN_WORDS:
+            warnings.append(
+                _ADVISORY_PREFIX + f"word count {wc} in the {_ANTON_PARAGRAPH_HARD_MIN_WORDS}-{_ANTON_PARAGRAPH_MIN_WORDS} "
+                "warn band - confirm the entry is terse on purpose"
+            )
         normalized_text = re.sub(r"[^A-Z0-9]", "", text.upper())
         if machine_code and machine_code not in normalized_text:
             warnings.append(f"missing locked machine designation {machine_code}")
@@ -6909,14 +7471,16 @@ class PipelineExecutor:
             warnings.append("contains bracketed production note instead of clean voiceover narration")
         raw_digit_mentions = _raw_digit_mentions_for_voiceover(text)
         if raw_digit_mentions:
+            # QL-10 (OR-4): number rendering is warn-severity.
             warnings.append(
-                "uses raw numeric digit(s); write spoken numbers as words: "
+                _ADVISORY_PREFIX + "uses raw numeric digit(s); write spoken numbers as words: "
                 + ", ".join(raw_digit_mentions)
             )
         unit_abbreviations = _written_unit_abbreviations_for_voiceover(text)
         if unit_abbreviations:
+            # QL-10 (OR-4): number/unit rendering is warn-severity.
             warnings.append(
-                "uses written unit abbreviation(s); spell out for voiceover: "
+                _ADVISORY_PREFIX + "uses written unit abbreviation(s); spell out for voiceover: "
                 + ", ".join(
                     f"{abbr} -> {_VOICEOVER_UNIT_ABBREVIATIONS.get(abbr, 'spoken words')}"
                     for abbr in unit_abbreviations
@@ -7349,12 +7913,18 @@ class PipelineExecutor:
                     f"STYLE / SENTENCE CRAFT:\n{structure_brief}\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
-                    '{"editorial_thesis":"single engineering decision or contrast","formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"],"claim_map":[{"span":"exact formula-sentence words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
+                    '{"editorial_thesis":"single engineering decision or contrast","twist":{"type":"role_change","substitute":null,"summary":"built for X, used as Y in one line"},"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"],"claim_map":[{"span":"exact formula-sentence words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
-                    f"- The {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences are the final spoken narration following {_ANTON_PARAGRAPH_FORMULA}; joined they must total {_ANTON_PARAGRAPH_WORD_RANGE} words.\n"
+                    "- TWIST LAW (hard): every entry runs on a designed-vs-used gap - built for X, used as Y. Declare twist.type from the plan's twist_menu (pick the closest NAMED subtype; `other` is a last resort). "
+                    "Only a machine used exactly as designed may declare type `absent`, and then twist.substitute MUST name one of: superlative, legacy, irony, anti_twist. No gap and no substitute reads as a spec dump and is rejected.\n"
+                    f"- WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} words, hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS}; hit the register target in the plan's narrative_weight (spec-block register {_DVSU_REGISTER_TARGETS['spec_block']}). "
+                    f"The {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences are the final spoken narration following {_ANTON_PARAGRAPH_FORMULA}.\n"
+                    "- POSITION LAW: weight the budget by importance and position - the FIRST entry of a video never runs shortest; the FINAL entry runs plus ten to thirty words and folds the outro as a bookend callback; marquee machines run 110-150; deliberately bare prototypes and connective entries run 80-95.\n"
                     "- formula_sentences must contain the exact five final sentences in order. Do NOT return a paragraph key: code assembles the paragraph by joining formula_sentences with spaces, so never re-type the sentences anywhere else.\n"
                     "- Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
-                    "- Follow NARRATIVE WEIGHT as the target inside the hard range: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. Do not pad with orphan facts.\n"
+                    "- OPENER BUDGET: bare name-openers (The [Maker] [Designation]...) are capped near 57% of a video's entries - open on a bridge, a role/thesis claim, or date/era context at least 40% of the time, and never run three identical opener types in a row.\n"
+                    "- BRIDGE LAW: chain to the prior machine about 40% of the time and cluster the bridges (chronology, within-class sequences, run-offs, shared eras) rather than spreading them evenly; plant and pay off at least one long-arc callback across the video.\n"
+                    "- Follow NARRATIVE WEIGHT as the register target: major machines land richer (110-150), transitional machines bare (80-95). Do not pad with orphan facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
                     "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
                     "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
@@ -7365,9 +7935,10 @@ class PipelineExecutor:
                     "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation.\n"
                     f"- Accepted hedge words (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
-                    "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
-                    "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. Every quantity number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
-                    "- Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
+                    "- GROUNDING LAW: freedom in HOW it is said, zero freedom in WHAT is claimed. Checkable facts - numbers, dates, proper nouns, designations, concrete spec claims - must appear in the locked evidence. Abstract vocabulary, common verbs, and adjectives are free; prefer evidence wording for colorful concrete nouns (the evidence's `mammoth` beats your `giant`).\n"
+                    "- A hedged, direction-consistent round of a sourced value is legal (`over eight thousand feet` for a sourced 8,200). Exact dates need one locked source; quantities need two.\n"
+                    "- Use voice-ready spoken number words for counts, calibers, speeds, tonnages, durations, and percentages. Digits stay ONLY for alphanumeric designations (B-17, BB-66), calendar years, and exact figures of four or more digits (casualty tolls like 1,177, costs, hull numbers). Designations are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration.\n"
+                    f"- Use at most {story_plan['contract']['maximum_numerical_details']} numerical details total (the register cap), including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
                     "- Prefer fewer than 6 numerical details when optional slots add clutter, but a Strategic Bomber benchmark paragraph may use 6-8 when each one proves scale, capability, production, service reality, or the final contrast.\n"
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
                     "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
@@ -7378,7 +7949,9 @@ class PipelineExecutor:
                     "- Do not use ranked-list connectors: Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list. Bridge through problem, contrast, consequence, or the previous machine instead.\n"
                     "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
                     "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
-                    f"- End with a short verdict, paradox, irony, or reversal based only on the preceding paragraph. The final sentence must be {_ANTON_FINAL_SENTENCE_MAX_WORDS} words or fewer and contain no dates, specs, production counts, or new events.\n"
+                    "- VERDICT PUNCH (hard): the closer must be one of the four legal forms - single-hammer, antithesis, concede-then-cut, or triad. Summary and recap closers are banned: a closer that only restates the body's facts is rejected. "
+                    "Reach FIRST for the house punch: a two-part parallel antithesis that restates the designed-vs-used gap and lands on the result side (`They ordered an ambulance. They got an air force.`), each half four to nine words; the other three forms are legal fallbacks.\n"
+                    f"- CLOSER FREEDOM: the final sentence may use any editorial or abstract vocabulary - it elevates, it does not recap. Nationality and geographic color (over German skies) is legal. It must be {_ANTON_FINAL_SENTENCE_MAX_WORDS} words or fewer and may NOT introduce new person, organization, or operation names, new designations, or a new number paired with a new entity.\n"
                     "- onscreen_label is metadata only, not narration. It must be empty unless onscreen_label evidence or sourced role/operator/build/date slots support it.\n"
                     "- No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes, hype, or list transitions.\n\n"
                     f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
@@ -7402,7 +7975,9 @@ class PipelineExecutor:
                     f"{machine_scope_line}"
                     f"{neighbor_context}\n"
                     "HARD CONTRACT:\n"
-                    f"- Return exactly ONE paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS}.\n"
+                    f"- Return exactly ONE paragraph. WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} words, hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS}; target the register band {_DVSU_REGISTER_TARGETS['spec_block']} (marquee machines may run 110-150, deliberately bare entries 80-95).\n"
+                    "- TWIST LAW: run the entry on its designed-vs-used gap - state what it was built for, then invert to how it was actually used or ended; a machine used exactly as designed must substitute a superlative, legacy hook, or timing irony.\n"
+                    f"- CLOSER: end on a sharpened verdict (single-hammer, antithesis, concede-then-cut, or triad) of {_ANTON_FINAL_SENTENCE_MAX_WORDS} words or fewer. Any editorial vocabulary is legal there, but introduce no new named entities, numbers, or designations.\n"
                     "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, JSON, b-roll cues, thumbnail lines, or bracketed production notes.\n"
                     "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
                     "- Do not mention any other aircraft or machine designation.\n"
@@ -7428,7 +8003,8 @@ class PipelineExecutor:
                 warnings = self._validate_static_unit_paragraph(machine, paragraph)
                 warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
 
-            if warnings:
+            # Warn-severity (advisory-prefixed) flags never trigger a repair round.
+            if _blocking_warnings(warnings):
                 if complete_inventory_mode:
                     repair_prompt = (
                         "REBUILD THE ANTON-STYLE PARAGRAPH JSON FROM THE SAME LOCKED STORY PLAN.\n\n"
@@ -7436,9 +8012,10 @@ class PipelineExecutor:
                         f"OPENING ASSIGNMENT: {opening_brief}\n"
                         f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
                         f"STYLE / SENTENCE CRAFT:\n{structure_brief}\n"
-                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"formula_sentences\":[\"original_problem sentence\",\"engineering_decision sentence\",\"tradeoff sentence\",\"reality sentence\",\"paragraph-derived conclusion\"],\"claim_map\":[{\"span\":\"exact formula-sentence words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
+                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"twist\":{\"type\":\"role_change\",\"substitute\":null,\"summary\":\"built for X, used as Y in one line\"},\"formula_sentences\":[\"original_problem sentence\",\"engineering_decision sentence\",\"tradeoff sentence\",\"reality sentence\",\"paragraph-derived conclusion\"],\"claim_map\":[{\"span\":\"exact formula-sentence words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
-                        f"Write exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences following {_ANTON_PARAGRAPH_FORMULA}; code assembles the paragraph by joining them with spaces, and joined they must land inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} word range. Follow NARRATIVE WEIGHT as the target: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. "
+                        "TWIST LAW (hard): declare twist.type from the plan's twist_menu (closest NAMED subtype; `other` is a last resort). Only a used-exactly-as-designed machine may declare `absent`, and then twist.substitute MUST name superlative, legacy, irony, or anti_twist - no gap and no substitute reads as a spec dump and is rejected. "
+                        f"Write exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences following {_ANTON_PARAGRAPH_FORMULA}; code assembles the paragraph by joining them with spaces. WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} and hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS} words; hit the register target in NARRATIVE WEIGHT (major machines 110-150, transitional 80-95, spec-block register {_DVSU_REGISTER_TARGETS['spec_block']}). "
                         "formula_sentences must contain the exact five final sentences in order; do NOT return a paragraph key and never re-type the sentences anywhere else - code does the joining. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
@@ -7446,10 +8023,14 @@ class PipelineExecutor:
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
+                        "VERDICT PUNCH (hard): the closer must be single-hammer, antithesis, concede-then-cut, or triad - never a summary or recap. If the flagged closer restates facts, rewrite it as the house punch: a two-part parallel antithesis restating the designed-vs-used gap and landing on the result side, each half four to nine words. "
+                        "CLOSER FREEDOM: the closer may use any editorial or abstract vocabulary, including nationality/geographic color; it may NOT introduce new person, organization, or operation names, new designations, or a new number paired with a new entity. "
+                        "GROUNDING LAW: checkable facts (numbers, dates, proper nouns, designations, spec claims) must appear in locked evidence; abstract vocabulary is free; prefer evidence wording for colorful concrete nouns. A hedged direction-consistent round of a sourced value is legal; exact dates need one locked source, quantities need two. "
                         "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation. "
                         f"Accepted hedge words (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}. "
                         "For the Strategic Bomber benchmark, keep Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, all from locked evidence. "
-                        "Use voice-ready spoken number words for years and quantities. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite that quantity as spoken words but leave designations untouched. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
+                        "Use voice-ready spoken number words for years and quantities. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite that quantity as spoken words but leave designations untouched. "
+                        f"Use at most {story_plan['contract']['maximum_numerical_details']} numerical details total (the register cap), including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "
@@ -7479,7 +8060,9 @@ class PipelineExecutor:
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
                         f"Validation warnings: {'; '.join(warnings)}\n\n"
                         f"OPENING ASSIGNMENT: {opening_brief}\n\n"
-                        f"Return exactly ONE spoken paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS} and cut any result above {_ANTON_PARAGRAPH_MAX_WORDS}. "
+                        f"Return exactly ONE spoken paragraph. WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} words, hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS}; target the register band {_DVSU_REGISTER_TARGETS['spec_block']}. "
+                        "Run the entry on its designed-vs-used gap (built for X, used as Y, or a named substitute). "
+                        f"End on a sharpened verdict of {_ANTON_FINAL_SENTENCE_MAX_WORDS} words or fewer - single-hammer, antithesis, concede-then-cut, or triad; free editorial vocabulary, but no new named entities, numbers, or designations. "
                         "Follow OPENING ASSIGNMENT exactly. No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
                         "Do not mention any other aircraft or machine designation. "
                         "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
@@ -7499,6 +8082,34 @@ class PipelineExecutor:
                     warnings = self._validate_static_unit_paragraph(machine, paragraph)
                     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
 
+            # QL-7: classify and STORE the opener type; budget the name-openers.
+            opener_type = _classify_opener_type(paragraph, machine)
+            mode_profile = ((story_plan or {}).get("contract") or {}).get("mode_profile") if isinstance(story_plan, dict) else None
+            opener_name_budget = float((mode_profile or {}).get("opener_name_budget") or 0.6)
+            if complete_inventory_mode:
+                existing_previews = rp.get("machine_script_previews") if isinstance(rp.get("machine_script_previews"), dict) else {}
+                prior_opener_types = []
+                for prior_key, prior_preview in existing_previews.items():
+                    if not isinstance(prior_preview, dict):
+                        continue
+                    if _normalized_unit_code(str(prior_preview.get("machine") or prior_key)) == _normalized_unit_code(machine):
+                        continue
+                    prior_opener_types.append(
+                        str(prior_preview.get("opener_type") or "")
+                        or _classify_opener_type(str(prior_preview.get("paragraph") or ""), str(prior_preview.get("machine") or ""))
+                    )
+                all_opener_types = prior_opener_types + [opener_type]
+                name_share = all_opener_types.count("name") / max(1, len(all_opener_types))
+                if len(all_opener_types) >= 3 and name_share > opener_name_budget:
+                    warnings.append(
+                        _ADVISORY_PREFIX + f"name-openers at {int(round(name_share * 100))}% of previews exceed the "
+                        f"{int(round(opener_name_budget * 100))}% budget - open on a bridge, role/thesis claim, or date context (QL-7)"
+                    )
+                if len(all_opener_types) >= 3 and len(set(all_opener_types[-3:])) == 1:
+                    warnings.append(
+                        _ADVISORY_PREFIX + f"three consecutive {all_opener_types[-1]} openers - vary the opener type (QL-7)"
+                    )
+
             quality_audit = _anton_preview_quality_audit(
                 machine,
                 story_plan or {},
@@ -7511,11 +8122,14 @@ class PipelineExecutor:
                 isinstance(check, dict) and (check.get("passed") is True or check.get("advisory") is True)
                 for check in audit_checks
             )
-            preview_passed = (not warnings) and (
+            # Warn-severity (advisory-prefixed) flags never block a preview.
+            preview_passed = (not _blocking_warnings(warnings)) and (
                 bool((quality_audit or {}).get("passed")) and audit_blocking_checks_passed
                 if complete_inventory_mode else
                 True
             )
+            bundle_twist = bundle.get("twist") if isinstance(bundle, dict) and isinstance(bundle.get("twist"), dict) else {}
+            twist_type_label = str(bundle_twist.get("type") or "").strip().lower().replace("-", "_").replace(" ", "_")
             validation_units.append({
                 "scene": i,
                 "machine": machine,
@@ -7523,6 +8137,8 @@ class PipelineExecutor:
                 "research_source": research_source_kind,
                 "passed": preview_passed,
                 "warnings": warnings,
+                "opener_type": opener_type,
+                "twist_type": twist_type_label,
                 "quality_audit": quality_audit,
             })
             if target_machine:
@@ -7538,6 +8154,8 @@ class PipelineExecutor:
                     "research_source": research_source_kind,
                     "story_plan": story_plan,
                     "claim_bundle": claim_bundle,
+                    "opener_type": opener_type,
+                    "twist_type": twist_type_label,
                     "quality_audit": quality_audit,
                 }
                 if save_target_script:
@@ -7590,7 +8208,7 @@ class PipelineExecutor:
                     _json_sh.dumps(validation), video_id, self.tenant_id,
                 )
                 msg = f"Script-hold stopped at machine {i}/{len(roster)} ({machine}): " + "; ".join(
-                    warnings or [str((quality_audit or {}).get("summary") or "Anton quality audit needs review")]
+                    _review_messages(warnings) or [str((quality_audit or {}).get("summary") or "Anton quality audit needs review")]
                 )
                 await self._log_activity(bot_name, video_id, "failed", msg[:900])
                 return {"status": "failed", "error": msg, "video_id": video_id}
@@ -7627,7 +8245,23 @@ class PipelineExecutor:
             validation = {}
         if not isinstance(validation, dict):
             validation = {}
-        validation["script_hold"] = {"passed": True, "units": validation_units}
+        # QL-4 script-run budget: warn when over 40% of classified twists fall
+        # to `other` (or off-menu labels counted as `other`).
+        script_run_warnings: list[str] = []
+        classified_twists = [
+            str(unit.get("twist_type") or "") for unit in validation_units
+            if str(unit.get("twist_type") or "")
+        ]
+        other_like_twists = [
+            label for label in classified_twists
+            if label not in _DVSU_TWIST_TYPES and label != "absent"
+        ]
+        if classified_twists and len(other_like_twists) / len(classified_twists) > 0.4:
+            script_run_warnings.append(
+                _ADVISORY_PREFIX + f"{len(other_like_twists)}/{len(classified_twists)} twists fell to `other` "
+                "(over the 40% budget) - pick named subtypes from the menu (QL-4)"
+            )
+        validation["script_hold"] = {"passed": True, "units": validation_units, "warnings": script_run_warnings}
         staged_rows = [
             {"scene": i, "scene_text": paragraph}
             for i, paragraph in enumerate(paragraphs, start=1)
