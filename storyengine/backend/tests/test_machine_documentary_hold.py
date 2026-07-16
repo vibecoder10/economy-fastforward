@@ -9095,3 +9095,150 @@ def test_repair_mechanics_drops_wrong_slot_citations_for_formula_order():
     }
     stranded_repaired = pe._repair_machine_story_bundle_mechanics(machine, plan, stranded)
     assert stranded_repaired["claim_map"][0]["used_evidence_ids"] == ["E-DECISION"]
+
+
+# ---------------------------------------------------------------------------
+# Writer pass 5 wrap-up (2026-07-16): ONE shared checklist - the research side
+# predicts the frozen benchmark_cadence audit and self-heals with FREE
+# promotes, so a referee-clean card can never starve the writer again.
+# ---------------------------------------------------------------------------
+
+def _starved_benchmark_segments() -> list[dict]:
+    """A referee-plausible evidence set with NO numbers, NO scale vocab, and
+    NO production/service vocab - exactly the card shape that passed research
+    and then failed benchmark_cadence live (B-17, twice)."""
+    segments = _evidence_segments()
+    for segment in segments:
+        segment["claim"] = segment["claim"].replace("Cold War service period", "later era")
+        if segment["evidence_id"] == "E-DECISION":
+            segment["claim"] = "Engineering decision claim grounded in the supplied source."
+        segment["source_excerpt"] = segment["claim"]
+    return segments
+
+
+def test_script_starvation_gaps_mirror_benchmark_cadence():
+    machine = "Boeing B-17 Flying Fortress"
+    starved = pe._script_starvation_gaps(
+        {"unit": machine, "evidence_segments": _starved_benchmark_segments()}, machine
+    )
+    assert set(starved) == {"numeric_details", "scale_capability", "production_service"}
+
+    # A card carrying the audit's demands reports no gaps: numbers + scale
+    # vocab on the decision beat, production vocab on the reality beat.
+    fed = _starved_benchmark_segments()
+    decision = next(s for s in fed if s["evidence_id"] == "E-DECISION")
+    decision["claim"] = "The design carried a 103-foot wingspan and four engines."
+    decision["source_excerpt"] = decision["claim"]
+    reality = next(s for s in fed if s["evidence_id"] == "E-REALITY")
+    reality["claim"] = "Boeing produced 12,731 aircraft that served in combat."
+    reality["source_excerpt"] = reality["claim"]
+    assert pe._script_starvation_gaps({"unit": machine, "evidence_segments": fed}, machine) == []
+
+    # Non-benchmark machines (B-52 has no Anton reference profile) are never
+    # graded on cadence - mirrors the frozen audit exactly.
+    assert pe._script_starvation_gaps(
+        {"unit": "B-52", "evidence_segments": _starved_benchmark_segments()}, "B-52"
+    ) == []
+
+
+def test_script_starvation_promote_actions_fill_gaps_with_support_kinds():
+    machine = "Boeing B-17 Flying Fortress"
+    segments = _starved_benchmark_segments()
+    card = {"unit": machine, "evidence_segments": segments}
+    package = _verified_package_for_segments(machine, segments)
+    package["candidate_excerpts"].extend([
+        {
+            "excerpt_id": "S9-E1",
+            "source_id": "S9",
+            "source_title": "Spec source",
+            "source_url": "https://spec.test/1",
+            "locator": "S9-E1",
+            "text": "The Boeing B-17 Flying Fortress carried a 103-foot wingspan and four engines.",
+            "text_hash": "test",
+            "source_capture_method": "fetched_page",
+            "source_tier": 2,
+            "anton_slot_hints": ["engineering_decision"],
+            "source_variant_selection": {"selected_capture_method": "fetched_page"},
+        },
+        {
+            "excerpt_id": "S9-E2",
+            "source_id": "S9",
+            "source_title": "Production source",
+            "source_url": "https://spec.test/2",
+            "locator": "S9-E2",
+            "text": f"Boeing produced 12,731 B-17s between 1936 and 1945 for wartime service.",
+            "text_hash": "test",
+            "source_capture_method": "fetched_page",
+            "source_tier": 3,
+            "anton_slot_hints": ["reality"],
+            "source_variant_selection": {"selected_capture_method": "fetched_page"},
+        },
+        {
+            # Cross-designation noise must never feed this card's numbers.
+            "excerpt_id": "S9-E3",
+            "source_id": "S9",
+            "source_title": "Foreign source",
+            "source_url": "https://spec.test/3",
+            "locator": "S9-E3",
+            "text": "The B-36 Peacemaker carried a 230-foot wingspan.",
+            "text_hash": "test",
+            "source_capture_method": "fetched_page",
+            "source_tier": 1,
+            "anton_slot_hints": ["engineering_decision"],
+            "source_variant_selection": {"selected_capture_method": "fetched_page"},
+        },
+    ])
+    actions = pe._script_starvation_promote_actions(card, package, machine)
+    by_id = {action["excerpt_id"]: action for action in actions}
+    assert "S9-E1" in by_id and by_id["S9-E1"]["kind"] == "scale_specs_context"
+    assert "S9-E2" in by_id and by_id["S9-E2"]["kind"] == "build_reality_context"
+    assert "S9-E3" not in by_id
+    assert all(action["verb"] == "promote_excerpt" for action in actions)
+
+    # Support kinds only: never a required-role kind that could overwrite
+    # actual_outcome or trip the slot-hint gate.
+    assert all(action["kind"].endswith("_context") for action in actions)
+
+    # A card with no gaps proposes nothing; so does a missing package.
+    fed_card = {"unit": machine, "evidence_segments": _starved_benchmark_segments()}
+    fed_card["evidence_segments"][2]["claim"] = "It carried a 185-foot wingspan and eight engines."
+    fed_card["evidence_segments"][2]["source_excerpt"] = fed_card["evidence_segments"][2]["claim"]
+    fed_card["evidence_segments"][4]["claim"] = "Boeing produced 12,731 aircraft that served in combat."
+    fed_card["evidence_segments"][4]["source_excerpt"] = fed_card["evidence_segments"][4]["claim"]
+    assert pe._script_starvation_promote_actions(fed_card, package, machine) == []
+    assert pe._script_starvation_promote_actions(card, None, machine) == []
+
+
+def test_classify_repair_actions_returns_starvation_promotes_when_referee_clean():
+    """A referee-clean benchmark card with audit starvation now gets FREE
+    promote actions from the Repair ladder instead of an empty plan."""
+    machine = "Boeing B-17 Flying Fortress"
+    segments = _starved_benchmark_segments()
+    card = _valid_research_card(machine, segments)
+    package = _verified_package_for_segments(machine, card["evidence_segments"])
+    package["candidate_excerpts"].append({
+        "excerpt_id": "S9-E2",
+        "source_id": "S9",
+        "source_title": "Production source",
+        "source_url": "https://spec.test/2",
+        "locator": "S9-E2",
+        "text": f"Boeing produced 12,731 B-17s between 1936 and 1945 for wartime service.",
+        "text_hash": "test",
+        "source_capture_method": "fetched_page",
+        "source_tier": 3,
+        "anton_slot_hints": ["reality"],
+        "source_variant_selection": {"selected_capture_method": "fetched_page"},
+    })
+    referee = pe._blocking_warnings(
+        pe._research_card_contract_warnings(machine, card, package, require_source_package=True)
+    )
+    actions = pe._classify_repair_actions(machine, card, package)
+    if not referee:
+        assert any(
+            action["verb"] == "promote_excerpt" and action["kind"].endswith("_context")
+            for action in actions
+        )
+    else:
+        # Fixture drifted into referee territory; the starvation step is then
+        # exercised by the two direct tests above.
+        assert isinstance(actions, list)

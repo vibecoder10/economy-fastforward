@@ -3529,6 +3529,154 @@ def _package_gap_hunt_already_ran(package: Optional[dict]) -> bool:
     )
 
 
+# Writer pass 5 wrap-up (2026-07-16): ONE shared checklist. These are the
+# frozen benchmark_cadence audit's own vocabularies, extracted so the research
+# side can grade a card by the same rules the script judge will use. Change
+# them ONLY together with the audit (law freeze).
+_ANTON_SCALE_CAPABILITY_RE = re.compile(
+    r"\b(wingspan|engine|engines|horsepower|payload|bombs?|pounds?|miles?|range|speed|mph|mach|feet|foot|altitude|ceiling|fuel|carry|carried|load|loads)\b"
+)
+_ANTON_PRODUCTION_SERVICE_RE = re.compile(
+    r"\b(built|produced|production|served|service|combat|transport|campaign|theater|theatre|lost|losses|flew|prototype|prototypes|wartime|world war)\b"
+)
+
+_STARVATION_DECISION_ROLES = {"engineering_decision", "scale_specs"}
+_STARVATION_REALITY_ROLES = {"reality", "build_reality", "service_reality"}
+
+
+def _script_starvation_gaps(card: Optional[dict], machine: str) -> list[str]:
+    """Predict, card-side, what the frozen benchmark_cadence audit will demand
+    of the paragraph: >=2 numeric details available, scale/capability evidence
+    for the decision beat, production/service evidence for the reality beat.
+    A card can pass the research referee and still starve the writer - this is
+    the seam that cost three hand-promote rounds on 2026-07-16. Empty list for
+    non-benchmark machines (the audit does not grade cadence there) and for
+    cards the referee already owns (no evidence)."""
+    benchmark = _anton_reference_benchmark_profile(machine)
+    if not (
+        isinstance(benchmark, dict)
+        and str(benchmark.get("source_video") or "") == "Every US Strategic Bomber Ever Built"
+    ):
+        return []
+    evidence, _errors = _normalize_machine_evidence(card if isinstance(card, dict) else {}, machine)
+    if not evidence:
+        return []
+    numeric_keys: set[str] = set()
+    has_scale = False
+    has_production = False
+    for segment in evidence:
+        role = segment.get("slot_role") or _anton_slot_role_for_kind(segment.get("kind"))
+        text = f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        lower = text.lower()
+        if role in _STARVATION_DECISION_ROLES or role in _STARVATION_REALITY_ROLES:
+            numeric_keys.update(
+                key for key in (
+                    _numeric_token_key(token)
+                    for token in _numeric_tokens_from_text(_strip_designations_for_numbers(text, machine))
+                ) if key
+            )
+        if role in _STARVATION_DECISION_ROLES and _ANTON_SCALE_CAPABILITY_RE.search(lower):
+            has_scale = True
+        if role in _STARVATION_REALITY_ROLES and _ANTON_PRODUCTION_SERVICE_RE.search(lower):
+            has_production = True
+    gaps: list[str] = []
+    if len(numeric_keys) < 2:
+        gaps.append("numeric_details")
+    if not has_scale:
+        gaps.append("scale_capability")
+    if not has_production:
+        gaps.append("production_service")
+    return gaps
+
+
+def _script_starvation_promote_actions(
+    card: Optional[dict], package: Optional[dict], machine: str
+) -> list[dict]:
+    """FREE promote_excerpt actions that fill _script_starvation_gaps from the
+    machine's own verified package. Always SUPPORT kinds (scale_specs_context /
+    build_reality_context): they bypass the required-slot hint gate and never
+    overwrite actual_outcome (a reality-kind promote rewrites the twist field).
+    Candidates must mention the locked machine and carry no cross-designation
+    (a foreign machine's numbers must never feed this card's spec block)."""
+    gaps = set(_script_starvation_gaps(card, machine))
+    if not gaps or not isinstance(package, dict):
+        return []
+    cited = _card_cited_excerpt_ids(card)
+
+    def _numeric_key_count(text: str) -> int:
+        return len({
+            key for key in (
+                _numeric_token_key(token)
+                for token in _numeric_tokens_from_text(_strip_designations_for_numbers(text, machine))
+            ) if key
+        })
+
+    scored: list[tuple[int, int, str, str, str]] = []
+    for item in package.get("candidate_excerpts") or []:
+        if not isinstance(item, dict):
+            continue
+        excerpt_id = str(item.get("excerpt_id") or "").strip()
+        text = str(item.get("text") or "").strip()
+        if not excerpt_id or not text or excerpt_id in cited:
+            continue
+        if not _verified_source_candidate_traceable(item):
+            continue
+        if not _mentions_machine(text, machine):
+            continue
+        searchable = " ".join(str(item.get(key) or "") for key in ("source_title", "text"))
+        allowed_codes = _target_machine_designation_codes(machine)
+        foreign_codes = [
+            code for code in _non_target_designation_codes(searchable, machine)
+            # "12,731 B-17s" reads as code B17S: a plural of the locked code
+            # is the locked machine, not a foreign designation.
+            if not any(code == f"{allowed}S" for allowed in allowed_codes)
+        ]
+        if foreign_codes:
+            continue
+        lower = text.lower()
+        numbers = _numeric_key_count(text)
+        if not numbers:
+            continue
+        is_scale = bool(_ANTON_SCALE_CAPABILITY_RE.search(lower))
+        is_production = bool(_ANTON_PRODUCTION_SERVICE_RE.search(lower))
+        if is_production and ("production_service" in gaps or "numeric_details" in gaps):
+            kind = "build_reality_context"
+        elif is_scale and ("scale_capability" in gaps or "numeric_details" in gaps):
+            kind = "scale_specs_context"
+        else:
+            continue
+        if _promote_excerpt_precheck_error(item, kind, machine):
+            continue
+        scored.append((_source_tier_number(item), -numbers, excerpt_id, kind, lower))
+
+    actions: list[dict] = []
+    remaining = set(gaps)
+    remaining_numbers = 2
+    for _tier, neg_numbers, excerpt_id, kind, lower in sorted(scored, key=lambda row: (row[0], row[1], row[2])):
+        fills = set()
+        if kind == "scale_specs_context" and "scale_capability" in remaining:
+            fills.add("scale_capability")
+        if kind == "build_reality_context" and "production_service" in remaining:
+            fills.add("production_service")
+        if "numeric_details" in remaining:
+            fills.add("numeric_details")
+        if not fills:
+            continue
+        actions.append({
+            "verb": "promote_excerpt",
+            "excerpt_id": excerpt_id,
+            "kind": kind,
+            "reason": "script audit demands " + ", ".join(sorted(fills)) + "; package carries it",
+        })
+        remaining -= {"scale_capability", "production_service"} & fills
+        remaining_numbers += neg_numbers  # neg_numbers is negative
+        if remaining_numbers <= 0:
+            remaining.discard("numeric_details")
+        if not remaining or len(actions) >= 3:
+            break
+    return actions
+
+
 def _classify_repair_actions(machine: str, card: Optional[dict], package: Optional[dict]) -> list[dict]:
     """Cheapest-first repair plan for one machine. Deterministic, read-only.
 
@@ -3562,7 +3710,9 @@ def _classify_repair_actions(machine: str, card: Optional[dict], package: Option
         _research_card_contract_warnings(machine, card, package, require_source_package=True)
     )
     if not warnings:
-        return []
+        # Writer pass 5 wrap-up: a referee-clean card can still starve the
+        # frozen script audit; the Repair button fills that for free too.
+        return _script_starvation_promote_actions(card, package, machine)
     actions = []
     evidence = card.get("evidence_segments") or []
     cited = _card_cited_excerpt_ids(card)
@@ -5305,14 +5455,8 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         }
         decision_text = " ".join(claim_text_by_role.get("engineering_decision") or []).lower()
         reality_text = " ".join(claim_text_by_role.get("reality") or []).lower()
-        has_scale_or_capability = bool(re.search(
-            r"\b(wingspan|engine|engines|horsepower|payload|bombs?|pounds?|miles?|range|speed|mph|mach|feet|foot|altitude|ceiling|fuel|carry|carried|load|loads)\b",
-            decision_text,
-        ))
-        has_production_or_service = bool(re.search(
-            r"\b(built|produced|production|served|service|combat|transport|campaign|theater|theatre|lost|losses|flew|prototype|prototypes|wartime|world war)\b",
-            reality_text,
-        ))
+        has_scale_or_capability = bool(_ANTON_SCALE_CAPABILITY_RE.search(decision_text))
+        has_production_or_service = bool(_ANTON_PRODUCTION_SERVICE_RE.search(reality_text))
         benchmark_cadence_passed = len(numeric_keys) >= 2 and has_scale_or_capability and has_production_or_service
         checks.append(check(
             "benchmark_cadence",
@@ -9577,6 +9721,43 @@ class PipelineExecutor:
             self.tenant_id, video_id, dict(rp)
         )
 
+        # Writer pass 5 wrap-up: ONE shared checklist. Before a single-machine
+        # preview, promote (FREE, deterministic) the package excerpts the
+        # frozen script audit will demand, so a research-verified card can
+        # never starve the writer again (the seam that cost three hand-promote
+        # rounds on 2026-07-16).
+        if target_machine:
+            heal_card = _research_card_for_machine(rp, target_machine)
+            heal_package = _verified_source_package_for_machine(rp, target_machine)
+            heal_actions = _script_starvation_promote_actions(heal_card, heal_package, target_machine)
+            healed: list[str] = []
+            for heal_action in heal_actions:
+                heal_result = await self.repair_promote_excerpt(
+                    video_id, target_machine, heal_action["excerpt_id"], heal_action["kind"]
+                )
+                if isinstance(heal_result, dict) and heal_result.get("status") == "completed":
+                    healed.append(f"{heal_action['excerpt_id']} -> {heal_action['kind']}")
+            if healed:
+                await self._log_activity(
+                    bot_name, video_id, "processing",
+                    f"self-healed script starvation for {target_machine}: promoted " + ", ".join(healed),
+                )
+                video = await self._get_video(video_id) or video
+                rp = video.get("research_payload") or {}
+                if isinstance(rp, str):
+                    try:
+                        rp = _json_sh.loads(rp)
+                    except Exception:
+                        rp = {}
+                if not isinstance(rp, dict):
+                    rp = {}
+                rp = await self._load_machine_research_cards(
+                    video_id, rp, roster, target_machine=target_machine
+                )
+                response_research_payload = await enrich_research_payload_readiness(
+                    self.tenant_id, video_id, dict(rp)
+                )
+
         def _mirror_response_artifact(container: str, key: str, value: dict) -> None:
             existing = response_research_payload.get(container)
             if isinstance(existing, str):
@@ -9816,7 +9997,8 @@ class PipelineExecutor:
                     "Open with the machine's most interesting tension, ambition, or consequence, then move cleanly to why it mattered. "
                     "Use a sourced memorable_fact when the story plan provides one, but merge it into the strongest required beat instead of adding trivia. "
                     "The final line must land as a verdict, paradox, irony, or reversal; brevity decides which secondary facts to cut, not whether the paragraph has a point. "
-                    "Count the finished paragraph before returning it. If it exceeds the narrative-weight target, remove the least important fact rather than compressing more facts into longer sentences."
+                    "Count the finished paragraph before returning it. If it exceeds the narrative-weight target, remove the least important fact rather than compressing more facts into longer sentences. "
+                    "If it lands UNDER the register target band, fold in one more sourced fact - a number, loss figure, or documented detail from the plan - rather than returning thin; major machines earn their 110-150 words."
                 )
             story_distiller_system_prompt = (
                 "You are a source-grounded Anton/DVsU paragraph compiler for a machine documentary. "
@@ -10008,7 +10190,7 @@ class PipelineExecutor:
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
                         "TWIST LAW (hard): declare twist.type from the plan's twist_menu (closest NAMED subtype; `other` is a last resort). Only a used-exactly-as-designed machine may declare `absent`, and then twist.substitute MUST name superlative, legacy, irony, or anti_twist - no gap and no substitute reads as a spec dump and is rejected. "
                         "CONVERSION SIGNAL (hard): when the plan's contract carries conversion_signal_evidence_ids, the FIRST listed id is the machine's documented designed-vs-used story - write the reality sentence FROM that flagged evidence, cite it in that sentence's claim_map row, and build the twist from it; an acceptance, delivery, or test event is never the reality beat while a flagged conversion segment exists. "
-                        f"Write exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences following {_ANTON_PARAGRAPH_FORMULA}; code assembles the paragraph by joining them with spaces. WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} and hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS} words; hit the register target in NARRATIVE WEIGHT (major machines 110-150, transitional 80-95, spec-block register {_DVSU_REGISTER_TARGETS['spec_block']}). "
+                        f"Write exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences following {_ANTON_PARAGRAPH_FORMULA}; code assembles the paragraph by joining them with spaces. WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} and hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS} words; hit the register target in NARRATIVE WEIGHT (major machines 110-150, transitional 80-95, spec-block register {_DVSU_REGISTER_TARGETS['spec_block']}); a draft under the register band folds in one more sourced fact rather than returning thin. "
                         "formula_sentences must contain the exact five final sentences in order; do NOT return a paragraph key and never re-type the sentences anywhere else - code does the joining. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "The narration must name the locked machine designation at least once (a precursor or model name does not satisfy this). "
@@ -10912,6 +11094,12 @@ separate scenes."""
             "summary": "Machine script preview is ready.",
             "warnings": [],
             "next_action": "run_machine_script_preview",
+            # Writer pass 5 wrap-up: informational only - a preview run
+            # self-heals these gaps with FREE package promotes before writing.
+            "script_audit_gaps": _script_starvation_gaps(card, matched),
+            "self_heal_promotes_available": len(
+                _script_starvation_promote_actions(card, source_package, matched)
+            ),
             "research_payload": rp,
         }
 
