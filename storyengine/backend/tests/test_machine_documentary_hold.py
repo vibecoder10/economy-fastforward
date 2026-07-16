@@ -2750,6 +2750,125 @@ def test_row_word_grounding_scans_all_locked_evidence_with_glue_stoplist():
     assert not any("unsupported factual word" in warning for warning in glue_warnings)
 
 
+def test_hedged_numbers_accept_natural_hedge_lexicon():
+    """LAW (2026-07-16): one shared hedge lexicon. A number introduced with a
+    natural hedge ("approaching five thousand miles") satisfies the two-source
+    rule, and the hedge word never self-flags as an unsupported word. A
+    genuinely unhedged single-sourced number still warns."""
+    # The gate, the softener's detector, and the prompts share _HEDGE_WORDS.
+    for phrase in ("approaching", "close to", "almost", "some", "over", "more than", "up to", "on the order of", "around", "nearly"):
+        assert pe._HEDGE_WORDS_RE.search(f"a range {phrase} five thousand miles"), phrase
+    # Single-word hedge tokens are epistemic glue for word grounding.
+    assert pe._ungrounded_factual_words(
+        "approaching almost nearly close estimated some up whether even",
+        "",
+        "B-52",
+        extra_stopwords=pe._SCRIPT_GLUE_STOPWORDS,
+    ) == []
+
+    evidence = _evidence_segments()
+    evidence[2].update({
+        "claim": "The Boeing XB-15 scale specs included a range of 5,000 mi.",
+        "source_excerpt": "The Boeing XB-15 scale specs included a range of 5,000 mi.",
+        "numeric_tokens": ["5000"],
+    })
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+
+    def _bundle_with_suffix(suffix: str) -> dict:
+        bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+        old_span = bundle["claim_map"][1]["span"]
+        new_span = old_span.rstrip(".") + suffix
+        bundle["claim_map"][1]["span"] = new_span
+        bundle["formula_sentences"] = [
+            new_span if sentence == old_span else sentence
+            for sentence in bundle["formula_sentences"]
+        ]
+        return bundle
+
+    hedged = _bundle_with_suffix(" with a range approaching five thousand miles.")
+    _p, hedged_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, hedged)
+    assert not any("two independent sources" in warning for warning in hedged_warnings)
+    assert not any(
+        "unsupported factual word" in warning and "approaching" in warning
+        for warning in hedged_warnings
+    )
+
+    unhedged = _bundle_with_suffix(" with a range at five thousand miles.")
+    _p, unhedged_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, unhedged)
+    assert any(
+        "two independent sources" in warning and "five thousand" in warning
+        for warning in unhedged_warnings
+    )
+
+
+def test_story_plan_support_slots_include_field_cited_segments():
+    """LAW (2026-07-16): the plan's timeframe/visual_identity support slots are
+    the union of matching-kind segments AND the card's *_evidence_ids-cited
+    segments (deduplicated), so cited support evidence always reaches plan
+    evidence. Slots stay optional; role attribution stays narrative-first; the
+    two-source scan then sees every locked source for a year."""
+    evidence = _evidence_segments()
+    dated_reality = {
+        "evidence_id": "E-FLEW",
+        "kind": "reality",
+        "claim": "Boeing XB-15 first flew in October 1937 from Boeing Field.",
+        "source_excerpt": "Boeing XB-15 first flew in October 1937 from Boeing Field.",
+        "source_url": "https://airandspace.si.edu/test/first-flight",
+        "source_title": "Test source",
+        "locator": "S9-E1",
+        "numeric_tokens": ["1937"],
+        "confidence": "high",
+    }
+    dated_support = {
+        "evidence_id": "E-DELIVERED",
+        "kind": "timeframe",
+        "claim": "Boeing XB-15 was delivered to the Army in December 1937.",
+        "source_excerpt": "Boeing XB-15 was delivered to the Army in December 1937.",
+        "source_url": "https://history.test/xb15-delivery",
+        "source_title": "Second source",
+        "locator": "S10-E1",
+        "numeric_tokens": ["1937"],
+        "confidence": "high",
+    }
+    card = {
+        "unit": "Boeing XB-15",
+        "evidence_segments": evidence + [dated_reality, dated_support],
+        "timeframe_evidence_ids": ["E-FLEW", "E-DELIVERED"],
+    }
+    plan = pe._machine_story_plan({"unit_research_cards": [card]}, "Boeing XB-15")
+    slots_by_role = {slot["slot"]: slot for slot in plan["slots"]}
+
+    # The reality-kind cited segment appears in its narrative slot AND the
+    # timeframe support slot; the timeframe-kind one enters via its kind.
+    assert "E-FLEW" in slots_by_role["reality"]["evidence_ids"]
+    assert "E-FLEW" in slots_by_role["timeframe"]["evidence_ids"]
+    assert "E-DELIVERED" in slots_by_role["timeframe"]["evidence_ids"]
+    # Deduplicated within the slot.
+    assert slots_by_role["timeframe"]["evidence_ids"].count("E-FLEW") == 1
+    # Support slots stay optional and never count toward required beats.
+    assert slots_by_role["timeframe"]["required"] is False
+    assert plan["required_slots"] == sorted(pe._ANTON_REQUIRED_SLOT_ROLES)
+    # Role attribution stays narrative-first for formula-order checks.
+    assert plan["evidence_slot_roles"]["E-FLEW"] == "reality"
+    assert plan["evidence_slot_roles"]["E-DELIVERED"] == "timeframe"
+
+    # Two-source integration: the year sees BOTH locked sources, so an
+    # unhedged "nineteen thirty seven" no longer false-flags.
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    old_span = bundle["claim_map"][3]["span"]
+    new_span = old_span.rstrip(".") + " in nineteen thirty seven."
+    bundle["claim_map"][3]["span"] = new_span
+    bundle["claim_map"][3]["used_evidence_ids"] = ["E-REALITY", "E-MEMORABLE", "E-FLEW"]
+    bundle["formula_sentences"] = [
+        new_span if sentence == old_span else sentence
+        for sentence in bundle["formula_sentences"]
+    ]
+    _p, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
+    assert not any("two independent sources" in warning for warning in warnings)
+    assert not any("unsupported numerical detail" in warning for warning in warnings)
+
+
 def test_story_paragraph_validator_requires_memorable_fact_in_story_plan():
     evidence = [
         segment for segment in _evidence_segments()

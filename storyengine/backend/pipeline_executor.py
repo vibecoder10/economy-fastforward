@@ -1876,6 +1876,27 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
     card = _research_card_for_machine(payload, machine) or {}
     evidence, evidence_errors = _normalize_machine_evidence(card, machine)
     narrative_weight = _anton_narrative_weight_profile(card, evidence)
+    # LAW (2026-07-16): the timeframe/visual_identity SUPPORT slots carry the
+    # union of (segments with the matching support kind) AND (segments the
+    # card's *_evidence_ids cite, whatever their kind), deduplicated. Leaving
+    # cited support evidence out of the plan starved the two-source scan:
+    # XB-15's year had a second locked source that never reached plan evidence.
+    card_field_citations = {
+        field_role: [
+            str(item).strip()
+            for item in (card.get(field_key) if isinstance(card.get(field_key), list) else [])
+            if str(item).strip()
+        ]
+        for field_role, field_key in (
+            ("timeframe", "timeframe_evidence_ids"),
+            ("visual_identity", "visual_identity_evidence_ids"),
+        )
+    }
+    segments_by_id = {
+        str(item.get("evidence_id") or ""): item
+        for item in evidence
+        if str(item.get("evidence_id") or "")
+    }
     slots = []
     seen_ids: set[str] = set()
     for role, accepted_kinds, job in _ANTON_SLOT_SPECS:
@@ -1883,6 +1904,12 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             item for item in evidence
             if item.get("kind") in accepted_kinds and item.get("evidence_id") not in seen_ids
         ]
+        for cited_id in card_field_citations.get(role, ()):
+            if any(str(item.get("evidence_id") or "") == cited_id for item in segments):
+                continue
+            cited_segment = segments_by_id.get(cited_id)
+            if cited_segment is not None:
+                segments.append(cited_segment)
         if segments:
             seen_ids.update(str(item.get("evidence_id") or "") for item in segments)
         slots.append({
@@ -1892,12 +1919,14 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             "evidence_segments": segments,
             "paragraph_job": job,
         })
-    role_by_id = {
-        segment.get("evidence_id"): slot["slot"]
-        for slot in slots
-        for segment in slot.get("evidence_segments", [])
-        if segment.get("evidence_id")
-    }
+    # First write wins: a segment shared between a narrative slot and a support
+    # slot keeps its narrative role for formula-order attribution.
+    role_by_id: dict[str, str] = {}
+    for slot in slots:
+        for segment in slot.get("evidence_segments", []):
+            evidence_id = segment.get("evidence_id")
+            if evidence_id:
+                role_by_id.setdefault(evidence_id, slot["slot"])
     return {
         "schema_version": 3,
         "machine": machine,
@@ -2705,9 +2734,22 @@ def _span_numeric_mentions_without_locked_designation(span: str, machine: str) -
     return _numeric_mentions_from_text(_strip_designations_for_numbers(span, machine))
 
 
+# Shared hedge lexicon (LAW 2026-07-16): ONE list for the two-source gate, the
+# high-risk-fact detector, the single-source softener, and the build/repair
+# prompts. A quantity introduced with any of these reads as approximate, so it
+# does not require two independent sources. XB-15 live: the model hedged with
+# "approaching" and the gate did not recognize it.
+_HEDGE_WORDS = (
+    "about", "almost", "approaching", "approximately", "around", "at least",
+    "between", "claimed", "close to", "estimated", "more than", "nearly",
+    "on the order of", "over", "roughly", "some", "up to",
+)
+_HEDGE_WORDS_RE = re.compile(r"\b(?:" + "|".join(_HEDGE_WORDS) + r")\b")
+
+
 def _span_has_high_risk_exact_fact(span: str, machine: str) -> bool:
     lowered = str(span or "").lower()
-    if re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", lowered):
+    if _HEDGE_WORDS_RE.search(lowered):
         return False
     if _span_numeric_mentions_without_locked_designation(span, machine):
         return True
@@ -2759,9 +2801,8 @@ def _soften_single_source_span(span: str, machine: str) -> str:
     updated = re.sub(r"\bfastest\b", "fast", updated, flags=re.IGNORECASE)
     updated = re.sub(r"\bnever\b", "did not", updated, flags=re.IGNORECASE)
     updated = re.sub(r"\bonly\b\s*", "", updated, flags=re.IGNORECASE)
-    if _span_numeric_mentions_without_locked_designation(updated, machine) and not re.search(
-        r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b",
-        updated.lower(),
+    if _span_numeric_mentions_without_locked_designation(updated, machine) and not _HEDGE_WORDS_RE.search(
+        updated.lower()
     ):
         softened = re.sub(
             r"\bin\s+the early\s+((?:18|19|20)\d{2}s)\b",
@@ -2851,7 +2892,8 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
             evidence_id = str(segment.get("evidence_id") or "").strip()
             if evidence_id:
                 evidence_by_id[evidence_id] = segment
-                role_by_id[evidence_id] = role
+                # First-wins: shared support-slot segments keep narrative roles.
+                role_by_id.setdefault(evidence_id, role)
 
     repaired_rows: list[dict] = []
     repaired_paragraph = paragraph
@@ -2979,11 +3021,16 @@ def _trim_machine_story_bundle_to_contract(machine: str, plan: dict, bundle: dic
 
 
 # Function/quantifier glue for script-stage word grounding (LAW 2026-07-16):
-# connective and quantifier words the narration needs that carry no checkable
-# fact. Real factual nouns stay strict (e.g. "giant" still needs grounded
-# vocabulary - the evidence offers "mammoth"). Explicit inflections included
-# because the grounding stemmer does not fold every form ("carried" -> "carri").
+# connective, quantifier, and epistemic-hedge words the narration needs that
+# carry no checkable fact. Every single-word token of the shared _HEDGE_WORDS
+# lexicon is here so an accepted hedge can never self-flag as an unsupported
+# word ("approaching" did, live on XB-15). Real factual nouns stay strict
+# (e.g. "giant" still needs grounded vocabulary - the evidence offers
+# "mammoth"). Explicit inflections included because the grounding stemmer does
+# not fold every form ("carried" -> "carri").
 _SCRIPT_GLUE_STOPWORDS = {
+    "almost", "approaching", "approximately", "close", "estimated", "even",
+    "least", "nearly", "order", "roughly", "some", "up", "whether",
     "build", "builds", "building", "built",
     "carry", "carries", "carrying", "carried",
     "over", "single", "such", "where", "year", "years",
@@ -3094,7 +3141,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             evidence_id = str(segment.get("evidence_id") or "")
             if evidence_id:
                 evidence_by_id[evidence_id] = segment
-                role_by_id[evidence_id] = role
+                # First-wins: shared support-slot segments keep narrative roles.
+                role_by_id.setdefault(evidence_id, role)
     # LAW (2026-07-16): per-row WORD grounding is graded against ALL locked
     # story-plan evidence (same scope ruling as the two-source number check);
     # row citations stay provenance. "prototype" grounded by an uncited
@@ -3196,7 +3244,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                     "evidence_text": row_evidence_text,
                 })
             has_high_risk_term = bool(span_risk_terms)
-            hedged = bool(re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", span_lower))
+            hedged = bool(_HEDGE_WORDS_RE.search(span_lower))
             if row_mentions and not hedged:
                 insufficient_number_sources: list[str] = []
                 seen_insufficient_number_keys: set[str] = set()
@@ -3554,7 +3602,8 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         ids = [str(item) for item in (slot.get("evidence_ids") or []) if str(item).strip()]
         slot_ids[role] = ids
         for evidence_id in ids:
-            role_by_id[evidence_id] = role
+            # First-wins: shared support-slot segments keep narrative roles.
+            role_by_id.setdefault(evidence_id, role)
     covered_roles = {role_by_id[evidence_id] for evidence_id in used_ids if evidence_id in role_by_id}
     missing_roles = sorted(role for role in _ANTON_REQUIRED_SLOT_ROLES if role not in covered_roles)
     claim_text_by_role: dict[str, list[str]] = {}
@@ -7314,6 +7363,7 @@ class PipelineExecutor:
                     "- Each claim_map span must be copied exactly from one formula sentence and use only evidence IDs from that span's real source slot.\n"
                     "- Each claim_map span must sit inside exactly one formula sentence. Never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries.\n"
                     "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation.\n"
+                    f"- Accepted hedge words (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
                     "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. Every quantity number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
@@ -7397,6 +7447,7 @@ class PipelineExecutor:
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
                         "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation. "
+                        f"Accepted hedge words (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}. "
                         "For the Strategic Bomber benchmark, keep Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, all from locked evidence. "
                         "Use voice-ready spoken number words for years and quantities. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite that quantity as spoken words but leave designations untouched. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
