@@ -2082,6 +2082,21 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             evidence_id = segment.get("evidence_id")
             if evidence_id:
                 role_by_id.setdefault(evidence_id, slot["slot"])
+    # Writer pass 5 (2026-07-16): the plan flags which evidence carries the
+    # documented role conversion so the distiller can never write an
+    # acceptance/testing event as reality while the twist sits unused (XB-15
+    # wrote Wright Field acceptance and skipped the transport story).
+    conversion_signal_evidence_ids = _conversion_signal_evidence_ids(
+        evidence,
+        _verified_source_package_for_machine(payload, machine),
+        machine,
+    )
+    if conversion_signal_evidence_ids:
+        flagged_ids = set(conversion_signal_evidence_ids)
+        for slot in slots:
+            for segment in slot.get("evidence_segments", []):
+                if str(segment.get("evidence_id") or "") in flagged_ids:
+                    segment["carries_conversion_signal"] = True
     return {
         "schema_version": 3,
         "machine": machine,
@@ -2104,6 +2119,17 @@ def _machine_story_plan(payload: dict, machine: str) -> dict:
             # QL-4 (OR-3): the expanded twist menu the model must classify against.
             "twist_menu": list(_DVSU_TWIST_TYPES),
             "twist_substitutes": list(_DVSU_TWIST_SUBSTITUTES),
+            # Writer pass 5: ranked ids of evidence carrying the documented
+            # role conversion; the FIRST id is the mandatory reality-beat and
+            # twist source. Empty when the package holds no enforceable signal.
+            "conversion_signal_evidence_ids": conversion_signal_evidence_ids,
+            "conversion_signal_rule": (
+                "the evidence flagged carries_conversion_signal is the machine's documented "
+                "designed-vs-used story; write the reality sentence FROM the first flagged id, "
+                "cite it in that sentence's claim_map row, and build the twist from it - an "
+                "acceptance, delivery, or test event is never the reality beat while a flagged "
+                "conversion segment exists"
+            ) if conversion_signal_evidence_ids else "",
             # QL-5: the four legal verdict-punch forms; QL-6 house punch first.
             "verdict_punch_forms": ["single_hammer", "antithesis", "concede_then_cut", "triad"],
             # Corpus recalibration (2026-07-16): Anton B-17/B-52 carry 14
@@ -2794,6 +2820,49 @@ def _card_evidence_carries_signal(evidence: list[dict], signal: dict) -> bool:
         if terms and any(re.search(rf"\b{re.escape(term)}\b", segment_lower) for term in terms):
             return True
     return False
+
+
+# Writer pass 5 (2026-07-16): role nouns name what the machine BECAME; the
+# remaining _CONVERSION_ROLE_TERMS ("converted", "redesignated", ...) are verbs
+# that also fire on design-phase renamings ("redesignated XB-15 in July 1936"),
+# so role-noun-bearing evidence outranks verb-only evidence when the story plan
+# flags the twist source.
+_CONVERSION_ROLE_NOUNS = (
+    "cargo", "tanker", "target drone", "testbed", "trainer", "transport",
+)
+
+
+def _conversion_signal_evidence_ids(
+    evidence: list[dict], package: Optional[dict], machine: str
+) -> list[str]:
+    """Card evidence segments that carry an enforceable package conversion
+    signal, ranked: role-noun bearers (cargo/transport/...) first, bare
+    conversion-verb hits last. The FIRST id is the designed-vs-used source
+    the writer must build the reality beat from."""
+    signals = [
+        signal for signal in _package_conversion_signals(package, machine)
+        if signal.get("enforce")
+    ]
+    if not signals:
+        return []
+    ranked: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for segment in evidence or []:
+        if not isinstance(segment, dict):
+            continue
+        evidence_id = str(segment.get("evidence_id") or "").strip()
+        if not evidence_id or evidence_id in seen:
+            continue
+        if not any(_card_evidence_carries_signal([segment], signal) for signal in signals):
+            continue
+        seen.add(evidence_id)
+        segment_lower = f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}".lower()
+        has_role_noun = any(
+            re.search(rf"\b{re.escape(term)}\b", segment_lower)
+            for term in _CONVERSION_ROLE_NOUNS
+        )
+        ranked.append((0 if has_role_noun else 1, evidence_id))
+    return [evidence_id for _, evidence_id in sorted(ranked, key=lambda row: row[0])]
 
 
 def _timeframe_promotable_excerpts(card: dict, package: Optional[dict]) -> list[dict]:
@@ -9524,7 +9593,7 @@ class PipelineExecutor:
                     "- Sentence 3 should pivot into the cost, limit, sacrifice, or expectation-versus-reality contrast created by that decision.\n"
                     "- Sentence 4 should show what happened in production, testing, service, combat, or documented reality.\n"
                     "- Sentence 5 should land as a short verdict, paradox, irony, or reversal from the first four sentences only.\n"
-                    "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, service consequence, or final contrast understandable.\n"
+                    "- Use only sourced numerical details. A number earns its place only when it makes the machine's scale, count, service period, service consequence, or final contrast understandable. A sourced spec or production number that is single-sourced is kept as a hedged round (about/nearly/over/roughly), never dropped.\n"
                     "- Build a small narrative around one tension, decision, or consequence. Give the machine a natural Anton micro-hook, not a manufactured twist.\n"
                     "- Do not inventory every dimension, engine, payload, speed, range, date, crew feature, and legacy field. Select the 2-4 technical facts that prove the decision, tradeoff, or reality.\n"
                     "- For the Strategic Bomber benchmark, preserve Anton's compact inventory cadence: identity/significance, selected scale or capability facts, production or service reality, then a landed verdict. Do not strip useful specs until the paragraph becomes a pure thesis essay.\n"
@@ -9638,6 +9707,7 @@ class PipelineExecutor:
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
                     "- TWIST LAW (hard): every entry runs on a designed-vs-used gap - built for X, used as Y. Declare twist.type from the plan's twist_menu (pick the closest NAMED subtype; `other` is a last resort). "
                     "Only a machine used exactly as designed may declare type `absent`, and then twist.substitute MUST name one of: superlative, legacy, irony, anti_twist. No gap and no substitute reads as a spec dump and is rejected.\n"
+                    "- CONVERSION SIGNAL (hard): when the plan's contract carries conversion_signal_evidence_ids, the FIRST listed id is the machine's documented designed-vs-used story. Write the reality sentence FROM that flagged evidence, cite it in that sentence's claim_map row, and build the twist from it. An acceptance, delivery, or test event is NOT the reality beat while a flagged conversion segment exists.\n"
                     f"- WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} words, hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS}; hit the register target in the plan's narrative_weight (spec-block register {_DVSU_REGISTER_TARGETS['spec_block']}). "
                     f"The {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences are the final spoken narration following {_ANTON_PARAGRAPH_FORMULA}.\n"
                     "- POSITION LAW: weight the budget by importance and position - the FIRST entry of a video never runs shortest; the FINAL entry runs plus ten to thirty words and folds the outro as a bookend callback; marquee machines run 110-150; deliberately bare prototypes and connective entries run 80-95.\n"
@@ -9653,7 +9723,8 @@ class PipelineExecutor:
                     "- The final sentence is editorial synthesis from the assembled paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact.\n"
                     "- Each claim_map span must be copied exactly from one formula sentence and use only evidence IDs from that span's real source slot.\n"
                     "- Each claim_map span must sit inside exactly one formula sentence. Never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries.\n"
-                    "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation.\n"
+                    "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise HEDGE the claim - do not drop it. Designations are exempt: never hedge, source-check, or reword a designation.\n"
+                    "- SPEC LAW (hard): a single-source number is HEDGED, never omitted. When the plan carries sourced scale, capability, or production numbers (wingspan, engines, payload, speed, range, build count), the paragraph keeps its spec block and production reality with real numbers - write a single-sourced value as a hedged round (`a wingspan approaching one hundred fifty feet`, `roughly seven hundred built`). Dropping sourced numbers because they are single-sourced, or writing `many`/`several` where a count exists, is a rejection.\n"
                     f"- Accepted hedge words (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- GROUNDING LAW: freedom in HOW it is said, zero freedom in WHAT is claimed. Checkable facts - numbers, dates, proper nouns, designations, concrete spec claims - must appear in the locked evidence. Abstract vocabulary, common verbs, and adjectives are free; prefer evidence wording for colorful concrete nouns (the evidence's `mammoth` beats your `giant`).\n"
@@ -9736,6 +9807,7 @@ class PipelineExecutor:
                         "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"twist\":{\"type\":\"role_change\",\"substitute\":null,\"summary\":\"built for X, used as Y in one line\"},\"formula_sentences\":[\"original_problem sentence\",\"engineering_decision sentence\",\"tradeoff sentence\",\"reality sentence\",\"paragraph-derived conclusion\"],\"claim_map\":[{\"span\":\"exact formula-sentence words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
                         "TWIST LAW (hard): declare twist.type from the plan's twist_menu (closest NAMED subtype; `other` is a last resort). Only a used-exactly-as-designed machine may declare `absent`, and then twist.substitute MUST name superlative, legacy, irony, or anti_twist - no gap and no substitute reads as a spec dump and is rejected. "
+                        "CONVERSION SIGNAL (hard): when the plan's contract carries conversion_signal_evidence_ids, the FIRST listed id is the machine's documented designed-vs-used story - write the reality sentence FROM that flagged evidence, cite it in that sentence's claim_map row, and build the twist from it; an acceptance, delivery, or test event is never the reality beat while a flagged conversion segment exists. "
                         f"Write exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences following {_ANTON_PARAGRAPH_FORMULA}; code assembles the paragraph by joining them with spaces. WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} and hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS} words; hit the register target in NARRATIVE WEIGHT (major machines 110-150, transitional 80-95, spec-block register {_DVSU_REGISTER_TARGETS['spec_block']}). "
                         "formula_sentences must contain the exact five final sentences in order; do NOT return a paragraph key and never re-type the sentences anywhere else - code does the joining. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
@@ -9747,7 +9819,8 @@ class PipelineExecutor:
                         "VERDICT PUNCH (hard): the closer must be single-hammer, antithesis, concede-then-cut, or triad - never a summary or recap. If the flagged closer restates facts, rewrite it as the house punch: a two-part parallel antithesis restating the designed-vs-used gap and landing on the result side, each half four to nine words. "
                         "CLOSER FREEDOM: the closer may use any editorial or abstract vocabulary, including nationality/geographic color; it may NOT introduce new person, organization, or operation names, new designations, or a new number paired with a new entity. "
                         "GROUNDING LAW: checkable facts (numbers, dates, proper nouns, designations, spec claims) must appear in locked evidence; abstract vocabulary is free; prefer evidence wording for colorful concrete nouns. A hedged direction-consistent round of a sourced value is legal; exact dates need one locked source, quantities need two. "
-                        "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation. "
+                        "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise HEDGE the claim - do not drop it. Designations are exempt: never hedge, source-check, or reword a designation. "
+                        "SPEC LAW (hard): a single-source number is HEDGED, never omitted - when the plan carries sourced scale, capability, or production numbers, keep the spec block and production reality with real numbers, writing single-sourced values as hedged rounds; `many`/`several` where a count exists is a rejection. "
                         f"Accepted hedge words (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}. "
                         "For the Strategic Bomber benchmark, keep Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, all from locked evidence. "
                         "Use voice-ready spoken number words for years and quantities. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite that quantity as spoken words but leave designations untouched. "

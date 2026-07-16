@@ -8824,3 +8824,110 @@ def test_timeframe_repair_hints_name_the_dated_excerpt():
     referee = pe._research_card_contract_warnings(machine, repaired)
     assert not any("timeframe contains detail(s) not grounded" in w for w in referee)
     assert not any("timeframe introduced unsupported numerical" in w for w in referee)
+
+
+# ---------------------------------------------------------------------------
+# Writer pass 5 (2026-07-16): the story plan flags the conversion-signal
+# evidence so the distiller writes the reality beat from the documented
+# designed-vs-used story, never from an acceptance/testing event.
+# ---------------------------------------------------------------------------
+
+def test_story_plan_flags_conversion_signal_evidence_role_noun_first():
+    """The plan ranks role-noun evidence (cargo/transport) over bare
+    redesignation vocabulary, marks the segments, and carries the rule."""
+    machine = "Boeing XB-15"
+    segments = _evidence_segments()
+    reality = next(s for s in segments if s["evidence_id"] == "E-REALITY")
+    reality["claim"] = (
+        "The sole aircraft was converted to a cargo transport and hauled "
+        "supplies across the Pacific for eight years."
+    )
+    reality["source_excerpt"] = reality["claim"]
+    tradeoff = next(s for s in segments if s["evidence_id"] == "E-TRADEOFF")
+    tradeoff["claim"] = "The design was redesignated before construction began."
+    tradeoff["source_excerpt"] = tradeoff["claim"]
+    package = _package_with_extra_excerpt(
+        machine, segments,
+        "The sole example was redesignated XC-105 and served as a cargo transport.",
+    )
+    payload = {
+        "unit_research_cards": [{"unit": machine, "evidence_segments": segments}],
+        "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+    }
+    plan = pe._machine_story_plan(payload, machine)
+    ids = plan["contract"]["conversion_signal_evidence_ids"]
+    # E-TRADEOFF precedes E-REALITY in evidence order; the role-noun bearer
+    # still ranks first (design-phase renamings are vocabulary false positives).
+    assert ids[0] == "E-REALITY"
+    assert "E-TRADEOFF" in ids
+    assert "reality sentence" in plan["contract"]["conversion_signal_rule"]
+    reality_slot = next(slot for slot in plan["slots"] if slot["slot"] == "reality")
+    assert any(
+        seg.get("carries_conversion_signal") and seg["evidence_id"] == "E-REALITY"
+        for seg in reality_slot["evidence_segments"]
+    )
+    # The card's own segments stay unmutated - the flag is plan-local.
+    assert "carries_conversion_signal" not in reality
+
+
+def test_story_plan_conversion_flags_empty_without_package_signal():
+    """No package or no enforceable signal leaves the contract keys empty and
+    no segment flagged - stored control previews (XB-19) are untouched."""
+    machine = "Boeing XB-15"
+    no_package_plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()}]},
+        machine,
+    )
+    assert no_package_plan["contract"]["conversion_signal_evidence_ids"] == []
+    assert no_package_plan["contract"]["conversion_signal_rule"] == ""
+
+    segments = _evidence_segments()
+    clean_payload = {
+        "unit_research_cards": [{"unit": machine, "evidence_segments": segments}],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key(machine): _verified_package_for_segments(machine, segments)
+        },
+    }
+    clean_plan = pe._machine_story_plan(clean_payload, machine)
+    assert clean_plan["contract"]["conversion_signal_evidence_ids"] == []
+    for slot in clean_plan["slots"]:
+        assert not any(seg.get("carries_conversion_signal") for seg in slot["evidence_segments"])
+
+
+def test_conversion_signal_evidence_ids_ranking_helper():
+    """Direct helper lock: signal match by excerpt identity or vocabulary,
+    role nouns first, stable order inside a rank, no signals -> empty."""
+    machine = "Boeing XB-15"
+    segments = _evidence_segments()
+    package = _package_with_extra_excerpt(
+        machine, segments,
+        "The sole example was redesignated XC-105 and served as a cargo transport.",
+    )
+    evidence = [
+        {
+            "evidence_id": "E-VERB-ONLY",
+            "claim": "The design was redesignated during development.",
+            "source_excerpt": "The design was redesignated during development.",
+        },
+        {
+            "evidence_id": "E-BY-EXCERPT-ID",
+            "claim": "Service history entry.",
+            "source_excerpt": "Service history entry.",
+            "source_excerpt_id": "S9-E1",
+        },
+        {
+            "evidence_id": "E-ROLE-NOUN",
+            "claim": "It hauled cargo across the Pacific as a transport.",
+            "source_excerpt": "It hauled cargo across the Pacific as a transport.",
+        },
+        {
+            "evidence_id": "E-UNRELATED",
+            "claim": "Wing area figures from the test program.",
+            "source_excerpt": "Wing area figures from the test program.",
+        },
+    ]
+    ids = pe._conversion_signal_evidence_ids(evidence, package, machine)
+    assert ids[0] == "E-ROLE-NOUN"
+    assert ids[1:] == ["E-VERB-ONLY", "E-BY-EXCERPT-ID"]
+    assert "E-UNRELATED" not in ids
+    assert pe._conversion_signal_evidence_ids(evidence, None, machine) == []
