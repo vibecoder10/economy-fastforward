@@ -2389,15 +2389,18 @@ def test_story_sentence_parser_marks_extra_top_level_keys_for_review():
 
 
 def test_machine_preview_has_no_deterministic_story_fallback():
-    # The deterministic XB-19/XB-15 bundles landed with the research-no-preview
-    # chain, but they self-validate against the merged five-sentence formula
-    # contract (editorial_thesis + formula_sentences + four-beat claim_map) and
-    # return None instead of overriding a rejected draft. A preview therefore
-    # can never receive an ungrounded deterministic story bundle.
-    payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": _evidence_segments()}]}
-    plan = pe._machine_story_plan(payload, "Douglas XB-19")
-
-    assert pe._deterministic_machine_story_bundle("Douglas XB-19", plan, {}) is None
+    # The hardcoded XB-19/XB-15 bundles carried in from the research-no-preview
+    # chain were deleted 2026-07-15: canned prose can never satisfy the merged
+    # five-sentence formula contract or per-run opening assignments, and its
+    # evidence-id lookups never proved the canned claims still matched the
+    # evidence text. Chronically failing machines go through repair rounds now
+    # and park-don't-halt (GOAL.md G3b) later - never canned paragraphs. This
+    # tombstone keeps the fallback from returning through another merge.
+    assert not hasattr(pe, "_deterministic_machine_story_bundle")
+    with open(pe.__file__, encoding="utf-8") as handle:
+        source = handle.read()
+    assert "_deterministic_machine_story_bundle" not in source
+    assert "deterministic_bundle" not in source
 
 
 def test_story_paragraph_validator_accepts_anton_slot_bundle():
@@ -3596,44 +3599,6 @@ def test_story_bundle_trim_drops_optional_sentence_when_over_word_contract():
     assert 95 <= pe._spoken_word_count(paragraph) <= 120
     assert optional_sentence not in paragraph
     assert all(row.get("slot") != "memorable_fact" for row in trimmed["claim_map"])
-
-
-def test_deterministic_xb19_story_bundle_self_suppresses_under_four_beat_plan():
-    evidence = [
-        ("XB19-IDENTITY", "identity_origin", "Douglas built the XB-19 to test design techniques for giant bombers."),
-        ("XB19-SCALE", "scale_specs", "The XB-19 was a giant aircraft intended to support American heavy bomber engineering."),
-        ("XB19-BUILD", "build_reality", "A single example was completed as the aircraft became obsolete before it was finished."),
-        ("XB19-SERVICE", "service_reality", "The aircraft completed its flight-test program and later sat idle when a planned cargo conversion was abandoned."),
-        ("XB19-MEMORABLE", "memorable_fact", "The XB-19 appeared in advertisements, animated cartoons, and a Broadway comedy reference."),
-        ("XB19-MEANING", "historical_meaning", "The XB-19 left useful engineering data for later American heavy bombers."),
-    ]
-    segments = [
-        {
-            "evidence_id": evidence_id,
-            "kind": kind,
-            "claim": claim,
-            "source_excerpt": claim,
-            "source_url": f"https://example.test/{evidence_id.lower()}",
-            "source_title": "XB-19 source",
-            "locator": "",
-            "numeric_tokens": [],
-            "confidence": "high",
-        }
-        for evidence_id, kind, claim in evidence
-    ]
-    plan = pe._machine_story_plan(
-        {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": segments}]},
-        "Douglas XB-19",
-    )
-
-    bundle = pe._deterministic_machine_story_bundle("Douglas XB-19", plan, {})
-
-    # Under the merged four-beat story plan the legacy slots this fallback
-    # selects from (identity_origin, scale_specs, build_reality,
-    # service_reality, historical_meaning) fold into original_problem,
-    # engineering_decision, and reality, so the deterministic bundle
-    # self-suppresses instead of bypassing the sentence validator.
-    assert bundle is None
 
 
 def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
