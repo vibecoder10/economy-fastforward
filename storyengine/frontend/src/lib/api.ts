@@ -742,6 +742,85 @@ export const runOneMachineResearch = (videoId: string, machine: string, confirme
     { method: "POST", body: JSON.stringify({ machine, confirmed_paid_run: confirmedPaidRun }) },
   );
 
+// --- Roster orchestrator: surgical repair verbs (cheapest first) ---
+
+export type MachineRepairResult = {
+  status: string;
+  machine: string;
+  verb: string;
+  passed: boolean;
+  warnings: string[];
+  actions?: Array<{ verb: string; status?: string; detail?: string; reason?: string; est_cost_usd?: number }>;
+  est_spend_usd?: number;
+  research_payload?: Record<string, unknown>;
+  error?: string;
+};
+
+export const runMachineRepair = (
+  videoId: string,
+  machine: string,
+  options: {
+    verb?: "auto" | "promote_excerpt" | "rewrite_field" | "targeted_fetch" | "mark_bare";
+    excerptId?: string;
+    kind?: string;
+    field?: string;
+    focus?: string;
+    confirmedPaidRun?: boolean;
+  } = {},
+) =>
+  fetchApi<MachineRepairResult>(`/api/pipeline/machine-repair/${videoId}`, {
+    method: "POST",
+    body: JSON.stringify({
+      machine,
+      verb: options.verb || "auto",
+      excerpt_id: options.excerptId,
+      kind: options.kind,
+      field: options.field,
+      focus: options.focus,
+      confirmed_paid_run: options.confirmedPaidRun ?? false,
+    }),
+  });
+
+export const runRosterOrchestrator = (
+  videoId: string,
+  confirmedPaidRun: true,
+  options: { machines?: string[]; budgetUsd?: number; allowFullRerun?: boolean } = {},
+) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/roster-orchestrate/${videoId}`, {
+    method: "POST",
+    body: JSON.stringify({
+      machines: options.machines,
+      budget_usd: options.budgetUsd ?? 5.0,
+      allow_full_rerun: options.allowFullRerun ?? true,
+      confirmed_paid_run: confirmedPaidRun,
+    }),
+  });
+
+export type RosterDashboard = {
+  status: string;
+  video_id: string;
+  ready: number;
+  total: number;
+  est_spend_usd_total: number;
+  last_run?: {
+    ran_at?: string;
+    attempted?: number;
+    cleared?: number;
+    alerts?: string[];
+    budget_breached?: boolean;
+  } | null;
+  units: Array<{
+    machine: string;
+    state: "ready" | "needs_repair" | "needs_research";
+    warnings: string[];
+    suggested_action?: { verb: string; excerpt_id?: string; kind?: string; field?: string; focus?: string; reason?: string } | null;
+    preview?: { passed: boolean; word_count?: number } | null;
+  }>;
+};
+
+export const getRosterDashboard = (videoId: string) =>
+  fetchApi<RosterDashboard>(`/api/pipeline/roster-dashboard/${videoId}`);
+
 export const runNextStep = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });
 

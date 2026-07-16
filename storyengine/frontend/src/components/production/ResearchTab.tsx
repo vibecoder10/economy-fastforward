@@ -14,6 +14,8 @@ import {
   checkMachineScriptPreviewReadiness,
   runOneMachineResearch,
   runMachineScriptPreview,
+  runMachineRepair,
+  runRosterOrchestrator,
 } from "@/lib/api";
 import type { MachineScriptPreview, MachineScriptPreviewReadiness, OneMachineResearchResult } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
@@ -873,6 +875,8 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [allMachineResearchRunning, setAllMachineResearchRunning] = useState(false);
   const [singleMachineRunning, setSingleMachineRunning] = useState(false);
   const [researchRunningMachine, setResearchRunningMachine] = useState("");
+  const [repairRunningMachine, setRepairRunningMachine] = useState("");
+  const [orchestratorStarting, setOrchestratorStarting] = useState(false);
   const [singlePreviewRunning, setSinglePreviewRunning] = useState(false);
   const [previewRunningMachine, setPreviewRunningMachine] = useState("");
   const [readinessChecking, setReadinessChecking] = useState(false);
@@ -1005,6 +1009,62 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       }
     }
   }, [video.id, video.research_payload, selectedMachine, queryClient, toast, confirmDialog]);
+
+  const handleMachineRepair = useCallback(async (machine: string) => {
+    if (!machine) return;
+    if (!(await confirmPaidOneMachineAction(
+      confirmDialog,
+      `Repair ${machine} with the cheapest surgical verb first? Free excerpt promotion when the story is already in the package; otherwise a small paid call (pennies). Never a full re-run from this button.`
+    ))) {
+      toast.error("Machine repair canceled before any provider call.");
+      return;
+    }
+    setRepairRunningMachine(machine);
+    try {
+      const result = await runMachineRepair(video.id, machine, { verb: "auto", confirmedPaidRun: true });
+      if (result.research_payload) {
+        queryClient.setQueryData(["video", video.id], (current: any) => (
+          current ? { ...current, research_payload: result.research_payload } : current
+        ));
+      }
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      const verbs = (result.actions || []).map((action) => action.verb).filter(Boolean).join(", ") || "no verb applied";
+      if (result.passed) {
+        toast.success(`${machine} repaired (${verbs}). Research card verified.`);
+      } else {
+        toast.error(`${machine} still needs review after ${verbs}: ${result.warnings?.[0] || "see card warnings"}`);
+      }
+    } catch (err: unknown) {
+      toast.error(`Machine repair failed: ${(err as Error).message || "Unknown error"}`);
+    } finally {
+      setRepairRunningMachine("");
+    }
+  }, [video.id, queryClient, toast, confirmDialog]);
+
+  const handleRosterOrchestrate = useCallback(async () => {
+    if (!(await confirmPaidOneMachineAction(
+      confirmDialog,
+      "Run the roster orchestrator? It walks every locked machine and repairs failing cards cheapest-verb-first (free promotes, then penny fetches/rewrites, full re-run only as last resort) under a $5 budget cap."
+    ))) {
+      toast.error("Roster orchestrator canceled before any provider call.");
+      return;
+    }
+    setOrchestratorStarting(true);
+    try {
+      await runRosterOrchestrator(video.id, true, { budgetUsd: 5 });
+      setTaskRunning(true);
+      toast.success("Roster orchestrator started. Progress shows on this card.");
+    } catch (err: unknown) {
+      const message = (err as Error).message || "Unknown error";
+      if (message.includes("409")) {
+        toast.error("Another task is already running for this video.");
+      } else {
+        toast.error(`Roster orchestrator failed to start: ${message}`);
+      }
+    } finally {
+      setOrchestratorStarting(false);
+    }
+  }, [video.id, toast, confirmDialog]);
 
   const handleOneMachineReadiness = useCallback(async (machineOverride?: string) => {
     setReadinessChecking(true);
@@ -1535,21 +1595,38 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                 <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Machine research roster</h3>
               </div>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                {verifiedMachineResearchCount}/{research.unit_roster.length} cards verified. Run one machine from its card, or use Run all research when the roster looks right.
+                {verifiedMachineResearchCount}/{research.unit_roster.length} cards verified. Repair fixes a failing card with the cheapest verb first; Run research is the full paid re-roll.
+                {Boolean((research as any).roster_orchestrator_report?.est_spend_usd_total) && (
+                  <span style={{ color: "var(--text-tertiary)" }}>
+                    {" "}Orchestrator est. spend ${Number((research as any).roster_orchestrator_report.est_spend_usd_total).toFixed(2)}.
+                  </span>
+                )}
               </p>
               <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
                 <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (verifiedMachineResearchCount / research.unit_roster.length) * 100)}%`, background: fullMachineResearchPassed ? "var(--green)" : "var(--turquoise)" }} />
               </div>
             </div>
-            <ActionButton
-              variant="filled"
-              icon={allMachineResearchRunning || taskRunning ? Loader2 : RefreshCw}
-              onClick={handleRunAllMachineResearch}
-              disabled={allMachineResearchRunning || taskRunning || singleMachineRunning || singlePreviewRunning || readinessChecking}
-              className="w-full lg:w-auto"
-            >
-              {allMachineResearchRunning || taskRunning ? (taskMessage || "Running all...") : "Run All Research Cards"}
-            </ActionButton>
+            <div className="flex w-full flex-col gap-2 lg:w-auto">
+              <ActionButton
+                variant="filled"
+                icon={orchestratorStarting || taskRunning ? Loader2 : ShieldCheck}
+                onClick={handleRosterOrchestrate}
+                disabled={orchestratorStarting || allMachineResearchRunning || taskRunning || singleMachineRunning || singlePreviewRunning || readinessChecking || Boolean(repairRunningMachine)}
+                className="w-full lg:w-auto"
+                data-testid="roster-orchestrate"
+              >
+                {taskRunning ? (taskMessage || "Orchestrating...") : orchestratorStarting ? "Starting..." : "Repair All (Orchestrator)"}
+              </ActionButton>
+              <ActionButton
+                variant="outline"
+                icon={allMachineResearchRunning ? Loader2 : RefreshCw}
+                onClick={handleRunAllMachineResearch}
+                disabled={allMachineResearchRunning || taskRunning || singleMachineRunning || singlePreviewRunning || readinessChecking || Boolean(repairRunningMachine)}
+                className="w-full lg:w-auto"
+              >
+                {allMachineResearchRunning ? (taskMessage || "Running all...") : "Run All Research Cards"}
+              </ActionButton>
+            </div>
           </div>
 
           <div className="mt-4 grid gap-3">
@@ -1601,10 +1678,23 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                       )}
                     </button>
                     <div className="flex shrink-0 flex-col gap-2 sm:flex-row md:justify-end">
+                      {!cardVerified && card && (
+                        <button
+                          type="button"
+                          onClick={() => handleMachineRepair(label)}
+                          disabled={Boolean(repairRunningMachine) || singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning}
+                          className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-40"
+                          style={{ background: "var(--green)", color: "var(--bg-void)", border: "1px solid var(--green)" }}
+                          data-testid={`machine-repair-${index + 1}`}
+                        >
+                          {repairRunningMachine === label ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                          {repairRunningMachine === label ? "Repairing..." : "Repair"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleOneMachineResearch(label)}
-                        disabled={singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning}
+                        disabled={singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning || Boolean(repairRunningMachine)}
                         className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-40"
                         style={{ background: cardVerified ? "transparent" : "var(--turquoise)", color: cardVerified ? "var(--turquoise)" : "var(--bg-void)", border: "1px solid var(--turquoise)" }}
                       >

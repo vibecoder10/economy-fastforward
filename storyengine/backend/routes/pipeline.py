@@ -60,6 +60,23 @@ class MachineResearchRequest(BaseModel):
     confirmed_paid_run: bool = False
 
 
+class MachineRepairRequest(BaseModel):
+    machine: str
+    verb: str = "auto"  # auto | promote_excerpt | rewrite_field | targeted_fetch | mark_bare
+    excerpt_id: Optional[str] = None
+    kind: Optional[str] = None
+    field: Optional[str] = None
+    focus: Optional[str] = None
+    confirmed_paid_run: bool = False
+
+
+class RosterOrchestratorRequest(BaseModel):
+    machines: Optional[list[str]] = None
+    budget_usd: float = 5.0
+    allow_full_rerun: bool = True
+    confirmed_paid_run: bool = False
+
+
 class PipelineStatus(BaseModel):
     """Current pipeline status for a video."""
     video_id: str
@@ -728,6 +745,126 @@ async def run_machine_research(
 
     background_tasks.add_task(_run)
     return PipelineResponse(video_id=video_id, status="running", message="Machine research started")
+
+
+@router.post("/machine-repair/{video_id}")
+async def run_machine_repair(
+    video_id: str,
+    body: MachineRepairRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Surgical repair of one machine research card, cheapest verb first.
+
+    promote_excerpt is free and deterministic; every other verb spends
+    (Tavily or a small LLM call) and requires explicit confirmation."""
+    machine = body.machine.strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required")
+    verb = (body.verb or "auto").strip().lower()
+    if verb not in {"auto", "promote_excerpt", "rewrite_field", "targeted_fetch", "mark_bare"}:
+        raise HTTPException(status_code=400, detail=f"Unknown repair verb: {verb}")
+    if verb != "promote_excerpt" and not body.confirmed_paid_run:
+        raise HTTPException(
+            status_code=400,
+            detail="Paid machine repair requires explicit confirmation.",
+        )
+    executor = PipelineExecutor(tenant_id)
+    try:
+        if verb == "promote_excerpt":
+            if not (body.excerpt_id or "").strip():
+                raise HTTPException(status_code=400, detail="promote_excerpt requires excerpt_id")
+            result = await executor.repair_promote_excerpt(
+                video_id, machine, body.excerpt_id.strip(), (body.kind or "reality").strip()
+            )
+        elif verb == "rewrite_field":
+            result = await executor.repair_rewrite_field(video_id, machine, body.field)
+        elif verb == "targeted_fetch":
+            result = await executor.repair_targeted_fetch(video_id, machine, body.focus)
+        elif verb == "mark_bare":
+            result = await executor.repair_mark_bare(video_id, machine)
+        else:
+            result = await executor.repair_machine_auto(video_id, machine, allow_full_rerun=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=humanize_error(e)) from e
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Machine repair failed")
+    return result
+
+
+@router.post("/roster-orchestrate/{video_id}", response_model=PipelineResponse)
+async def run_roster_orchestrate(
+    video_id: str,
+    body: RosterOrchestratorRequest,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Walk the locked roster repairing every failing card, cheapest verb first."""
+    if not body.confirmed_paid_run:
+        raise HTTPException(
+            status_code=400,
+            detail="Paid roster orchestration requires explicit confirmation.",
+        )
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if _is_task_active(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running for this video")
+
+    _set_task_status(video_id, "running", "Roster orchestrator starting", tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            report = await executor.run_roster_orchestrator(
+                video_id,
+                machines=body.machines,
+                budget_usd=body.budget_usd,
+                allow_full_rerun=body.allow_full_rerun,
+                progress=lambda message: _set_task_status(video_id, "running", message, tenant_id=tenant_id),
+            )
+            summary = (
+                f"{report.get('ready_count', 0)}/{report.get('roster_count', 0)} ready, "
+                f"est ${float(report.get('est_spend_usd') or 0):.2f}"
+            )
+            alerts = report.get("alerts") or []
+            if alerts:
+                summary += "; " + "; ".join(str(item) for item in alerts)
+            _set_task_status(
+                video_id,
+                report.get("status", "completed") if not report.get("error") else "failed",
+                report.get("error") or summary,
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            logger.exception("[roster-orchestrate] task failed video=%s: %s", video_id, e)
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return PipelineResponse(video_id=video_id, status="running", message="Roster orchestrator started")
+
+
+@router.get("/roster-dashboard/{video_id}")
+async def get_roster_dashboard(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """No-spend roster readiness: N of M ready, per-machine warnings and next verb."""
+    executor = PipelineExecutor(tenant_id)
+    try:
+        result = await executor.roster_repair_dashboard(video_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=humanize_error(e)) from e
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Roster dashboard failed")
+    return result
 
 
 @router.post("/voice/{video_id}", response_model=PipelineResponse)

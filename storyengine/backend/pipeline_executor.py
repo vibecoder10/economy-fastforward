@@ -1162,15 +1162,29 @@ def _format_verified_machine_source_package(package: dict, machine: str = "") ->
         "Every returned source_excerpt must be copied from one candidate below.",
         "Only approved-capture, source_url/locator-traceable rows for the locked machine are shown.",
     ]
+    # Enforceable conversion-signal excerpts are exempt from the non-target
+    # designation skip below. The gap gate orders the card to select exactly
+    # these rows, and a cross-designation ("redesignated XC-105") is often the
+    # signal itself - hiding them made the MUST-SELECT demand unsatisfiable
+    # (the XB-15 refusal loop, 2026-07-16).
+    signal_excerpt_ids: set[str] = set()
+    if machine:
+        signal_excerpt_ids = {
+            str(signal.get("excerpt_id") or "").strip()
+            for signal in _package_conversion_signals(package, machine)
+            if signal.get("enforce") and str(signal.get("excerpt_id") or "").strip()
+        }
     shown_count = 0
     for item in (package.get("candidate_excerpts") or []):
         if not isinstance(item, dict):
             continue
         if not _verified_source_candidate_traceable(item):
             continue
-        if machine and not _mentions_machine(str(item.get("text") or ""), machine):
+        item_excerpt_id = str(item.get("excerpt_id") or "").strip()
+        is_signal_row = bool(item_excerpt_id and item_excerpt_id in signal_excerpt_ids)
+        if machine and not is_signal_row and not _mentions_machine(str(item.get("text") or ""), machine):
             continue
-        if machine:
+        if machine and not is_signal_row:
             searchable = " ".join(
                 str(item.get(key) or "")
                 for key in ("source_title", "text")
@@ -2782,10 +2796,10 @@ def _card_evidence_carries_signal(evidence: list[dict], signal: dict) -> bool:
     return False
 
 
-def _timeframe_repair_hints(card: dict, package: Optional[dict]) -> list[str]:
-    """Round-8 FIX 3: when the timeframe field states dates its segments lack
-    while the PACKAGE holds them, name the exact excerpt the repair should
-    return as a kind=timeframe support segment. Deterministic."""
+def _timeframe_promotable_excerpts(card: dict, package: Optional[dict]) -> list[dict]:
+    """Structured Round-8 FIX 3 scan: which package excerpts carry the dated
+    anchor the timeframe field states but its segments lack. Deterministic.
+    Rows: {"excerpt_id": str, "covered": [numeric keys]}."""
     if not isinstance(card, dict) or not isinstance(package, dict):
         return []
     timeframe = str(card.get("timeframe") or "")
@@ -2809,7 +2823,7 @@ def _timeframe_repair_hints(card: dict, package: Optional[dict]) -> list[str]:
     missing_keys = wanted_keys - segment_keys
     if not missing_keys:
         return []
-    hints: list[str] = []
+    rows: list[dict] = []
     for item in package.get("candidate_excerpts") or []:
         if not isinstance(item, dict):
             continue
@@ -2822,14 +2836,22 @@ def _timeframe_repair_hints(card: dict, package: Optional[dict]) -> list[str]:
         }
         covered = sorted(missing_keys & excerpt_keys)
         if covered:
-            hints.append(
-                f"REPAIR HINT: excerpt {excerpt_id} contains the timeframe's date(s) "
-                f"({', '.join(covered)}) - return it as a kind=timeframe support segment "
-                "and cite it in timeframe_evidence_ids."
-            )
-        if len(hints) >= 3:
+            rows.append({"excerpt_id": excerpt_id, "covered": covered})
+        if len(rows) >= 3:
             break
-    return hints
+    return rows
+
+
+def _timeframe_repair_hints(card: dict, package: Optional[dict]) -> list[str]:
+    """Round-8 FIX 3: when the timeframe field states dates its segments lack
+    while the PACKAGE holds them, name the exact excerpt the repair should
+    return as a kind=timeframe support segment. Deterministic."""
+    return [
+        f"REPAIR HINT: excerpt {row['excerpt_id']} contains the timeframe's date(s) "
+        f"({', '.join(row['covered'])}) - return it as a kind=timeframe support segment "
+        "and cite it in timeframe_evidence_ids."
+        for row in _timeframe_promotable_excerpts(card, package)
+    ]
 
 
 def _designed_vs_used_gap_warnings(
@@ -3095,6 +3117,371 @@ async def enrich_research_payload_readiness(tenant_id: str, video_id: str, resea
         new_cards.append(card)
     enriched["unit_research_cards"] = new_cards
     return enriched
+
+
+# ---------------------------------------------------------------------------
+# Roster orchestrator - surgical repair verbs (Ryan's ruling, 2026-07-16).
+# Cheapest-first repair of failing machine research cards. LAW FREEZE: nothing
+# here adds a gate law; these helpers only fix cards until the existing
+# referee (_research_card_contract_warnings) passes. Full research re-runs
+# REPLACE the source package (evidence re-rolls), so every verb below is
+# card-surgical or package-append-only.
+# ---------------------------------------------------------------------------
+
+_REPAIR_VERB_EST_COST_USD = {
+    "promote_excerpt": 0.0,
+    "targeted_fetch": 0.02,
+    "select_excerpt": 0.01,
+    "rewrite_field": 0.02,
+    "mark_bare": 0.01,
+    "full_rerun": 0.60,
+}
+
+_REWRITABLE_CARD_FIELDS = (
+    "engineering_thesis",
+    "why_this_unit_deserves_a_paragraph",
+    "timeframe",
+    "visual_identity",
+)
+
+# Same contract wording as the build and repair prompts (contract triangle law).
+_FIELD_REWRITE_CONTRACTS = {
+    "engineering_thesis": (
+        "engineering_thesis states the one engineering idea this machine's paragraph argues, "
+        "in one concise full sentence grounded in the evidence segments."
+    ),
+    "why_this_unit_deserves_a_paragraph": (
+        "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine "
+        "contributes to the video, specific enough that no other roster machine could replace it. "
+        "Do not say it mattered, was famous, or deserves a paragraph. "
+        "It may not introduce dates, numbers, other machine designations, events, or specifications "
+        "absent from the evidence_segments."
+    ),
+    "timeframe": (
+        "timeframe is the research-standard date/service-period basis only: state the sourced date range, "
+        "era, first-flight/service period, or prototype/operational period, and cite it with "
+        "timeframe_evidence_ids. Do not invent dates. timeframe text must name the locked machine's "
+        "designation explicitly, and may use only factual words and numbers that appear inside the "
+        "evidence_segments - if no evidence segment contains the month name, do not write the month."
+    ),
+    "visual_identity": (
+        "visual_identity is Producer File/image-brief basis only, never spoken narration: state the exact "
+        "visible machine features that make the locked unit unmistakable, and cite them with "
+        "visual_identity_evidence_ids. Describe only what is visible on the machine; do not include camera "
+        "movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions. "
+        "visual_identity text must name the locked machine's designation explicitly, and may use only "
+        "factual words and numbers that appear inside the evidence_segments."
+    ),
+}
+
+_TARGETED_FETCH_PRIMARY_DOMAINS = [
+    "boeing.com", "lockheedmartin.com", "northropgrumman.com", "af.mil",
+    "defense.gov", "navy.mil", "army.mil", "nasa.gov", "archives.gov",
+    "si.edu",
+]
+
+
+def _find_candidate_excerpt(package: Optional[dict], excerpt_id: str) -> Optional[dict]:
+    """Locate one package excerpt by excerpt_id or locator."""
+    wanted = str(excerpt_id or "").strip()
+    if not wanted or not isinstance(package, dict):
+        return None
+    for item in package.get("candidate_excerpts") or []:
+        if not isinstance(item, dict):
+            continue
+        identity = {
+            str(item.get("excerpt_id") or "").strip(),
+            str(item.get("locator") or "").strip(),
+        }
+        if wanted in identity:
+            return item
+    return None
+
+
+def _card_cited_excerpt_ids(card: Optional[dict]) -> set[str]:
+    ids: set[str] = set()
+    if not isinstance(card, dict):
+        return ids
+    for segment in card.get("evidence_segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        for key in ("source_excerpt_id", "excerpt_id"):
+            value = str(segment.get(key) or "").strip()
+            if value:
+                ids.add(value)
+    return ids
+
+
+def _promote_excerpt_precheck_error(candidate: Optional[dict], kind: str, machine: str) -> str:
+    """Reject promotions the referee would immediately warn about."""
+    if candidate is None:
+        return "excerpt_id not found in this machine's verified source package"
+    if not _verified_source_candidate_traceable(candidate):
+        return "excerpt is not traceable (missing source_url/locator/capture method) so the card cannot cite it"
+    slot_role = _anton_slot_role_for_kind(kind)
+    if slot_role is None:
+        return f"unsupported Anton slot kind: {kind}"
+    text = str(candidate.get("text") or "").strip()
+    if not text:
+        return "excerpt has no text"
+    hints = [str(h).strip() for h in (candidate.get("anton_slot_hints") or []) if str(h).strip()]
+    if slot_role in _ANTON_REQUIRED_SLOT_ROLES and hints and slot_role not in hints:
+        return (
+            f"excerpt is hinted for {', '.join(hints)}, not {slot_role}; "
+            "promoting it there would fail the slot-hint gate"
+        )
+    if slot_role == "human_detail" and not _human_detail_has_attribution(text):
+        return "human_detail promotion requires a named person or official finding in the excerpt"
+    return ""
+
+
+def _promoted_evidence_segment(candidate: dict, kind: str, machine: str, existing_ids: set[str]) -> dict:
+    """Deterministically lift one verified package excerpt into a card segment.
+
+    claim = the exact excerpt: fully grounded by construction, so the word and
+    number gates cannot fire on it (the referee itself clamps ungrounded claims
+    back to the excerpt, this just starts there)."""
+    text = " ".join(str(candidate.get("text") or "").split())
+    excerpt_id = str(candidate.get("excerpt_id") or "").strip()
+    base_id = f"EP-{excerpt_id or 'X'}"
+    evidence_id = base_id
+    suffix = 2
+    while evidence_id in existing_ids:
+        evidence_id = f"{base_id}-{suffix}"
+        suffix += 1
+    segment = {
+        "evidence_id": evidence_id,
+        "kind": str(kind or "reality").strip().lower(),
+        "claim": text,
+        "source_excerpt": text,
+        "source_excerpt_id": excerpt_id,
+        "source_url": str(candidate.get("source_url") or "").strip(),
+        "source_title": str(candidate.get("source_title") or "").strip(),
+        "locator": str(candidate.get("locator") or excerpt_id).strip(),
+        "numeric_tokens": _numeric_tokens_from_text(_strip_designations_for_numbers(text, machine)),
+        "confidence": "high",
+        "promoted_from_package": True,
+    }
+    source_id = str(candidate.get("source_id") or "").strip()
+    if source_id:
+        segment["source_id"] = source_id
+    return segment
+
+
+def _merge_card_into_review_cards(existing_cards: list, card: dict, machine: str) -> list:
+    """Replace only the target card in the review list; keep the rest byte-identical."""
+    target_key = _normalized_unit_code(machine)
+    merged: list = []
+    replaced = False
+    for existing in existing_cards or []:
+        if isinstance(existing, dict):
+            raw_unit = existing.get("unit") or existing.get("machine") or existing.get("name") or existing.get("designation") or ""
+            existing_key = _normalized_unit_code(_unit_display_name(raw_unit) or str(raw_unit))
+            if target_key and existing_key == target_key:
+                if not replaced:
+                    merged.append(card)
+                    replaced = True
+                continue
+        merged.append(existing)
+    if not replaced:
+        merged.append(card)
+    return merged
+
+
+def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: list[str]) -> dict:
+    """Update one machine's entry inside unit_research_hold_validation."""
+    validation = payload.get("unit_research_hold_validation")
+    validation = dict(validation) if isinstance(validation, dict) else {}
+    units = [dict(unit) for unit in (validation.get("units") or []) if isinstance(unit, dict)]
+    code = _normalized_unit_code(machine)
+    entry = {"machine": machine, "passed": not warnings, "warnings": list(warnings)}
+    replaced = False
+    for index, unit in enumerate(units):
+        if _normalized_unit_code(str(unit.get("machine") or "")) == code:
+            units[index] = entry
+            replaced = True
+            break
+    if not replaced:
+        units.append(entry)
+    validation["units"] = units
+    validation["passed"] = bool(units) and all(unit.get("passed") for unit in units)
+    validation["in_progress"] = False
+    validation["target_machine"] = machine
+    validation["target_machine_passed"] = not warnings
+    return validation
+
+
+def _warning_targets_field(warning: str, field: str) -> bool:
+    return field in str(warning or "")
+
+
+def _package_gap_hunt_already_ran(package: Optional[dict]) -> bool:
+    """True when an append-only reality/use-story hunt already extended this package."""
+    if not isinstance(package, dict):
+        return False
+    return any(
+        isinstance(entry, dict) and str(entry.get("focus") or "") == "reality"
+        for entry in package.get("appended_fetches") or []
+    )
+
+
+def _classify_repair_actions(machine: str, card: Optional[dict], package: Optional[dict]) -> list[dict]:
+    """Cheapest-first repair plan for one machine. Deterministic, read-only.
+
+    Order of verbs mirrors Ryan's ruling: promote_excerpt (free) beats
+    targeted_fetch/rewrite (pennies) beats full re-run (last resort, re-rolls
+    evidence). Returns [] when the card already passes the referee."""
+    package_ready = _verified_machine_source_package_ready(package)
+    if not package_ready:
+        return [{
+            "verb": "full_rerun",
+            "reason": "no verified source package exists; only a full one-machine research run can create one",
+        }]
+    package_errors = (
+        _verified_machine_source_package_quality_errors(package, machine)
+        + _verified_machine_source_package_identity_errors(package, machine)
+    )
+    if not isinstance(card, dict) or not isinstance(card.get("evidence_segments"), list) or not card.get("evidence_segments"):
+        actions: list[dict] = []
+        if package_errors:
+            actions.append({
+                "verb": "targeted_fetch",
+                "focus": "tier" if any("Tier 1-2" in error for error in package_errors) else "slots",
+                "reason": "package gaps: " + "; ".join(package_errors[:2]),
+            })
+        actions.append({
+            "verb": "full_rerun",
+            "reason": "no usable research card (missing evidence segments)",
+        })
+        return actions
+    warnings = _blocking_warnings(
+        _research_card_contract_warnings(machine, card, package, require_source_package=True)
+    )
+    if not warnings:
+        return []
+    actions = []
+    evidence = card.get("evidence_segments") or []
+    cited = _card_cited_excerpt_ids(card)
+
+    # 1. The select-miss class: the package holds the role-conversion story
+    #    and the card never selected it. Free deterministic fix.
+    for signal in _package_conversion_signals(package, machine):
+        if not signal.get("enforce") or _card_evidence_carries_signal(evidence, signal):
+            continue
+        candidate = _find_candidate_excerpt(package, signal.get("excerpt_id"))
+        if candidate is not None and not _promote_excerpt_precheck_error(candidate, "reality", machine):
+            actions.append({
+                "verb": "promote_excerpt",
+                "excerpt_id": str(signal.get("excerpt_id") or "").strip(),
+                "kind": "reality",
+                "reason": "package holds the role-conversion story the card never selected",
+            })
+            break
+
+    # 2. Timeframe support segment the package already carries.
+    for row in _timeframe_promotable_excerpts(card, package):
+        candidate = _find_candidate_excerpt(package, row["excerpt_id"])
+        if candidate is not None and not _promote_excerpt_precheck_error(candidate, "timeframe", machine):
+            actions.append({
+                "verb": "promote_excerpt",
+                "excerpt_id": row["excerpt_id"],
+                "kind": "timeframe",
+                "reason": "package excerpt carries the timeframe's dated anchor: " + ", ".join(row["covered"]),
+            })
+            break
+
+    # 3. Tier demands: promote a Tier 1-2 excerpt when the package has one,
+    #    else append-fetch primary domains.
+    if any("Tier 1-2" in warning for warning in warnings):
+        tier_candidates = sorted(
+            (
+                item for item in (package.get("candidate_excerpts") or [])
+                if isinstance(item, dict)
+                and _verified_source_candidate_traceable(item)
+                and _source_tier_number(item) <= 2
+                and str(item.get("excerpt_id") or "").strip() not in cited
+                and _mentions_machine(str(item.get("text") or ""), machine)
+            ),
+            key=lambda item: (_source_tier_number(item), str(item.get("excerpt_id") or "")),
+        )
+        promoted = False
+        for item in tier_candidates:
+            hints = [str(h).strip() for h in (item.get("anton_slot_hints") or []) if str(h).strip()]
+            kind = hints[0] if hints else "timeframe"
+            if not _promote_excerpt_precheck_error(item, kind, machine):
+                actions.append({
+                    "verb": "promote_excerpt",
+                    "excerpt_id": str(item.get("excerpt_id") or "").strip(),
+                    "kind": kind,
+                    "reason": "card cites no Tier 1-2 source; package holds one",
+                })
+                promoted = True
+                break
+        if not promoted:
+            actions.append({
+                "verb": "targeted_fetch",
+                "focus": "tier",
+                "reason": "no Tier 1-2 source anywhere; append-fetch primary domains",
+            })
+
+    # 4. Package-level gaps that survive with a card present.
+    if package_errors:
+        actions.append({
+            "verb": "targeted_fetch",
+            "focus": "tier" if any("Tier 1-2" in error for error in package_errors) else "slots",
+            "reason": "package gaps: " + "; ".join(package_errors[:2]),
+        })
+
+    # 5. Missing memorable_fact: a tiny LLM pick, then a free promote.
+    if any("memorable_fact" in warning for warning in warnings):
+        actions.append({
+            "verb": "select_excerpt",
+            "kind": "memorable_fact",
+            "reason": "card is missing its sourced memorable_fact segment",
+        })
+
+    # 6. No designed-vs-used gap and no conversion signal to promote:
+    #    hunt once (append-only), then honor the deliberately-bare fallback.
+    gap_warnings = [w for w in warnings if str(w).startswith("no designed-vs-used gap found")]
+    if gap_warnings and not any(
+        signal.get("enforce") and not _card_evidence_carries_signal(evidence, signal)
+        for signal in _package_conversion_signals(package, machine)
+    ):
+        if not _package_gap_hunt_already_ran(package):
+            actions.append({
+                "verb": "targeted_fetch",
+                "focus": "reality",
+                "reason": "hunt the gap: append-fetch service/fate coverage before going bare",
+            })
+        else:
+            actions.append({
+                "verb": "mark_bare",
+                "reason": "gap hunt already ran and found no use-story; honest bare tag is the fallback",
+            })
+
+    # 7. Field-level prose warnings: single-field LLM rewrite.
+    for field in _REWRITABLE_CARD_FIELDS:
+        if any(_warning_targets_field(warning, field) for warning in warnings):
+            actions.append({
+                "verb": "rewrite_field",
+                "field": field,
+                "reason": f"{field} fails its contract",
+            })
+
+    # 8. Last resort.
+    if not actions:
+        actions.append({
+            "verb": "full_rerun",
+            "reason": "no surgical verb applies: " + "; ".join(str(w) for w in warnings[:3]),
+        })
+    return actions
+
+
+def _repair_action_key(action: dict) -> str:
+    return "|".join(
+        str(action.get(key) or "")
+        for key in ("verb", "excerpt_id", "kind", "field", "focus")
+    )
 
 
 _STORY_UNIQUENESS_STOPWORDS = {
@@ -6667,6 +7054,900 @@ class PipelineExecutor:
             "research_card": card,
             "next_action": "run_machine_script_preview",
             "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, payload),
+        }
+
+    # ------------------------------------------------------------------
+    # Roster orchestrator - surgical repair verbs (2026-07-16).
+    # ------------------------------------------------------------------
+
+    async def _load_machine_repair_context(self, video_id: str, machine: str) -> dict:
+        """Everything one repair verb needs: payload, locked roster, card copy, package."""
+        import copy as _copy
+        import json as _json_ctx
+
+        video = await self._get_video(video_id)
+        if not video:
+            return {"error": "Video not found"}
+        payload = video.get("research_payload") or {}
+        if isinstance(payload, str):
+            try:
+                payload = _json_ctx.loads(payload)
+            except (ValueError, TypeError):
+                payload = None
+        if not isinstance(payload, dict):
+            return {"error": "Research payload is missing or invalid"}
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"error": "No locked machine roster found"}
+        matched = _locked_roster_item_for_machine(roster, machine)
+        if not matched:
+            return {"error": f"Machine is not in the locked roster: {machine}"}
+        payload = await self._load_machine_research_cards(video_id, payload, roster, target_machine=matched)
+        snapshot = _json_ctx.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False)
+        package = _verified_source_package_for_machine(payload, matched)
+        if package is not None:
+            package = _verified_machine_source_package_with_anton_metadata(package, matched)
+        card = _research_card_for_machine(payload, matched)
+        return {
+            "video": video,
+            "payload": payload,
+            "roster": roster,
+            "machine": matched,
+            "code": _normalized_unit_code(matched),
+            "snapshot": snapshot,
+            "package": package,
+            "card": _copy.deepcopy(card) if isinstance(card, dict) else None,
+            "roster_index": roster.index(matched) + 1,
+        }
+
+    async def _persist_repaired_card(
+        self, video_id: str, ctx: dict, card: dict, warnings: list[str], verb: str
+    ) -> str:
+        """Save one surgically repaired card. Returns an error string or ''."""
+        payload = ctx["payload"]
+        machine = ctx["machine"]
+        payload["unit_research_cards"] = _merge_card_into_review_cards(
+            payload.get("unit_research_cards") if isinstance(payload.get("unit_research_cards"), list) else [],
+            card,
+            machine,
+        )
+        payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(payload, machine, warnings)
+        _clear_machine_preview_artifacts(payload, ctx["code"])
+        result = await self._checkpoint_one_machine_research_result(
+            video_id,
+            payload["unit_research_cards"],
+            payload["unit_research_hold_validation"],
+            ctx["snapshot"],
+        )
+        if self._db_write_missed(result):
+            return "persisted unit_roster changed concurrently; repair save refused"
+        # The checkpoint writes only cards + validation; stale previews for this
+        # machine must also leave the stored payload (same rule as research).
+        await execute(
+            """UPDATE videos SET research_payload = jsonb_set(
+                   jsonb_set(
+                     jsonb_set(
+                       COALESCE(research_payload::jsonb, '{}'::jsonb),
+                       '{machine_script_previews}',
+                       COALESCE(research_payload::jsonb->'machine_script_previews', '{}'::jsonb) - $1::text,
+                       true
+                     ),
+                     '{machine_script_briefs}',
+                     COALESCE(research_payload::jsonb->'machine_script_briefs', '{}'::jsonb) - $1::text,
+                     true
+                   ),
+                   '{machine_story_plans}',
+                   COALESCE(research_payload::jsonb->'machine_story_plans', '{}'::jsonb) - $1::text,
+                   true
+               ), updated_at = now()
+               WHERE id = $2 AND tenant_id = $3
+                 AND (
+                     research_payload->'unit_roster' IS NULL
+                     OR research_payload->'unit_roster' = $4::jsonb
+                 )""",
+            ctx["code"], video_id, self.tenant_id, ctx["snapshot"],
+        )
+        await self._upsert_machine_research_card(
+            video_id, machine, ctx["roster_index"], card,
+            {"machine": machine, "passed": not warnings, "warnings": list(warnings), "repair_verb": verb},
+        )
+        return ""
+
+    def _repair_response(self, ctx: dict, verb: str, warnings: list[str], extra: Optional[dict] = None) -> dict:
+        response = {
+            "status": "completed" if not warnings else "needs_review",
+            "machine": ctx["machine"],
+            "verb": verb,
+            "passed": not warnings,
+            "warnings": list(warnings),
+        }
+        if extra:
+            response.update(extra)
+        return response
+
+    async def repair_promote_excerpt(
+        self, video_id: str, machine: str, excerpt_id: str, kind: str = "reality"
+    ) -> dict:
+        """Deterministically lift a verified package excerpt into card evidence.
+
+        Free (no LLM). Fixes the select-miss class: the story is already in the
+        package, the card just never cited it (XB-15's transport story)."""
+        await self._ensure_initialized()
+        ctx = await self._load_machine_repair_context(video_id, machine)
+        if ctx.get("error"):
+            return {"status": "failed", "error": ctx["error"]}
+        card, package = ctx["card"], ctx["package"]
+        if card is None:
+            return {"status": "failed", "error": "No saved research card to repair; run one-machine research first"}
+        if package is None:
+            return {"status": "failed", "error": "No verified source package for this machine; run one-machine research first"}
+        kind = str(kind or "reality").strip().lower()
+        candidate = _find_candidate_excerpt(package, excerpt_id)
+        precheck = _promote_excerpt_precheck_error(candidate, kind, ctx["machine"])
+        if precheck:
+            return {"status": "failed", "error": precheck}
+        segments = card.get("evidence_segments") if isinstance(card.get("evidence_segments"), list) else []
+        existing_ids = {
+            str(segment.get("evidence_id") or "").strip()
+            for segment in segments if isinstance(segment, dict)
+        }
+        segment = _promoted_evidence_segment(candidate, kind, ctx["machine"], existing_ids)
+        segments.append(segment)
+        card["evidence_segments"] = segments
+        slot_role = _anton_slot_role_for_kind(segment["kind"])
+        if slot_role == "reality":
+            # The promoted excerpt IS the actual-use story; a stale refusal or
+            # phantom bare tag must not survive it.
+            card["actual_outcome"] = segment["claim"]
+            card.pop("deliberately_bare", None)
+            card.pop("gap_hunt_summary", None)
+        if slot_role == "memorable_fact":
+            card["surprising_fact"] = segment["claim"]
+        for field_kind, field_name in (("timeframe", "timeframe_evidence_ids"), ("visual_identity", "visual_identity_evidence_ids")):
+            if segment["kind"] == field_kind:
+                cited = card.get(field_name) if isinstance(card.get(field_name), list) else []
+                if segment["evidence_id"] not in cited:
+                    card[field_name] = list(cited) + [segment["evidence_id"]]
+        notes = card.get("source_notes") if isinstance(card.get("source_notes"), list) else []
+        if segment["source_url"] and segment["source_url"] not in notes:
+            card["source_notes"] = list(notes) + [segment["source_url"]]
+        card = _normalize_card_field_citations(card, ctx["machine"])
+        _stamp_card_segment_provenance(card, package)
+        warnings = _research_card_contract_warnings(ctx["machine"], card, package, require_source_package=True)
+        error = await self._persist_repaired_card(video_id, ctx, card, warnings, "promote_excerpt")
+        if error:
+            return {"status": "failed", "error": error}
+        await self._log_activity(
+            "Research Agent", video_id, "completed",
+            f"promote_excerpt {segment['source_excerpt_id']} -> {ctx['machine']} "
+            + ("(card passes)" if not warnings else f"({len(warnings)} warnings remain)"),
+        )
+        return self._repair_response(ctx, "promote_excerpt", warnings, {
+            "promoted_evidence_id": segment["evidence_id"],
+            "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, ctx["payload"]),
+        })
+
+    async def repair_rewrite_field(self, video_id: str, machine: str, field: Optional[str] = None) -> dict:
+        """Rewrite exactly ONE card field with a small LLM call; evidence untouched."""
+        import json as _json_rw
+
+        await self._ensure_initialized()
+        ctx = await self._load_machine_repair_context(video_id, machine)
+        if ctx.get("error"):
+            return {"status": "failed", "error": ctx["error"]}
+        card, package = ctx["card"], ctx["package"]
+        if card is None or package is None:
+            return {"status": "failed", "error": "Rewrite needs a saved card and verified source package; run one-machine research first"}
+        anthropic_client = getattr(self._pipeline, "anthropic", None)
+        if anthropic_client is None:
+            return {"status": "failed", "error": "Field rewrite requires an Anthropic client, but none is configured."}
+        warnings_before = _blocking_warnings(
+            _research_card_contract_warnings(ctx["machine"], card, package, require_source_package=True)
+        )
+        if not field:
+            field = next(
+                (item for item in _REWRITABLE_CARD_FIELDS
+                 if any(_warning_targets_field(w, item) for w in warnings_before)),
+                "",
+            )
+        if field not in _REWRITABLE_CARD_FIELDS:
+            return {"status": "failed", "error": f"No rewritable field warning found (field={field or 'auto'})"}
+        field_warnings = [w for w in warnings_before if _warning_targets_field(w, field)]
+        segments_view = [
+            {
+                "evidence_id": segment.get("evidence_id"),
+                "kind": segment.get("kind"),
+                "claim": segment.get("claim"),
+                "source_excerpt": segment.get("source_excerpt"),
+            }
+            for segment in card.get("evidence_segments") or []
+            if isinstance(segment, dict)
+        ]
+        cites_ids = field in ("timeframe", "visual_identity")
+        response_keys = f'{{"{field}": "..."' + (f', "{field}_evidence_ids": ["..."]' if cites_ids else "") + "}"
+        prompt = (
+            f"Rewrite ONE field of a Designed vs Used research card for LOCKED MACHINE: {ctx['machine']}.\n\n"
+            f"FIELD: {field}\n"
+            f"FIELD CONTRACT: {_FIELD_REWRITE_CONTRACTS[field]}\n"
+            f"CURRENT VALUE: {str(card.get(field) or '(empty)')}\n"
+            f"REVIEW WARNINGS: {'; '.join(field_warnings) or '; '.join(warnings_before[:4])}\n\n"
+            "Use ONLY the factual words and numbers inside these evidence segments. "
+            "Do not touch, add, or remove evidence segments.\n"
+            f"EVIDENCE SEGMENTS:\n{_json_rw.dumps(segments_view, ensure_ascii=False)[:12000]}\n\n"
+            f"Return ONLY valid JSON: {response_keys}"
+        )
+        raw = await anthropic_client.generate(
+            prompt=prompt,
+            system_prompt="You repair exactly one field of a JSON research card. Output only valid JSON.",
+            max_tokens=600,
+            temperature=0.05,
+        )
+        try:
+            text = str(raw or "").strip()
+            if text.startswith("```"):
+                import re as _re_rw
+                text = _re_rw.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_rw.I | _re_rw.S).strip()
+            parsed = _json_rw.loads(text)
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "failed", "error": f"invalid JSON field rewrite: {str(exc)[:120]}"}
+        if not isinstance(parsed, dict) or not str(parsed.get(field) or "").strip():
+            return {"status": "failed", "error": f"field rewrite returned no {field}"}
+        card[field] = str(parsed.get(field)).strip()
+        if cites_ids and isinstance(parsed.get(f"{field}_evidence_ids"), list):
+            card[f"{field}_evidence_ids"] = [
+                str(item).strip() for item in parsed[f"{field}_evidence_ids"] if str(item).strip()
+            ]
+        card = _normalize_card_field_citations(card, ctx["machine"])
+        _stamp_card_segment_provenance(card, package)
+        warnings = _research_card_contract_warnings(ctx["machine"], card, package, require_source_package=True)
+        error = await self._persist_repaired_card(video_id, ctx, card, warnings, "rewrite_field")
+        if error:
+            return {"status": "failed", "error": error}
+        await self._log_activity(
+            "Research Agent", video_id, "completed",
+            f"rewrite_field {field} -> {ctx['machine']} "
+            + ("(card passes)" if not warnings else f"({len(warnings)} warnings remain)"),
+        )
+        return self._repair_response(ctx, "rewrite_field", warnings, {
+            "field": field,
+            "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, ctx["payload"]),
+        })
+
+    async def repair_targeted_fetch(self, video_id: str, machine: str, focus: Optional[str] = None) -> dict:
+        """APPEND-ONLY fetch into the existing verified source package.
+
+        Full research re-runs replace the package and re-roll good evidence
+        (proven on XB-15, 2026-07-16). This verb only ever adds sources and
+        excerpts; existing rows are never touched."""
+        import httpx as _httpx
+        import json as _json_tf
+
+        await self._ensure_initialized()
+        ctx = await self._load_machine_repair_context(video_id, machine)
+        if ctx.get("error"):
+            return {"status": "failed", "error": ctx["error"]}
+        package = ctx["package"]
+        if package is None or not isinstance(package.get("candidate_excerpts"), list):
+            return {"status": "failed", "error": "No verified source package to extend; run one-machine research first"}
+        machine_name = ctx["machine"]
+        package_errors = (
+            _verified_machine_source_package_quality_errors(package, machine_name)
+            + _verified_machine_source_package_identity_errors(package, machine_name)
+        )
+        if not focus:
+            focus = "tier" if any("Tier 1-2" in error for error in package_errors) else (
+                "slots" if package_errors else "tier"
+            )
+        include_domains: Optional[list[str]] = None
+        if focus == "tier":
+            include_domains = list(_TARGETED_FETCH_PRIMARY_DOMAINS)
+            queries = [
+                f'"{machine_name}" fact sheet',
+                f'"{machine_name}" history museum',
+                f'"{machine_name}" development service',
+            ]
+        elif focus == "reality":
+            queries = [
+                f'"{machine_name}" service history operational use combat',
+                f'"{machine_name}" converted redesignated retired scrapped fate',
+                f'"{machine_name}" transport cargo missions wartime',
+            ]
+        else:  # slot coverage gaps
+            queries = [
+                f'"{machine_name}" design requirement program development history',
+                f'"{machine_name}" limitation tradeoff lessons learned test',
+                f'"{machine_name}" production service operational record',
+            ]
+        tavily_key = await get_secret("tavily_api_key", self.tenant_id)
+        if not tavily_key:
+            return {"status": "failed", "error": "Tavily API key is required for targeted source fetching."}
+        existing_sources = [s for s in (package.get("sources") or []) if isinstance(s, dict)]
+        existing_urls = {
+            str(s.get("url") or "").strip() for s in existing_sources if str(s.get("url") or "").strip()
+        }
+        new_sources: list[dict] = []
+        new_excerpts: list[dict] = []
+        errors: list[str] = []
+        headers = {"User-Agent": "StoryEngine/1.0 (targeted source research)"}
+        async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
+            search_results: list[dict] = []
+            for query in queries:
+                try:
+                    body = {
+                        "api_key": tavily_key,
+                        "query": query,
+                        "search_depth": "advanced",
+                        "include_answer": False,
+                        "include_raw_content": True,
+                        "max_results": 5,
+                    }
+                    if include_domains:
+                        body["include_domains"] = include_domains
+                    response = await client.post("https://api.tavily.com/search", json=body)
+                    if response.status_code >= 400:
+                        errors.append(f"Tavily search failed for {query}: HTTP {response.status_code}")
+                        continue
+                    for item in (response.json().get("results") or []):
+                        if isinstance(item, dict) and item.get("url"):
+                            item = dict(item)
+                            item["_query"] = query
+                            search_results.append(item)
+                except Exception as exc:  # noqa: BLE001 - keep gathering from remaining queries.
+                    errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
+            seen_urls: set[str] = set(existing_urls)
+            for item in search_results:
+                if len(new_sources) >= 6 or len(new_excerpts) >= 30:
+                    break
+                url = str(item.get("url") or "").strip()
+                title_text = str(item.get("title") or url).strip()
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                fetched_text = await self._fetch_source_text(client, url)
+                raw_content = str(item.get("raw_content") or "")
+                source_variants: list[tuple[tuple[int, int, int, int], str, str, list[str]]] = []
+                for capture_method, source_text in (
+                    ("fetched_page", fetched_text),
+                    ("tavily_raw_content", raw_content),
+                ):
+                    if not source_text or not _mentions_machine(source_text, machine_name):
+                        continue
+                    excerpt_candidates = _sentence_candidates_from_source(source_text, machine_name, limit=10)
+                    if not excerpt_candidates:
+                        continue
+                    coverage_score = _machine_source_variant_score(excerpt_candidates, machine_name)
+                    method_priority = 1 if capture_method == "fetched_page" else 0
+                    source_variants.append(
+                        ((*coverage_score, method_priority), capture_method, source_text, excerpt_candidates)
+                    )
+                if not source_variants:
+                    continue
+                _score, capture_method, source_text, excerpt_candidates = max(source_variants, key=lambda row: row[0])
+                variant_selection = _machine_source_variant_selection_metadata(source_variants, capture_method)
+                source_id = f"S{len(existing_sources) + len(new_sources) + 1}"
+                source_tier = _source_tier_for_url(url, title_text)
+                new_sources.append({
+                    "source_id": source_id,
+                    "title": title_text,
+                    "url": url,
+                    "source_tier": source_tier["tier"],
+                    "source_tier_label": source_tier["label"],
+                    "query": item.get("_query"),
+                    "source_capture_method": capture_method,
+                    "source_variant_selection": variant_selection,
+                    "text_hash": _source_text_fingerprint(source_text),
+                    "text_chars": len(source_text),
+                    "appended_by": "targeted_fetch",
+                })
+                for excerpt_index, excerpt in enumerate(excerpt_candidates, start=1):
+                    excerpt_id = f"{source_id}-E{excerpt_index}"
+                    new_excerpts.append({
+                        "excerpt_id": excerpt_id,
+                        "source_id": source_id,
+                        "source_title": title_text,
+                        "source_url": url,
+                        "source_tier": source_tier["tier"],
+                        "source_tier_label": source_tier["label"],
+                        "source_capture_method": capture_method,
+                        "source_variant_selection": variant_selection,
+                        "locator": f"{excerpt_id}; query={item.get('_query')}",
+                        "text": excerpt,
+                        "text_hash": _source_text_fingerprint(excerpt),
+                    })
+                    if len(new_excerpts) >= 30:
+                        break
+        if not new_excerpts:
+            return {
+                "status": "failed",
+                "error": "Targeted fetch found no new machine-matching excerpts"
+                         + ("; " + "; ".join(errors[:2]) if errors else ""),
+                "focus": focus,
+            }
+        merged = dict(package)
+        merged["sources"] = existing_sources + new_sources
+        merged["candidate_excerpts"] = list(package.get("candidate_excerpts") or []) + new_excerpts
+        merged["search_queries"] = list(dict.fromkeys(list(package.get("search_queries") or []) + queries))
+        history = [entry for entry in (package.get("appended_fetches") or []) if isinstance(entry, dict)]
+        history.append({
+            "at": datetime.now(timezone.utc).isoformat(),
+            "focus": focus,
+            "queries": queries,
+            "added_source_ids": [s["source_id"] for s in new_sources],
+            "added_excerpt_count": len(new_excerpts),
+        })
+        merged["appended_fetches"] = history
+        merged["source_slot_coverage"] = _anton_source_slot_coverage(
+            [item for item in merged["candidate_excerpts"] if isinstance(item, dict)], machine_name
+        )
+        merged["traceable_source_slot_coverage"] = _anton_source_slot_coverage(
+            [item for item in merged["candidate_excerpts"] if _verified_source_candidate_traceable(item)],
+            machine_name,
+        )
+        merged["passed"] = len([
+            item for item in merged["candidate_excerpts"]
+            if isinstance(item, dict) and str(item.get("text") or "").strip()
+        ]) >= 6
+        fresh_quality_errors = _verified_machine_source_package_quality_errors(merged, machine_name)
+        if fresh_quality_errors:
+            merged["passed"] = False
+            merged["errors"] = list(dict.fromkeys(errors + fresh_quality_errors))
+        else:
+            merged["errors"] = []
+        checkpoint = await self._checkpoint_machine_raw_source_package(
+            video_id, ctx["code"], merged, ctx["snapshot"]
+        )
+        if self._db_write_missed(checkpoint):
+            return {"status": "failed", "error": "persisted unit_roster changed concurrently; targeted fetch save refused"}
+        ctx["payload"].setdefault("machine_raw_source_packages", {})[ctx["code"]] = merged
+        _clear_machine_preview_artifacts(ctx["payload"], ctx["code"])
+        card_warnings: list[str] = []
+        if isinstance(ctx["card"], dict):
+            hydrated = _verified_machine_source_package_with_anton_metadata(merged, machine_name)
+            _stamp_card_segment_provenance(ctx["card"], hydrated)
+            card_warnings = _research_card_contract_warnings(
+                machine_name, ctx["card"], hydrated, require_source_package=True
+            )
+            error = await self._persist_repaired_card(video_id, ctx, ctx["card"], card_warnings, "targeted_fetch")
+            if error:
+                return {"status": "failed", "error": error}
+        await self._log_activity(
+            "Research Agent", video_id, "completed",
+            f"targeted_fetch({focus}) appended {len(new_sources)} source(s), {len(new_excerpts)} excerpt(s) -> {machine_name}",
+        )
+        return self._repair_response(ctx, "targeted_fetch", card_warnings, {
+            "focus": focus,
+            "added_sources": [
+                {"source_id": s["source_id"], "url": s["url"], "source_tier": s["source_tier"]}
+                for s in new_sources
+            ],
+            "added_excerpt_count": len(new_excerpts),
+            "package_passed": bool(merged.get("passed")),
+            "package_errors": fresh_quality_errors,
+            "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, ctx["payload"]),
+        })
+
+    async def repair_mark_bare(self, video_id: str, machine: str) -> dict:
+        """Deliberately-bare fallback: honest bare tag with a sourced hunt summary.
+
+        Only legal when the package holds NO unselected role-conversion story -
+        a bare tag on top of an available story would be a lie the referee
+        exists to prevent."""
+        import json as _json_mb
+
+        await self._ensure_initialized()
+        ctx = await self._load_machine_repair_context(video_id, machine)
+        if ctx.get("error"):
+            return {"status": "failed", "error": ctx["error"]}
+        card, package = ctx["card"], ctx["package"]
+        if card is None or package is None:
+            return {"status": "failed", "error": "Bare tag needs a saved card and verified source package"}
+        evidence = card.get("evidence_segments") or []
+        unselected = [
+            signal for signal in _package_conversion_signals(package, ctx["machine"])
+            if signal.get("enforce") and not _card_evidence_carries_signal(evidence, signal)
+        ]
+        if unselected:
+            return {
+                "status": "failed",
+                "error": "package holds a role-conversion story; promote it instead of marking bare "
+                         f"(excerpt {unselected[0].get('excerpt_id')})",
+            }
+        anthropic_client = getattr(self._pipeline, "anthropic", None)
+        if anthropic_client is None:
+            return {"status": "failed", "error": "Bare tag summary requires an Anthropic client, but none is configured."}
+        searched = list(package.get("search_queries") or [])
+        for entry in package.get("appended_fetches") or []:
+            if isinstance(entry, dict):
+                searched.extend(entry.get("queries") or [])
+        prompt = (
+            f"LOCKED MACHINE: {ctx['machine']}.\n"
+            "The research hunt for a designed-vs-used gap (how this machine was ACTUALLY used or ended: "
+            "combat, service, conversion, redesignation, cancellation, scrapping) found no use-story in any "
+            "fetched source. Write the required honest gap_hunt_summary: one or two sentences stating what "
+            "was searched and why no use-story exists. State only what the queries and sources show.\n\n"
+            f"QUERIES RUN:\n{_json_mb.dumps(searched, ensure_ascii=False)[:2000]}\n\n"
+            f"SOURCES FETCHED:\n{_json_mb.dumps([str(s.get('title') or s.get('url') or '') for s in (package.get('sources') or []) if isinstance(s, dict)], ensure_ascii=False)[:2000]}\n\n"
+            'Return ONLY valid JSON: {"gap_hunt_summary": "..."}'
+        )
+        raw = await anthropic_client.generate(
+            prompt=prompt,
+            system_prompt="You write one honest research gap summary. Output only valid JSON.",
+            max_tokens=200,
+            temperature=0.05,
+        )
+        try:
+            text = str(raw or "").strip()
+            if text.startswith("```"):
+                import re as _re_mb
+                text = _re_mb.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_mb.I | _re_mb.S).strip()
+            summary = str((_json_mb.loads(text) or {}).get("gap_hunt_summary") or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "failed", "error": f"invalid JSON bare summary: {str(exc)[:120]}"}
+        card["deliberately_bare"] = True
+        card["gap_hunt_summary"] = summary
+        if not _bare_tag_is_valid(card):
+            return {"status": "failed", "error": "generated gap_hunt_summary was too thin to honor the bare tag"}
+        _stamp_card_segment_provenance(card, package)
+        warnings = _research_card_contract_warnings(ctx["machine"], card, package, require_source_package=True)
+        error = await self._persist_repaired_card(video_id, ctx, card, warnings, "mark_bare")
+        if error:
+            return {"status": "failed", "error": error}
+        await self._log_activity(
+            "Research Agent", video_id, "completed",
+            f"mark_bare -> {ctx['machine']} " + ("(card passes)" if not warnings else f"({len(warnings)} warnings remain)"),
+        )
+        return self._repair_response(ctx, "mark_bare", warnings, {
+            "gap_hunt_summary": summary,
+            "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, ctx["payload"]),
+        })
+
+    async def _select_memorable_excerpt_id(self, machine: str, card: dict, package: dict) -> str:
+        """Tiny LLM pick of the most surprising uncited excerpt; promotion stays code."""
+        anthropic_client = getattr(self._pipeline, "anthropic", None)
+        if anthropic_client is None:
+            return ""
+        cited = _card_cited_excerpt_ids(card)
+        rows = []
+        for item in package.get("candidate_excerpts") or []:
+            if not isinstance(item, dict) or not _verified_source_candidate_traceable(item):
+                continue
+            excerpt_id = str(item.get("excerpt_id") or "").strip()
+            text = str(item.get("text") or "").strip()
+            if not excerpt_id or not text or excerpt_id in cited:
+                continue
+            if not _mentions_machine(text, machine):
+                continue
+            rows.append(f"{excerpt_id}: {text[:220]}")
+            if len(rows) >= 20:
+                break
+        if not rows:
+            return ""
+        raw = await anthropic_client.generate(
+            prompt=(
+                f"LOCKED MACHINE: {machine}. Pick the ONE excerpt below carrying the most surprising "
+                "verified fact a serious viewer is unlikely to know (a pioneered feature, an odd capability, "
+                "an unexpected record). Return ONLY that EXCERPT_ID, nothing else.\n\n" + "\n".join(rows)
+            ),
+            system_prompt="You select one excerpt id. Output only the id.",
+            max_tokens=20,
+            temperature=0.0,
+        )
+        token = str(raw or "").strip().split()[0].strip(".,;:\"'`") if str(raw or "").strip() else ""
+        return token if _find_candidate_excerpt(package, token) is not None else ""
+
+    async def _execute_repair_action(self, video_id: str, machine: str, action: dict) -> dict:
+        """Run one classified repair action; returns the verb result dict."""
+        verb = str(action.get("verb") or "")
+        if verb == "promote_excerpt":
+            return await self.repair_promote_excerpt(
+                video_id, machine, str(action.get("excerpt_id") or ""), str(action.get("kind") or "reality")
+            )
+        if verb == "targeted_fetch":
+            return await self.repair_targeted_fetch(video_id, machine, action.get("focus"))
+        if verb == "rewrite_field":
+            return await self.repair_rewrite_field(video_id, machine, action.get("field"))
+        if verb == "mark_bare":
+            return await self.repair_mark_bare(video_id, machine)
+        if verb == "select_excerpt":
+            ctx = await self._load_machine_repair_context(video_id, machine)
+            if ctx.get("error"):
+                return {"status": "failed", "error": ctx["error"]}
+            if ctx["card"] is None or ctx["package"] is None:
+                return {"status": "failed", "error": "select_excerpt needs a saved card and package"}
+            excerpt_id = await self._select_memorable_excerpt_id(ctx["machine"], ctx["card"], ctx["package"])
+            if not excerpt_id:
+                return {"status": "failed", "error": "no promotable memorable-fact excerpt found"}
+            return await self.repair_promote_excerpt(video_id, machine, excerpt_id, "memorable_fact")
+        if verb == "full_rerun":
+            result = await self.run_one_machine_research(video_id, machine)
+            result.setdefault("verb", "full_rerun")
+            return result
+        return {"status": "failed", "error": f"unknown repair verb: {verb}"}
+
+    async def repair_machine_auto(
+        self, video_id: str, machine: str, allow_full_rerun: bool = False,
+        budget_usd: float = 1.0, max_actions: int = 4,
+    ) -> dict:
+        """One machine through the cheapest-first ladder until the referee passes."""
+        await self._ensure_initialized()
+        spend = 0.0
+        actions_log: list[dict] = []
+        seen: set[str] = set()
+        warnings: list[str] = []
+        for _attempt in range(max_actions):
+            ctx = await self._load_machine_repair_context(video_id, machine)
+            if ctx.get("error"):
+                return {"status": "failed", "error": ctx["error"], "actions": actions_log}
+            card, package = ctx["card"], ctx["package"]
+            if card is not None:
+                warnings = _blocking_warnings(
+                    _research_card_contract_warnings(ctx["machine"], card, package, require_source_package=True)
+                )
+            else:
+                warnings = ["missing saved one-machine research card"]
+            if not warnings:
+                break
+            plan = _classify_repair_actions(ctx["machine"], card, package)
+            action = next((a for a in plan if _repair_action_key(a) not in seen), None)
+            if action is None:
+                break
+            if action["verb"] == "full_rerun" and not allow_full_rerun:
+                actions_log.append({**action, "status": "skipped", "detail": "full re-run disabled for this pass"})
+                break
+            cost = _REPAIR_VERB_EST_COST_USD.get(action["verb"], 0.05)
+            if spend + cost > budget_usd:
+                actions_log.append({**action, "status": "skipped", "detail": f"budget cap ${budget_usd:.2f} reached"})
+                break
+            seen.add(_repair_action_key(action))
+            result = await self._execute_repair_action(video_id, ctx["machine"], action)
+            spend += cost
+            actions_log.append({
+                **{k: action.get(k) for k in ("verb", "excerpt_id", "kind", "field", "focus", "reason") if action.get(k)},
+                "status": result.get("status"),
+                "detail": result.get("error") or "",
+                "est_cost_usd": cost,
+            })
+            if result.get("status") == "failed":
+                continue
+        ctx = await self._load_machine_repair_context(video_id, machine)
+        if not ctx.get("error") and ctx.get("card") is not None:
+            warnings = _blocking_warnings(
+                _research_card_contract_warnings(ctx["machine"], ctx["card"], ctx["package"], require_source_package=True)
+            )
+        return {
+            "status": "completed" if not warnings else "needs_review",
+            "machine": ctx.get("machine") or machine,
+            "verb": "auto",
+            "passed": not warnings,
+            "warnings": warnings[:8],
+            "actions": actions_log,
+            "est_spend_usd": round(spend, 2),
+            "research_payload": (
+                await enrich_research_payload_readiness(self.tenant_id, video_id, ctx["payload"])
+                if not ctx.get("error") else None
+            ),
+        }
+
+    async def run_roster_orchestrator(
+        self,
+        video_id: str,
+        machines: Optional[list[str]] = None,
+        budget_usd: float = 5.0,
+        allow_full_rerun: bool = True,
+        max_actions_per_machine: int = 4,
+        progress: Optional[Any] = None,
+    ) -> dict:
+        """Walk the locked roster, repairing each failing card cheapest-first.
+
+        Bounded retries per card, one shared budget cap, alerts only on budget
+        breach or systemic failure. Done metric: most machines clear in one or
+        two actions without a full re-run."""
+        import json as _json_orch
+
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"status": "failed", "error": "No locked machine roster found"}
+        targets = roster
+        if machines:
+            wanted = {_normalized_unit_code(item) for item in machines if _normalized_unit_code(item)}
+            targets = [item for item in roster if _normalized_unit_code(item) in wanted]
+            if not targets:
+                return {"status": "failed", "error": "None of the requested machines are in the locked roster"}
+        spend = 0.0
+        units: list[dict] = []
+        alerts: list[str] = []
+        consecutive_failures = 0
+        budget_breached = False
+        for index, machine in enumerate(targets, start=1):
+            if callable(progress):
+                try:
+                    progress(f"Repairing {index}/{len(targets)}: {machine}")
+                except Exception:  # noqa: BLE001 - progress is advisory only
+                    pass
+            machine_budget = max(0.0, budget_usd - spend)
+            if machine_budget <= 0:
+                budget_breached = True
+                alerts.append(
+                    f"budget cap ${budget_usd:.2f} reached before {machine}; "
+                    f"{len(targets) - index + 1} machine(s) not attempted"
+                )
+                break
+            result = await self.repair_machine_auto(
+                video_id, machine,
+                allow_full_rerun=allow_full_rerun,
+                budget_usd=machine_budget,
+                max_actions=max_actions_per_machine,
+            )
+            spend += float(result.get("est_spend_usd") or 0.0)
+            unit = {
+                "machine": machine,
+                "passed": bool(result.get("passed")),
+                "actions": result.get("actions") or [],
+                "warnings": (result.get("warnings") or [])[:4],
+            }
+            units.append(unit)
+            consecutive_failures = 0 if unit["passed"] else consecutive_failures + 1
+            if consecutive_failures >= 3:
+                alerts.append(
+                    f"systemic failure: 3 machines in a row did not clear (stopped at {machine})"
+                )
+                break
+        # Full-roster readiness from the stored referee verdicts.
+        ready_count = 0
+        try:
+            rows = await fetch_all(
+                "SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
+                self.tenant_id, video_id,
+            )
+            verdicts = {
+                _normalized_unit_code(str(row.get("machine_key") or "")): _card_readiness_from_validation(row.get("validation"))
+                for row in rows or [] if isinstance(row, dict)
+            }
+            ready_count = sum(
+                1 for item in roster
+                if (verdicts.get(_normalized_unit_code(item)) or {}).get("passed")
+            )
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("[orchestrator] readiness recount unavailable: %s", str(exc)[:150])
+        report = {
+            "ran_at": datetime.now(timezone.utc).isoformat(),
+            "targets": len(targets),
+            "attempted": len(units),
+            "cleared": sum(1 for unit in units if unit["passed"]),
+            "ready_count": ready_count,
+            "roster_count": len(roster),
+            "est_spend_usd": round(spend, 2),
+            "budget_usd": budget_usd,
+            "budget_breached": budget_breached,
+            "alerts": alerts,
+            "units": units,
+        }
+        # Persist a compact cumulative report for the dashboard.
+        try:
+            payload = video.get("research_payload") or {}
+            if isinstance(payload, str):
+                payload = _json_orch.loads(payload)
+            previous = payload.get("roster_orchestrator_report") if isinstance(payload, dict) else {}
+            previous_total = float((previous or {}).get("est_spend_usd_total") or 0.0)
+            stored = {
+                **{k: report[k] for k in (
+                    "ran_at", "targets", "attempted", "cleared", "ready_count",
+                    "roster_count", "est_spend_usd", "budget_usd", "budget_breached", "alerts",
+                )},
+                "est_spend_usd_total": round(previous_total + spend, 2),
+                "units": [
+                    {
+                        "machine": unit["machine"],
+                        "passed": unit["passed"],
+                        "verbs": [str(a.get("verb") or "") for a in unit["actions"]],
+                        "warnings": unit["warnings"][:2],
+                    }
+                    for unit in units
+                ],
+            }
+            await execute(
+                """UPDATE videos SET research_payload = jsonb_set(
+                       COALESCE(research_payload::jsonb, '{}'::jsonb),
+                       '{roster_orchestrator_report}', $1::jsonb, true
+                   ), updated_at = now()
+                   WHERE id = $2 AND tenant_id = $3""",
+                _json_orch.dumps(stored), video_id, self.tenant_id,
+            )
+            report["est_spend_usd_total"] = stored["est_spend_usd_total"]
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("[orchestrator] report persist skipped: %s", str(exc)[:150])
+        await self._log_activity(
+            "Research Agent", video_id, "completed",
+            f"roster orchestrator: {report['cleared']}/{report['attempted']} cleared, "
+            f"{ready_count}/{len(roster)} ready, est ${report['est_spend_usd']:.2f}"
+            + ("; " + "; ".join(alerts) if alerts else ""),
+        )
+        report["status"] = "completed"
+        return report
+
+    async def roster_repair_dashboard(self, video_id: str) -> dict:
+        """No-spend roster readiness snapshot: N/M ready, per-machine next verb."""
+        import json as _json_dash
+
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        payload = video.get("research_payload") or {}
+        if isinstance(payload, str):
+            try:
+                payload = _json_dash.loads(payload)
+            except (ValueError, TypeError):
+                payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"status": "failed", "error": "No locked machine roster found"}
+        payload = await self._load_machine_research_cards(video_id, payload, roster)
+        verdicts: dict[str, Optional[dict]] = {}
+        try:
+            rows = await fetch_all(
+                "SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
+                self.tenant_id, video_id,
+            )
+            for row in rows or []:
+                if isinstance(row, dict):
+                    key = _normalized_unit_code(str(row.get("machine_key") or ""))
+                    if key:
+                        verdicts[key] = _card_readiness_from_validation(row.get("validation"))
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("[orchestrator] dashboard verdict read unavailable: %s", str(exc)[:150])
+        previews = payload.get("machine_script_previews")
+        previews = previews if isinstance(previews, dict) else {}
+        units: list[dict] = []
+        ready_count = 0
+        for machine in roster:
+            code = _normalized_unit_code(machine)
+            verdict = verdicts.get(code)
+            card = _research_card_for_machine(payload, machine)
+            package = _verified_source_package_for_machine(payload, machine)
+            if package is not None:
+                package = _verified_machine_source_package_with_anton_metadata(package, machine)
+            passed = bool((verdict or {}).get("passed"))
+            state = "ready" if passed else ("needs_research" if card is None else "needs_repair")
+            if passed:
+                ready_count += 1
+            suggestion = None
+            if not passed:
+                plan = _classify_repair_actions(machine, card, package)
+                if plan:
+                    suggestion = {k: plan[0].get(k) for k in ("verb", "excerpt_id", "kind", "field", "focus", "reason") if plan[0].get(k)}
+            preview = previews.get(code) if isinstance(previews.get(code), dict) else None
+            units.append({
+                "machine": machine,
+                "state": state,
+                "warnings": ((verdict or {}).get("warnings") or [])[:4],
+                "suggested_action": suggestion,
+                "preview": (
+                    {
+                        "passed": bool(preview.get("passed")),
+                        "word_count": preview.get("word_count"),
+                    } if preview else None
+                ),
+            })
+        report = payload.get("roster_orchestrator_report")
+        report = report if isinstance(report, dict) else {}
+        return {
+            "status": "completed",
+            "video_id": video_id,
+            "ready": ready_count,
+            "total": len(roster),
+            "est_spend_usd_total": float(report.get("est_spend_usd_total") or 0.0),
+            "last_run": {
+                k: report.get(k) for k in ("ran_at", "attempted", "cleared", "alerts", "budget_breached")
+                if k in report
+            } if report else None,
+            "units": units,
         }
 
     async def run_unit_research(self, video_id: str) -> dict:
