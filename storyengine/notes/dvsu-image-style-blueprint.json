@@ -1,0 +1,77 @@
+{
+  "blueprint_name": "dvsu_white_studio_machine_v1",
+  "extracted_from": "Ryan-supplied model image 2026-07-15 (Tupolev SB bomber render, bare-metal, red stars, tail 1/13)",
+  "style_exemplars": [
+    {
+      "category": "aircraft",
+      "file": "/Users/ryanayler/Desktop/Designed vs used/STYLE/model-image-01_Plane.png",
+      "subject": "Tupolev SB bomber, bare metal, red stars, tail 1/13",
+      "resolution": "2752x1536"
+    },
+    {
+      "category": "warship",
+      "file": "/Users/ryanayler/Desktop/Designed vs used/STYLE/Model Image 2_Battleship.png",
+      "subject": "British aircraft carrier (filename says Battleship; the ship is a carrier - keyed as generic warship exemplar)",
+      "notes": "hull presented dry at the waterline with black boot-topping, no water; low three-quarter bow view; shadow even subtler than aircraft exemplar"
+    },
+    {
+      "category": "helicopter",
+      "file": "/Users/ryanayler/Desktop/Designed vs used/STYLE/Model Image 3_Helicopter.jpeg",
+      "subject": "Hughes YAH-64 prototype, US Army, real museum-style studio photograph",
+      "notes": "backdrop reads slightly warmer gray than the renders - acceptable range; MAIN ROTOR BLADES MAY RUN PAST THE FRAME EDGES, fuselage fully framed is the rule; visible floor-to-wall studio falloff acceptable"
+    }
+  ],
+  "exemplar_selection_rule": "pass the exemplar matching the machine's category (aircraft/warship/helicopter); for tanks and vehicles (no exemplar yet) use the aircraft exemplar for tone plus the JSON contract",
+  "purpose": "Style contract for every DvsU unit image. Send this JSON + the style exemplar image + the machine's verified historical reference photo to GPT Image 2. JSON controls STYLE; the reference photo controls IDENTITY/ACCURACY; the machine brief controls configuration.",
+  "subject": {
+    "count": "exactly one machine, the specific named variant from the Graphics List brief",
+    "placement": "centered, hull/fuselage fully in frame; exception: helicopter main-rotor blades may extend past the frame edges (see helicopter exemplar)",
+    "frame_fill": "70-80 percent of frame width",
+    "pose": "static, wheels/hull grounded as if parked in a studio; landing gear down for aircraft on the ground"
+  },
+  "camera": {
+    "angle": "three-quarter front view, from the machine's front-left or front-right",
+    "elevation": "slightly elevated, roughly 20-30 degrees above the horizon line",
+    "lens": "medium telephoto look (~85-135mm equivalent), minimal perspective distortion, everything in sharp focus",
+    "orientation": "landscape 16:9"
+  },
+  "background": {
+    "type": "seamless white studio cyclorama, no visible horizon seam",
+    "tone": "clean near-white with a barely perceptible cool gray falloff toward edges, never pure clipped #FFFFFF everywhere",
+    "elements": "nothing else: no sky, no terrain, no hangar, no props"
+  },
+  "ground_and_shadow": {
+    "surface": "implied white studio floor, same tone as background",
+    "shadow": "single soft contact shadow directly beneath the machine, tight spread, low opacity, softly diffused edges",
+    "reflections": "none or barely perceptible; matte floor, not glossy showroom"
+  },
+  "lighting": {
+    "scheme": "high-key soft studio lighting, large overhead softbox feel",
+    "key_direction": "gentle top-front key, near-shadowless sides",
+    "speculars": "controlled soft highlights on metal surfaces, no blown hotspots"
+  },
+  "rendering": {
+    "style": "photorealistic, museum-grade product photography of the real machine",
+    "detail": "visible panel lines, rivets, fasteners, canopy framing; crisp identifying details",
+    "wear": "light, historically plausible surface variation; not factory-CGI-clean, not battle-damaged",
+    "banned_looks": ["toy or scale-model appearance", "video-game asset", "cartoon", "motion blur", "dramatic backlight"]
+  },
+  "markings": {
+    "rule": "only historically accurate insignia, codes, and stencils for the exact variant, operator, and year in the brief",
+    "monetization_rule": "German WWII machines carry the Balkenkreuz, never the swastika"
+  },
+  "exclusions": [
+    "no people",
+    "no stands, jacks, cradles, or display mounts",
+    "no text overlays, watermarks, captions, or logos added to the image",
+    "no weapons-impact damage, casualties, or combat scene elements",
+    "no second machine, vehicles, or background props"
+  ],
+  "per_machine_slots": {
+    "designation": "full designation and variant, e.g. 'Boeing B-17G Flying Fortress'",
+    "configuration_year": "year or configuration state to depict",
+    "operator": "nation + service branch for correct markings",
+    "error_prone_details": "engine count, prop/rotor config, turret shapes, canopy style, era-correct equipment for THIS variant",
+    "reference_photo": "verified historical reference image (Wikimedia static_reference_cache), passed as an input image alongside the style exemplar"
+  }
+}
