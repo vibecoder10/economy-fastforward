@@ -5668,6 +5668,112 @@ def test_reused_card_save_restamps_segment_provenance(monkeypatch):
         assert isinstance(segment["source_variant_selection"], dict)
 
 
+def _support_kind_segments(machine: str) -> list[dict]:
+    """Base evidence plus one timeframe-kind and one visual_identity-kind support segment."""
+    return _evidence_segments() + [
+        {
+            "evidence_id": "E-TIMEFRAME",
+            "kind": "timeframe",
+            "claim": f"{machine} first flew in October 1937 and entered testing.",
+            "source_excerpt": f"{machine} first flew in October 1937 and entered testing.",
+            "source_url": "https://airandspace.si.edu/test/timeframe",
+            "source_title": "Test source",
+            "locator": "S9-E1",
+            "numeric_tokens": ["1937"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "E-VISUAL",
+            "kind": "visual_identity",
+            "claim": f"{machine} was a mid wing monoplane with retractable landing gear.",
+            "source_excerpt": f"{machine} was a mid wing monoplane with retractable landing gear.",
+            "source_url": "https://airandspace.si.edu/test/visual",
+            "source_title": "Test source",
+            "locator": "S10-E1",
+            "numeric_tokens": [],
+            "confidence": "high",
+        },
+    ]
+
+
+def test_timeframe_and_visual_identity_support_kinds_are_legal():
+    """Ruling 2026-07-16: the contract REQUIRES timeframe/visual_identity evidence
+    citations, so segments carrying that evidence are legal OPTIONAL support kinds.
+    They map to their own roles, normalize without 'unsupported Anton slot kind'
+    errors, and stay OUT of the required four-beat roles."""
+    machine = "Boeing XB-15"
+
+    # kind -> role map (the fix itself), including the context aliases.
+    assert pe._anton_slot_role_for_kind("timeframe") == "timeframe"
+    assert pe._anton_slot_role_for_kind("timeframe_context") == "timeframe"
+    assert pe._anton_slot_role_for_kind("visual_identity") == "visual_identity"
+    assert pe._anton_slot_role_for_kind("visual_identity_context") == "visual_identity"
+    assert pe._anton_slot_role_for_kind("visual_description") == "visual_identity"
+    # Never required; "spec" stays illegal.
+    assert "timeframe" not in pe._ANTON_REQUIRED_SLOT_ROLES
+    assert "visual_identity" not in pe._ANTON_REQUIRED_SLOT_ROLES
+    assert pe._anton_slot_role_for_kind("spec") is None
+
+    evidence, errors = pe._normalize_machine_evidence(
+        {"evidence_segments": _support_kind_segments(machine)}, machine
+    )
+    assert errors == []
+    roles = {segment["evidence_id"]: segment["slot_role"] for segment in evidence}
+    assert roles["E-TIMEFRAME"] == "timeframe"
+    assert roles["E-VISUAL"] == "visual_identity"
+
+    # The package-quality coverage gate must not start demanding the new kinds.
+    coverage = pe._anton_source_slot_coverage([], machine)
+    assert set(coverage["required_slots"]) == pe._ANTON_REQUIRED_SLOT_ROLES
+
+    # Per-field tier gate treats these segments like any cited evidence:
+    # a timeframe field cited ONLY by a Tier-4 timeframe-kind segment still blocks.
+    tier4_segment = {"kind": "timeframe", "source_url": "https://en.wikipedia.org/wiki/x", "source_tier": 4}
+    assert pe._cited_evidence_tier_warning("timeframe", ["E-T4"], {"E-T4": tier4_segment})
+
+
+def test_support_kind_segments_ground_and_cite_their_matching_fields():
+    """A card whose timeframe/visual_identity words live ONLY in the new support
+    segments passes the referee: the fields cite them, their text participates in
+    grounding, the auto-citer picks them, and the story plan slots them as
+    optional (required beats unchanged)."""
+    machine = "Boeing XB-15"
+    segments = _support_kind_segments(machine)
+    card = _valid_research_card(
+        machine,
+        segments,
+        timeframe=f"{machine} first flew in October 1937 and entered testing.",
+        timeframe_evidence_ids=["E-TIMEFRAME"],
+        visual_identity=f"{machine} was a mid wing monoplane with retractable landing gear.",
+        visual_identity_evidence_ids=["E-VISUAL"],
+    )
+
+    # Accepted end to end: no kind errors, no grounding/number/citation warnings.
+    assert pe._research_card_contract_warnings(machine, card) == []
+
+    # The deterministic auto-citer can now select the support segments for
+    # their matching fields when the model returns empty citation lists.
+    stripped = copy.deepcopy(card)
+    stripped["timeframe_evidence_ids"] = []
+    stripped["visual_identity_evidence_ids"] = []
+    recited = pe._normalize_card_field_citations(stripped, machine)
+    assert "E-TIMEFRAME" in recited["timeframe_evidence_ids"]
+    assert "E-VISUAL" in recited["visual_identity_evidence_ids"]
+
+    # Story plan and script-brief rendering handle the new roles: optional
+    # slots carry the segments, the required four beats are unchanged.
+    plan = pe._machine_story_plan({"unit_research_cards": [card]}, machine)
+    slots_by_role = {slot["slot"]: slot for slot in plan["slots"]}
+    assert slots_by_role["timeframe"]["required"] is False
+    assert slots_by_role["visual_identity"]["required"] is False
+    assert slots_by_role["timeframe"]["evidence_ids"] == ["E-TIMEFRAME"]
+    assert slots_by_role["visual_identity"]["evidence_ids"] == ["E-VISUAL"]
+    assert sorted(plan["required_slots"]) == sorted(pe._ANTON_REQUIRED_SLOT_ROLES)
+    brief = pe._inventory_story_brief({"unit_research_cards": [card]}, machine)
+    brief_slots = {row["slot"] for row in brief["anton_slots"]}
+    assert {"timeframe", "visual_identity"} <= brief_slots
+
+
 def test_machine_preview_readiness_route_returns_review_status(monkeypatch):
     import routes.pipeline as route
 

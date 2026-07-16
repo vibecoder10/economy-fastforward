@@ -1008,6 +1008,12 @@ _ANTON_SLOT_SPECS = (
     ("human_detail", ("human_detail", "human_account", "named_person_detail"), "Optional named human detail or official finding; use only when directly sourced and attributed."),
     ("transition_hook", ("transition_hook",), "Optional bridge to the previous or next machine; never required for standalone preview quality."),
     ("onscreen_label", ("onscreen_label",), "On-screen metadata ingredients: full name, concise role, operator or build count, and service/date range; never spoken narration."),
+    # Support slots for the two required CARD FIELDS (ruling 2026-07-16): the
+    # contract demands timeframe_evidence_ids / visual_identity_evidence_ids,
+    # so segments carrying that evidence must be legal kinds. Optional, never
+    # narrative beats, never added to _ANTON_REQUIRED_SLOT_ROLES.
+    ("timeframe", ("timeframe", "timeframe_context"), "Optional sourced dated anchor - first flight, service entry, or retirement - supporting the timeframe field; not a narrative beat."),
+    ("visual_identity", ("visual_identity", "visual_identity_context", "visual_description"), "Optional sourced description of the machine's visible configuration supporting the visual_identity field; not a narrative beat."),
 )
 
 
@@ -6297,7 +6303,7 @@ class PipelineExecutor:
                 "visual_identity is Producer File/image-brief basis only, never spoken narration: state the exact visible machine features that make the locked unit unmistakable, and cite them with visual_identity_evidence_ids.\n"
                 "visual_identity may describe only what is visible on the machine; do not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions.\n"
                 "timeframe_evidence_ids and visual_identity_evidence_ids must each cite at least one SOURCE_TIER 1-3 excerpt when the package provides one for that fact; Tier 4/caution rows may support but never be the only citation.\n"
-                "timeframe and visual_identity are CARD FIELDS, never segment kinds: cite EXISTING evidence segments (of any valid Anton kind) via the *_evidence_ids arrays. NEVER create an evidence segment whose kind is timeframe, visual_identity, or spec.\n"
+                "timeframe and visual_identity are CARD FIELDS cited via the *_evidence_ids arrays. Prefer citing existing narrative-beat segments; when the dated anchor or visible-configuration excerpt fits no narrative beat, you MAY return an optional support segment with kind timeframe or visual_identity to carry it. Support segments never replace or count toward the required four-beat kinds. NEVER create an evidence segment whose kind is spec.\n"
                 "timeframe and visual_identity text must each name the locked machine's designation explicitly (for example start with it), and may use only factual words and numbers that appear inside the returned evidence_segments (any segment's claim or source_excerpt, not only the cited ones) - if no evidence segment contains the month name, do not write the month.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
@@ -6367,7 +6373,7 @@ class PipelineExecutor:
                     "Return visual_identity plus visual_identity_evidence_ids; visual_identity is Producer File/image-brief basis only, never spoken narration. "
                     "It must state exact visible machine features from cited evidence IDs and must not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions. "
                     "timeframe_evidence_ids and visual_identity_evidence_ids must each cite at least one SOURCE_TIER 1-3 excerpt when the package provides one for that fact; Tier 4/caution rows may support but never be the only citation. "
-                    "timeframe and visual_identity are CARD FIELDS, never segment kinds: cite EXISTING evidence segments (of any valid Anton kind) via the *_evidence_ids arrays; NEVER create an evidence segment whose kind is timeframe, visual_identity, or spec. "
+                    "timeframe and visual_identity are CARD FIELDS cited via the *_evidence_ids arrays; prefer citing existing narrative-beat segments, but when the dated anchor or visible-configuration excerpt fits no narrative beat you MAY return an optional support segment with kind timeframe or visual_identity to carry it; support segments never replace or count toward the required four-beat kinds; NEVER create an evidence segment whose kind is spec. "
                     "timeframe and visual_identity text must each name the locked machine's designation explicitly, and may use only factual words and numbers that appear inside the returned evidence_segments (any segment's claim or source_excerpt, not only the cited ones) - if no evidence segment contains the month name, do not write the month. "
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, unrelated visual metadata, or script beats. "

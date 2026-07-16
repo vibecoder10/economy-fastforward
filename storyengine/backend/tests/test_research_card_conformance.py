@@ -71,7 +71,7 @@ _GOLDEN_XB15 = [
 ]
 
 # Fails across multiple families: empty thesis, ungrounded visual/timeframe,
-# bad segment kinds, and a slot-map mismatch.
+# missing memorable fact, and a slot-map mismatch.
 _GOLDEN_B17 = [
     "missing/weak engineering_thesis",
     "visual_identity must be specific to the locked machine",
@@ -80,8 +80,22 @@ _GOLDEN_B17 = [
     "timeframe must be specific to the locked machine",
     "timeframe contains detail(s) not grounded in evidence segments: entered",
     "timeframe introduced unsupported numerical detail(s): 1937",
-    "evidence segment B17-E2 has unsupported Anton slot kind: timeframe",
-    "evidence segment B17-E4 has unsupported Anton slot kind: visual_identity",
+    # Gold re-pinned for the support-kind ruling (2026-07-16), 10 -> 9 warnings:
+    # - REMOVED "B17-E2 has unsupported Anton slot kind: timeframe" and
+    #   "B17-E4 has unsupported Anton slot kind: visual_identity": timeframe and
+    #   visual_identity are now legal OPTIONAL support kinds in _ANTON_SLOT_SPECS
+    #   (the contract requires *_evidence_ids, so segments carrying that evidence
+    #   must be legal kinds; they stay OUT of _ANTON_REQUIRED_SLOT_ROLES).
+    # - ADDED the memorable_fact line below: UNMASKED, not new. That gate is
+    #   skipped while evidence_errors is non-empty; the two kind errors were
+    #   B17's ONLY evidence errors, and the card genuinely has no
+    #   memorable_fact/surprising_fact/retention_fact segment (kinds present:
+    #   original_problem, timeframe, engineering_decision x2, visual_identity,
+    #   tradeoff, reality x3). The other unmasked evidence-gated checks stay
+    #   quiet: Tier 1-2 selected evidence exists and all four required
+    #   story-plan beats are covered.
+    # - All other lines unchanged.
+    "missing sourced memorable_fact evidence segment",
     "evidence segment B17-E1 maps original_problem to raw excerpt S2-E3 hinted for engineering_decision",
 ]
 
@@ -105,7 +119,7 @@ def test_conformance_xb15_two_visual_identity_warnings():
 
 
 def test_conformance_b17_fails_across_families():
-    """Boeing B-17: fails across thesis / visual / timeframe / segment-kind / slot-map."""
+    """Boeing B-17: fails across thesis / visual / timeframe / memorable-fact / slot-map."""
     row = _CARD_B17
     warnings = pe._research_card_contract_warnings(
         row["machine_name"], row["card"], _package_for("B17"), require_source_package=True
