@@ -9046,3 +9046,52 @@ def test_repair_mechanics_hedges_gate_starved_numbers_and_digitizes_years():
     }
     bare_repaired = pe._repair_machine_story_bundle_mechanics(machine, plan, bare_bundle)
     assert "roughly one hundred eighty five" in bare_repaired["claim_map"][0]["span"]
+
+
+def test_softener_softens_determiner_guarded_ordinal_first():
+    softened = pe._soften_single_source_span(
+        "Its first bombing mission with the RAF revealed the design was hardly ready.",
+        "Boeing B-17 Flying Fortress",
+    )
+    assert "first" not in softened.lower()
+    assert "Its early bombing mission" in softened
+    # Verb-phrase "first flew in <year>" keeps its dedicated rewrite.
+    flew = pe._soften_single_source_span("The aircraft first flew in 1937.", "Boeing XB-15")
+    assert "flew around 1937" in flew and "early flew" not in flew
+
+
+def test_repair_mechanics_drops_wrong_slot_citations_for_formula_order():
+    """Writer pass 5: a sentence grounded by its expected slot loses blended
+    wrong-required-slot citations (provenance hygiene); a row is never left
+    citation-less and a sentence missing its expected role is untouched."""
+    machine = "B-52"
+    payload = {"unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, machine)
+    s1 = "The Air Corps needed range no fighter could escort."
+    s2 = "Engineers answered with eight paired engines."
+    bundle = {
+        "editorial_thesis": "Range demanded engines nobody could escort or afford.",
+        "formula_sentences": [s1, s2],
+        "paragraph": f"{s1} {s2}",
+        "claim_map": [
+            {"span": s1, "slot": "original_problem", "used_evidence_ids": ["E-PROBLEM", "E-DECISION"]},
+            {"span": s2, "slot": "engineering_decision", "used_evidence_ids": ["E-DECISION"]},
+        ],
+    }
+    repaired = pe._repair_machine_story_bundle_mechanics(machine, plan, bundle)
+    assert repaired["claim_map"][0]["used_evidence_ids"] == ["E-PROBLEM"]
+    assert repaired["claim_map"][0]["slot"] == "original_problem"
+    # Sentence 2's own engineering_decision citation is untouched.
+    assert repaired["claim_map"][1]["used_evidence_ids"] == ["E-DECISION"]
+
+    # A row citing ONLY the wrong slot keeps its ids (never strand a span).
+    stranded = {
+        "editorial_thesis": "Range demanded engines nobody could escort or afford.",
+        "formula_sentences": [s1],
+        "paragraph": s1,
+        "claim_map": [
+            {"span": s1, "slot": "original_problem", "used_evidence_ids": ["E-DECISION"]},
+        ],
+    }
+    stranded_repaired = pe._repair_machine_story_bundle_mechanics(machine, plan, stranded)
+    assert stranded_repaired["claim_map"][0]["used_evidence_ids"] == ["E-DECISION"]

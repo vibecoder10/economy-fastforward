@@ -3962,6 +3962,15 @@ def _soften_single_source_span(span: str, machine: str) -> str:
     updated = re.sub(r"\bthe largest\b", "a large", updated, flags=re.IGNORECASE)
     updated = re.sub(r"\blargest\b", "large", updated, flags=re.IGNORECASE)
     updated = re.sub(r"\bfastest\b", "fast", updated, flags=re.IGNORECASE)
+    # Writer pass 5: soften a determiner-guarded ordinal "first" ("its first
+    # bombing mission" -> "its early bombing mission"). The guard keeps verb
+    # phrases ("first flew ...") for the dedicated rules above.
+    updated = re.sub(
+        r"\b(its|the|their|a|his|her)\s+first\b",
+        r"\1 early",
+        updated,
+        flags=re.IGNORECASE,
+    )
     updated = re.sub(r"\bnever\b", "did not", updated, flags=re.IGNORECASE)
     updated = re.sub(r"\bonly\b\s*", "", updated, flags=re.IGNORECASE)
     if _span_numeric_mentions_without_locked_designation(updated, machine) and not _HEDGE_WORDS_RE.search(
@@ -4114,6 +4123,58 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
                     repaired_paragraph = repaired_paragraph.replace(span, softened, 1)
                     repaired["span"] = softened
         repaired_rows.append(repaired)
+
+    # Writer pass 5: citation hygiene for formula order. The writer blends a
+    # neighboring required slot's id into a sentence it already grounds with
+    # the expected slot; the frozen order gate then reads the sentence as
+    # out-of-order. Dropping the wrong-slot citation is provenance metadata
+    # only (word/number grounding is graded plan-wide) and enforces the gate's
+    # own "span cites only its real source slot" law. Never drops a row's
+    # last id and never touches a sentence missing its expected role.
+    formula_roles = ("original_problem", "engineering_decision", "tradeoff", "reality")
+    sentence_parts = _resplit_story_sentences(repaired_paragraph)
+    rows_by_sentence: dict[int, list[dict]] = {}
+    for row in repaired_rows:
+        if not isinstance(row, dict):
+            continue
+        row_span = " ".join(str(row.get("span") or "").split())
+        if not row_span:
+            continue
+        sentence_index = next(
+            (
+                idx for idx, sentence in enumerate(sentence_parts, start=1)
+                if row_span == sentence or row_span in sentence
+            ),
+            None,
+        )
+        if sentence_index and sentence_index <= len(formula_roles):
+            rows_by_sentence.setdefault(sentence_index, []).append(row)
+    for sentence_index, sentence_rows in rows_by_sentence.items():
+        expected_role = formula_roles[sentence_index - 1]
+        cited_roles = {
+            role_by_id.get(str(item))
+            for row in sentence_rows
+            for item in (row.get("used_evidence_ids") or row.get("evidence_ids") or [])
+        }
+        misplaced_roles = {
+            role for role in cited_roles
+            if role in _ANTON_REQUIRED_SLOT_ROLES and role != expected_role
+        }
+        if expected_role not in cited_roles or not misplaced_roles:
+            continue
+        for row in sentence_rows:
+            ids_key = "used_evidence_ids" if isinstance(row.get("used_evidence_ids"), list) else (
+                "evidence_ids" if isinstance(row.get("evidence_ids"), list) else None
+            )
+            if not ids_key:
+                continue
+            row_ids = [str(item) for item in row[ids_key] if str(item).strip()]
+            kept = [item for item in row_ids if role_by_id.get(item) not in misplaced_roles]
+            if kept and len(kept) < len(row_ids):
+                row[ids_key] = kept
+                kept_roles = {role_by_id[item] for item in kept if item in role_by_id}
+                if len(kept_roles) == 1:
+                    row["slot"] = next(iter(kept_roles))
 
     # Catch spelled years the claim map never covered (rows already normalized
     # in place, so this only touches text outside the mapped spans).
