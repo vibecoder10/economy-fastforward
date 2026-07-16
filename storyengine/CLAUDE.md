@@ -10,8 +10,13 @@ frontend port 3001. Goal: first 10 paying customers actually using it.
    token into `frontend/.env.local`), then the dev server (launch.json name
    `storyengine`, port 3001). It auto-logs-in as Ryan against the PROD API -
    authed pages render with real data. Walk the changed flow per gate.
-2. **Code checks:** backend `python3 -m py_compile <files>` + tests in
-   `backend/tests/`; frontend `npx tsc --noEmit` + `npm run build`.
+2. **Code checks:** backend tests run with the backend venv, NOT system
+   python3 (that's 3.9, the suite needs 3.10+ and will refuse with a clear
+   error): `cd backend && ./venv/bin/python -m pytest tests/ -q`. Create the
+   venv once: `python3.11 -m venv venv && ./venv/bin/pip install -r
+   requirements.txt -r requirements-test.txt`. Full-run results match
+   per-file runs (tests/conftest.py isolates each file's stubs - keep it).
+   Frontend `npx tsc --noEmit` + `npm run build`.
 3. **Deploy** (ask Ryan first - live system): push main from the LOCAL Mac,
    then `scripts/se.sh deploy <session-name> [--with-frontend]`. Honors
    ~/deploy.lock; `--force` only on a stale (>2h) lock.

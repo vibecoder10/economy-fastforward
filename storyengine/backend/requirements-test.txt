@@ -1,0 +1,19 @@
+# Test-only dependencies for storyengine/backend. Runtime deps live in
+# requirements.txt. Local setup (needs Python 3.10+, tests use 3.10 syntax):
+#   python3.11 -m venv venv
+#   ./venv/bin/pip install -r requirements.txt -r requirements-test.txt
+#   ./venv/bin/python -m pytest tests/ -q
+pytest
+pytest-asyncio
+# anthropic is imported lazily by backend code (claude_orchestrator,
+# kie_unified, ...) and directly by some tests; on the VPS it is installed
+# outside requirements.txt, so tests need it declared here.
+anthropic
+# Some tests import skills/video-pipeline/shared/clients, whose __init__
+# pulls in all of these.
+pyairtable
+slack_sdk
+google-api-python-client
+google-auth
+google-auth-oauthlib
+apify-client
