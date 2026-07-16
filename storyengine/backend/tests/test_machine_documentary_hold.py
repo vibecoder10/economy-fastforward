@@ -7308,3 +7308,26 @@ def test_dvsu_machine_preflight_supabase_rest_uses_read_only_resolve(monkeypatch
     assert "tenant_id=eq.tenant-test" in url_arg
     assert "-H" in captured["cmd"]
     assert "apikey: service-key" in captured["cmd"]
+
+
+def test_normalize_card_field_citations_drops_dangling_and_remaps():
+    """Regression: XB-15 attempt 4 (2026-07-16) cited package EXCERPT_IDs
+    (S4-E5, S1-E7) never returned as segments; the UI then blocked with
+    'Timeframe evidence missing'. Bookkeeping is code's job."""
+    card = {
+        "timeframe_evidence_ids": ["S4-E5", "S4-E9", "S1-E7"],
+        "visual_identity_evidence_ids": ["S9-E1"],
+        "evidence_segments": [
+            {"evidence_id": "S4-E9", "source_excerpt_id": "S4-E9"},
+            {"evidence_id": "S3-E4", "source_excerpt_id": "S3-E4"},
+            {"evidence_id": "V1", "source_excerpt_id": "S9-E1"},
+        ],
+    }
+    out = pe._normalize_card_field_citations(card)
+    assert out["timeframe_evidence_ids"] == ["S4-E9"]
+    assert out["visual_identity_evidence_ids"] == ["V1"]
+    # An all-dangling list empties out so validators warn; never invented.
+    empty = pe._normalize_card_field_citations(
+        {"timeframe_evidence_ids": ["NOPE"], "evidence_segments": [{"evidence_id": "E1", "source_excerpt_id": "X1"}]}
+    )
+    assert empty["timeframe_evidence_ids"] == []

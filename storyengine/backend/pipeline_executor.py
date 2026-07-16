@@ -2098,6 +2098,49 @@ def _paragraph_worth_warnings(machine: str, paragraph_worth: str) -> list[str]:
     return warnings
 
 
+def _normalize_card_field_citations(card: dict) -> dict:
+    """Deterministically remap or drop dangling *_evidence_ids citations.
+
+    Models routinely cite package EXCERPT_IDs they never returned as segments
+    (XB-15 attempt 4, 2026-07-16: timeframe cited S4-E5/S1-E7 which matched no
+    segment). Bookkeeping is code's job, not the model's: remap a dangling ID
+    to the segment carrying that source_excerpt_id when one exists, otherwise
+    drop it. Never invents citations; an emptied list is left for the
+    validators so the repair pass hears a precise warning."""
+    if not isinstance(card, dict):
+        return card
+    segments = card.get("evidence_segments")
+    if not isinstance(segments, list):
+        return card
+    valid_ids = {
+        str(segment.get("evidence_id") or "").strip()
+        for segment in segments
+        if isinstance(segment, dict) and str(segment.get("evidence_id") or "").strip()
+    }
+    excerpt_to_evidence: dict[str, str] = {}
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        excerpt_id = str(segment.get("source_excerpt_id") or "").strip()
+        evidence_id = str(segment.get("evidence_id") or "").strip()
+        if excerpt_id and evidence_id and excerpt_id not in excerpt_to_evidence:
+            excerpt_to_evidence[excerpt_id] = evidence_id
+    for field in ("timeframe_evidence_ids", "visual_identity_evidence_ids"):
+        cited = card.get(field)
+        if not isinstance(cited, list):
+            continue
+        cleaned: list[str] = []
+        for item in cited:
+            token = str(item or "").strip()
+            if not token:
+                continue
+            mapped = token if token in valid_ids else excerpt_to_evidence.get(token, "")
+            if mapped and mapped not in cleaned:
+                cleaned.append(mapped)
+        card[field] = cleaned
+    return card
+
+
 def _cited_evidence_tier_warning(
     field: str,
     cited_ids: list[str],
@@ -6245,6 +6288,7 @@ class PipelineExecutor:
                     text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
                 card = _hydrate_compatibility_fields(_json_uh.loads(text))
                 card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
+                card = _normalize_card_field_citations(card)
                 warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
@@ -6305,6 +6349,7 @@ class PipelineExecutor:
                         text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
                     card = _hydrate_compatibility_fields(_json_uh.loads(text))
                     card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
+                    card = _normalize_card_field_citations(card)
                     warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
