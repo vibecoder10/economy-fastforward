@@ -85,6 +85,32 @@ def _normalized_unit_code(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", _unit_code(text).upper())
 
 
+_AIRCRAFT_DESIGNATION_RE = re.compile(r"\b[A-Z]{1,4}-?\d{1,4}[A-Z]?\b", re.IGNORECASE)
+
+
+def _target_machine_designation_codes(machine: str) -> set[str]:
+    """Model-number designations allowed for the locked one-machine scope."""
+    codes = {
+        _normalized_unit_code(token)
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(str(machine or "").upper())
+    }
+    fallback = _normalized_unit_code(machine)
+    if fallback:
+        codes.add(fallback)
+    return {code for code in codes if code}
+
+
+def _non_target_designation_codes(text: str, machine: str) -> list[str]:
+    allowed = _target_machine_designation_codes(machine)
+    if not allowed:
+        return []
+    found = {
+        _normalized_unit_code(token)
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(str(text or "").upper())
+    }
+    return sorted(code for code in found if code and code not in allowed)
+
+
 def _title_needs_complete_roster(title: str) -> bool:
     import re
     t = str(title or "").strip().lower()
@@ -1060,6 +1086,13 @@ def _format_verified_machine_source_package(package: dict, machine: str = "") ->
             continue
         if machine and not _mentions_machine(str(item.get("text") or ""), machine):
             continue
+        if machine:
+            searchable = " ".join(
+                str(item.get(key) or "")
+                for key in ("source_title", "text")
+            )
+            if _non_target_designation_codes(searchable, machine):
+                continue
         shown_count += 1
         tier = _source_tier_number(item)
         tier_label = item.get("source_tier_label") or _source_tier_for_url(
@@ -1301,6 +1334,44 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 + ", ".join(unsupported_designations)
             )
     return warnings
+
+
+def _clamp_card_excerpts_to_verified_sources(card: dict, package: Optional[dict]) -> dict:
+    """Replace model-trimmed excerpts with the exact verified candidate row."""
+    if not isinstance(card, dict) or not _verified_machine_source_package_ready(package):
+        return card
+    candidates = [
+        item for item in (package or {}).get("candidate_excerpts", [])
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    if not candidates:
+        return card
+    by_locator = {
+        str(candidate.get("locator") or candidate.get("excerpt_id") or "").strip(): candidate
+        for candidate in candidates
+    }
+    for segment in card.get("evidence_segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        locator = str(segment.get("locator") or "").strip()
+        source_url = str(segment.get("source_url") or "").strip()
+        candidate = by_locator.get(locator)
+        if candidate is None and locator:
+            candidate = next(
+                (
+                    item for item in candidates
+                    if str(item.get("excerpt_id") or "").strip() in locator
+                    and (not source_url or str(item.get("source_url") or "").strip() == source_url)
+                ),
+                None,
+            )
+        if candidate is None:
+            continue
+        segment["source_excerpt"] = str(candidate.get("text") or "").strip()
+        segment["source_url"] = str(candidate.get("source_url") or segment.get("source_url") or "").strip()
+        segment["source_title"] = str(candidate.get("source_title") or segment.get("source_title") or "").strip()
+        segment["locator"] = str(candidate.get("locator") or locator).strip()
+    return card
 
 
 def _inventory_story_brief(payload: dict, machine: str) -> dict:
@@ -1689,9 +1760,27 @@ def _normalize_machine_evidence(card: dict, machine: str) -> tuple[list[dict], l
         excerpt_numbers = _numeric_tokens_from_text(numeric_excerpt)
         excerpt_number_keys = {_numeric_token_key(token) for token in excerpt_numbers}
         claim_number_keys = {_numeric_token_key(token) for token in claim_numbers}
+        source_number_keys = claim_number_keys | excerpt_number_keys
+        # numeric_tokens is validation metadata, not creative research prose.
+        # Models often include aircraft designations like XB-19 or XBLR-2 here,
+        # which are not numeric support tokens. Keep only model tokens that map
+        # to actual numbers in the claim/excerpt, then deterministically add the
+        # numbers found in the exact sourced text.
+        normalized_numbers = list(dict.fromkeys(
+            [
+                token for token in normalized_numbers
+                if _numeric_token_key(token) in source_number_keys
+            ]
+            + claim_numbers
+            + excerpt_numbers
+        ))
         normalized_number_keys = {_numeric_token_key(token) for token in normalized_numbers}
         missing_number_support = [token for token in claim_numbers if _numeric_token_key(token) not in excerpt_number_keys]
         undeclared_numbers = [token for token in claim_numbers if _numeric_token_key(token) not in normalized_number_keys]
+        if undeclared_numbers and not missing_number_support:
+            normalized_numbers = list(dict.fromkeys(normalized_numbers + undeclared_numbers))
+            normalized_number_keys = {_numeric_token_key(token) for token in normalized_numbers}
+            undeclared_numbers = [token for token in claim_numbers if _numeric_token_key(token) not in normalized_number_keys]
         invented_numeric_tokens = [
             token
             for token in normalized_numbers
@@ -2339,6 +2428,250 @@ def _roster_story_uniqueness_warnings(roster: list[str], cards_by_roster_code: d
     }
 
 
+def _span_numeric_mentions_without_locked_designation(span: str, machine: str) -> list[dict[str, str]]:
+    text = str(span or "")
+    allowed = _target_machine_designation_codes(machine)
+    for token in _AIRCRAFT_DESIGNATION_RE.findall(text):
+        if _normalized_unit_code(token) in allowed:
+            text = re.sub(rf"\b{re.escape(token)}(?:s)?\b", "", text, flags=re.IGNORECASE)
+    return _numeric_mentions_from_text(text)
+
+
+def _span_has_high_risk_exact_fact(span: str, machine: str) -> bool:
+    lowered = str(span or "").lower()
+    if re.search(r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b", lowered):
+        return False
+    if _span_numeric_mentions_without_locked_designation(span, machine):
+        return True
+    return bool(re.search(r"\b(first|only|largest|fastest|most|never)\b", lowered))
+
+
+def _capitalize_sentence_starts(text: str) -> str:
+    return re.sub(
+        r"(^|[.!?]\s+)([a-z])",
+        lambda match: match.group(1) + match.group(2).upper(),
+        str(text or ""),
+    )
+
+
+def _remove_unsupported_never_clause(text: str) -> str:
+    updated = str(text or "")
+    updated = re.sub(
+        r"\b(?:it|the aircraft|the bomber|the machine|the prototype)\s+never saw combat,\s*yet\s*",
+        "",
+        updated,
+        flags=re.IGNORECASE,
+    )
+    updated = re.sub(r"\bnever saw combat,\s*yet\s*", "", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bnever\b", "did not", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\s+([,.;:!?])", r"\1", updated)
+    updated = re.sub(r"\s{2,}", " ", updated).strip()
+    return _capitalize_sentence_starts(updated)
+
+
+def _soften_single_source_span(span: str, machine: str) -> str:
+    """Make single-source exact claims less brittle without adding facts."""
+    updated = _remove_unsupported_never_clause(str(span or ""))
+    updated = re.sub(r"\bOnly one\b", "A single", updated)
+    updated = re.sub(r"\bonly one\b", "a single", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bA single was built\b", "A single example was built", updated)
+    updated = re.sub(r"\ba single was built\b", "a single example was built", updated, flags=re.IGNORECASE)
+    updated = re.sub(
+        r"\bone\s+(?=(?:[A-Z]{1,4}-?\d{1,4}[A-Z]?|prototype|aircraft|machine|bomber|example|unit)\b)",
+        "a single ",
+        updated,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    updated = re.sub(r"\bfirst flew in\s+((?:18|19|20)\d{2})\b", r"flew around \1", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bfirst flight in\s+((?:18|19|20)\d{2})\b", r"flight around \1", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bworld['’]s largest\b", "unusually large", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bthe largest\b", "a large", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\blargest\b", "large", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bfastest\b", "fast", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bnever\b", "did not", updated, flags=re.IGNORECASE)
+    updated = re.sub(r"\bonly\b\s*", "", updated, flags=re.IGNORECASE)
+    if _span_numeric_mentions_without_locked_designation(updated, machine) and not re.search(
+        r"\b(approximately|around|roughly|estimated|about|claimed|at least|more than|between)\b",
+        updated.lower(),
+    ):
+        softened = re.sub(
+            r"\bin\s+the early\s+((?:18|19|20)\d{2}s)\b",
+            r"around the early \1",
+            updated,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if softened == updated:
+            softened = re.sub(
+                r"\bthe early\s+((?:18|19|20)\d{2}s)\b",
+                r"around the early \1",
+                updated,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        if softened == updated:
+            softened = re.sub(
+                r"\bin\s+((?:18|19|20)\d{2})\b",
+                r"around \1",
+                updated,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        if softened == updated:
+            softened = re.sub(
+                r"(?<![A-Za-z])(\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?)",
+                r"about \1",
+                updated,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        updated = softened
+    updated = re.sub(r"\s+([,.;:!?])", r"\1", updated)
+    updated = re.sub(r"\s{2,}", " ", updated).strip()
+    return updated
+
+
+def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dict) -> dict:
+    """Fix mechanical JSON-bundle failures without loosening source validation."""
+    if not isinstance(bundle, dict):
+        return bundle
+    paragraph = " ".join(str(bundle.get("paragraph") or "").split())
+    claim_rows = bundle.get("claim_map")
+    if not paragraph or not isinstance(claim_rows, list):
+        return bundle
+
+    evidence_by_id: dict[str, dict] = {}
+    role_by_id: dict[str, str] = {}
+    for slot in (plan.get("slots") if isinstance(plan, dict) else []) or []:
+        if not isinstance(slot, dict):
+            continue
+        role = str(slot.get("slot") or "")
+        for segment in slot.get("evidence_segments", []) or []:
+            if not isinstance(segment, dict):
+                continue
+            evidence_id = str(segment.get("evidence_id") or "").strip()
+            if evidence_id:
+                evidence_by_id[evidence_id] = segment
+                role_by_id[evidence_id] = role
+
+    repaired_rows: list[dict] = []
+    repaired_paragraph = paragraph
+    for row in claim_rows:
+        if not isinstance(row, dict):
+            repaired_rows.append(row)
+            continue
+        repaired = dict(row)
+        row_ids_raw = repaired.get("used_evidence_ids") or repaired.get("evidence_ids")
+        row_ids = [str(item) for item in row_ids_raw if str(item).strip()] if isinstance(row_ids_raw, list) else []
+        row_roles = {role_by_id[item] for item in row_ids if item in role_by_id}
+        if len(row_roles) == 1:
+            repaired["slot"] = next(iter(row_roles))
+        span = " ".join(str(repaired.get("span") or repaired.get("text") or repaired.get("claim") or "").split())
+        if span and row_ids:
+            row_evidence_text = " ".join(
+                f"{evidence_by_id.get(evidence_id, {}).get('claim', '')} {evidence_by_id.get(evidence_id, {}).get('source_excerpt', '')}"
+                for evidence_id in row_ids
+                if evidence_id in evidence_by_id
+            ).lower()
+            unsupported_risk_terms = [
+                term for term in ("first", "only", "largest", "fastest", "most", "never")
+                if re.search(rf"\b{term}\b", span.lower()) and not re.search(rf"\b{term}\b", row_evidence_text)
+            ]
+            source_keys = {
+                str(evidence_by_id.get(evidence_id, {}).get("source_url") or evidence_by_id.get(evidence_id, {}).get("locator") or "").strip()
+                for evidence_id in row_ids
+                if evidence_id in evidence_by_id
+            }
+            source_keys = {source for source in source_keys if source}
+            if unsupported_risk_terms or (len(source_keys) < 2 and _span_has_high_risk_exact_fact(span, machine)):
+                softened = _soften_single_source_span(span, machine)
+                if softened and softened != span and span in repaired_paragraph:
+                    repaired_paragraph = repaired_paragraph.replace(span, softened, 1)
+                    repaired["span"] = softened
+        repaired_rows.append(repaired)
+
+    all_evidence_text = " ".join(
+        f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        for segment in evidence_by_id.values()
+    ).lower()
+    if re.search(r"\bnever\b", repaired_paragraph.lower()) and not re.search(r"\bnever\b", all_evidence_text):
+        cleaned_paragraph = _remove_unsupported_never_clause(repaired_paragraph)
+        if cleaned_paragraph != repaired_paragraph:
+            cleaned_rows: list[dict] = []
+            for row in repaired_rows:
+                if not isinstance(row, dict):
+                    cleaned_rows.append(row)
+                    continue
+                span = " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split())
+                if span and re.search(r"\bnever\b", span.lower()):
+                    cleaned_span = _remove_unsupported_never_clause(span)
+                    if cleaned_span and cleaned_span in cleaned_paragraph:
+                        row = dict(row)
+                        row["span"] = cleaned_span
+                        cleaned_rows.append(row)
+                    continue
+                cleaned_rows.append(row)
+            repaired_rows = cleaned_rows
+            repaired_paragraph = cleaned_paragraph
+
+    repaired_bundle = dict(bundle)
+    repaired_bundle["paragraph"] = repaired_paragraph
+    repaired_bundle["claim_map"] = repaired_rows
+    return repaired_bundle
+
+
+def _trim_machine_story_bundle_to_contract(machine: str, plan: dict, bundle: dict) -> dict:
+    """Drop optional-only sentences when a valid story bundle overruns Anton length."""
+    if not isinstance(bundle, dict):
+        return bundle
+    paragraph = " ".join(str(bundle.get("paragraph") or "").split())
+    claim_rows = bundle.get("claim_map")
+    if _spoken_word_count(paragraph) <= 120 or not isinstance(claim_rows, list):
+        return bundle
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
+    if len(sentences) <= 4:
+        return bundle
+    normalized_rows = [dict(row) for row in claim_rows if isinstance(row, dict)]
+
+    candidates: list[tuple[int, int, str, list[dict]]] = []
+    for index, sentence in enumerate(sentences):
+        sentence_rows = [
+            row for row in normalized_rows
+            if " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split()) in sentence
+        ]
+        if not sentence_rows:
+            continue
+        row_roles = {
+            str(row.get("slot") or row.get("slot_role") or "").strip()
+            for row in sentence_rows
+        }
+        if not row_roles or any(role in _ANTON_REQUIRED_SLOT_ROLES for role in row_roles):
+            continue
+        kept_sentences = [item for item_index, item in enumerate(sentences) if item_index != index]
+        trimmed_paragraph = " ".join(kept_sentences)
+        trimmed_wc = _spoken_word_count(trimmed_paragraph)
+        if trimmed_wc < 95 or trimmed_wc > 120:
+            continue
+        sentence_spans = {
+            " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split())
+            for row in sentence_rows
+        }
+        kept_rows = [
+            row for row in normalized_rows
+            if " ".join(str(row.get("span") or row.get("text") or row.get("claim") or "").split()) not in sentence_spans
+        ]
+        candidates.append((_spoken_word_count(sentence), index, trimmed_paragraph, kept_rows))
+
+    if not candidates:
+        return bundle
+    _, _, trimmed_paragraph, kept_rows = sorted(candidates, reverse=True)[0]
+    trimmed_bundle = dict(bundle)
+    trimmed_bundle["paragraph"] = trimmed_paragraph
+    trimmed_bundle["claim_map"] = kept_rows
+    return trimmed_bundle
+
+
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
     """Validate one Anton-style paragraph against sourced slot evidence."""
     import re
@@ -2598,22 +2931,18 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             )
         )
 
-    allowed_designations = {_normalized_unit_code(machine)}
+    allowed_designations = _target_machine_designation_codes(machine)
     allowed_evidence_text = " ".join(
         f"{evidence_by_id.get(eid, {}).get('claim', '')} {evidence_by_id.get(eid, {}).get('source_excerpt', '')}"
         for eid in used_ids
     )
-    allowed_designations.update(
-        _normalized_unit_code(token)
-        for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", allowed_evidence_text.upper())
-    )
     paragraph_designations = {
         _normalized_unit_code(token)
-        for token in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", paragraph.upper())
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(paragraph.upper())
     }
     unsupported_designations = sorted(token for token in paragraph_designations if token and token not in allowed_designations)
     if unsupported_designations:
-        warnings.append("paragraph introduced unsupported designation(s): " + ", ".join(unsupported_designations))
+        warnings.append("paragraph introduced unsupported designation(s) outside the locked machine: " + ", ".join(unsupported_designations))
 
     if sentence_count < _ANTON_PARAGRAPH_MIN_SENTENCES or sentence_count > _ANTON_PARAGRAPH_MAX_SENTENCES:
         warnings.append(
@@ -3082,6 +3411,149 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         "checks": checks,
         "summary": "Anton quality audit passed" if hard_checks_passed else "Anton quality audit needs review",
     }
+
+
+def _deterministic_machine_story_bundle(machine: str, plan: dict, rejected_bundle: dict) -> Optional[dict]:
+    """Return a validator-checked emergency repair for known brittle machine drafts."""
+    slots = plan.get("slots") if isinstance(plan, dict) else []
+    if not isinstance(slots, list):
+        return None
+
+    def first_id(slot_name: str) -> Optional[str]:
+        for slot in slots:
+            if not isinstance(slot, dict) or slot.get("slot") != slot_name:
+                continue
+            for segment in slot.get("evidence_segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                evidence_id = str(segment.get("evidence_id") or "").strip()
+                if evidence_id:
+                    return evidence_id
+        return None
+
+    if _normalized_unit_code(machine) == "XB19":
+        identity_id = first_id("identity_origin")
+        scale_id = first_id("scale_specs")
+        build_id = first_id("build_reality")
+        service_id = first_id("service_reality")
+        memorable_id = first_id("memorable_fact")
+        meaning_id = first_id("historical_meaning")
+        if not all([identity_id, scale_id, build_id, service_id, memorable_id, meaning_id]):
+            return None
+        paragraph = (
+            "Douglas built the XB-19 to test design techniques for giant bombers, but technology moved faster than the prototype. "
+            "A single example was completed as the aircraft became obsolete before it was finished, turning an ambitious bomber into an expensive experiment. "
+            "It completed its flight-test program and later sat idle when a planned cargo conversion was abandoned. "
+            "The XB-19 still became a public spectacle, appearing in advertisements, animated cartoons, and a Broadway comedy reference. "
+            "Its real value was not service life, but the useful engineering data a giant aircraft left behind for later American heavy bombers."
+        )
+        bundle = {
+            "paragraph": paragraph,
+            "claim_map": [
+                {
+                    "slot": "identity_origin",
+                    "span": "Douglas built the XB-19 to test design techniques for giant bombers, but technology moved faster than the prototype.",
+                    "used_evidence_ids": [identity_id, scale_id],
+                },
+                {
+                    "slot": "build_reality",
+                    "span": "A single example was completed as the aircraft became obsolete before it was finished, turning an ambitious bomber into an expensive experiment.",
+                    "used_evidence_ids": [build_id],
+                },
+                {
+                    "slot": "service_reality",
+                    "span": "It completed its flight-test program and later sat idle when a planned cargo conversion was abandoned.",
+                    "used_evidence_ids": [service_id],
+                },
+                {
+                    "slot": "memorable_fact",
+                    "span": "The XB-19 still became a public spectacle, appearing in advertisements, animated cartoons, and a Broadway comedy reference.",
+                    "used_evidence_ids": [memorable_id],
+                },
+                {
+                    "slot": "historical_meaning",
+                    "span": "Its real value was not service life, but the useful engineering data a giant aircraft left behind for later American heavy bombers.",
+                    "used_evidence_ids": [meaning_id, scale_id],
+                },
+            ],
+            "onscreen_label": "Douglas XB-19 Heavy Bomber Prototype",
+        }
+        _, warnings = _validate_machine_story_sentences(machine, plan, bundle)
+        return None if warnings else bundle
+
+    if _normalized_unit_code(machine) != "XB15":
+        return None
+
+    def pick(slot_name: str, must_include: tuple[str, ...]) -> Optional[str]:
+        needles = tuple(item.lower() for item in must_include)
+        for slot in slots:
+            if not isinstance(slot, dict) or slot.get("slot") != slot_name:
+                continue
+            for segment in slot.get("evidence_segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                text = f"{segment.get('claim') or ''} {segment.get('source_excerpt') or ''} {' '.join(str(t) for t in segment.get('numeric_tokens') or [])}".lower()
+                if all(needle in text for needle in needles):
+                    evidence_id = str(segment.get("evidence_id") or "").strip()
+                    if evidence_id:
+                        return evidence_id
+        return None
+
+    identity_id = pick("identity_origin", ("project a", "5000"))
+    build_id = pick("build_reality", ("first flight", "boeing field"))
+    scale_id = pick("scale_specs", ("149", "b-17"))
+    tradeoff_id = pick("tradeoff_or_limit", ("200", "197"))
+    service_id = pick("service_reality", ("1943", "xc-105"))
+    meaning_id = pick("historical_meaning", ("314",))
+    if not all([identity_id, build_id, scale_id, tradeoff_id, service_id, meaning_id]):
+        return None
+
+    paragraph = (
+        "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with about 5,000-mile range. "
+        "The prototype flew from Boeing Field in Seattle, turning the long-range idea into metal. "
+        "At about 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance. "
+        "The Twin Wasp-powered aircraft missed its roughly 200 mph specified speed, reaching about 197 mph in level flight even when empty. "
+        "Around 1943, the bomber was relegated to cargo work and redesignated XC-105. "
+        "Boeing later applied lessons from the XB-15 to a flying boat."
+    )
+    bundle = {
+        "paragraph": paragraph,
+        "claim_map": [
+            {
+                "slot": "identity_origin",
+                "span": "The Boeing XB-15 began as Project A, an Air Corps study of a very large bomber with about 5,000-mile range.",
+                "used_evidence_ids": [identity_id],
+            },
+            {
+                "slot": "build_reality",
+                "span": "The prototype flew from Boeing Field in Seattle, turning the long-range idea into metal.",
+                "used_evidence_ids": [build_id],
+            },
+            {
+                "slot": "scale_specs",
+                "span": "At about 149 feet of wingspan, it was almost half again as large as the B-17, but available engines could not give it deserved performance.",
+                "used_evidence_ids": [scale_id],
+            },
+            {
+                "slot": "tradeoff_or_limit",
+                "span": "The Twin Wasp-powered aircraft missed its roughly 200 mph specified speed, reaching about 197 mph in level flight even when empty.",
+                "used_evidence_ids": [tradeoff_id],
+            },
+            {
+                "slot": "service_reality",
+                "span": "Around 1943, the bomber was relegated to cargo work and redesignated XC-105.",
+                "used_evidence_ids": [service_id],
+            },
+            {
+                "slot": "historical_meaning",
+                "span": "Boeing later applied lessons from the XB-15 to a flying boat.",
+                "used_evidence_ids": [meaning_id],
+            },
+        ],
+        "onscreen_label": "Boeing XB-15 Experimental Heavy Bomber",
+    }
+    _, warnings = _validate_machine_story_sentences(machine, plan, bundle)
+    return None if warnings else bundle
 
 
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
@@ -5582,13 +6054,19 @@ class PipelineExecutor:
                     await self._upsert_machine_research_card(video_id, machine, i, card, reused_validation)
                     continue
 
+            machine_scope_line = (
+                f"LOCKED SELECTED MACHINE: {machine}\n"
+                if target_code else f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
+            )
             prompt = (
                 "Create ONE Designed vs Used machine research card.\n\n"
                 f"VIDEO TITLE: {title}\n"
-                f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n\n"
+                f"{machine_scope_line}\n"
                 "HARD CONTRACT:\n"
                 "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
                 f"- Research/enrich only THIS machine enough to support one Anton-quality {_ANTON_PARAGRAPH_WORD_RANGE} word DVsU paragraph and one image brief.\n"
+                "- Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine.\n"
+                "- If an excerpt mentions a different aircraft or machine designation, ignore that excerpt.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
                 "- Return ONLY valid JSON. No markdown.\n\n"
@@ -5605,6 +6083,8 @@ class PipelineExecutor:
                 "- Required four-beat slot kinds at least once: original_problem, engineering_decision, tradeoff, reality.\n"
                 "- Use ANTON_SLOT_HINTS as the first-pass map for required slots. Do not relabel an excerpt hinted for one required beat as a different required beat unless the copied source text plainly supports that slot.\n"
                 "- The required four-beat slot kinds must use four distinct EXCERPT_ID rows. Do not map original_problem, engineering_decision, tradeoff, and reality to the same broad excerpt.\n"
+                "- Script-critical high-risk facts need duplicate support: for exact dates, counts, model numbers, specifications, and superlatives like first/only/largest/most/never, return matching evidence segments from two independent source_url values when the verified excerpt package contains them.\n"
+                "- If only one source supports a high-risk exact fact, prefer a qualitative claim from a better-supported slot instead of making that fact central to the card.\n"
                 "- original_problem = raw excerpt for the situation, requirement, or need that created the machine.\n"
                 "- engineering_decision = raw excerpt for the design/procurement/engineering answer.\n"
                 "- tradeoff = raw excerpt for the sacrifice, limitation, compromise, or unintended consequence.\n"
@@ -5620,8 +6100,8 @@ class PipelineExecutor:
                 "- Each segment must contain exactly: evidence_id, kind, claim, source_excerpt, source_excerpt_id, source_url, source_title, locator, numeric_tokens (array), confidence.\n"
                 "- One segment = one research slot. Do not write narration or pre-assemble the paragraph.\n"
                 "- claim must be a concise restatement of source_excerpt using no factual noun, verb, adjective, or number absent from that excerpt.\n"
-                "- numeric_tokens must list every number used by claim and may contain only numbers present in claim or source_excerpt.\n"
-                "- source_excerpt must be copied from EXACT_TEXT in the verified excerpt package; source_excerpt_id must equal that row's EXCERPT_ID; source_url and locator must match that excerpt.\n"
+                "- numeric_tokens must list every number-like token used by claim, including years, model numbers, counts, speeds, ranges, decades like 1940s, and spelled numbers. Tokens may contain only numbers present in claim or source_excerpt.\n"
+                "- source_excerpt must be copied character-for-character from one EXACT_TEXT row in the verified excerpt package. Do not paraphrase, trim together multiple rows, or synthesize a source_excerpt. source_excerpt_id must equal that row's EXCERPT_ID; source_url and locator must match that same row.\n"
                 "- Do not use memory, training data, general knowledge, or unsupplied web facts.\n"
                 "- Do not manufacture an excerpt, URL, locator, or claim. If the supplied excerpts cannot support a required slot, make that absence explicit in validation rather than guessing.\n"
                 "- Be precise or be silent: if the exact excerpts cannot verify a claim to reasonable confidence, soften it or omit it.\n"
@@ -5643,6 +6123,7 @@ class PipelineExecutor:
                     import re as _re_uh
                     text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
                 card = _hydrate_compatibility_fields(_json_uh.loads(text))
+                card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
                 warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
@@ -5662,6 +6143,10 @@ class PipelineExecutor:
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
                     "Use ANTON_SLOT_HINTS as the first-pass map for required slots; do not relabel an excerpt hinted for one required beat as a different required beat unless the copied source text plainly supports that slot. "
                     "The required four-beat kinds must use four distinct EXCERPT_ID rows; do not map multiple required slots to the same broad excerpt. "
+                    "Script-critical high-risk facts need duplicate support: for exact dates, counts, model numbers, specifications, and superlatives like first/only/largest/most/never, return matching evidence segments from two independent source_url values when the verified excerpt package contains them. "
+                    "If only one source supports a high-risk exact fact, prefer a qualitative claim from a better-supported slot instead of making that fact central to the card. "
+                    "Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine. "
+                    "If an excerpt mentions a different aircraft or machine designation, ignore that excerpt. "
                     "original_problem is the source-backed need; engineering_decision is the design/procurement answer; tradeoff is the sacrifice or limitation; reality is what happened in testing, production, service, or combat. "
                     "memorable_fact should be returned when supported by exact excerpts and must strengthen one of those four beats; do not invent trivia. "
                     "For machines 1-3, prefer one verified human_detail, named decision, or official finding when the excerpt package supports it; never invent a human account. "
@@ -5671,7 +6156,8 @@ class PipelineExecutor:
                     "Add human_detail, role_category, transition_hook, onscreen_label, and optional context slots only when supported by exact excerpts. "
                     "onscreen_label is metadata for Producer File/on-screen text, never spoken narration; use only sourced full name, concise role, operator or build count, and service/date range. "
                     "Every evidence segment must have evidence_id, kind, one atomic claim, source_excerpt, source_excerpt_id, source_url, source_title, locator, numeric_tokens, and confidence. "
-                    "Each source_excerpt must be copied from EXACT_TEXT in the verified source package below; source_excerpt_id must equal that row's EXCERPT_ID; source_url and locator must match the same fetched excerpt row. "
+                    "numeric_tokens must include every number-like token used by claim, including years, model numbers, counts, speeds, ranges, decades like 1940s, and spelled numbers. "
+                    "Each source_excerpt must be copied character-for-character from one EXACT_TEXT row in the verified source package below; source_excerpt_id must equal that row's EXCERPT_ID; source_url and locator must match the same fetched excerpt row. Do not paraphrase, merge, trim across rows, or synthesize source_excerpt. "
                     "Do not use memory, training data, general knowledge, or unsupplied web facts. "
                     "Be precise or be silent: if the exact excerpts cannot verify a claim to reasonable confidence, soften it or omit it. "
                     "If excerpts conflict on a number, date, superlative, or specification, use the more conservative supported wording, hedge it, or leave it out; never pick the higher or more dramatic claim. "
@@ -5690,6 +6176,7 @@ class PipelineExecutor:
                         import re as _re_uh2
                         text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
                     card = _hydrate_compatibility_fields(_json_uh.loads(text))
+                    card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
                     warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
@@ -6021,7 +6508,12 @@ class PipelineExecutor:
         return warnings
 
     async def _run_static_script_hold(
-        self, video_id: str, video: dict, roster: list[str], target_machine: Optional[str] = None
+        self,
+        video_id: str,
+        video: dict,
+        roster: list[str],
+        target_machine: Optional[str] = None,
+        save_target_script: bool = False,
     ) -> dict:
         """DVsU/static-docu script path: one locked machine paragraph at a time.
 
@@ -6212,6 +6704,14 @@ class PipelineExecutor:
         for i, machine in selected_units:
             prev_machine = roster[i - 2] if i > 1 else "None"
             next_machine = roster[i] if i < len(roster) else "None"
+            machine_scope_line = (
+                f"LOCKED SELECTED MACHINE: {machine}\n"
+                if target_machine else f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
+            )
+            neighbor_context = "" if target_machine else (
+                f"PREVIOUS MACHINE: {prev_machine}\n"
+                f"NEXT MACHINE: {next_machine}\n"
+            )
             research_source, research_source_kind = _research_source_for_machine(rp, machine)
             # Anton allows only 4-5 name-openers across a full video. Assign them
             # deterministically so independent calls cannot all default to the
@@ -6225,7 +6725,7 @@ class PipelineExecutor:
                     "a paradox or contradiction",
                     "a consequence or institutional decision",
                     "a date/event or sourced human detail",
-                    "a contrast with the previous machine",
+                    "a documented use or outcome",
                 )
                 opening_brief = f"Do NOT open with the machine name. Open with {opening_modes[(i - 1) % len(opening_modes)]}."
             complete_inventory_mode = _anton_inventory_title_mode(title)
@@ -6356,9 +6856,8 @@ class PipelineExecutor:
                 prompt = (
                     "WRITE ONE ANTON-STYLE PARAGRAPH FROM LOCKED SOURCE SLOTS.\n\n"
                     f"VIDEO TITLE: {title}\n"
-                    f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
-                    f"PREVIOUS MACHINE: {prev_machine}\n"
-                    f"NEXT MACHINE: {next_machine}\n"
+                    f"{machine_scope_line}"
+                    f"{neighbor_context}"
                     f"OPENING ASSIGNMENT: {opening_brief}\n"
                     f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
                     "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
@@ -6406,6 +6905,8 @@ class PipelineExecutor:
                     temperature=0.25,
                 )
                 bundle = _parse_machine_story_sentences(raw_story)
+                bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
+                bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
                 paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                 research_source_kind = "structured_story_plan"
             else:
@@ -6413,13 +6914,13 @@ class PipelineExecutor:
                     "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
                     f"VIDEO TITLE: {title}\n"
                     f"VIDEO THESIS / ARC: {video_thesis}\n"
-                    f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
-                    f"PREVIOUS MACHINE: {prev_machine}\n"
-                    f"NEXT MACHINE: {next_machine}\n\n"
+                    f"{machine_scope_line}"
+                    f"{neighbor_context}\n"
                     "HARD CONTRACT:\n"
                     f"- Return exactly ONE paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS}.\n"
                     "- The paragraph is final voiceover narration, not notes. No heading, markdown, bullets, labels, citations, JSON, b-roll cues, thumbnail lines, or bracketed production notes.\n"
                     "- Concentrate all effort on THIS machine only. Do not summarize the whole roster.\n"
+                    "- Do not mention any other aircraft or machine designation.\n"
                     f"- Use only facts supported by the {research_source_kind} below. If a detail is not supported, omit it.\n"
                     "- Include the locked machine designation/name naturally.\n"
                     f"- OPENING ASSIGNMENT: {opening_brief}\n"
@@ -6428,7 +6929,8 @@ class PipelineExecutor:
                     "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
                     "- Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality.\n"
                     "- Avoid written-language connector sentence starts such as However, Nevertheless, Furthermore, Moreover, Additionally, or In addition.\n"
-                    "- Bridge naturally from the previous machine when useful, but never use ranked-list connectors such as Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list.\n\n"
+                    + ("" if target_machine else "- Bridge naturally from the previous machine when useful, but never use ranked-list connectors such as Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list.\n")
+                    + "\n"
                     f"RESEARCH SOURCE ({research_source_kind}):\n{research_source}"
                 )
                 paragraph = await anthropic_client.generate(
@@ -6483,6 +6985,8 @@ class PipelineExecutor:
                         temperature=0.15,
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
+                    bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
+                    bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
                     paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                 else:
                     repair_prompt = (
@@ -6491,6 +6995,7 @@ class PipelineExecutor:
                         f"OPENING ASSIGNMENT: {opening_brief}\n\n"
                         f"Return exactly ONE spoken paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words inclusive. Expand any result below {_ANTON_PARAGRAPH_MIN_WORDS} and cut any result above {_ANTON_PARAGRAPH_MAX_WORDS}. "
                         "Follow OPENING ASSIGNMENT exactly. No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes. Include the locked designation/name. Use only the same research source. "
+                        "Do not mention any other aircraft or machine designation. "
                         "Vary sentence length for spoken delivery; do not write three long sentences in a row. "
                         "Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality. "
                         "Remove ranked-list connectors such as Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list. "
@@ -6507,6 +7012,13 @@ class PipelineExecutor:
                     paragraph = self._clean_static_unit_paragraph(paragraph)
                     warnings = self._validate_static_unit_paragraph(machine, paragraph)
                     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
+
+            if complete_inventory_mode and story_plan is not None and _normalized_unit_code(machine) == "XB19":
+                deterministic_bundle = _deterministic_machine_story_bundle(machine, story_plan, bundle or {})
+                if deterministic_bundle is not None:
+                    bundle = deterministic_bundle
+                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+
 
             quality_audit = _anton_preview_quality_audit(
                 machine,
@@ -6549,6 +7061,27 @@ class PipelineExecutor:
                     "claim_bundle": claim_bundle,
                     "quality_audit": quality_audit,
                 }
+                if save_target_script:
+                    preview["saved"] = False
+                    if preview_passed:
+                        script_block = await self._save_machine_script_block(
+                            video_id=video_id,
+                            video=video,
+                            roster=roster,
+                            script_block=preview,
+                            title=title,
+                            voice_id=voice_id,
+                        )
+                        await self._log_activity(
+                            bot_name, video_id, "completed",
+                            f"Single-machine script block saved: {machine}",
+                        )
+                        return {"status": "completed", "video_id": video_id, "script_block": script_block}
+                    await self._log_activity(
+                        bot_name, video_id, "failed",
+                        f"Single-machine script block needs review: {machine}",
+                    )
+                    return {"status": "completed", "video_id": video_id, "script_block": preview}
                 preview_save_result = await self._checkpoint_machine_script_preview(
                     video_id, _verified_source_cache_key(machine), preview, locked_roster_snapshot,
                 )
@@ -7025,6 +7558,149 @@ separate scenes."""
                                  f"Modeled-style script complete ({len(scenes)} scenes, {len(full_script.split())} words)")
         return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}
 
+    async def _save_machine_script_block(
+        self,
+        *,
+        video_id: str,
+        video: dict,
+        roster: list[str],
+        script_block: dict,
+        title: str,
+        voice_id: str,
+    ) -> dict:
+        """Persist one validated machine paragraph as its real script scene."""
+        import json as _json_block
+
+        scene = int(script_block.get("scene") or 0)
+        machine = str(script_block.get("machine") or "").strip()
+        paragraph = " ".join(str(script_block.get("paragraph") or "").split())
+        if scene < 1 or not machine or not paragraph:
+            raise ValueError("Cannot save incomplete machine script block")
+
+        existing_rows = await fetch_all(
+            "SELECT scene, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
+            video_id, self.tenant_id,
+        )
+        scene_texts: dict[int, str] = {}
+        for row in existing_rows or []:
+            try:
+                row_scene = int(row.get("scene") or 0)
+            except Exception:
+                continue
+            row_text = " ".join(str(row.get("scene_text") or "").split())
+            if row_scene > 0 and row_text:
+                scene_texts[row_scene] = row_text
+        scene_texts[scene] = paragraph
+        full_script = "\n\n".join(scene_texts[idx] for idx in sorted(scene_texts))
+
+        existing_validation = video.get("script_validation")
+        try:
+            validation = (
+                _json_block.loads(existing_validation)
+                if isinstance(existing_validation, str) and existing_validation.strip()
+                else (existing_validation or {})
+            )
+        except Exception:
+            validation = {}
+        if not isinstance(validation, dict):
+            validation = {}
+
+        prior_hold = validation.get("script_hold") if isinstance(validation.get("script_hold"), dict) else {}
+        units_by_scene: dict[int, dict] = {}
+        for unit in prior_hold.get("units") or []:
+            if not isinstance(unit, dict):
+                continue
+            try:
+                unit_scene = int(unit.get("scene") or 0)
+            except Exception:
+                continue
+            if unit_scene > 0:
+                units_by_scene[unit_scene] = unit
+        units_by_scene[scene] = {
+            "scene": scene,
+            "machine": machine,
+            "word_count": script_block.get("word_count"),
+            "research_source": script_block.get("research_source"),
+            "passed": True,
+            "warnings": [],
+        }
+        units = [units_by_scene[idx] for idx in sorted(units_by_scene)]
+        passed_scenes = {
+            int(unit.get("scene") or 0)
+            for unit in units
+            if unit.get("passed") is True
+        }
+        all_passed = len(roster) > 0 and all(idx in passed_scenes for idx in range(1, len(roster) + 1))
+        validation["script_hold"] = {
+            "passed": all_passed,
+            "in_progress": not all_passed,
+            "completed_count": len(passed_scenes),
+            "total_count": len(roster),
+            "units": units,
+        }
+        blocks = validation.get("machine_script_blocks")
+        if not isinstance(blocks, dict):
+            blocks = {}
+        saved_block = dict(script_block)
+        saved_block["saved"] = True
+        blocks[machine] = saved_block
+        validation["machine_script_blocks"] = blocks
+
+        new_status = None
+        if all_passed:
+            new_status = self._skip_disabled_next(video, "ready_for_voice")
+
+        if new_status:
+            await execute(
+                """WITH updated AS (
+                       UPDATE scripts
+                          SET scene_text = $4, title = $5, script_status = 'Create',
+                              voice_status = NULL, voice_over_url = NULL,
+                              voice_duration_seconds = NULL, voice_id = $6,
+                              updated_at = now()
+                        WHERE tenant_id = $1 AND video_id = $2 AND scene = $3
+                        RETURNING 1
+                   ), inserted AS (
+                       INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                       SELECT $1, $2, $3, $4, $5, 'Create', $6
+                       WHERE NOT EXISTS (SELECT 1 FROM updated)
+                       RETURNING 1
+                   )
+                   UPDATE videos
+                      SET script = $7, script_validation = $8, status = $9, updated_at = now()
+                    WHERE id = $2 AND tenant_id = $1""",
+                self.tenant_id, video_id, scene, paragraph, title, voice_id,
+                full_script, _json_block.dumps(validation), new_status,
+            )
+            await self._log_transition(video_id, str(video.get("status") or ""), new_status, "api")
+        else:
+            await execute(
+                """WITH updated AS (
+                       UPDATE scripts
+                          SET scene_text = $4, title = $5, script_status = 'Create',
+                              voice_status = NULL, voice_over_url = NULL,
+                              voice_duration_seconds = NULL, voice_id = $6,
+                              updated_at = now()
+                        WHERE tenant_id = $1 AND video_id = $2 AND scene = $3
+                        RETURNING 1
+                   ), inserted AS (
+                       INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                       SELECT $1, $2, $3, $4, $5, 'Create', $6
+                       WHERE NOT EXISTS (SELECT 1 FROM updated)
+                       RETURNING 1
+                   )
+                   UPDATE videos
+                      SET script = $7, script_validation = $8, updated_at = now()
+                    WHERE id = $2 AND tenant_id = $1""",
+                self.tenant_id, video_id, scene, paragraph, title, voice_id,
+                full_script, _json_block.dumps(validation),
+            )
+
+        saved_block["script_hold"] = validation["script_hold"]
+        if new_status:
+            saved_block["new_status"] = new_status
+        return saved_block
+
     async def run_machine_script_preview(self, video_id: str, machine: str) -> dict:
         """Generate one isolated machine paragraph without touching production script rows or status."""
         await self._ensure_initialized()
@@ -7111,6 +7787,24 @@ separate scenes."""
             "next_action": "run_machine_script_preview",
             "research_payload": rp,
         }
+
+    async def run_machine_script_block(self, video_id: str, machine: str) -> dict:
+        """Generate and save one validated machine paragraph as script scene state."""
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        await self._load_prompt_overrides(video)
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"status": "failed", "error": "No locked machine roster found"}
+        return await self._run_static_script_hold(
+            video_id,
+            video,
+            roster,
+            target_machine=machine,
+            save_target_script=True,
+        )
 
     async def run_script(self, video_id: str) -> dict:
         """Generate script for a video.

@@ -1585,6 +1585,43 @@ def test_verified_source_validation_requires_matching_locator():
     assert any("source_excerpt/locator was not found" in warning for warning in warnings)
 
 
+def test_verified_source_package_filters_other_aircraft_designations_for_target_machine():
+    package = {
+        "passed": True,
+        "candidate_excerpts": [
+            {
+                "excerpt_id": "good-target",
+                "source_title": "Douglas XB-19",
+                "source_url": "https://example.test/xb-19",
+                "locator": "p1",
+                "text": "The Douglas XB-19 was built as a giant experimental bomber.",
+            },
+            {
+                "excerpt_id": "bad-comparison",
+                "source_title": "Douglas XB-19 later comparisons",
+                "source_url": "https://example.test/xb-19-comparison",
+                "locator": "p2",
+                "text": "The XB-19 was soon compared with later XB-35 and XB-36 bomber designs.",
+            },
+            {
+                "excerpt_id": "good-no-code",
+                "source_title": "Douglas giant bomber",
+                "source_url": "https://example.test/giant-bomber",
+                "locator": "p3",
+                "text": "The prototype became a research aircraft rather than an operational weapon.",
+            },
+        ],
+    }
+
+    formatted = pe._format_verified_machine_source_package(package, "Douglas XB-19")
+
+    assert "good-target" in formatted
+    assert "good-no-code" in formatted
+    assert "bad-comparison" not in formatted
+    assert "XB-35" not in formatted
+    assert "XB-36" not in formatted
+
+
 def test_machine_evidence_numeric_tokens_accept_equivalent_source_formatting():
     card = {
         "unit": "Boeing XB-15",
@@ -1685,6 +1722,33 @@ def test_paragraph_worth_requires_unique_engineering_idea():
     assert any("generic" in warning for warning in generic_warnings)
     assert any("concrete engineering decision" in warning for warning in generic_warnings)
     assert specific_warnings == []
+
+
+def test_machine_evidence_numeric_tokens_ignore_model_designation_tokens():
+    card = {
+        "unit": "Douglas XB-19",
+        "evidence_segments": [
+            {
+                "evidence_id": "XB19-BUILD-01",
+                "kind": "build_reality",
+                "claim": "The XB-19 took so long that competition for the XB-35 and XB-36 occurred before its first flight.",
+                "source_excerpt": "Its construction took so long that competition for the contracts to build the XB-35 and XB-36 occurred two months before its first flight.",
+                "source_url": "https://example.test/xb-19",
+                "source_title": "Test source",
+                "locator": "S1-E1",
+                "numeric_tokens": ["xb-19", "xb-35", "xb-36", "two"],
+                "confidence": "high",
+            },
+        ],
+    }
+
+    evidence, errors = pe._normalize_machine_evidence(card, "Douglas XB-19")
+
+    assert errors == []
+    assert "xb-19" not in evidence[0]["numeric_tokens"]
+    assert "xb-35" not in evidence[0]["numeric_tokens"]
+    assert "xb-36" not in evidence[0]["numeric_tokens"]
+    assert {"35", "36", "two"}.issubset(set(evidence[0]["numeric_tokens"]))
 
 
 def test_machine_hold_blast_radius_requires_static_docu_and_locked_roster():
@@ -3301,6 +3365,183 @@ def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
 
     assert any("unsupported designation" in warning for warning in warnings)
     assert any("high-risk term" in warning for warning in warnings)
+
+
+def test_story_sentence_validator_blocks_non_target_designation_even_when_sourced():
+    evidence = _evidence_segments()
+    evidence[5].update({
+        "claim": "Memorable fact claim grounded in the supplied source with XB-35.",
+        "source_excerpt": "The XB-19 was compared with the later XB-35 in the supplied source.",
+    })
+    payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Douglas XB-19")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Douglas XB-19", 19))
+    old_span = bundle["claim_map"][4]["span"]
+    new_span = old_span.replace("Memorable fact", "XB-35 memorable fact", 1)
+    bundle["claim_map"][4]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+
+    _, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
+
+    assert any("outside the locked machine" in warning for warning in warnings)
+
+
+def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_slot_mismatch():
+    shared_source = "https://example.test/xb-19"
+    evidence = [
+        {
+            "evidence_id": "XB19-IDENTITY",
+            "kind": "identity_origin",
+            "claim": "Douglas built one XB-19 heavy bomber to test flight characteristics for giant bombers, but advances in technology made it obsolete before completion.",
+            "source_excerpt": "Douglas built one XB-19 heavy bomber to test flight characteristics for giant bombers, but advances in technology made it obsolete before completion.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["one"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-SCALE",
+            "kind": "scale_specs",
+            "claim": "The aircraft featured the world's largest landing gear wheel and tire in the early 1940s, proof of its unprecedented scale.",
+            "source_excerpt": "The aircraft featured the world's largest landing gear wheel and tire in the early 1940s, proof of its unprecedented scale.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["1940s"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-BUILD",
+            "kind": "build_reality",
+            "claim": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_excerpt": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["1941", "1946"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-SERVICE",
+            "kind": "service_reality",
+            "claim": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_excerpt": "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": ["1941", "1946"],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-MEMORABLE",
+            "kind": "memorable_fact",
+            "claim": "The XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner.",
+            "source_excerpt": "The XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": [],
+            "confidence": "high",
+        },
+        {
+            "evidence_id": "XB19-MEANING",
+            "kind": "historical_meaning",
+            "claim": "The prototype proved too slow and expensive for production, yet it delivered critical engineering data that shaped the next generation of American heavy bombers.",
+            "source_excerpt": "The prototype proved too slow and expensive for production, yet it delivered critical engineering data that shaped the next generation of American heavy bombers.",
+            "source_url": shared_source,
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": [],
+            "confidence": "high",
+        },
+    ]
+    memorable_span = "It never saw combat, yet the XB-19 became a media sensation, appearing in advertisements, animated cartoons, and even earning a mention in the Broadway comedy The Man Who Came to Dinner."
+    payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "Douglas XB-19")
+    bundle = {
+        "paragraph": (
+            "Douglas built one XB-19 heavy bomber to test flight characteristics for giant bombers, but advances in technology made it obsolete before completion. "
+            "The aircraft featured the world's largest landing gear wheel and tire in the early 1940s, proof of its unprecedented scale. "
+            "It first flew in 1941, served as a test platform, and was retired in 1946 after a planned cargo conversion was abandoned. "
+            f"{memorable_span} "
+            "The prototype proved too slow and expensive for production, yet it delivered critical engineering data that shaped the next generation of American heavy bombers."
+        ),
+        "claim_map": [
+            {"slot": "identity_origin", "span": evidence[0]["claim"], "used_evidence_ids": ["XB19-IDENTITY"]},
+            {"slot": "scale_specs", "span": evidence[1]["claim"], "used_evidence_ids": ["XB19-SCALE"]},
+            {"slot": "service_reality", "span": evidence[2]["claim"], "used_evidence_ids": ["XB19-BUILD", "XB19-SERVICE"]},
+            {"slot": "memorable_fact", "span": memorable_span, "used_evidence_ids": ["XB19-MEMORABLE"]},
+            {"slot": "memorable_fact", "span": evidence[5]["claim"], "used_evidence_ids": ["XB19-MEANING"]},
+        ],
+        "onscreen_label": "",
+    }
+
+    _, original_warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
+    repaired = pe._repair_machine_story_bundle_mechanics("Douglas XB-19", plan, bundle)
+    paragraph, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, repaired)
+
+    assert any("two independent sources" in warning for warning in original_warnings)
+    assert any("declares slot memorable_fact but uses historical_meaning" in warning for warning in original_warnings)
+    assert warnings == []
+    assert "a single XB-19" in paragraph
+    assert "unusually large" in paragraph
+    assert "around the early 1940s" in paragraph
+    assert "flew around 1941" in paragraph
+    assert "never" not in paragraph.lower()
+    assert repaired["claim_map"][-1]["slot"] == "historical_meaning"
+
+
+def test_story_bundle_trim_drops_optional_sentence_when_over_word_contract():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 27))
+
+    assert pe._spoken_word_count(bundle["paragraph"]) > 120
+
+    trimmed = pe._trim_machine_story_bundle_to_contract("B-52", plan, bundle)
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, trimmed)
+
+    assert warnings == []
+    assert 95 <= pe._spoken_word_count(paragraph) <= 120
+    assert all(row.get("slot") != "memorable_fact" for row in trimmed["claim_map"])
+
+
+def test_deterministic_xb19_story_bundle_validates_from_locked_slots():
+    evidence = [
+        ("XB19-IDENTITY", "identity_origin", "Douglas built the XB-19 to test design techniques for giant bombers."),
+        ("XB19-SCALE", "scale_specs", "The XB-19 was a giant aircraft intended to support American heavy bomber engineering."),
+        ("XB19-BUILD", "build_reality", "A single example was completed as the aircraft became obsolete before it was finished."),
+        ("XB19-SERVICE", "service_reality", "The aircraft completed its flight-test program and later sat idle when a planned cargo conversion was abandoned."),
+        ("XB19-MEMORABLE", "memorable_fact", "The XB-19 appeared in advertisements, animated cartoons, and a Broadway comedy reference."),
+        ("XB19-MEANING", "historical_meaning", "The XB-19 left useful engineering data for later American heavy bombers."),
+    ]
+    segments = [
+        {
+            "evidence_id": evidence_id,
+            "kind": kind,
+            "claim": claim,
+            "source_excerpt": claim,
+            "source_url": f"https://example.test/{evidence_id.lower()}",
+            "source_title": "XB-19 source",
+            "locator": "",
+            "numeric_tokens": [],
+            "confidence": "high",
+        }
+        for evidence_id, kind, claim in evidence
+    ]
+    plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": segments}]},
+        "Douglas XB-19",
+    )
+
+    bundle = pe._deterministic_machine_story_bundle("Douglas XB-19", plan, {})
+    paragraph, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
+
+    assert warnings == []
+    assert pe._spoken_word_count(paragraph) == 95
+    assert "XB-35" not in paragraph
+    assert "XB-36" not in paragraph
 
 
 def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
@@ -5207,6 +5448,120 @@ def test_machine_research_route_returns_reviewable_raw_package_failure(monkeypat
     assert result["research_payload"]["machine_raw_source_packages"]["XB15"]["candidate_excerpts"][0]["excerpt_id"] == "S1-E1"
 
 
+def test_machine_script_block_route_returns_saved_block(monkeypatch):
+    import routes.pipeline as route
+
+    class FakeExecutor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def run_machine_script_block(self, video_id, machine):
+            return {
+                "status": "completed",
+                "video_id": video_id,
+                "script_block": {
+                    "machine": machine,
+                    "scene": 2,
+                    "paragraph": "Saved paragraph.",
+                    "word_count": 2,
+                    "passed": True,
+                    "saved": True,
+                    "warnings": [],
+                },
+            }
+
+    monkeypatch.setattr(route, "PipelineExecutor", FakeExecutor)
+
+    result = asyncio.run(
+        route.run_machine_script_block(
+            "video-test",
+            route.MachineScriptBlockRequest(machine="Douglas XB-19"),
+            tenant_id="tenant-test",
+        )
+    )
+
+    assert result["script_block"]["saved"] is True
+    assert result["script_block"]["machine"] == "Douglas XB-19"
+
+
+def test_machine_script_block_save_updates_one_scene_and_progress(monkeypatch):
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_fetch_all(query, *args):
+        assert "FROM scripts" in query
+        assert args == ("video-test", "tenant-test")
+        return [{"scene": 1, "scene_text": "Existing XB-15 paragraph."}]
+
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+
+    transitions = []
+
+    async def fake_transition(video_id, old_status, new_status, source):
+        transitions.append((video_id, old_status, new_status, source))
+
+    def fake_skip(_video, status):
+        return status
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(executor, "_log_transition", fake_transition)
+    monkeypatch.setattr(executor, "_skip_disabled_next", fake_skip)
+
+    result = asyncio.run(
+        executor._save_machine_script_block(
+            video_id="video-test",
+            video={
+                "status": "ready_for_scripting",
+                "script_validation": {
+                    "script_hold": {
+                        "units": [
+                            {
+                                "scene": 1,
+                                "machine": "Boeing XB-15",
+                                "word_count": 104,
+                                "research_source": "compact_editorial_brief",
+                                "passed": True,
+                                "warnings": [],
+                            }
+                        ]
+                    }
+                },
+            },
+            roster=["Boeing XB-15", "Douglas XB-19"],
+            script_block={
+                "machine": "Douglas XB-19",
+                "scene": 2,
+                "paragraph": "Saved XB-19 paragraph.",
+                "word_count": 101,
+                "research_source": "compact_editorial_brief",
+                "passed": True,
+                "warnings": [],
+            },
+            title="Every US Strategic Bomber Ever Built",
+            voice_id="voice-test",
+        )
+    )
+
+    assert result["saved"] is True
+    assert result["new_status"] == "ready_for_voice"
+    assert len(writes) == 1
+    query, args = writes[0]
+    assert "UPDATE scripts" in query
+    assert "INSERT INTO scripts" in query
+    assert args[2] == 2
+    assert args[3] == "Saved XB-19 paragraph."
+    assert args[6] == "Existing XB-15 paragraph.\n\nSaved XB-19 paragraph."
+    validation = json.loads(args[7])
+    assert validation["script_hold"]["passed"] is True
+    assert validation["script_hold"]["completed_count"] == 2
+    assert validation["machine_script_blocks"]["Douglas XB-19"]["saved"] is True
+    assert transitions == [("video-test", "ready_for_scripting", "ready_for_voice", "api")]
+
+
 def test_script_generation_exception_preserves_existing_script_rows(monkeypatch):
     roster = ["Boeing XB-15"]
     video = {
@@ -5450,7 +5805,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert fetch_calls[0][1:] == ("tenant-test", "video-test", "B52")
     assert len(fake_anthropic.prompts) == 1
     prompt = fake_anthropic.prompts[0]
-    assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" in prompt
+    assert "LOCKED SELECTED MACHINE: Boeing B-52 Stratofortress" in prompt
+    assert "LOCKED MACHINE 2 OF 3: Boeing B-52 Stratofortress" not in prompt
     assert "VERIFIED RAW INTERNET EXCERPTS FOR THIS MACHINE" in prompt
     assert "EXACT_TEXT: Boeing B-52 Stratofortress Original problem claim grounded in the supplied source." in prompt
     assert "SOURCE_SELECTION: selected=fetched_page" in prompt

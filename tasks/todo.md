@@ -1873,5 +1873,10 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 
 ## Handoff (2026-07-13 - First DVsU machine pass UI lock)
 - XB-15 is the first single-machine research + script preview pass. Keep the workflow scoped to one selected machine until the operator approves moving forward.
-- Research UI now needs to show the saved machine research card, script preview paragraph, pass status, word count, on-screen label, slot counts, warnings, and claim-map evidence before full script generation.
+- Superseded UI rule: Research must show saved machine research cards and exact evidence only. Script output belongs in the Script phase, where the selected machine action writes/saves the real script block.
 - Required Anton slots include `memorable_fact`; if verified one-machine research cannot source a memorable fact that supports the engineering story, the preview should fail for formula adjustment instead of producing a generic catalog paragraph.
+
+## Handoff (2026-07-13 - DVsU selected-machine script blocks)
+- Script phase should generate one selected machine at a time as a real script block, not as a Research preview.
+- The selected-machine script action saves a validated paragraph into that machine's `scripts` row, updates `script_validation.script_hold`, and leaves the full roster untouched.
+- Next: run Machine 2 from Script after reviewing its saved research card; do not run Machine 3 or a full roster script until Machine 2 passes.

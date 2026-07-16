@@ -50,6 +50,10 @@ class MachineScriptPreviewRequest(BaseModel):
     machine: str
 
 
+class MachineScriptBlockRequest(BaseModel):
+    machine: str
+
+
 class MachineResearchRequest(BaseModel):
     machine: str
 
@@ -629,6 +633,26 @@ async def check_machine_script_preview_readiness(
         raise HTTPException(status_code=400, detail=humanize_error(e)) from e
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Preview readiness check failed")
+    return result
+
+
+@router.post("/machine-script-block/{video_id}")
+async def run_machine_script_block(
+    video_id: str,
+    body: MachineScriptBlockRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate one machine paragraph and save it as the real script scene when it passes."""
+    machine = body.machine.strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required")
+    executor = PipelineExecutor(tenant_id)
+    try:
+        result = await executor.run_machine_script_block(video_id, machine)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=humanize_error(e)) from e
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Machine script block generation failed")
     return result
 
 
