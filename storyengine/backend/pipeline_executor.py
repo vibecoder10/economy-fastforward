@@ -9950,7 +9950,7 @@ class PipelineExecutor:
                 raw_story = await anthropic_client.generate(
                     prompt=prompt,
                     system_prompt=story_distiller_system_prompt + inventory_system_override,
-                    max_tokens=950,
+                    max_tokens=1500,
                     temperature=0.25,
                 )
                 bundle = _parse_machine_story_sentences(raw_story)
@@ -10043,7 +10043,7 @@ class PipelineExecutor:
                     raw_story = await anthropic_client.generate(
                         prompt=repair_prompt,
                         system_prompt=story_distiller_system_prompt + inventory_system_override,
-                        max_tokens=950,
+                        max_tokens=1500,
                         temperature=0.15,
                     )
                     bundle = _parse_machine_story_sentences(raw_story)
