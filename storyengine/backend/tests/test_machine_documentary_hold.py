@@ -2487,6 +2487,8 @@ def test_story_paragraph_validator_requires_five_sentence_formula_order():
         old_final,
         extra_sentence + " " + old_final,
     )
+    # Paragraph assembly is code-owned: author the change in the sentences.
+    extra_sentence_bundle["formula_sentences"] = _formula_sentences_from_paragraph(extra_sentence_bundle["paragraph"])
     extra_sentence_bundle["claim_map"].append({
         "slot": "memorable_fact",
         "span": extra_sentence,
@@ -2534,22 +2536,123 @@ def test_story_paragraph_validator_requires_available_memorable_fact():
     assert any("must use sourced memorable_fact" in warning for warning in warnings)
 
 
-def test_story_paragraph_validator_requires_formula_sentence_assembly():
+def test_story_paragraph_validator_assembles_paragraph_in_code():
+    """LAW (2026-07-16): the paragraph is the code-assembled join of
+    formula_sentences; the model's re-typed paragraph string is ignored, so a
+    mangled model paragraph (XB-15's "XB-about 15", paraphrased clauses) is
+    impossible by construction and the old assembly-mismatch warning is gone."""
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
     bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
 
+    # Model re-typed the paragraph badly: mangled designation (raw digit leak)
+    # plus a paraphrased clause. Sentences (with the designation) stay clean.
+    mangled_bundle = copy.deepcopy(bundle)
+    mangled_bundle["paragraph"] = (
+        mangled_bundle["paragraph"]
+        .replace("B-52", "B-about 52", 1)
+        .replace("The proof survived the machine.", "The proof did not survived the machine.", 1)
+    )
+    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, mangled_bundle)
+
+    # The graded paragraph is the join of the clean sentences: designation joins
+    # cleanly, no raw-digit/mismatch warnings from the mangled model string.
+    assert paragraph == " ".join(mangled_bundle["formula_sentences"])
+    assert "B-52" in paragraph
+    assert "B-about 52" not in paragraph
+    assert mangled_bundle["paragraph"] == paragraph  # bundle synced to code-assembly
+    assert warnings == []
+    assert not any("assemble exactly" in warning for warning in warnings)
+
+    # Legacy bundles without formula_sentences still fail the count contract.
     missing_bundle = copy.deepcopy(bundle)
     missing_bundle.pop("formula_sentences", None)
     _paragraph, missing_warnings = pe._validate_machine_story_sentences("B-52", plan, missing_bundle)
-
-    mismatch_bundle = copy.deepcopy(bundle)
-    mismatch_bundle["formula_sentences"] = list(mismatch_bundle["formula_sentences"])
-    mismatch_bundle["formula_sentences"][1] = "This sentence does not assemble into the paragraph."
-    _paragraph, mismatch_warnings = pe._validate_machine_story_sentences("B-52", plan, mismatch_bundle)
-
     assert any("formula_sentences must contain 5 assembled sentences" in warning for warning in missing_warnings)
-    assert any("formula_sentences must assemble exactly into paragraph" in warning for warning in mismatch_warnings)
+
+
+def test_final_sentence_novelty_check_is_stem_and_contraction_aware():
+    """LAW (2026-07-16): the conclusion-novelty check must not flag reused word
+    FORMS. XB-15's live false flags: 'couldn, t' (tokenizer splitting couldn't)
+    and 'bombing' vs paragraph 'bomber' (stemming gap). Genuinely new facts
+    still flag."""
+    prior = (
+        "The experimental bomber promised a five-thousand-mile range. "
+        "Its engines could not deliver the speed the Army wanted."
+    )
+
+    # Stem variant (bombing/bomber) + contraction (couldn't/could) + reused
+    # words (promise/promised, deliver) -> no novel words.
+    assert pe._final_sentence_novel_words(
+        "That bombing promise couldn't deliver.", prior, "Boeing XB-15"
+    ) == []
+
+    # A genuinely new fact still flags (new place/noun words).
+    novel = pe._final_sentence_novel_words(
+        "It later flew patrols over Vietnam.", prior, "Boeing XB-15"
+    )
+    assert "vietnam" in novel
+    assert "patrols" in novel
+
+    # The apostrophe split itself can never flag: no lone 't' token survives.
+    flagged = pe._final_sentence_novel_words(
+        "The Army couldn't ignore it.", prior, "Boeing XB-15"
+    )
+    assert "t" not in flagged
+    assert "couldn" not in flagged
+
+
+def test_two_source_numeric_check_scans_all_locked_evidence():
+    """LAW (2026-07-16): the two-independent-sources requirement for exact
+    numbers is graded against ALL locked story-plan evidence (distinct
+    source_url = independent), not only the row's cited ids. XB-15's 149-foot
+    wingspan lives in an engineering_decision segment AND an onscreen_label
+    segment from a different source; citing only one must pass. A number with
+    a single locked source anywhere still requires the hedge."""
+    evidence = _evidence_segments()
+    number_phrase = "a one hundred forty nine foot wingspan"
+    # Two locked segments carry the same number, in DIFFERENT slots and from
+    # DIFFERENT source URLs (each test segment kind has its own URL).
+    evidence[2]["claim"] = evidence[2]["claim"].rstrip(".") + f" including {number_phrase}."
+    evidence[2]["source_excerpt"] = evidence[2]["claim"]
+    evidence[7]["claim"] = evidence[7]["claim"].rstrip(".") + f" listing {number_phrase}."
+    evidence[7]["source_excerpt"] = evidence[7]["claim"]
+    assert evidence[2]["kind"] == "engineering_decision"
+    assert evidence[7]["kind"] == "onscreen_label"
+    assert evidence[2]["source_url"] != evidence[7]["source_url"]
+
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    old_span = bundle["claim_map"][1]["span"]
+    new_span = old_span.rstrip(".") + f" with {number_phrase}."
+    bundle["claim_map"][1]["span"] = new_span
+    bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
+
+    # The span cites ONLY the engineering_decision segment; the second source
+    # is uncited (onscreen_label slot). Two distinct locked sources -> passes.
+    _, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    assert not any(
+        "needs two independent sources or a hedge for exact numerical detail(s)" in warning
+        for warning in warnings
+    )
+
+    # Single-sourced number (only the engineering_decision segment carries it)
+    # still demands the hedge.
+    single_evidence = _evidence_segments()
+    single_evidence[2]["claim"] = single_evidence[2]["claim"].rstrip(".") + f" including {number_phrase}."
+    single_evidence[2]["source_excerpt"] = single_evidence[2]["claim"]
+    single_plan = pe._machine_story_plan(
+        {"unit_research_cards": [{"unit": "B-52", "evidence_segments": single_evidence}]},
+        "B-52",
+    )
+    _, single_warnings = pe._validate_machine_story_sentences("B-52", single_plan, bundle)
+    assert any(
+        "needs two independent sources or a hedge for exact numerical detail(s)" in warning
+        and "one hundred forty nine" in warning
+        for warning in single_warnings
+    )
 
 
 def test_story_paragraph_validator_requires_memorable_fact_in_story_plan():
@@ -3067,6 +3170,7 @@ def test_story_paragraph_validator_blocks_fact_heavy_final_synthesis():
     old_final = sentence_parts[-1]
     new_final = old_final.rstrip(".") + " in 1950."
     bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
@@ -3082,6 +3186,7 @@ def test_story_paragraph_validator_blocks_new_named_entity_in_final_synthesis():
     old_final = sentence_parts[-1]
     new_final = old_final.rstrip(".") + " over Vietnam."
     bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
@@ -3097,6 +3202,7 @@ def test_story_paragraph_validator_blocks_new_lowercase_fact_in_final_synthesis(
     old_final = sentence_parts[-1]
     new_final = old_final.rstrip(".") + " against missiles."
     bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
@@ -3142,6 +3248,7 @@ def test_story_paragraph_validator_requires_sentence_numbers_inside_claim_map_sp
     new_sentence = mapped_span + " in 1950."
     bundle["claim_map"][1]["span"] = mapped_span
     bundle["paragraph"] = bundle["paragraph"].replace(old_sentence, new_sentence)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
@@ -3158,6 +3265,7 @@ def test_story_paragraph_validator_requires_sentence_words_inside_claim_map_span
     new_sentence = mapped_span + " with stealth radar."
     bundle["claim_map"][1]["span"] = mapped_span
     bundle["paragraph"] = bundle["paragraph"].replace(old_sentence, new_sentence)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
@@ -3352,6 +3460,7 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
         "five thousand", "six thousand"
     )
     bad_sentences = [part if part.endswith(".") else part + "." for part in bad_bundle["paragraph"].split(". ") if part]
+    bad_bundle["formula_sentences"] = bad_sentences
     for row, sentence in zip(bad_bundle["claim_map"], bad_sentences):
         row["span"] = sentence
 
@@ -3363,6 +3472,7 @@ def test_story_sentence_validator_allows_source_supported_spelled_numbers_only()
     unit_bundle["paragraph"] = unit_bundle["paragraph"].replace(
         "five thousand miles", "five thousand mi"
     )
+    unit_bundle["formula_sentences"] = _formula_sentences_from_paragraph(unit_bundle["paragraph"])
     unit_bundle["claim_map"][1]["span"] = unit_bundle["claim_map"][1]["span"].replace(
         "five thousand miles", "five thousand mi"
     )
@@ -3438,6 +3548,7 @@ def test_story_sentence_validator_blocks_new_designations_and_high_risk_terms():
     new_span = old_span.replace("clear.", "B-47 first clear.", 1)
     bundle["claim_map"][0]["span"] = new_span
     bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+    bundle["formula_sentences"] = _formula_sentences_from_paragraph(bundle["paragraph"])
 
     _, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
 
@@ -3587,6 +3698,7 @@ def test_story_bundle_trim_drops_optional_sentence_when_over_word_contract():
     )
     sentences = bundle["formula_sentences"][:4] + [optional_sentence] + bundle["formula_sentences"][4:]
     bundle["paragraph"] = " ".join(sentences)
+    bundle["formula_sentences"] = sentences
     bundle["claim_map"].append(
         {"slot": "memorable_fact", "span": optional_sentence, "used_evidence_ids": ["E-MEMORABLE"]}
     )
@@ -3683,7 +3795,11 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[0]
     assert '"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"]' in fake_anthropic.prompts[0]
-    assert "formula_sentences must contain those exact five final sentences in order" in fake_anthropic.prompts[0]
+    # LAW: sentences only; assembly is code-owned - the model never re-types the paragraph.
+    assert "formula_sentences must contain the exact five final sentences in order" in fake_anthropic.prompts[0]
+    assert "Do NOT return a paragraph key" in fake_anthropic.prompts[0]
+    assert "code assembles the paragraph by joining formula_sentences with spaces" in fake_anthropic.prompts[0]
+    assert '"paragraph":"same five sentences joined with spaces"' not in fake_anthropic.prompts[0]
     assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
@@ -3696,10 +3812,11 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[0]
     assert "No orphan facts" in fake_anthropic.prompts[1]
-    assert "95-120 words, exactly 5 natural sentences" in fake_anthropic.prompts[0]
+    assert "joined they must total 95-120 words" in fake_anthropic.prompts[0]
     assert "4 evidence-backed sentences + 1 paragraph-derived conclusion" in fake_anthropic.prompts[0]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[0]
-    assert "both contain that exact numeric detail" in fake_anthropic.prompts[0]
+    # LAW: two-source support is graded against ALL locked evidence, not only cited IDs.
+    assert "two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs)" in fake_anthropic.prompts[0]
     assert "final sentence must be 18 words or fewer" in fake_anthropic.prompts[0]
     assert "End with a short verdict" in fake_anthropic.prompts[0]
     assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
@@ -3713,7 +3830,10 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
     assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
     assert '"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"]' in fake_anthropic.prompts[1]
-    assert "formula_sentences must contain those exact five final sentences in order" in fake_anthropic.prompts[1]
+    assert "formula_sentences must contain the exact five final sentences in order" in fake_anthropic.prompts[1]
+    assert "do NOT return a paragraph key" in fake_anthropic.prompts[1]
+    assert '"paragraph":"same five sentences joined with spaces"' not in fake_anthropic.prompts[1]
+    assert "two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs)" in fake_anthropic.prompts[1]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[1]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[1]
     assert "NARRATIVE WEIGHT: standard / target 100-112 words" in fake_anthropic.prompts[1]
@@ -3725,7 +3845,7 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Do not write a chronological biography" in fake_anthropic.prompts[1]
     assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
     assert "Use at most 8 numerical details total" in fake_anthropic.prompts[1]
-    assert "both contain that exact numeric detail" in fake_anthropic.prompts[1]
+    assert "must appear in locked evidence from two independent sources" in fake_anthropic.prompts[1]
     assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[1]
     assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
     assert "Do not include it in claim_map" in fake_anthropic.prompts[1]

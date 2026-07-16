@@ -2782,10 +2782,37 @@ def _soften_single_source_span(span: str, machine: str) -> str:
     return updated
 
 
+def _assemble_story_paragraph_from_sentences(bundle: dict) -> dict:
+    """LAW (2026-07-16): paragraph assembly is CODE-OWNED.
+
+    The model authors formula_sentences only; re-typing them into a separate
+    paragraph string is clerical work it does badly (XB-15: mangled
+    designation "XB-about 15", paraphrased clauses). Whenever the bundle
+    carries formula_sentences, the paragraph IS their space-join and the
+    model's own paragraph string is ignored. Legacy bundles without sentences
+    keep their paragraph as a fallback."""
+    if not isinstance(bundle, dict):
+        return bundle
+    formula_sentences = bundle.get("formula_sentences")
+    if not isinstance(formula_sentences, list):
+        return bundle
+    sentences = [" ".join(str(item or "").split()) for item in formula_sentences if str(item or "").strip()]
+    if sentences:
+        bundle["formula_sentences"] = sentences
+        bundle["paragraph"] = " ".join(sentences)
+    return bundle
+
+
+def _resplit_story_sentences(paragraph: str) -> list[str]:
+    """Re-derive formula_sentences after a code edit to the assembled paragraph."""
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", str(paragraph or "").strip()) if part.strip()]
+
+
 def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dict) -> dict:
     """Fix mechanical JSON-bundle failures without loosening source validation."""
     if not isinstance(bundle, dict):
         return bundle
+    bundle = _assemble_story_paragraph_from_sentences(bundle)
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     claim_rows = bundle.get("claim_map")
     if not paragraph or not isinstance(claim_rows, list):
@@ -2868,6 +2895,10 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
     repaired_bundle = dict(bundle)
     repaired_bundle["paragraph"] = repaired_paragraph
     repaired_bundle["claim_map"] = repaired_rows
+    # Keep the code-owned invariant paragraph == join(formula_sentences) after
+    # in-place span edits (softening never adds or removes sentence boundaries).
+    if repaired_paragraph != paragraph and bundle.get("formula_sentences"):
+        repaired_bundle["formula_sentences"] = _resplit_story_sentences(repaired_paragraph)
     return repaired_bundle
 
 
@@ -2875,6 +2906,7 @@ def _trim_machine_story_bundle_to_contract(machine: str, plan: dict, bundle: dic
     """Drop optional-only sentences when a valid story bundle overruns Anton length."""
     if not isinstance(bundle, dict):
         return bundle
+    bundle = _assemble_story_paragraph_from_sentences(bundle)
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     claim_rows = bundle.get("claim_map")
     if _spoken_word_count(paragraph) <= 120 or not isinstance(claim_rows, list):
@@ -2919,7 +2951,53 @@ def _trim_machine_story_bundle_to_contract(machine: str, plan: dict, bundle: dic
     trimmed_bundle = dict(bundle)
     trimmed_bundle["paragraph"] = trimmed_paragraph
     trimmed_bundle["claim_map"] = kept_rows
+    # Keep the code-owned invariant paragraph == join(formula_sentences).
+    if bundle.get("formula_sentences"):
+        trimmed_bundle["formula_sentences"] = _resplit_story_sentences(trimmed_paragraph)
     return trimmed_bundle
+
+
+def _final_sentence_novel_words(
+    last_sentence: str,
+    prior_text: str,
+    machine: str,
+    extra_stopwords: Optional[set[str]] = None,
+) -> list[str]:
+    """Novelty check for the editorial final sentence, stem- and contraction-aware.
+
+    LAW (2026-07-16): the conclusion is synthesis of the paragraph, so reused
+    word FORMS must not flag. Two proven false-flag classes (XB-15 preview):
+    "couldn, t" - the tokenizer splitting the contraction "couldn't" - and
+    "bombing" vs paragraph "bomber" - a stemming gap ("bomb" is under the
+    grounding checker's 5-char prefix floor). Contractions collapse to one
+    token before tokenizing, and a flagged word is cleared when its grounding
+    stem shares a 4+ character prefix with any stem in the paragraph/machine
+    vocabulary. Genuinely new facts (new nouns, places, events) still flag."""
+    import re as _re
+
+    def _collapse_contractions(text: str) -> str:
+        return _re.sub(r"([A-Za-z])['’]([A-Za-z])", r"\1\2", str(text or ""))
+
+    last = _collapse_contractions(last_sentence)
+    prior = _collapse_contractions(prior_text)
+    flagged = _ungrounded_factual_words(last, prior, machine, extra_stopwords=extra_stopwords)
+    if not flagged:
+        return []
+    vocabulary_stems = {
+        _grounding_stem(token)
+        for token in _re.findall(r"[a-z]+", f"{prior} {machine}".lower())
+    }
+
+    def _stem_prefix_grounded(word: str) -> bool:
+        stem = _grounding_stem(word)
+        if len(stem) < 4:
+            return False
+        return any(
+            len(candidate) >= 4 and candidate[:4] == stem[:4]
+            for candidate in vocabulary_stems
+        )
+
+    return [word for word in flagged if not _stem_prefix_grounded(word)]
 
 
 def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
@@ -2935,6 +3013,10 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     parse_warnings = bundle.get("_parse_warnings") if isinstance(bundle, dict) else None
     if isinstance(parse_warnings, list):
         warnings.extend(str(item) for item in parse_warnings if str(item).strip())
+    # LAW (2026-07-16): the paragraph graded here (and every claim_map span
+    # check below) is the CODE-ASSEMBLED join of formula_sentences whenever
+    # sentences exist; the model's re-typed paragraph string is ignored.
+    bundle = _assemble_story_paragraph_from_sentences(bundle)
     paragraph = " ".join(str(bundle.get("paragraph") or "").split())
     if not paragraph:
         warnings.append("story distiller must return a paragraph string")
@@ -3078,16 +3160,25 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                     mention_key = mention.get("key")
                     if not mention_key or mention_key in seen_insufficient_number_keys:
                         continue
+                    # LAW (2026-07-16): the two-independent-sources requirement is
+                    # graded against ALL of the story plan's locked evidence
+                    # segments, not only the row's cited ids (citations stay
+                    # provenance). XB-15's 149-foot wingspan lives in two locked
+                    # segments across different slots; the row cited only one.
+                    # Independent = distinct source_url/source_id (locator only
+                    # as a last resort), so two excerpts from one source never
+                    # count twice.
                     supporting_sources = {
                         str(
-                            evidence_by_id.get(evidence_id, {}).get("source_url")
-                            or evidence_by_id.get(evidence_id, {}).get("locator")
+                            segment.get("source_url")
+                            or segment.get("source_id")
+                            or segment.get("locator")
                             or ""
                         ).strip()
-                        for evidence_id in row_ids
+                        for segment in evidence_by_id.values()
                         if mention_key in {
                             _numeric_token_key(token)
-                            for token in evidence_by_id.get(evidence_id, {}).get("numeric_tokens", [])
+                            for token in (segment.get("numeric_tokens") or [])
                         }
                     }
                     supporting_sources = {source for source in supporting_sources if source}
@@ -3206,8 +3297,9 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         warnings.append(
             f"formula_sentences must contain {_ANTON_PARAGRAPH_FORMULA_SENTENCES} assembled sentences: {_ANTON_PARAGRAPH_FORMULA}"
         )
-    elif " ".join(formula_sentences) != paragraph:
-        warnings.append("formula_sentences must assemble exactly into paragraph")
+    # No assembly-mismatch warning: the paragraph IS the code-assembled join of
+    # formula_sentences (see _assemble_story_paragraph_from_sentences), so a
+    # model-side mismatch is structurally impossible.
     last_sentence = sentence_parts[-1] if sentence_parts else ""
     final_sentence_index = len(sentence_parts)
     formula_roles = ["original_problem", "engineering_decision", "tradeoff", "reality"]
@@ -3325,7 +3417,7 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 + ", ".join(final_risk_terms)
             )
         prior_paragraph_text = " ".join(sentence_parts[:-1])
-        unsupported_final_words = _ungrounded_factual_words(
+        unsupported_final_words = _final_sentence_novel_words(
             last_sentence,
             prior_paragraph_text,
             machine,
@@ -7162,10 +7254,10 @@ class PipelineExecutor:
                     f"STYLE / SENTENCE CRAFT:\n{structure_brief}\n"
                     "HARD CONTRACT:\n"
                     "- Return only valid JSON with this exact shape: "
-                    '{"editorial_thesis":"single engineering decision or contrast","formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"],"paragraph":"same five sentences joined with spaces","claim_map":[{"span":"exact paragraph words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
+                    '{"editorial_thesis":"single engineering decision or contrast","formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"],"claim_map":[{"span":"exact formula-sentence words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
                     "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
-                    f"- paragraph must be final spoken narration: exactly one paragraph, {_ANTON_PARAGRAPH_WORD_RANGE} words, exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} natural sentences following {_ANTON_PARAGRAPH_FORMULA}.\n"
-                    "- formula_sentences must contain those exact five final sentences in order. Joining formula_sentences with spaces must reproduce paragraph exactly.\n"
+                    f"- The {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences are the final spoken narration following {_ANTON_PARAGRAPH_FORMULA}; joined they must total {_ANTON_PARAGRAPH_WORD_RANGE} words.\n"
+                    "- formula_sentences must contain the exact five final sentences in order. Do NOT return a paragraph key: code assembles the paragraph by joining formula_sentences with spaces, so never re-type the sentences anywhere else.\n"
                     "- Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
                     "- Follow NARRATIVE WEIGHT as the target inside the hard range: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. Do not pad with orphan facts.\n"
                     "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
@@ -7173,9 +7265,9 @@ class PipelineExecutor:
                     "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
                     "- If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat. Do not add a separate anecdote sentence.\n"
                     "- The final sentence is editorial synthesis from the assembled paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact.\n"
-                    "- Each claim_map span must be copied exactly from the paragraph and use only evidence IDs from that span's real source slot.\n"
+                    "- Each claim_map span must be copied exactly from one formula sentence and use only evidence IDs from that span's real source slot.\n"
                     "- Each claim_map span must sit inside exactly one formula sentence. Never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries.\n"
-                    "- Every unhedged exact number, specification, production count, date, or superlative must be supported by two independent evidence IDs that both contain that exact numeric detail; otherwise hedge the claim or remove it.\n"
+                    "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
                     "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Keep designations/model names like B-52, XB-15, and F-86 as designations. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. Every number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
@@ -7248,17 +7340,17 @@ class PipelineExecutor:
                         f"OPENING ASSIGNMENT: {opening_brief}\n"
                         f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
                         f"STYLE / SENTENCE CRAFT:\n{structure_brief}\n"
-                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"formula_sentences\":[\"original_problem sentence\",\"engineering_decision sentence\",\"tradeoff sentence\",\"reality sentence\",\"paragraph-derived conclusion\"],\"paragraph\":\"same five sentences joined with spaces\",\"claim_map\":[{\"span\":\"exact paragraph words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
+                        "Return only the exact JSON shape: {\"editorial_thesis\":\"single engineering decision or contrast\",\"formula_sentences\":[\"original_problem sentence\",\"engineering_decision sentence\",\"tradeoff sentence\",\"reality sentence\",\"paragraph-derived conclusion\"],\"claim_map\":[{\"span\":\"exact formula-sentence words\",\"slot\":\"original_problem\",\"used_evidence_ids\":[\"...\"]}],\"onscreen_label\":\"...\"}. "
                         "editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents; it is not narration and not a generic importance summary. "
-                        f"Write exactly one paragraph inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} word range and exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences following {_ANTON_PARAGRAPH_FORMULA}. Follow NARRATIVE WEIGHT as the target: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. "
-                        "formula_sentences must contain those exact five final sentences in order and must join with spaces to reproduce paragraph exactly. "
+                        f"Write exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences following {_ANTON_PARAGRAPH_FORMULA}; code assembles the paragraph by joining them with spaces, and joined they must land inside the absolute {_ANTON_PARAGRAPH_WORD_RANGE} word range. Follow NARRATIVE WEIGHT as the target: major machines should land richer and closer to 120 words, transitional machines shorter and closer to 95. "
+                        "formula_sentences must contain the exact five final sentences in order; do NOT return a paragraph key and never re-type the sentences anywhere else - code does the joining. "
                         "Follow OPENING ASSIGNMENT exactly; if it says not to open with the machine name, the first sentence must not start with the locked machine name or designation. "
                         "claim_map must cover every factual clause and use selected evidence IDs covering original_problem, engineering_decision, tradeoff, and reality. "
                         "Each claim_map span must sit inside exactly one formula sentence; never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries. "
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
-                        "Every unhedged exact number, specification, production count, date, or superlative must be supported by two independent evidence IDs that both contain that exact numeric detail; otherwise hedge the claim or remove it. "
+                        "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. "
                         "For the Strategic Bomber benchmark, keep Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, all from locked evidence. "
                         "Use voice-ready spoken number words for years and quantities while preserving designations/model names like B-52, XB-15, and F-86. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite it as spoken words. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
