@@ -3677,6 +3677,186 @@ def _script_starvation_promote_actions(
     return actions
 
 
+# ---------------------------------------------------------------------------
+# PLAN -> WRITE -> EDIT (2026-07-17): the writer restructure. One prompt was
+# doing three jobs - choosing facts, writing prose, and keeping the citation
+# ledger - under ~35 simultaneous laws, and dropped a different one per roll.
+# Now CODE picks the facts per beat and CODE keeps the ledger; the model only
+# writes; failures get a minimal targeted edit of the same draft instead of a
+# fresh re-roll. Gates are untouched (law freeze): this changes how the writer
+# meets them, not what they demand.
+# ---------------------------------------------------------------------------
+
+_BEAT_ASSIGNMENTS = (
+    (
+        "original_problem",
+        ("identity_origin", "timeframe", "role_category"),
+        "State the problem, requirement, or ambition that created this machine.",
+    ),
+    (
+        "engineering_decision",
+        ("scale_specs", "visual_identity"),
+        "State the design answer with its concrete scale/spec facts and numbers.",
+    ),
+    (
+        "tradeoff",
+        (),
+        "State the cost, limit, sacrifice, or expectation the design created.",
+    ),
+    (
+        "reality",
+        ("build_reality", "service_reality", "memorable_fact", "human_detail"),
+        "State what documented reality did: production, losses, service, conversion. "
+        "The production count and its superlative live HERE, never in the closer.",
+    ),
+)
+
+
+def _deterministic_beat_plan(story_plan: dict, machine: str) -> list[dict]:
+    """CODE picks the facts. Each of the four evidence beats gets its required
+    slot's segments plus its natural support slots, deduplicated in order. The
+    writer selects within a beat but never across beats, so formula order can
+    no longer be violated by citation."""
+    slots_by_role = {
+        str(slot.get("slot") or ""): slot
+        for slot in (story_plan.get("slots") if isinstance(story_plan, dict) else []) or []
+        if isinstance(slot, dict)
+    }
+
+    def _segments(role: str) -> list[dict]:
+        return [
+            segment for segment in (slots_by_role.get(role, {}).get("evidence_segments") or [])
+            if isinstance(segment, dict)
+        ]
+
+    conversion_ids = [
+        str(item) for item in (
+            (story_plan.get("contract") or {}).get("conversion_signal_evidence_ids") or []
+        ) if str(item).strip()
+    ]
+    beats: list[dict] = []
+    for index, (role, supports, job) in enumerate(_BEAT_ASSIGNMENTS, start=1):
+        segments = list(_segments(role))
+        for support in supports:
+            segments.extend(_segments(support))
+        seen: set[str] = set()
+        deduped: list[dict] = []
+        for segment in segments:
+            evidence_id = str(segment.get("evidence_id") or "").strip()
+            if evidence_id and evidence_id not in seen:
+                seen.add(evidence_id)
+                deduped.append(segment)
+        beat = {"index": index, "role": role, "job": job, "segments": deduped}
+        if role == "reality" and conversion_ids:
+            flagged = [eid for eid in conversion_ids if eid in seen]
+            if flagged:
+                beat["twist_source_id"] = flagged[0]
+        beats.append(beat)
+    return beats
+
+
+def _beat_number_directives(beats: list[dict], machine: str) -> list[dict]:
+    """Name the exact numeric facts sentences 2 and 4 must carry, so the
+    number floor is met by assignment instead of hope."""
+    directives: list[dict] = []
+    for beat in beats:
+        if beat["index"] not in (2, 4):
+            continue
+        best = None
+        best_count = 0
+        for segment in beat["segments"]:
+            claim = " ".join(str(segment.get("claim") or "").split())
+            count = len(_numeric_tokens_from_text(_strip_designations_for_numbers(claim, machine)))
+            if count > best_count:
+                best, best_count = segment, count
+        if best is not None and best_count:
+            directives.append({
+                "sentence": beat["index"],
+                "evidence_id": str(best.get("evidence_id") or ""),
+                "fact": " ".join(str(best.get("claim") or "").split())[:240],
+            })
+    return directives
+
+
+def _derive_claim_ledger(sentences: list[str], beats: list[dict]) -> list[dict]:
+    """CODE keeps the ledger. Sentence N is backed, whole, by beat N's ids -
+    the model never does clerical span work again. Same doctrine as
+    _assemble_story_paragraph_from_sentences: assembly and bookkeeping are
+    code-owned; the model authors prose only."""
+    rows: list[dict] = []
+    for beat in beats:
+        position = beat["index"] - 1
+        if position >= len(sentences):
+            break
+        span = " ".join(str(sentences[position] or "").split())
+        ids = [
+            str(segment.get("evidence_id") or "").strip()
+            for segment in beat["segments"]
+            if str(segment.get("evidence_id") or "").strip()
+        ]
+        if span and ids:
+            rows.append({"span": span, "slot": beat["role"], "used_evidence_ids": ids})
+    return rows
+
+
+def _parse_planned_story_sentences(raw: str, beats: list[dict]) -> dict:
+    """Parse the write/edit stage's small schema and attach the code ledger."""
+    import json as _json_plan
+    import re as _re_plan
+
+    text = str(raw or "").strip()
+    text = _re_plan.sub(r"^```(?:json)?\s*", "", text, flags=_re_plan.I).strip()
+    text = _re_plan.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = _json_plan.loads(text)
+    except (TypeError, ValueError):
+        return {"_parse_error": "planned story writer must return valid JSON"}
+    if not isinstance(parsed, dict):
+        return {"_parse_error": "planned story writer must return a JSON object"}
+    sentences_raw = parsed.get("sentences") or parsed.get("formula_sentences")
+    if not isinstance(sentences_raw, list):
+        return {"_parse_error": "planned story writer must return a `sentences` array"}
+    if any(not isinstance(item, str) for item in sentences_raw):
+        return {"_parse_error": "planned story writer sentences must be plain strings"}
+    sentences = [" ".join(item.split()) for item in sentences_raw if item.strip()]
+    if len(sentences) < 4:
+        return {"_parse_error": "planned story writer must return the five formula sentences"}
+    return {
+        "editorial_thesis": parsed.get("editorial_thesis"),
+        "twist": parsed.get("twist"),
+        "onscreen_label": "",
+        "formula_sentences": sentences,
+        "paragraph": " ".join(sentences),
+        "claim_map": _derive_claim_ledger(sentences, beats),
+    }
+
+
+def _beat_plan_prompt_block(beats: list[dict], machine: str) -> str:
+    """Render the beat plan with each sentence's evidence INLINE."""
+    lines: list[str] = []
+    for beat in beats:
+        lines.append(f"SENTENCE {beat['index']} ({beat['role']}): {beat['job']}")
+        if beat.get("twist_source_id"):
+            lines.append(
+                f"  TWIST SOURCE (mandatory): build this sentence and the twist from evidence {beat['twist_source_id']}."
+            )
+        for segment in beat["segments"]:
+            claim = " ".join(str(segment.get("claim") or "").split())
+            lines.append(f"  - [{segment.get('evidence_id')}] {claim}")
+        if not beat["segments"]:
+            lines.append("  - (no locked evidence: write this beat from the other beats' facts only, adding nothing)")
+    for directive in _beat_number_directives(beats, machine):
+        lines.append(
+            f"MANDATORY NUMBERS for sentence {directive['sentence']}: state the number(s) from [{directive['evidence_id']}] "
+            f"\"{directive['fact']}\" (hedge with roughly/about/over if single-source; never drop them)."
+        )
+    lines.append(
+        "SENTENCE 5 (closer): a verdict punch derived ONLY from sentences 1-4. No new facts, no numbers, "
+        "no new names, 25 words or fewer. Legal forms: single-hammer, antithesis, concede-then-cut, triad."
+    )
+    return "\n".join(lines)
+
+
 def _classify_repair_actions(machine: str, card: Optional[dict], package: Optional[dict]) -> list[dict]:
     """Cheapest-first repair plan for one machine. Deterministic, read-only.
 
@@ -10070,78 +10250,98 @@ class PipelineExecutor:
                     await self._log_activity(bot_name, video_id, "failed", msg)
                     return {"status": "failed", "error": msg, "video_id": video_id}
                 _mirror_response_artifact("machine_story_plans", machine_artifact_key, story_plan)
-                prompt = (
-                    "WRITE ONE ANTON-STYLE PARAGRAPH FROM LOCKED SOURCE SLOTS.\n\n"
+                # PLAN -> WRITE -> EDIT (2026-07-17). Code picks the facts and
+                # keeps the ledger; the model only writes; failures get minimal
+                # targeted edits of the SAME draft. See _deterministic_beat_plan.
+                beat_plan = _deterministic_beat_plan(story_plan, machine)
+                twist_menu = list((story_plan.get("contract") or {}).get("twist_menu") or [])
+                voice_rules = (
+                    "VOICE RULES (the only laws the writer owns - everything else is planned for you):\n"
+                    "- GROUNDING: zero freedom in WHAT is claimed. Every checkable fact (number, date, proper noun, spec) must come from this sentence's listed evidence. Abstract vocabulary and common verbs are free; prefer the evidence's own concrete nouns. Never invent a month, place, or name the evidence lacks.\n"
+                    "- Sourced names stay as written: never expand an abbreviation (`RAF` never becomes `Royal Air Force`).\n"
+                    "- The narration must say the locked machine designation at least once (a precursor model name does not count).\n"
+                    f"- Hedge lexicon (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}. A single-source quantity is stated as a hedged round, never dropped. Designations are names: never hedge or respell their digits.\n"
+                    "- Spoken number words for counts, speeds, weights, and percentages. Digits ONLY for designations, calendar years, and exact figures of four or more digits. Spell out unit abbreviations (mph -> miles per hour).\n"
+                    "- One terminal period per sentence: no semicolons, no internal periods, no abbreviations with dots.\n"
+                    "- Avoid high-risk absolutes unless this sentence's evidence uses the exact word: first, only, largest, fastest, most, never.\n"
+                    "- Vary sentence length for spoken delivery; never three long sentences in a row. No hype words, no Wikipedia-style existence openers, no ranked-list connectors, no However/Furthermore/Moreover starts.\n"
+                    "- The paragraph should read like Anton: facts serve the engineering argument, not an encyclopedia checklist.\n"
+                    f"- WORD BAND: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS}, hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS}; aim for the register target. If a draft lands under the target, fold in one more planned fact rather than returning thin.\n"
+                )
+                reference_benchmark = story_plan.get("reference_benchmark") if isinstance(story_plan.get("reference_benchmark"), dict) else {}
+                benchmark_line = ""
+                if reference_benchmark:
+                    benchmark_line = (
+                        "REFERENCE SHAPE (reference_benchmark, shape only): "
+                        f"~{reference_benchmark.get('word_count')} words, {reference_benchmark.get('sentence_count')} sentences, "
+                        f"opening mode {reference_benchmark.get('opening_mode')}, final line job: {reference_benchmark.get('final_line_job')}. "
+                        "Do not copy or infer unsourced facts from it.\n"
+                    )
+                write_prompt = (
+                    "WRITE ONE ANTON-STYLE PARAGRAPH AS FIVE SENTENCES FROM THE BEAT PLAN BELOW.\n\n"
                     f"VIDEO TITLE: {title}\n"
                     f"{machine_scope_line}"
                     f"{neighbor_context}"
                     f"OPENING ASSIGNMENT: {opening_brief}\n"
-                    f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n\n"
-                    "You are not writing from memory. Select only from the locked Anton slots below, then compose one natural paragraph. "
-                    "The target movement is four evidence-backed sentences from original_problem, engineering_decision, tradeoff, and reality, then one paragraph-derived conclusion.\n\n"
+                    "Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
+                    f"NARRATIVE WEIGHT: {narrative_weight.get('label')} / target {narrative_weight.get('target_words')} words / {narrative_weight.get('guidance')}\n"
+                    f"{benchmark_line}\n"
+                    "The facts are already chosen. Sentence N uses ONLY the evidence listed under sentence N - your craft decides how it reads, not what it claims. "
+                    "Citation bookkeeping is handled by code; do not produce a claim map.\n\n"
                     f"STYLE / SENTENCE CRAFT:\n{structure_brief}\n"
-                    "HARD CONTRACT:\n"
-                    "- Return only valid JSON with this exact shape: "
-                    '{"editorial_thesis":"single engineering decision or contrast","twist":{"type":"role_change","substitute":null,"summary":"built for X, used as Y in one line"},"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"],"claim_map":[{"span":"exact formula-sentence words","slot":"original_problem","used_evidence_ids":["..."]}],"onscreen_label":"..."}\n'
-                    "- editorial_thesis must be 6-26 words and state the specific engineering decision, tradeoff, or contrast this machine represents. It is not narration and not a generic importance summary.\n"
-                    "- TWIST LAW (hard): every entry runs on a designed-vs-used gap - built for X, used as Y. Declare twist.type from the plan's twist_menu (pick the closest NAMED subtype; `other` is a last resort). "
-                    "Only a machine used exactly as designed may declare type `absent`, and then twist.substitute MUST name one of: superlative, legacy, irony, anti_twist. No gap and no substitute reads as a spec dump and is rejected.\n"
-                    "- CONVERSION SIGNAL (hard): when the plan's contract carries conversion_signal_evidence_ids, the FIRST listed id is the machine's documented designed-vs-used story. Write the reality sentence FROM that flagged evidence, cite it in that sentence's claim_map row, and build the twist from it. An acceptance, delivery, or test event is NOT the reality beat while a flagged conversion segment exists.\n"
-                    f"- WORD LAW: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS} words, hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS}; hit the register target in the plan's narrative_weight (spec-block register {_DVSU_REGISTER_TARGETS['spec_block']}). "
-                    f"The {_ANTON_PARAGRAPH_FORMULA_SENTENCES} formula_sentences are the final spoken narration following {_ANTON_PARAGRAPH_FORMULA}.\n"
-                    "- POSITION LAW: weight the budget by importance and position - the FIRST entry of a video never runs shortest; the FINAL entry runs plus ten to thirty words and folds the outro as a bookend callback; marquee machines run 110-150; deliberately bare prototypes and connective entries run 80-95.\n"
-                    "- formula_sentences must contain the exact five final sentences in order. Do NOT return a paragraph key: code assembles the paragraph by joining formula_sentences with spaces, so never re-type the sentences anywhere else.\n"
-                    "- The narration must name the locked machine designation at least once; a precursor or model name (Model 299) does not satisfy this.\n"
-                    "- Sourced names are locked as written: never expand or alter an abbreviation the evidence uses (evidence `RAF` never becomes `Royal Air Force`) - an expansion reads as a new unsourced proper noun and is rejected.\n"
-                    "- Follow OPENING ASSIGNMENT exactly. If it says not to open with the machine name, the first sentence must not start with the locked machine name or designation.\n"
-                    "- OPENER BUDGET: bare name-openers (The [Maker] [Designation]...) are capped near 57% of a video's entries - open on a bridge, a role/thesis claim, or date/era context at least 40% of the time, and never run three identical opener types in a row.\n"
-                    "- BRIDGE LAW: chain to the prior machine about 40% of the time and cluster the bridges (chronology, within-class sequences, run-offs, shared eras) rather than spreading them evenly; plant and pay off at least one long-arc callback across the video.\n"
-                    "- Follow NARRATIVE WEIGHT as the register target: major machines land richer (110-150), transitional machines bare (80-95). Do not pad with orphan facts.\n"
-                    "- claim_map must cover every factual clause that carries a date, number, event, service claim, production claim, specification, or sourced consequence.\n"
-                    "- COVERAGE LAW (hard): inside the four evidence-backed sentences, every content-carrying word (nouns, verbs, and adjectives that state facts) must sit INSIDE a claim-mapped span. Text between spans is connective glue only (and, but, while, that, which, its). A factual phrase you cannot claim-map does not belong in the sentence - cut it, never decorate around the evidence.\n"
-                    "- claim_map used_evidence_ids must cover original_problem, engineering_decision, tradeoff, and reality.\n"
-                    "- If the plan provides a memorable_fact slot, at least one claim_map row must use a memorable_fact evidence ID by folding it into the strongest required beat.\n"
-                    "- If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat. Do not add a separate anecdote sentence.\n"
-                    "- The final sentence is editorial synthesis from the assembled paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact.\n"
-                    "- Each claim_map span must be copied exactly from one formula sentence and use only evidence IDs from that span's real source slot.\n"
-                    "- Each claim_map span must sit inside exactly one formula sentence. Never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries.\n"
-                    "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise HEDGE the claim - do not drop it. Designations are exempt: never hedge, source-check, or reword a designation.\n"
-                    "- SPEC LAW (hard): a single-source number is HEDGED, never omitted. When the plan carries sourced scale, capability, or production numbers (wingspan, engines, payload, speed, range, build count), the paragraph keeps its spec block and production reality with real numbers - write a single-sourced value as a hedged round (`a wingspan approaching one hundred fifty feet`, `roughly seven hundred built`). Dropping sourced numbers because they are single-sourced, or writing `many`/`several` where a count exists, is a rejection.\n"
-                    f"- Accepted hedge words (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}.\n"
-                    "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
-                    "- GROUNDING LAW: freedom in HOW it is said, zero freedom in WHAT is claimed. Checkable facts - numbers, dates, proper nouns, designations, concrete spec claims - must appear in the locked evidence. Abstract vocabulary, common verbs, and adjectives are free; prefer evidence wording for colorful concrete nouns (the evidence's `mammoth` beats your `giant`).\n"
-                    "- A hedged, direction-consistent round of a sourced value is legal (`over eight thousand feet` for a sourced 8,200). Exact dates need one locked source; quantities need two.\n"
-                    "- Use voice-ready spoken number words for counts, calibers, speeds, tonnages, durations, and percentages. Digits stay ONLY for alphanumeric designations (B-17, BB-66), calendar years, and exact figures of four or more digits (casualty tolls like 1,177, costs, hull numbers). Designations are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration.\n"
-                    f"- Use at most {story_plan['contract']['maximum_numerical_details']} numerical details total (the register cap), including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
-                    "- Prefer fewer than 6 numerical details when optional slots add clutter, but a Strategic Bomber benchmark paragraph may use 6-8 when each one proves scale, capability, production, service reality, or the final contrast.\n"
-                    "- NUMBER FLOOR (hard, Strategic Bomber benchmark): the evidence-backed sentences must carry at least TWO sourced numerical details inside claim-mapped spans - a spec figure, production count, loss figure, range, or speed. A number-free paragraph is rejected; hedge single-source values rather than omitting them.\n"
-                    "- The production count and any superlative it earns (most-produced, largest fleet) belong in the fourth evidence-backed sentence with the reality beat, NEVER in the closer. The closer is number-free synthesis and may reference scale only through words the body already spoke.\n"
-                    "- Do not include optional-slot numbers if required slots already tell the story.\n"
-                    "- Avoid high-risk terms unless the exact selected source evidence uses them: first, only, largest, fastest, most, never.\n"
-                    "- Vary sentence length for spoken delivery. Do not write three long sentences in a row.\n"
-                    "- Do not write a chronological biography. Dates are allowed only when they prove the engineering problem, decision, tradeoff, or reality.\n"
-                    "- The paragraph should read like Anton: facts serve the engineering argument, not an encyclopedia checklist.\n"
-                    "- Avoid written-language connector sentence starts: However, Nevertheless, Furthermore, Moreover, Additionally, In addition.\n"
-                    "- Do not use ranked-list connectors: Next is, Next came, Another aircraft was, Moving on to, At number, Coming in at number, or on this list. Bridge through problem, contrast, consequence, or the previous machine instead.\n"
-                    "- If LOCKED STORY PLAN includes reference_benchmark, use it only for shape and rhythm: word count, sentence count, opening mode, sentence jobs, and final-line job. Do not copy or infer unsourced facts from it.\n"
-                    "- Include sourced memorable_fact only when it strengthens one of the four beats. No orphan facts and no separate trivia sentence.\n"
-                    "- VERDICT PUNCH (hard): the closer must be one of the four legal forms - single-hammer, antithesis, concede-then-cut, or triad. Summary and recap closers are banned: a closer that only restates the body's facts is rejected. "
-                    "Reach FIRST for the house punch: a two-part parallel antithesis that restates the designed-vs-used gap and lands on the result side (`They ordered an ambulance. They got an air force.`), each half four to nine words; the other three forms are legal fallbacks.\n"
-                    f"- CLOSER FREEDOM: the final sentence may use any editorial or abstract vocabulary - it elevates, it does not recap. Nationality and geographic color (over German skies) is legal. It must be {_ANTON_FINAL_SENTENCE_MAX_WORDS} words or fewer and may NOT introduce new person, organization, or operation names, new designations, or a new number paired with a new entity.\n"
-                    "- onscreen_label is metadata only, not narration. It must be empty unless onscreen_label evidence or sourced role/operator/build/date slots support it.\n"
-                    "- No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes, hype, or list transitions.\n\n"
-                    f"LOCKED STORY PLAN:\n{_json_sh.dumps(story_plan, ensure_ascii=False, indent=2)}"
+                    f"BEAT PLAN:\n{_beat_plan_prompt_block(beat_plan, machine)}\n\n"
+                    f"{voice_rules}\n"
+                    "TWIST: declare the designed-vs-used gap the reality sentence proves. "
+                    f"twist.type comes from this menu: {', '.join(twist_menu) or 'role_change, mission_change, absent'}; "
+                    "only a machine used exactly as designed may declare `absent`, and then twist.substitute names superlative, legacy, irony, or anti_twist.\n"
+                    "editorial_thesis: 6-26 words naming the specific engineering decision, tradeoff, or contrast.\n\n"
+                    "Return ONLY this JSON: "
+                    '{"editorial_thesis":"...","twist":{"type":"...","substitute":null,"summary":"built for X, used as Y"},'
+                    '"sentences":["sentence 1","sentence 2","sentence 3","sentence 4","closer"]}'
                 )
                 raw_story = await anthropic_client.generate(
-                    prompt=prompt,
+                    prompt=write_prompt,
                     system_prompt=story_distiller_system_prompt + inventory_system_override,
-                    max_tokens=1500,
-                    temperature=0.25,
+                    max_tokens=1200,
+                    temperature=0.2,
                 )
-                bundle = _parse_machine_story_sentences(raw_story)
+                bundle = _parse_planned_story_sentences(raw_story, beat_plan)
                 bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
                 bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
                 paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                # EDIT loop: same draft back with only the violations - minimal
+                # local fixes converge where fresh re-rolls oscillated.
+                edit_round = 0
+                while _blocking_warnings(warnings) and edit_round < 2:
+                    edit_round += 1
+                    current_sentences = bundle.get("formula_sentences") or []
+                    edit_prompt = (
+                        "EDIT THIS DRAFT MINIMALLY. Change ONLY what the violations name; keep every other word.\n\n"
+                        "CURRENT SENTENCES:\n"
+                        + "\n".join(f"{i}. {s}" for i, s in enumerate(current_sentences, start=1))
+                        + "\n\nVIOLATIONS TO FIX (everything else already passes):\n"
+                        + "\n".join(f"- {w}" for w in _blocking_warnings(warnings))
+                        + "\n\nEach sentence may use ONLY its beat's evidence:\n"
+                        + _beat_plan_prompt_block(beat_plan, machine)
+                        + f"\n\n{voice_rules}\n"
+                        "Return ONLY this JSON (all five sentences, edited ones included): "
+                        '{"editorial_thesis":"...","twist":{"type":"...","substitute":null,"summary":"..."},'
+                        '"sentences":["...","...","...","...","..."]}'
+                    )
+                    raw_story = await anthropic_client.generate(
+                        prompt=edit_prompt,
+                        system_prompt=story_distiller_system_prompt + inventory_system_override,
+                        max_tokens=1200,
+                        temperature=0.1,
+                    )
+                    edited = _parse_planned_story_sentences(raw_story, beat_plan)
+                    if edited.get("_parse_error"):
+                        break
+                    edited["editorial_thesis"] = edited.get("editorial_thesis") or bundle.get("editorial_thesis")
+                    edited["twist"] = edited.get("twist") or bundle.get("twist")
+                    bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, edited)
+                    bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
+                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
                 research_source_kind = "structured_story_plan"
             else:
                 prompt = (
@@ -10180,7 +10380,10 @@ class PipelineExecutor:
                 warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
 
             # Warn-severity (advisory-prefixed) flags never trigger a repair round.
-            if _blocking_warnings(warnings):
+            # Inventory mode already ran its convergent EDIT loop above; the
+            # fresh-re-roll rebuild below is retired for it (2026-07-17) and
+            # kept only for the legacy non-inventory paragraph path.
+            if _blocking_warnings(warnings) and not complete_inventory_mode:
                 if complete_inventory_mode:
                     repair_prompt = (
                         "REBUILD THE ANTON-STYLE PARAGRAPH JSON FROM THE SAME LOCKED STORY PLAN.\n\n"

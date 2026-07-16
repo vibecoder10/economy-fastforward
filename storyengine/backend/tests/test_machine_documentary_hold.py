@@ -4093,105 +4093,54 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
 
     assert result["status"] == "ready_for_voice"
     assert len(fake_anthropic.prompts) == 2, "under-length sentence jobs must trigger one fresh bundle repair"
+    # PLAN -> WRITE -> EDIT (2026-07-17): prompt-content locks for the
+    # restructured writer. Code picks facts and keeps the ledger; the model
+    # only writes; failures get a minimal edit of the same draft.
     assert "GLOBAL FACT SHEET MUST NOT LEAK" not in fake_anthropic.prompts[0]
     assert "machine-card-source" not in fake_anthropic.prompts[0]
+    # The evidence rides INLINE under its sentence assignment.
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
-    assert "WRITE ONE ANTON-STYLE PARAGRAPH" in fake_anthropic.prompts[0]
-    assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[0]
-    assert '"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"]' in fake_anthropic.prompts[0]
-    # LAW: sentences only; assembly is code-owned - the model never re-types the paragraph.
-    assert "formula_sentences must contain the exact five final sentences in order" in fake_anthropic.prompts[0]
-    assert "Do NOT return a paragraph key" in fake_anthropic.prompts[0]
-    assert "code assembles the paragraph by joining formula_sentences with spaces" in fake_anthropic.prompts[0]
-    assert '"paragraph":"same five sentences joined with spaces"' not in fake_anthropic.prompts[0]
-    assert "editorial_thesis must be 6-26 words" in fake_anthropic.prompts[0]
+    assert "WRITE ONE ANTON-STYLE PARAGRAPH AS FIVE SENTENCES FROM THE BEAT PLAN BELOW." in fake_anthropic.prompts[0]
+    assert "BEAT PLAN:" in fake_anthropic.prompts[0]
+    for beat_header in (
+        "SENTENCE 1 (original_problem)",
+        "SENTENCE 2 (engineering_decision)",
+        "SENTENCE 3 (tradeoff)",
+        "SENTENCE 4 (reality)",
+        "SENTENCE 5 (closer)",
+    ):
+        assert beat_header in fake_anthropic.prompts[0]
+    # The ledger is code-owned: the writer is told NOT to produce a claim map.
+    assert "Citation bookkeeping is handled by code; do not produce a claim map." in fake_anthropic.prompts[0]
+    assert '"sentences":["sentence 1"' in fake_anthropic.prompts[0]
+    assert "claim_map" not in fake_anthropic.prompts[0].split("BEAT PLAN:")[1].split("VOICE RULES")[0]
+    # The voice rules the writer still owns.
+    assert "GROUNDING: zero freedom in WHAT is claimed" in fake_anthropic.prompts[0]
+    assert "Hedge lexicon (the gate recognizes exactly these): " in fake_anthropic.prompts[0]
+    assert "roughly" in fake_anthropic.prompts[0]
+    assert "WORD BAND: hard floor 80, hard ceiling 170" in fake_anthropic.prompts[0]
+    assert "Designations are names: never hedge or respell their digits." in fake_anthropic.prompts[0]
+    assert "never expand an abbreviation" in fake_anthropic.prompts[0]
+    assert "say the locked machine designation at least once" in fake_anthropic.prompts[0]
+    assert "facts serve the engineering argument" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
-    assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
     assert "NARRATIVE WEIGHT: standard / target 100-120 words" in fake_anthropic.prompts[0]
-    assert "Follow NARRATIVE WEIGHT as the register target" in fake_anthropic.prompts[0]
-    for required_slot in ["original_problem", "engineering_decision", "tradeoff", "reality"]:
-        assert required_slot in fake_anthropic.prompts[0]
-    assert "original_problem, engineering_decision, tradeoff, and reality" in fake_anthropic.prompts[0]
-    assert "at least one claim_map row must use a memorable_fact evidence ID" in fake_anthropic.prompts[0]
-    assert "final sentence is editorial synthesis from the assembled paragraph only" in fake_anthropic.prompts[0]
-    assert "Do not include it in claim_map" in fake_anthropic.prompts[0]
-    assert "No orphan facts" in fake_anthropic.prompts[1]
-    # QD-6/QL-1: universal hard floor/ceiling with register targets.
-    assert "WORD LAW: hard floor 80 words, hard ceiling 170" in fake_anthropic.prompts[0]
-    assert "spec-block register 100-120" in fake_anthropic.prompts[0]
-    # QL-2 position/importance guidance travels in the build prompt.
-    assert "POSITION LAW" in fake_anthropic.prompts[0]
-    assert "never runs shortest" in fake_anthropic.prompts[0]
-    assert "plus ten to thirty words and folds the outro" in fake_anthropic.prompts[0]
-    # QL-3/QL-4 twist declaration in shape and law text.
-    assert '"twist":{"type":"role_change","substitute":null,"summary":"built for X, used as Y in one line"}' in fake_anthropic.prompts[0]
-    assert "TWIST LAW (hard)" in fake_anthropic.prompts[0]
-    assert "superlative, legacy, irony, anti_twist" in fake_anthropic.prompts[0]
-    # QL-5/QL-6 verdict punch + house punch preference.
-    assert "VERDICT PUNCH (hard)" in fake_anthropic.prompts[0]
-    assert "They ordered an ambulance. They got an air force." in fake_anthropic.prompts[0]
-    # QL-7/QL-8 opener budget + bridge guidance.
-    assert "OPENER BUDGET" in fake_anthropic.prompts[0]
-    assert "BRIDGE LAW" in fake_anthropic.prompts[0]
-    # QD-1/QD-2/QD-3/QD-4 dial laws.
-    assert "CLOSER FREEDOM" in fake_anthropic.prompts[0]
-    assert "GROUNDING LAW: freedom in HOW it is said, zero freedom in WHAT is claimed" in fake_anthropic.prompts[0]
-    assert "hedged, direction-consistent round of a sourced value is legal" in fake_anthropic.prompts[0]
-    assert "Exact dates need one locked source; quantities need two." in fake_anthropic.prompts[0]
-    assert "4 evidence-backed sentences + 1 paragraph-derived conclusion" in fake_anthropic.prompts[0]
-    assert "Use at most 15 numerical details total (the register cap)" in fake_anthropic.prompts[0]
-    # LAW: two-source support is graded against ALL locked evidence, not only cited IDs.
-    assert "two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs)" in fake_anthropic.prompts[0]
-    assert "It must be 25 words or fewer" in fake_anthropic.prompts[0]
-    assert "VERDICT PUNCH (hard): the closer must be single-hammer, antithesis, concede-then-cut, or triad" in fake_anthropic.prompts[1]
-    assert "Avoid written-language connector sentence starts" in fake_anthropic.prompts[0]
-    assert "Do not use ranked-list connectors" in fake_anthropic.prompts[0]
-    assert "Use voice-ready spoken number words" in fake_anthropic.prompts[0]
-    assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[0]
-    # LAW: designations are names - digits kept, never spelled out, never hedged.
-    assert "Designations are NAMES, not numbers" in fake_anthropic.prompts[0]
-    # QL-10 (OR-4): the number-rendering law in the build prompt.
-    assert "exact figures of four or more digits (casualty tolls like 1,177, costs, hull numbers)" in fake_anthropic.prompts[0]
-    assert "never spell them out, never hedge them" in fake_anthropic.prompts[0]
-    assert "Designations are exempt: never hedge, source-check, or reword a designation" in fake_anthropic.prompts[0]
-    assert "Designations are exempt: never hedge, source-check, or reword a designation" in fake_anthropic.prompts[1]
-    assert "Vary sentence length for spoken delivery. Do not write three long sentences in a row" in fake_anthropic.prompts[0]
-    assert "Do not write a chronological biography" in fake_anthropic.prompts[0]
-    assert "No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes" in fake_anthropic.prompts[0]
-    assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" in fake_anthropic.prompts[1]
-    assert '"editorial_thesis":"single engineering decision or contrast"' in fake_anthropic.prompts[1]
-    assert '"formula_sentences":["original_problem sentence","engineering_decision sentence","tradeoff sentence","reality sentence","paragraph-derived conclusion"]' in fake_anthropic.prompts[1]
-    assert "formula_sentences must contain the exact five final sentences in order" in fake_anthropic.prompts[1]
-    assert "do NOT return a paragraph key" in fake_anthropic.prompts[1]
-    assert '"paragraph":"same five sentences joined with spaces"' not in fake_anthropic.prompts[1]
-    assert "two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs)" in fake_anthropic.prompts[1]
-    assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[1]
-    assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[1]
-    assert "NARRATIVE WEIGHT: standard / target 100-120 words" in fake_anthropic.prompts[1]
-    assert "hit the register target in NARRATIVE WEIGHT" in fake_anthropic.prompts[1]
-    assert "TWIST LAW (hard)" in fake_anthropic.prompts[1]
-    assert "GROUNDING LAW" in fake_anthropic.prompts[1]
-    assert "CLOSER FREEDOM" in fake_anthropic.prompts[1]
-    assert "Remove written-language connector sentence starts" in fake_anthropic.prompts[1]
-    assert "Remove ranked-list connectors" in fake_anthropic.prompts[1]
-    assert "No markdown, labels, b-roll cues, thumbnail lines, or bracketed production notes" in fake_anthropic.prompts[1]
-    assert "Vary sentence length for spoken delivery; do not write three long sentences in a row" in fake_anthropic.prompts[1]
-    assert "Do not write a chronological biography" in fake_anthropic.prompts[1]
-    assert "Introduce no unsupported claims" in fake_anthropic.prompts[1]
-    assert "Use at most 15 numerical details total (the register cap)" in fake_anthropic.prompts[1]
-    assert "must appear in locked evidence from two independent sources" in fake_anthropic.prompts[1]
-    assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[1]
-    assert "use at least one memorable_fact evidence ID" in fake_anthropic.prompts[1]
-    assert "Do not include it in claim_map" in fake_anthropic.prompts[1]
-    assert "25 words or fewer" in fake_anthropic.prompts[1]
+    # Twist + thesis stay writer-owned.
+    assert "TWIST: declare the designed-vs-used gap the reality sentence proves." in fake_anthropic.prompts[0]
+    assert "editorial_thesis: 6-26 words" in fake_anthropic.prompts[0]
+    # The closer contract travels with the plan, not as a law pile.
+    assert "no numbers" in fake_anthropic.prompts[0]
+    assert "single-hammer, antithesis, concede-then-cut, triad" in fake_anthropic.prompts[0]
+    # The second call is a minimal EDIT of the same draft - never a re-roll.
+    assert "EDIT THIS DRAFT MINIMALLY" in fake_anthropic.prompts[1]
+    assert "VIOLATIONS TO FIX" in fake_anthropic.prompts[1]
+    assert "CURRENT SENTENCES:" in fake_anthropic.prompts[1]
+    assert "Each sentence may use ONLY its beat's evidence" in fake_anthropic.prompts[1]
+    assert "REBUILD THE ANTON-STYLE PARAGRAPH JSON" not in fake_anthropic.prompts[1]
     assert fake_anthropic.system_prompts[0].startswith("You are a source-grounded Anton/DVsU paragraph compiler")
     assert "ANTON TENANT SCRIPT CONTRACT" not in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[0]
     assert "SCOPED OVERRIDE — COMPLETE INVENTORY MODE" in fake_anthropic.system_prompts[1]
-    assert "Omission is a feature" in fake_anthropic.system_prompts[0]
-    assert "Use a sourced memorable_fact when the story plan provides one" in fake_anthropic.system_prompts[0]
-    assert "LOCKED STORY PLAN" in fake_anthropic.prompts[0]
-    assert "rejected draft is hidden" in fake_anthropic.prompts[1]
 
     atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
     assert len(atomic_replacements) == 1
@@ -4562,7 +4511,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "reference_benchmark" in fake_anthropic.prompts[0]
     assert "Do not copy or infer unsourced facts from it" in fake_anthropic.prompts[0]
     assert "Strategic Bomber benchmark" in fake_anthropic.prompts[0]
-    assert "selected scale/spec facts" in fake_anthropic.prompts[0]
+    assert "selected scale or capability facts" in fake_anthropic.prompts[0]
     assert "STYLE / SENTENCE CRAFT" in fake_anthropic.prompts[0]
     assert "Sentence 1 should create the tension" in fake_anthropic.prompts[0]
     assert "Sentence 2 should turn the engineering decision into selected capability or scale facts" in fake_anthropic.prompts[0]
@@ -4571,7 +4520,9 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert "Sentence 5 should land as a short verdict, paradox, irony, or reversal" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "Follow OPENING ASSIGNMENT exactly" in fake_anthropic.prompts[0]
-    assert "If the plan provides a human_detail slot for one of the first three benchmark machines" in fake_anthropic.prompts[0]
+    # PLAN->WRITE->EDIT: human_detail placement is planned by code now - the
+    # segment rides inline under SENTENCE 4 instead of as a law.
+    assert "SENTENCE 4 (reality)" in fake_anthropic.prompts[0]
 
 
 def test_target_machine_preview_saves_invalid_story_json_as_review_artifact(monkeypatch):
@@ -4641,9 +4592,9 @@ def test_target_machine_preview_saves_invalid_story_json_as_review_artifact(monk
     assert result["preview"]["passed"] is False
     assert result["preview"]["paragraph"] == ""
     assert result["preview"]["claim_bundle"]["_parse_error"] == (
-        "story distiller must return valid JSON matching the Anton paragraph schema"
+        "planned story writer must return valid JSON"
     )
-    assert any("valid JSON matching the Anton paragraph schema" in warning for warning in result["preview"]["warnings"])
+    assert any("must return valid JSON" in warning for warning in result["preview"]["warnings"])
     assert result["preview"]["quality_audit"]["passed"] is False
     validator_check = next(
         check for check in result["preview"]["quality_audit"]["checks"]
@@ -4730,25 +4681,21 @@ def test_target_machine_preview_saves_alias_story_schema_as_review_artifact(monk
     assert result["status"] == "completed"
     assert fake_anthropic.calls == 2
     assert result["preview"]["passed"] is False
-    assert result["preview"]["paragraph"] == canonical["paragraph"]
-    assert any(
-        "noncanonical key `voiceover`" in warning
-        for warning in result["preview"]["warnings"]
+    # PLAN->WRITE->EDIT (2026-07-17): the ledger is code-owned and the writer
+    # schema is strict - alias shapes are rejected as parse errors, never
+    # tolerated into garbage sentences.
+    assert result["preview"]["paragraph"] == ""
+    assert result["preview"]["claim_bundle"]["_parse_error"] == (
+        "planned story writer sentences must be plain strings"
     )
-    assert any(
-        "formula_sentences must be an array of strings" in warning
-        for warning in result["preview"]["warnings"]
-    )
-    assert result["preview"]["claim_bundle"]["_parse_warnings"]
     assert "voiceover" not in result["preview"]["claim_bundle"]
-    assert "sentences" not in result["preview"]["claim_bundle"]
     assert "claims" not in result["preview"]["claim_bundle"]
     assert "throughline" not in result["preview"]["claim_bundle"]
     validator_check = next(
         check for check in result["preview"]["quality_audit"]["checks"]
         if check["name"] == "validator_warnings"
     )
-    assert "noncanonical key" in validator_check["detail"]
+    assert "plain strings" in validator_check["detail"]
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
     assert saved_preview_rows
     assert json.loads(saved_preview_rows[0][1][1]) == result["preview"]
@@ -9242,3 +9189,111 @@ def test_classify_repair_actions_returns_starvation_promotes_when_referee_clean(
         # Fixture drifted into referee territory; the starvation step is then
         # exercised by the two direct tests above.
         assert isinstance(actions, list)
+
+
+# ---------------------------------------------------------------------------
+# PLAN -> WRITE -> EDIT (2026-07-17): code picks the facts per beat, code
+# keeps the citation ledger, the model only writes. Locks the deterministic
+# halves of the restructured writer.
+# ---------------------------------------------------------------------------
+
+def test_deterministic_beat_plan_assigns_slots_and_twist_source():
+    machine = "Boeing XB-15"
+    segments = _evidence_segments()
+    reality = next(s for s in segments if s["evidence_id"] == "E-REALITY")
+    reality["claim"] = "The sole aircraft was converted to a cargo transport across the Pacific."
+    reality["source_excerpt"] = reality["claim"]
+    package = _package_with_extra_excerpt(
+        machine, segments,
+        "The sole example was redesignated XC-105 and served as a cargo transport.",
+    )
+    payload = {
+        "unit_research_cards": [{"unit": machine, "evidence_segments": segments}],
+        "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+    }
+    plan = pe._machine_story_plan(payload, machine)
+    beats = pe._deterministic_beat_plan(plan, machine)
+    assert [b["role"] for b in beats] == ["original_problem", "engineering_decision", "tradeoff", "reality"]
+    # Beat 4 carries the reality slot AND its supports (memorable_fact folded in).
+    beat4_ids = {s["evidence_id"] for s in beats[3]["segments"]}
+    assert "E-REALITY" in beat4_ids and "E-MEMORABLE" in beat4_ids
+    # The flagged conversion evidence is named as the mandatory twist source.
+    assert beats[3].get("twist_source_id") == "E-REALITY"
+    # No beat carries another beat's REQUIRED slot: formula order is safe by construction.
+    for i, beat in enumerate(beats):
+        other_required = pe._ANTON_REQUIRED_SLOT_ROLES - {beat["role"]}
+        roles_in_beat = {
+            plan["evidence_slot_roles"].get(s["evidence_id"]) for s in beat["segments"]
+        }
+        assert not (roles_in_beat & other_required)
+
+
+def test_derive_claim_ledger_full_sentence_rows():
+    beats = [
+        {"index": 1, "role": "original_problem", "job": "", "segments": [{"evidence_id": "E-P"}]},
+        {"index": 2, "role": "engineering_decision", "job": "", "segments": [{"evidence_id": "E-D"}, {"evidence_id": "E-S"}]},
+        {"index": 3, "role": "tradeoff", "job": "", "segments": [{"evidence_id": "E-T"}]},
+        {"index": 4, "role": "reality", "job": "", "segments": [{"evidence_id": "E-R"}]},
+    ]
+    sentences = [
+        "The Army needed range.",
+        "Engineers answered with a 149-foot wingspan.",
+        "The engines could not keep up.",
+        "It hauled cargo for eight years.",
+        "Built to bomb. Remembered for hauling.",
+    ]
+    rows = pe._derive_claim_ledger(sentences, beats)
+    assert len(rows) == 4
+    assert rows[0] == {"span": "The Army needed range.", "slot": "original_problem", "used_evidence_ids": ["E-P"]}
+    assert rows[1]["used_evidence_ids"] == ["E-D", "E-S"]
+    # The closer never gets a row: it stays paragraph-derived synthesis.
+    assert all("Remembered" not in row["span"] for row in rows)
+
+
+def test_parse_planned_story_sentences_attaches_code_ledger():
+    beats = [
+        {"index": 1, "role": "original_problem", "job": "", "segments": [{"evidence_id": "E-P"}]},
+        {"index": 2, "role": "engineering_decision", "job": "", "segments": [{"evidence_id": "E-D"}]},
+        {"index": 3, "role": "tradeoff", "job": "", "segments": [{"evidence_id": "E-T"}]},
+        {"index": 4, "role": "reality", "job": "", "segments": [{"evidence_id": "E-R"}]},
+    ]
+    raw = (
+        '{"editorial_thesis":"Range demanded engines nobody had.",'
+        '"twist":{"type":"role_change","substitute":null,"summary":"built to bomb, used to haul"},'
+        '"sentences":["S one.","S two.","S three.","S four.","The punch."],'
+        '"claim_map":[{"span":"model-made ledger that must be IGNORED","slot":"reality","used_evidence_ids":["FAKE"]}]}'
+    )
+    bundle = pe._parse_planned_story_sentences(raw, beats)
+    assert bundle.get("_parse_error") is None
+    assert bundle["paragraph"] == "S one. S two. S three. S four. The punch."
+    # The ledger is code-owned: any model-made claim_map is discarded.
+    assert all(row["used_evidence_ids"] != ["FAKE"] for row in bundle["claim_map"])
+    assert [row["slot"] for row in bundle["claim_map"]] == [
+        "original_problem", "engineering_decision", "tradeoff", "reality",
+    ]
+    # Bad shapes fail loudly.
+    assert pe._parse_planned_story_sentences("not json", beats).get("_parse_error")
+    assert pe._parse_planned_story_sentences('{"sentences": "nope"}', beats).get("_parse_error")
+
+
+def test_beat_number_directives_name_the_mandatory_numbers():
+    machine = "B-17"
+    beats = [
+        {"index": 1, "role": "original_problem", "job": "", "segments": [{"evidence_id": "E-P", "claim": "The Air Corps wanted range."}]},
+        {"index": 2, "role": "engineering_decision", "job": "", "segments": [
+            {"evidence_id": "E-D", "claim": "It carried nine machine guns and a 4,000-pound bomb load."},
+            {"evidence_id": "E-D2", "claim": "The design was all-metal."},
+        ]},
+        {"index": 3, "role": "tradeoff", "job": "", "segments": []},
+        {"index": 4, "role": "reality", "job": "", "segments": [
+            {"evidence_id": "E-R", "claim": "12,731 were produced between 1936 and 1945."},
+        ]},
+    ]
+    directives = pe._beat_number_directives(beats, machine)
+    by_sentence = {d["sentence"]: d for d in directives}
+    assert by_sentence[2]["evidence_id"] == "E-D"
+    assert by_sentence[4]["evidence_id"] == "E-R"
+    # The prompt block renders the directives and the closer contract.
+    block = pe._beat_plan_prompt_block(beats, machine)
+    assert "MANDATORY NUMBERS for sentence 4" in block
+    assert "SENTENCE 5 (closer)" in block and "no numbers" in block
