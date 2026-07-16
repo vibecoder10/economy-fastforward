@@ -5967,8 +5967,9 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
     assert "camera movement, animation, transitions, thumbnail copy, on-screen text" in prompt
     assert "Optional key: narrative_weight with one of major, standard, or transitional" in prompt
     assert "Use major for pivotal machines" in prompt
-    assert "memorable_fact should be returned when the verified excerpts support" in prompt
-    assert "never invent one" in prompt
+    assert "memorable_fact is REQUIRED: return exactly one memorable_fact segment" in prompt
+    assert "the card FAILS review without it" in prompt
+    assert "Never invent one" in prompt
     assert "Be precise or be silent" in prompt
     assert "never pick the higher or more dramatic claim" in prompt
     assert "onscreen_label is metadata for Producer File/on-screen text, never spoken narration" in prompt
