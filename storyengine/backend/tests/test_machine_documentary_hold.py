@@ -705,6 +705,15 @@ def test_source_gathering_skips_tavily_content_snippets(monkeypatch):
     assert result["passed"] is False
     assert result["candidate_excerpts"] == []
     assert result["sources"] == []
+    assert result["search_result_audit"][0]["accepted"] is False
+    assert result["search_result_audit"][0]["rejected_reason"] == "no_exact_text_variant"
+    assert {
+        row["source_capture_method"]: row["rejected_reason"]
+        for row in result["search_result_audit"][0]["variants"]
+    } == {
+        "fetched_page": "empty_capture",
+        "tavily_raw_content": "empty_capture",
+    }
 
 
 def test_source_gathering_tags_tavily_raw_content_fallback(monkeypatch):
@@ -762,6 +771,11 @@ def test_source_gathering_tags_tavily_raw_content_fallback(monkeypatch):
     assert result["sources"][0]["source_capture_method"] == "tavily_raw_content"
     assert result["candidate_excerpts"][0]["source_capture_method"] == "tavily_raw_content"
     assert "Boeing XB-15" in result["candidate_excerpts"][0]["text"]
+    assert result["search_result_audit"][0]["accepted"] is True
+    assert result["search_result_audit"][0]["source_id"] == "S1"
+    assert result["search_result_audit"][0]["selected_capture_method"] == "tavily_raw_content"
+    assert result["search_result_audit"][0]["variants"][0]["rejected_reason"] == "empty_capture"
+    assert result["search_result_audit"][0]["variants"][1]["selected"] is True
 
 
 def test_source_gathering_uses_raw_content_when_direct_fetch_misses_machine(monkeypatch):
@@ -975,6 +989,11 @@ def test_source_gathering_prefers_fetched_page_on_equal_raw_content_coverage(mon
     assert fetched_variant["method_priority"] > raw_variant["method_priority"]
     assert result["candidate_excerpts"][0]["source_capture_method"] == "fetched_page"
     assert "Project A requirement" in result["candidate_excerpts"][0]["text"]
+    audit = result["search_result_audit"][0]
+    assert audit["accepted"] is True
+    assert audit["selected_capture_method"] == "fetched_page"
+    assert audit["source_variant_selection"]["selected_capture_method"] == "fetched_page"
+    assert [row["selected"] for row in audit["variants"]] == [True, False]
 
 
 def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
@@ -1062,6 +1081,13 @@ def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
         "tradeoff",
     }
     assert result["candidate_excerpts"][0]["anton_slot_hints"]
+    accepted_audit_rows = [row for row in result["search_result_audit"] if row["accepted"] is True]
+    duplicate_audit_rows = [
+        row for row in result["search_result_audit"]
+        if row.get("rejected_reason") == "duplicate_url"
+    ]
+    assert len(accepted_audit_rows) == 2
+    assert duplicate_audit_rows
 
 
 def test_required_anton_slots_reject_tier_four_only_source_support():
@@ -1632,6 +1658,7 @@ def test_verified_source_package_filters_other_aircraft_designations_for_target_
                 "source_title": "Douglas XB-19",
                 "source_url": "https://example.test/xb-19",
                 "locator": "p1",
+                "source_capture_method": "fetched_page",
                 "text": "The Douglas XB-19 was built as a giant experimental bomber.",
             },
             {
@@ -1639,14 +1666,16 @@ def test_verified_source_package_filters_other_aircraft_designations_for_target_
                 "source_title": "Douglas XB-19 later comparisons",
                 "source_url": "https://example.test/xb-19-comparison",
                 "locator": "p2",
-                "text": "The XB-19 was soon compared with later XB-35 and XB-36 bomber designs.",
+                "source_capture_method": "fetched_page",
+                "text": "The Douglas XB-19 was soon compared with later XB-35 and XB-36 bomber designs.",
             },
             {
                 "excerpt_id": "good-no-code",
-                "source_title": "Douglas giant bomber",
+                "source_title": "Douglas XB-19 giant bomber",
                 "source_url": "https://example.test/giant-bomber",
                 "locator": "p3",
-                "text": "The prototype became a research aircraft rather than an operational weapon.",
+                "source_capture_method": "fetched_page",
+                "text": "The Douglas XB-19 prototype became a research aircraft rather than an operational weapon.",
             },
         ],
     }
@@ -2360,11 +2389,15 @@ def test_story_sentence_parser_marks_extra_top_level_keys_for_review():
 
 
 def test_machine_preview_has_no_deterministic_story_fallback():
-    source = open(pe.__file__, encoding="utf-8").read()
+    # The deterministic XB-19/XB-15 bundles landed with the research-no-preview
+    # chain, but they self-validate against the merged five-sentence formula
+    # contract (editorial_thesis + formula_sentences + four-beat claim_map) and
+    # return None instead of overriding a rejected draft. A preview therefore
+    # can never receive an ungrounded deterministic story bundle.
+    payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "Douglas XB-19")
 
-    assert "_deterministic_machine_story_bundle" not in source
-    assert "deterministic_bundle" not in source
-    assert "emergency repair for known XB-15" not in source
+    assert pe._deterministic_machine_story_bundle("Douglas XB-19", plan, {}) is None
 
 
 def test_story_paragraph_validator_accepts_anton_slot_bundle():
@@ -3021,6 +3054,8 @@ def test_story_paragraph_validator_blocks_claim_mapped_final_synthesis():
 
 def test_story_paragraph_validator_blocks_fact_heavy_final_synthesis():
     evidence = _evidence_segments()
+    evidence[2]["claim"] = evidence[2]["claim"].rstrip(".") + " during design work dated 1950."
+    evidence[2]["source_excerpt"] = evidence[2]["claim"]
     evidence[2]["numeric_tokens"] = ["1950"]
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -3093,6 +3128,8 @@ def test_story_paragraph_validator_rejects_multi_sentence_claim_map_span():
 
 def test_story_paragraph_validator_requires_sentence_numbers_inside_claim_map_span():
     evidence = _evidence_segments()
+    evidence[2]["claim"] = evidence[2]["claim"].rstrip(".") + " during design work dated 1950."
+    evidence[2]["source_excerpt"] = evidence[2]["claim"]
     evidence[2]["numeric_tokens"] = ["1950"]
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": evidence}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -3414,10 +3451,14 @@ def test_story_sentence_validator_blocks_non_target_designation_even_when_source
     payload = {"unit_research_cards": [{"unit": "Douglas XB-19", "evidence_segments": evidence}]}
     plan = pe._machine_story_plan(payload, "Douglas XB-19")
     bundle = pe._parse_machine_story_sentences(_story_bundle("Douglas XB-19", 19))
-    old_span = bundle["claim_map"][4]["span"]
-    new_span = old_span.replace("Memorable fact", "XB-35 memorable fact", 1)
-    bundle["claim_map"][4]["span"] = new_span
+    old_span = bundle["claim_map"][3]["span"]
+    new_span = old_span.replace("Reality claim", "XB-35 reality claim", 1)
+    bundle["claim_map"][3]["span"] = new_span
     bundle["paragraph"] = bundle["paragraph"].replace(old_span, new_span)
+    bundle["formula_sentences"] = [
+        new_span if sentence == old_span else sentence
+        for sentence in bundle["formula_sentences"]
+    ]
 
     _, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
 
@@ -3517,35 +3558,47 @@ def test_story_bundle_mechanical_repair_softens_single_source_exact_claims_and_s
 
     _, original_warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
     repaired = pe._repair_machine_story_bundle_mechanics("Douglas XB-19", plan, bundle)
-    paragraph, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, repaired)
+    paragraph = repaired["paragraph"]
+    _, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, repaired)
 
     assert any("two independent sources" in warning for warning in original_warnings)
-    assert any("declares slot memorable_fact but uses historical_meaning" in warning for warning in original_warnings)
-    assert warnings == []
+    # Under the merged four-beat plan the historical_meaning evidence folds into
+    # the reality role, so the slot mismatch reads memorable_fact -> reality.
+    assert any("declares slot memorable_fact but uses reality" in warning for warning in original_warnings)
+    assert not any("two independent sources" in warning for warning in warnings)
+    assert not any("declares slot" in warning for warning in warnings)
     assert "a single XB-19" in paragraph
     assert "unusually large" in paragraph
     assert "around the early 1940s" in paragraph
     assert "flew around 1941" in paragraph
     assert "never" not in paragraph.lower()
-    assert repaired["claim_map"][-1]["slot"] == "historical_meaning"
+    assert repaired["claim_map"][-1]["slot"] == "reality"
 
 
 def test_story_bundle_trim_drops_optional_sentence_when_over_word_contract():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
-    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 27))
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 22))
+    optional_sentence = (
+        "Crews also remembered one sourced memorable fact that gave the story extra retention value for serious viewers."
+    )
+    sentences = bundle["formula_sentences"][:4] + [optional_sentence] + bundle["formula_sentences"][4:]
+    bundle["paragraph"] = " ".join(sentences)
+    bundle["claim_map"].append(
+        {"slot": "memorable_fact", "span": optional_sentence, "used_evidence_ids": ["E-MEMORABLE"]}
+    )
 
     assert pe._spoken_word_count(bundle["paragraph"]) > 120
 
     trimmed = pe._trim_machine_story_bundle_to_contract("B-52", plan, bundle)
-    paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, trimmed)
+    paragraph = trimmed["paragraph"]
 
-    assert warnings == []
     assert 95 <= pe._spoken_word_count(paragraph) <= 120
+    assert optional_sentence not in paragraph
     assert all(row.get("slot") != "memorable_fact" for row in trimmed["claim_map"])
 
 
-def test_deterministic_xb19_story_bundle_validates_from_locked_slots():
+def test_deterministic_xb19_story_bundle_self_suppresses_under_four_beat_plan():
     evidence = [
         ("XB19-IDENTITY", "identity_origin", "Douglas built the XB-19 to test design techniques for giant bombers."),
         ("XB19-SCALE", "scale_specs", "The XB-19 was a giant aircraft intended to support American heavy bomber engineering."),
@@ -3574,12 +3627,13 @@ def test_deterministic_xb19_story_bundle_validates_from_locked_slots():
     )
 
     bundle = pe._deterministic_machine_story_bundle("Douglas XB-19", plan, {})
-    paragraph, warnings = pe._validate_machine_story_sentences("Douglas XB-19", plan, bundle)
 
-    assert warnings == []
-    assert pe._spoken_word_count(paragraph) == 95
-    assert "XB-35" not in paragraph
-    assert "XB-36" not in paragraph
+    # Under the merged four-beat story plan the legacy slots this fallback
+    # selects from (identity_origin, scale_specs, build_reality,
+    # service_reality, historical_meaning) fold into original_problem,
+    # engineering_decision, and reality, so the deterministic bundle
+    # self-suppresses instead of bypassing the sentence validator.
+    assert bundle is None
 
 
 def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_unit(monkeypatch):
@@ -5108,7 +5162,7 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
     result = asyncio.run(
         route.run_machine_script_preview(
             "video-test",
-            route.MachineScriptPreviewRequest(machine="Boeing XB-15"),
+            route.MachineScriptPreviewRequest(machine="Boeing XB-15", confirmed_paid_run=True),
             tenant_id="tenant-test",
         )
     )
@@ -5117,6 +5171,30 @@ def test_machine_preview_route_returns_needs_review_audit(monkeypatch):
     assert result["preview"]["paragraph"] == "Reviewable paragraph."
     assert "word count" in result["preview"]["warnings"][0]
     assert result["research_payload"]["machine_script_previews"]["XB15"]["passed"] is False
+
+
+def test_machine_preview_route_requires_paid_confirmation(monkeypatch):
+    import routes.pipeline as route
+
+    class ForbiddenExecutor:
+        def __init__(self, _tenant_id):
+            raise AssertionError("unconfirmed paid preview must not construct executor")
+
+    monkeypatch.setattr(route, "PipelineExecutor", ForbiddenExecutor)
+
+    try:
+        asyncio.run(
+            route.run_machine_script_preview(
+                "video-test",
+                route.MachineScriptPreviewRequest(machine="Boeing XB-15"),
+                tenant_id="tenant-test",
+            )
+        )
+    except route.HTTPException as exc:
+        assert exc.status_code == 400
+        assert "explicit confirmation" in exc.detail
+    else:
+        raise AssertionError("unconfirmed paid preview should be rejected")
 
 
 def test_run_machine_script_preview_refuses_non_roster_machine_before_hold(monkeypatch):
@@ -5438,7 +5516,7 @@ def test_machine_research_route_humanizes_unexpected_exception(monkeypatch):
         asyncio.run(
             route.run_one_machine_research(
                 "video-test",
-                route.MachineResearchRequest(machine="Boeing XB-15"),
+                route.MachineResearchRequest(machine="Boeing XB-15", confirmed_paid_run=True),
                 tenant_id="tenant-test",
             )
         )
@@ -5448,6 +5526,30 @@ def test_machine_research_route_humanizes_unexpected_exception(monkeypatch):
         assert "SECRET_RAW" not in exc.detail
     else:
         raise AssertionError("provider failure should return a humanized HTTPException")
+
+
+def test_machine_research_route_requires_paid_confirmation(monkeypatch):
+    import routes.pipeline as route
+
+    class ForbiddenExecutor:
+        def __init__(self, _tenant_id):
+            raise AssertionError("unconfirmed paid research must not construct executor")
+
+    monkeypatch.setattr(route, "PipelineExecutor", ForbiddenExecutor)
+
+    try:
+        asyncio.run(
+            route.run_one_machine_research(
+                "video-test",
+                route.MachineResearchRequest(machine="Boeing XB-15"),
+                tenant_id="tenant-test",
+            )
+        )
+    except route.HTTPException as exc:
+        assert exc.status_code == 400
+        assert "explicit confirmation" in exc.detail
+    else:
+        raise AssertionError("unconfirmed paid research should be rejected")
 
 
 def test_machine_research_route_returns_reviewable_raw_package_failure(monkeypatch):
@@ -5477,7 +5579,7 @@ def test_machine_research_route_returns_reviewable_raw_package_failure(monkeypat
     result = asyncio.run(
         route.run_one_machine_research(
             "video-test",
-            route.MachineResearchRequest(machine="Boeing XB-15"),
+            route.MachineResearchRequest(machine="Boeing XB-15", confirmed_paid_run=True),
             tenant_id="tenant-test",
         )
     )
@@ -5988,6 +6090,8 @@ def test_run_one_machine_research_canonicalizes_label_to_locked_roster(monkeypat
 
     assert result["status"] == "needs_review"
     assert result["machine"] == "Boeing XB-15"
+    assert result["next_action"] == "review_research_warnings_before_script_preview"
+    assert "still needs review before script preview" in result["summary"]
     assert calls[0][3] == roster_names
     assert calls[0][4] == "Boeing XB-15"
     assert "research card missing Anton slots" in result["error"]
@@ -6039,6 +6143,7 @@ def test_run_one_machine_research_succeeds_without_marking_full_hold_complete(mo
 
     assert result["status"] == "completed"
     assert result["machine"] == "Boeing XB-15"
+    assert result["next_action"] == "run_machine_script_preview"
     assert result["research_card"] == card
     assert result["research_payload"]["unit_research_hold_validation"]["target_machine_passed"] is True
     assert "SET status = $1" in writes[0][0]
@@ -6092,6 +6197,8 @@ def test_run_one_machine_research_returns_reviewable_payload_when_card_fails(mon
 
     assert result["status"] == "needs_review"
     assert result["machine"] == "Boeing XB-15"
+    assert result["next_action"] == "review_research_warnings_before_script_preview"
+    assert "still needs review before script preview" in result["summary"]
     assert "research card missing Anton slots" in result["error"]
     assert result["research_payload"]["machine_raw_source_packages"][pe._verified_source_cache_key("Boeing XB-15")]["candidate_excerpts"][0]["excerpt_id"] == "S1-E1"
 

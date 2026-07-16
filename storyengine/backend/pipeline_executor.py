@@ -672,7 +672,7 @@ def _anton_source_slot_hints(text: str) -> set[str]:
             r"\b(?:requirement|required|called for|needed?|wanted|demanded|requested|specified)\b",
             r"\b(?:project|program|contract|mission|specification)\b",
             r"\b(?:designed|developed|intended)\s+to\b",
-            r"\basked\s+whether\b",
+            r"\basked\s+(?:for|to|whether)\b",
         ),
         "engineering_decision": (
             r"\b(?:design|decision|built|developed|configured|equipped|mounted|carried|powered)\b",
@@ -4491,29 +4491,70 @@ class PipelineExecutor:
 
             sources: list[dict] = []
             candidate_excerpts: list[dict] = []
+            search_result_audit: list[dict] = []
             seen_urls: set[str] = set()
             for item in search_results:
                 url = str(item.get("url") or "").strip()
-                if not url or url in seen_urls:
+                title_text = str(item.get("title") or url).strip()
+                query = item.get("_query")
+                if not url:
+                    continue
+                if url in seen_urls:
+                    search_result_audit.append({
+                        "url": url,
+                        "title": title_text,
+                        "query": query,
+                        "accepted": False,
+                        "rejected_reason": "duplicate_url",
+                    })
                     continue
                 seen_urls.add(url)
-                title_text = str(item.get("title") or url).strip()
                 fetched_text = await self._fetch_source_text(client, url)
                 raw_content = str(item.get("raw_content") or "")
                 source_variants: list[tuple[tuple[int, int, int, int], str, str, list[str]]] = []
+                variant_audit: list[dict] = []
                 for capture_method, source_text in (
                     ("fetched_page", fetched_text),
                     ("tavily_raw_content", raw_content),
                 ):
-                    if not source_text or not _mentions_machine(source_text, machine):
+                    variant_row = {
+                        "source_capture_method": capture_method,
+                        "text_chars": len(source_text or ""),
+                        "text_hash": _source_text_fingerprint(source_text) if source_text else "",
+                        "mentions_machine": bool(source_text and _mentions_machine(source_text, machine)),
+                    }
+                    if not source_text:
+                        variant_row["rejected_reason"] = "empty_capture"
+                        variant_audit.append(variant_row)
+                        continue
+                    if not variant_row["mentions_machine"]:
+                        variant_row["rejected_reason"] = "machine_not_found_in_capture"
+                        variant_audit.append(variant_row)
                         continue
                     excerpt_candidates = _sentence_candidates_from_source(source_text, machine, limit=10)
+                    variant_row["excerpt_count"] = len(excerpt_candidates)
                     if not excerpt_candidates:
+                        variant_row["rejected_reason"] = "no_sentence_excerpt_candidates"
+                        variant_audit.append(variant_row)
                         continue
                     coverage_score = _machine_source_variant_score(excerpt_candidates, machine)
                     method_priority = 1 if capture_method == "fetched_page" else 0
+                    variant_row.update({
+                        "covered_slot_count": coverage_score[0],
+                        "distinct_slot_excerpt_count": coverage_score[1],
+                        "method_priority": method_priority,
+                    })
+                    variant_audit.append(variant_row)
                     source_variants.append(((*coverage_score, method_priority), capture_method, source_text, excerpt_candidates))
                 if not source_variants:
+                    search_result_audit.append({
+                        "url": url,
+                        "title": title_text,
+                        "query": query,
+                        "accepted": False,
+                        "rejected_reason": "no_exact_text_variant",
+                        "variants": variant_audit,
+                    })
                     continue
                 _score, capture_method, source_text, excerpt_candidates = max(
                     source_variants,
@@ -4537,6 +4578,24 @@ class PipelineExecutor:
                     "source_variant_selection": variant_selection,
                     "text_hash": source_hash,
                     "text_chars": len(source_text),
+                })
+                search_result_audit.append({
+                    "url": url,
+                    "title": title_text,
+                    "query": query,
+                    "accepted": True,
+                    "source_id": source_id,
+                    "selected_capture_method": capture_method,
+                    "source_tier": source_tier["tier"],
+                    "source_tier_label": source_tier["label"],
+                    "source_variant_selection": variant_selection,
+                    "variants": [
+                        {
+                            **row,
+                            "selected": row.get("source_capture_method") == capture_method,
+                        }
+                        for row in variant_audit
+                    ],
                 })
                 for excerpt in excerpt_candidates:
                     excerpt_id = f"{source_id}-E{len([e for e in candidate_excerpts if e.get('source_id') == source_id]) + 1}"
@@ -4565,6 +4624,7 @@ class PipelineExecutor:
             "machine_key": cache_key,
             "search_queries": queries,
             "sources": sources,
+            "search_result_audit": search_result_audit,
             "candidate_excerpts": candidate_excerpts,
             "errors": errors,
             "gathered_at": datetime.now(timezone.utc).isoformat(),
@@ -5546,12 +5606,18 @@ class PipelineExecutor:
         if not validation.get("target_machine_passed"):
             units = validation.get("units") or []
             warnings = units[-1].get("warnings", []) if units else validation.get("warnings", [])
+            summary = (
+                "One-machine research saved raw source evidence, but "
+                f"{matched} still needs review before script preview."
+            )
             return {
                 "status": "needs_review",
                 "video_id": video_id,
                 "machine": matched,
+                "summary": summary,
                 "error": "; ".join(str(item) for item in warnings),
                 "warnings": warnings,
+                "next_action": "review_research_warnings_before_script_preview",
                 "research_payload": payload,
             }
         final_save_result = await execute(
@@ -5576,6 +5642,7 @@ class PipelineExecutor:
             "video_id": video_id,
             "machine": matched,
             "research_card": card,
+            "next_action": "run_machine_script_preview",
             "research_payload": payload,
         }
 
@@ -5942,6 +6009,21 @@ class PipelineExecutor:
                 merged.append(target_card)
             return merged
 
+        def _without_target_card_for_review(existing_cards: list[Any], machine: str) -> list[Any]:
+            """Remove the target review card when a refresh produced no valid card."""
+            target_key = _normalized_unit_code(machine)
+            if not target_key:
+                return list(existing_cards)
+            kept: list[Any] = []
+            for existing in existing_cards:
+                if isinstance(existing, dict):
+                    raw_unit = existing.get("unit") or existing.get("machine") or existing.get("name") or existing.get("designation") or ""
+                    existing_key = _normalized_unit_code(_unit_display_name(raw_unit) or str(raw_unit))
+                    if existing_key == target_key:
+                        continue
+                kept.append(existing)
+            return kept
+
         anthropic_client = getattr(self._pipeline, "anthropic", None)
         if anthropic_client is None:
             msg = "Unit research-hold requires an Anthropic client, but none is configured."
@@ -6149,7 +6231,7 @@ class PipelineExecutor:
             raw = await anthropic_client.generate(
                 prompt=prompt,
                 system_prompt="You produce source-grounded JSON research cards for one locked DVsU machine. Output only valid JSON.",
-                max_tokens=2400,
+                max_tokens=4200,
                 temperature=0.15,
             )
             card: dict = {}
@@ -6205,7 +6287,7 @@ class PipelineExecutor:
                 raw = await anthropic_client.generate(
                     prompt=repair_prompt,
                     system_prompt="You repair one JSON research card. Output only valid JSON.",
-                    max_tokens=2400,
+                    max_tokens=4200,
                     temperature=0.05,
                 )
                 try:
@@ -6225,6 +6307,56 @@ class PipelineExecutor:
             if not isinstance(card, dict):
                 card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
                 warnings = warnings or ["research card was not an object after repair"]
+            invalid_placeholder_card = (
+                bool(warnings)
+                and isinstance(card, dict)
+                and bool(card.get("raw_output"))
+                and not isinstance(card.get("evidence_segments"), list)
+            )
+            if invalid_placeholder_card:
+                failed_validation = {"machine": machine, "passed": False, "warnings": warnings}
+                validation_units.append(failed_validation)
+                payload["unit_research_cards"] = (
+                    _without_target_card_for_review(original_unit_research_cards, machine)
+                    if target_code else
+                    unit_cards
+                )
+                payload["unit_research_hold_validation"] = {
+                    "passed": False,
+                    "in_progress": False,
+                    "units": validation_units,
+                }
+                if target_code:
+                    payload["unit_research_hold_validation"]["target_machine"] = machine
+                    payload["unit_research_hold_validation"]["target_machine_passed"] = False
+                    checkpoint_result = await self._checkpoint_one_machine_research_result(
+                        video_id,
+                        payload.get("unit_research_cards") if isinstance(payload.get("unit_research_cards"), list) else [],
+                        payload.get("unit_research_hold_validation") if isinstance(payload.get("unit_research_hold_validation"), dict) else {},
+                        locked_roster_snapshot,
+                    )
+                else:
+                    checkpoint_result = await execute(
+                        """UPDATE videos
+                           SET research_payload = $1, updated_at = now()
+                           WHERE id = $2 AND tenant_id = $3
+                             AND (
+                                 research_payload->'unit_roster' IS NULL
+                                 OR research_payload->'unit_roster' = $4::jsonb
+                             )""",
+                        _json_uh.dumps(payload), video_id, self.tenant_id, locked_roster_snapshot,
+                    )
+                if self._db_write_missed(checkpoint_result):
+                    conflict = "persisted unit_roster changed concurrently; stale research checkpoint refused"
+                    payload["unit_research_hold_validation"] = {
+                        "passed": False,
+                        "in_progress": False,
+                        "units": [{"machine": machine, "passed": False, "warnings": [conflict]}],
+                    }
+                    await self._log_activity(bot_name, video_id, "failed", conflict)
+                    return payload
+                await self._log_activity(bot_name, video_id, "failed", f"Unit research-hold stopped at {machine}: " + "; ".join(warnings))
+                return payload
             card["unit"] = machine
             card["include"] = True
             card["locked_roster_index"] = i

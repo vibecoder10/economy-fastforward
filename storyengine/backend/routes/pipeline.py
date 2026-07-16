@@ -48,6 +48,7 @@ class PipelineResponse(BaseModel):
 
 class MachineScriptPreviewRequest(BaseModel):
     machine: str
+    confirmed_paid_run: bool = False
 
 
 class MachineScriptBlockRequest(BaseModel):
@@ -56,6 +57,7 @@ class MachineScriptBlockRequest(BaseModel):
 
 class MachineResearchRequest(BaseModel):
     machine: str
+    confirmed_paid_run: bool = False
 
 
 class PipelineStatus(BaseModel):
@@ -606,6 +608,11 @@ async def run_machine_script_preview(
     machine = body.machine.strip()
     if not machine:
         raise HTTPException(status_code=400, detail="machine is required")
+    if not body.confirmed_paid_run:
+        raise HTTPException(
+            status_code=400,
+            detail="Paid single-machine script preview requires explicit confirmation.",
+        )
     executor = PipelineExecutor(tenant_id)
     try:
         result = await executor.run_machine_script_preview(video_id, machine)
@@ -666,6 +673,11 @@ async def run_one_machine_research(
     machine = body.machine.strip()
     if not machine:
         raise HTTPException(status_code=400, detail="machine is required")
+    if not body.confirmed_paid_run:
+        raise HTTPException(
+            status_code=400,
+            detail="Paid one-machine research refresh requires explicit confirmation.",
+        )
     executor = PipelineExecutor(tenant_id)
     try:
         result = await executor.run_one_machine_research(video_id, machine)
