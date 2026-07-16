@@ -1,0 +1,496 @@
+{
+  "card": {
+    "actual_outcome": "On 2 December 1937, the XB-15 flew from Seattle to Wright Field in Ohio to be accepted by the USAAC for testing.",
+    "design_problem": "The Boeing XB-15 was an experimental airplane designed to determine if a bomber with a 5,000-mile range was possible.",
+    "engineering_response": "Following Boeing President Claire Egtvedt's strategic decision to focus the company on building large aircraft, Boeing engineers began developing the XB-15, a very heavy, long-range experimental bomber for the Army Air Corps.",
+    "engineering_thesis": "The Boeing XB-15 tested whether a bomber with a 5,000-mile range was achievable, pioneering auxiliary power units and autopilot systems to manage a very large airframe, but engine issues and difficulties in developing such a large aircraft delayed its progress.",
+    "evidence_segments": [
+      {
+        "claim": "The Boeing XB-15 was an experimental airplane designed to determine if a bomber with a 5,000-mile range was possible.",
+        "confidence": 0.92,
+        "evidence_id": "S3-E4-original_problem",
+        "kind": "original_problem",
+        "locator": "S3-E4; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [
+          "5,000"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "(The Boeing Company) The Boeing Model 294, designated XB-15 by the Air Corps, was an experimental airplane designed to determine if a bomber with a 5,000 mile (8,047 kilometers) range was possible.",
+        "source_excerpt_hash": "d8fe4934526c2943b68dfadfae988dc91a75e131a4dedae9fb0c586fb477c5f6",
+        "source_excerpt_id": "S3-E4",
+        "source_id": "S3",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "Boeing XB-15 | This Day in Aviation",
+        "source_url": "https://www.thisdayinaviation.com/tag/boeing-xb-15",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10432,
+              "text_hash": "b4d389750127232ba58d3402be88593e5c41358c9edd475d78334407116fd429"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 18016,
+              "text_hash": "96180689eeec6f99a87bb5fe0ba2d1cd641fbad9959ee55b721fd623fc4bb944"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10432,
+            "text_hash": "b4d389750127232ba58d3402be88593e5c41358c9edd475d78334407116fd429"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "Following Boeing President Claire Egtvedt's strategic decision to focus the company on building large aircraft, Boeing engineers began developing the XB-15, a very heavy, long-range experimental bomber for the Army Air Corps.",
+        "confidence": 0.95,
+        "evidence_id": "S4-E4-engineering_decision",
+        "kind": "engineering_decision",
+        "locator": "S4-E4; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [],
+        "source_capture_method": "tavily_raw_content",
+        "source_excerpt": "April \u0007 Following Boeing President Claire Egtvedt\u2019s strategic decision to focus the company on building large aircraft \u2014 \u201cBig Boeings\u201d \u2014 Boeing engineers begin developing the XB-15, a very heavy, long-range experimental bomber for the U.S. Army Air Corps.",
+        "source_excerpt_hash": "5a453672d2c03307a4ed58d74d2c5af42711294f35e4b1548aa29d650532e5c1",
+        "source_excerpt_id": "S4-E4",
+        "source_id": "S4",
+        "source_tier": 1,
+        "source_tier_label": "Tier 1 primary/official",
+        "source_title": "Boeing History Chronology",
+        "source_url": "https://www.boeing.com/content/dam/boeing/v2/company/history/pdf/Boeing-Chronology.pdf",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 2,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 9,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 190972,
+              "text_hash": "2ad96b95543a23cbb2ae5d6a584c8707366fe7265419127516f351c3c899f2d6"
+            }
+          ],
+          "selected_capture_method": "tavily_raw_content",
+          "selected_variant": {
+            "covered_slot_count": 2,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 9,
+            "method_priority": 0,
+            "source_capture_method": "tavily_raw_content",
+            "text_chars": 190972,
+            "text_hash": "2ad96b95543a23cbb2ae5d6a584c8707366fe7265419127516f351c3c899f2d6"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The XB-15 pioneered an autopilot, deicing equipment, and two gasoline generators used as auxiliary power units independent of the main engines to power the 110-volt electrical system.",
+        "confidence": 0.88,
+        "evidence_id": "S1-E6-memorable_fact",
+        "kind": "memorable_fact",
+        "locator": "S1-E6; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [
+          "110"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "[ 2 ] Unusual features that the XB-15 pioneered included an autopilot , deicing equipment, and two gasoline generators used as auxiliary power units (independent of the main engines) to power the 110-volt electrical system.",
+        "source_excerpt_hash": "7ba4e3e739c4600955d947818e14894d57832478c5912623230fe92cbe834e23",
+        "source_excerpt_id": "S1-E6",
+        "source_id": "S1",
+        "source_tier": 4,
+        "source_tier_label": "Tier 4 caution/general",
+        "source_title": "Boeing XB-15 - Wikipedia",
+        "source_url": "https://en.wikipedia.org/wiki/Boeing_XB-15",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 23831,
+              "text_hash": "1f8f9b9fa4861f01508ba1e59099924732a5ed1f1ebc0e6a363698b2b092e5f2"
+            },
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 106393,
+              "text_hash": "077eeb466e5a524c73ecdf9215d10067161be29ee0069a70761601668a162a45"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 23831,
+            "text_hash": "1f8f9b9fa4861f01508ba1e59099924732a5ed1f1ebc0e6a363698b2b092e5f2"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The XB-15 had an autopilot and two gasoline generators to be used as backup power units for its 110-volt electrical system.",
+        "confidence": 0.88,
+        "evidence_id": "S5-E10-memorable_fact-2",
+        "kind": "memorable_fact",
+        "locator": "S5-E10; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [
+          "110"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "The XB-15 had an autopilot and two gasoline generators to be used as backup power units for its 110-volt electrical system.",
+        "source_excerpt_hash": "a268b2dc67638d704ed7f868e220a27e39261ac61502803dccfe4dc9f8a586a9",
+        "source_excerpt_id": "S5-E10",
+        "source_id": "S5",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "Grounded Dreams: Boeing XB-15 - The Giant That Outgrew Its Engines - Vintage Aviation News",
+        "source_url": "https://vintageaviationnews.com/warbird-articles/grounded-dreams/boeing-xb-15.html",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 11701,
+              "text_hash": "18b917b25d97d9edfdb4a8556dcf366425e8da1adad95394ccfd26a47dcd3b73"
+            },
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 34263,
+              "text_hash": "cc7e44f2d15aee506c2377822f5df24f42ec1af522e110b957d81c7a3648bcab"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 11701,
+            "text_hash": "18b917b25d97d9edfdb4a8556dcf366425e8da1adad95394ccfd26a47dcd3b73"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "Engine issues and difficulties in developing a large aircraft like the XB-15 delayed its progress.",
+        "confidence": 0.9,
+        "evidence_id": "S5-E9-tradeoff",
+        "kind": "tradeoff",
+        "locator": "S5-E9; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "However, the engine issues and difficulties in developing a large aircraft like XB-15 delayed its progress.",
+        "source_excerpt_hash": "f0fb098a32006f0dbb50cc18d8df37e50cc421c47704740421d058cada2515d1",
+        "source_excerpt_id": "S5-E9",
+        "source_id": "S5",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "Grounded Dreams: Boeing XB-15 - The Giant That Outgrew Its Engines - Vintage Aviation News",
+        "source_url": "https://vintageaviationnews.com/warbird-articles/grounded-dreams/boeing-xb-15.html",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 11701,
+              "text_hash": "18b917b25d97d9edfdb4a8556dcf366425e8da1adad95394ccfd26a47dcd3b73"
+            },
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 34263,
+              "text_hash": "cc7e44f2d15aee506c2377822f5df24f42ec1af522e110b957d81c7a3648bcab"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 11701,
+            "text_hash": "18b917b25d97d9edfdb4a8556dcf366425e8da1adad95394ccfd26a47dcd3b73"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The Boeing XB-15 was delivered to the Army and set several records, including a climb to 8,200 feet with a 31,205-pound load.",
+        "confidence": 0.95,
+        "evidence_id": "S4-E9-reality",
+        "kind": "reality",
+        "locator": "S4-E9; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [
+          "2",
+          "8,200",
+          "31,205"
+        ],
+        "source_capture_method": "tavily_raw_content",
+        "source_excerpt": "2 \u0007 The Boeing XB-15 is delivered to the U.S. Army. It will set several records, including a climb to 8,200 feet with a 31,205-pound load.",
+        "source_excerpt_hash": "02a48b695d8208cf01eb047393c8758ce0b88bc8ccccee43f9b5d299a050828e",
+        "source_excerpt_id": "S4-E9",
+        "source_id": "S4",
+        "source_tier": 1,
+        "source_tier_label": "Tier 1 primary/official",
+        "source_title": "Boeing History Chronology",
+        "source_url": "https://www.boeing.com/content/dam/boeing/v2/company/history/pdf/Boeing-Chronology.pdf",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 2,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 9,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 190972,
+              "text_hash": "2ad96b95543a23cbb2ae5d6a584c8707366fe7265419127516f351c3c899f2d6"
+            }
+          ],
+          "selected_capture_method": "tavily_raw_content",
+          "selected_variant": {
+            "covered_slot_count": 2,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 9,
+            "method_priority": 0,
+            "source_capture_method": "tavily_raw_content",
+            "text_chars": 190972,
+            "text_hash": "2ad96b95543a23cbb2ae5d6a584c8707366fe7265419127516f351c3c899f2d6"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "Major Corkille reported that the airplane handled easily and maneuvered readily.",
+        "confidence": 0.92,
+        "evidence_id": "S3-E3-human_detail",
+        "kind": "human_detail",
+        "locator": "S3-E3; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Major Corkille reported that the airplane \u201chandled easily and maneuvered readily.\u201d The flight deck of the Boeing XB-15.",
+        "source_excerpt_hash": "2e94da9c8131767487336cc8c4fb2ee02e43acb97126707ab72071a3df3b3bde",
+        "source_excerpt_id": "S3-E3",
+        "source_id": "S3",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "Boeing XB-15 | This Day in Aviation",
+        "source_url": "https://www.thisdayinaviation.com/tag/boeing-xb-15",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10432,
+              "text_hash": "b4d389750127232ba58d3402be88593e5c41358c9edd475d78334407116fd429"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 18016,
+              "text_hash": "96180689eeec6f99a87bb5fe0ba2d1cd641fbad9959ee55b721fd623fc4bb944"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10432,
+            "text_hash": "b4d389750127232ba58d3402be88593e5c41358c9edd475d78334407116fd429"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The Boeing XB-15 took off on its first flight at Boeing Field on 15 October 1937.",
+        "confidence": 0.95,
+        "evidence_id": "S3-E1-timeframe",
+        "kind": "reality",
+        "locator": "S3-E1; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [
+          "15",
+          "1937"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Boeing XB-15 | This Day in Aviation Skip to content The Boeing XB-15 takes off on its first flight, Boeing Field, 15 October 1937.",
+        "source_excerpt_hash": "76a180939c0c157433c8a233a9e821914f1b110817b7c4187f5280200c769dcc",
+        "source_excerpt_id": "S3-E1",
+        "source_id": "S3",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "Boeing XB-15 | This Day in Aviation",
+        "source_url": "https://www.thisdayinaviation.com/tag/boeing-xb-15",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10432,
+              "text_hash": "b4d389750127232ba58d3402be88593e5c41358c9edd475d78334407116fd429"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 18016,
+              "text_hash": "96180689eeec6f99a87bb5fe0ba2d1cd641fbad9959ee55b721fd623fc4bb944"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10432,
+            "text_hash": "b4d389750127232ba58d3402be88593e5c41358c9edd475d78334407116fd429"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "On 2 December 1937, the XB-15 flew from Seattle to Wright Field in Ohio to be accepted by the USAAC for testing.",
+        "confidence": 0.92,
+        "evidence_id": "S1-E7-timeframe-2",
+        "kind": "reality",
+        "locator": "S1-E7; query=\"Boeing XB-15\" official history",
+        "numeric_tokens": [
+          "2",
+          "1937"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "On 2 December 1937, the XB-15 flew from Seattle to Wright Field in Ohio to be accepted by the USAAC for testing.",
+        "source_excerpt_hash": "6e88a788be61b874cbebb426998bf17469b3f7bd047dae3c06612eb47cc149c8",
+        "source_excerpt_id": "S1-E7",
+        "source_id": "S1",
+        "source_tier": 4,
+        "source_tier_label": "Tier 4 caution/general",
+        "source_title": "Boeing XB-15 - Wikipedia",
+        "source_url": "https://en.wikipedia.org/wiki/Boeing_XB-15",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 23831,
+              "text_hash": "1f8f9b9fa4861f01508ba1e59099924732a5ed1f1ebc0e6a363698b2b092e5f2"
+            },
+            {
+              "covered_slot_count": 4,
+              "distinct_slot_excerpt_count": 4,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 106393,
+              "text_hash": "077eeb466e5a524c73ecdf9215d10067161be29ee0069a70761601668a162a45"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 23831,
+            "text_hash": "1f8f9b9fa4861f01508ba1e59099924732a5ed1f1ebc0e6a363698b2b092e5f2"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      }
+    ],
+    "high_risk_claims": [],
+    "include": true,
+    "locked_roster_index": 1,
+    "narrative_weight": "transitional",
+    "onscreen_label": "",
+    "schema_version": 3,
+    "source_notes": [
+      "https://www.thisdayinaviation.com/tag/boeing-xb-15",
+      "https://www.boeing.com/content/dam/boeing/v2/company/history/pdf/Boeing-Chronology.pdf",
+      "https://en.wikipedia.org/wiki/Boeing_XB-15",
+      "https://vintageaviationnews.com/warbird-articles/grounded-dreams/boeing-xb-15.html"
+    ],
+    "source_package_key": "XB15",
+    "surprising_fact": "The XB-15 had an autopilot and two gasoline generators to be used as backup power units for its 110-volt electrical system.",
+    "timeframe": "The Boeing XB-15 first flew in October 1937 and was delivered to the Army in December 1937.",
+    "timeframe_evidence_ids": [
+      "S3-E1-timeframe",
+      "S4-E9-reality"
+    ],
+    "tradeoff": "Engine issues and difficulties in developing a large aircraft like the XB-15 delayed its progress.",
+    "unit": "Boeing XB-15",
+    "visual_identity": "The XB-15 is a very large four-engine mid-wing monoplane with retractable landing gear.",
+    "visual_identity_evidence_ids": [
+      "S4-E4-engineering_decision"
+    ],
+    "why_this_unit_deserves_a_paragraph": "The XB-15 demonstrates the engineering challenge of pioneering independent auxiliary electrical generation using gasoline generators separate from the main engines, a solution required to power systems on an experimental airframe testing extreme-range bomber feasibility."
+  },
+  "machine_key": "XB15",
+  "machine_name": "Boeing XB-15",
+  "roster_index": 1,
+  "validation": {
+    "machine": "Boeing XB-15",
+    "passed": false,
+    "warnings": [
+      "visual_identity contains detail(s) not grounded in cited evidence: mid, wing, monoplane, retractable, landing, gear",
+      "visual_identity introduced unsupported numerical detail(s): four",
+      "timeframe contains detail(s) not grounded in cited evidence: flew, december"
+    ]
+  }
+}

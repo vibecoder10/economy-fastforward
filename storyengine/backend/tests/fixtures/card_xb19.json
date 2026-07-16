@@ -1,0 +1,290 @@
+{
+  "card": {
+    "engineering_thesis": "Douglas XB-19 answered the Army Air Corps flying-battleship ambition with an enormous long-range prototype, but the aircraft arrived as bomber technology was already passing it.",
+    "evidence_segments": [
+      {
+        "claim": "In the mid 1930s, the U.S. Army Air Corps asked for a flying battleship able to reach and strike an enemy force thousands of miles from America's coast.",
+        "confidence": "high",
+        "evidence_id": "XB19-E1",
+        "kind": "original_problem",
+        "locator": "Boeing Images lines 124-125",
+        "numeric_tokens": [
+          "1930s",
+          "thousands"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Douglas B-19 Behemoth (1937-1941): The B-19 was an experimental long-range bomber that was the largest aircraft built in the United States during World War II. In the mid 1930s, the U.S. Army Air Corps asked for a flying battleship able to reach and strike an enemy force thousands of miles from America's coast. The result was the Boeing XB-15 and the Douglas XB-19. When each made its first flight, Boeing's B-15 in 1937, they were the largest aircraft in the United States.",
+        "source_excerpt_id": "BOEINGIMG-XB19-E1",
+        "source_tier": 2,
+        "source_tier_label": "Tier 2 manufacturer archive",
+        "source_title": "XB-19 Behemoth in Factory",
+        "source_url": "https://secure.boeingimages.com/archive/XB-19-Behemoth-in-Factory-2F3XC5GZK9.html",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 476,
+            "text_hash": "07191004bfc6e3c9cd0b1897b80734b0bb523baa5033761808917e4a653359f4"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      },
+      {
+        "claim": "Douglas became involved with the super-bomber in 1935 when it began design of an enormous airplane having a 212-foot wingspan and a tricycle landing gear.",
+        "confidence": "high",
+        "evidence_id": "XB19-E2",
+        "kind": "engineering_decision",
+        "locator": "National Museum lines 85-88",
+        "numeric_tokens": [
+          "1935",
+          "212"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Douglas became involved with the super-bomber in 1935 when it began design of an enormous airplane having a 212-foot wingspan and a tricycle landing gear. Designated the XB-19, it made its first flight on June 27, 1941. Like the XB-15, the XB-19 was underpowered, and after numerous test projects were conducted with the plane, it also began carrying cargo.",
+        "source_excerpt_id": "NMUSAF-XB19-E1",
+        "source_tier": 1,
+        "source_tier_label": "Tier 1 primary/official",
+        "source_title": "Pre-war Super Bombers",
+        "source_url": "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/858881/pre-war-super-bombers/",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 357,
+            "text_hash": "ad80b3d89a72863667792dc2d6df6229b05b14470544e3fe1d2e14092bf7a0f1"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      },
+      {
+        "claim": "By the end of the war, bomber technology had far outdistanced the XB-19, making further development of the plane uneconomical.",
+        "confidence": "high",
+        "evidence_id": "XB19-E3",
+        "kind": "tradeoff",
+        "locator": "National Museum line 89",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "During WWII, its Wright radial engines were replaced by Allison in-line engines of greater power, but by the end of the war, bomber technology had far outdistanced the XB-19, making further development of the plane uneconomical.",
+        "source_excerpt_id": "NMUSAF-XB19-E2",
+        "source_tier": 1,
+        "source_tier_label": "Tier 1 primary/official",
+        "source_title": "Pre-war Super Bombers",
+        "source_url": "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/858881/pre-war-super-bombers/",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 228,
+            "text_hash": "15f68263812b2a5707db180c87b472236c3428178d8aad45dce56cc0681a4516"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      },
+      {
+        "claim": "The B-19 made its first flight on June 27, 1941, and spent the next six months doing flight tests in Southern California.",
+        "confidence": "high",
+        "evidence_id": "XB19-E4",
+        "kind": "reality",
+        "locator": "Boeing Images line 127",
+        "numeric_tokens": [
+          "27",
+          "1941",
+          "six"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "The B-19 made its first flight on June 27, 1941, and spent the next six months doing flight tests in Southern California. The December 7, 1941, attack on Pearl Harbor called for special precautions along the California coast, The B-19 was given a coat of camouflage paint and flew its later test flights with its guns armed. In January 1942, the big plane was flown to Wright Field near Dayton, Ohio, where it became a flying laboratory.",
+        "source_excerpt_id": "BOEINGIMG-XB19-E3",
+        "source_tier": 2,
+        "source_tier_label": "Tier 2 manufacturer archive",
+        "source_title": "XB-19 Behemoth in Factory",
+        "source_url": "https://secure.boeingimages.com/archive/XB-19-Behemoth-in-Factory-2F3XC5GZK9.html",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 437,
+            "text_hash": "1fc5dc816c25ca2db04cca34a230ba071eac72b065a0552f10f168fb84895aca"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      },
+      {
+        "claim": "It had passageways inside the wings so crewmembers could service the engines in flight.",
+        "confidence": "high",
+        "evidence_id": "XB19-E5",
+        "kind": "memorable_fact",
+        "locator": "Boeing Images line 126",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Construction of the B-19 took place at the cavernous production hangar at the Douglas plant in Santa Monica, Calif. It had a wingspan of 212 feet, slightly larger than today's Boeing 747-400, and its main landing gear had 24-ply tires that were eight feet in diameter. The B-19's range of 7,700 miles meant it could remain aloft for 55 hours. It had passageways inside the wings so crewmembers could service the engines in flight.",
+        "source_excerpt_id": "BOEINGIMG-XB19-E2",
+        "source_tier": 2,
+        "source_tier_label": "Tier 2 manufacturer archive",
+        "source_title": "XB-19 Behemoth in Factory",
+        "source_url": "https://secure.boeingimages.com/archive/XB-19-Behemoth-in-Factory-2F3XC5GZK9.html",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 430,
+            "text_hash": "9c6c8c7422a94fcf752f8cab623c01a4dfc347850c97641212f70d48e52af9e9"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      },
+      {
+        "claim": "It had a wingspan of 212 feet, slightly larger than today's Boeing 747-400, and its main landing gear had 24-ply tires that were eight feet in diameter.",
+        "confidence": "high",
+        "evidence_id": "XB19-E6",
+        "kind": "scale_specs_context",
+        "locator": "Boeing Images line 126",
+        "numeric_tokens": [
+          "212",
+          "747",
+          "400",
+          "24",
+          "eight"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Construction of the B-19 took place at the cavernous production hangar at the Douglas plant in Santa Monica, Calif. It had a wingspan of 212 feet, slightly larger than today's Boeing 747-400, and its main landing gear had 24-ply tires that were eight feet in diameter. The B-19's range of 7,700 miles meant it could remain aloft for 55 hours. It had passageways inside the wings so crewmembers could service the engines in flight.",
+        "source_excerpt_id": "BOEINGIMG-XB19-E2",
+        "source_tier": 2,
+        "source_tier_label": "Tier 2 manufacturer archive",
+        "source_title": "XB-19 Behemoth in Factory",
+        "source_url": "https://secure.boeingimages.com/archive/XB-19-Behemoth-in-Factory-2F3XC5GZK9.html",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 430,
+            "text_hash": "9c6c8c7422a94fcf752f8cab623c01a4dfc347850c97641212f70d48e52af9e9"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      },
+      {
+        "claim": "In 1949 the XB-19 was reduced to scrap metal at Davis-Monthan Air Force Base, Ariz.",
+        "confidence": "high",
+        "evidence_id": "XB19-E7",
+        "kind": "build_reality_context",
+        "locator": "National Museum line 89",
+        "numeric_tokens": [
+          "1949"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "In 1949 the XB-19 was reduced to scrap metal at Davis-Monthan Air Force Base, Ariz.",
+        "source_excerpt_id": "NMUSAF-XB19-E3",
+        "source_tier": 1,
+        "source_tier_label": "Tier 1 primary/official",
+        "source_title": "Pre-war Super Bombers",
+        "source_url": "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/858881/pre-war-super-bombers/",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 83,
+            "text_hash": "8e3f8aa3448131471bb7c0384df1f80e6abc76e9fff9613ebb75129008d13040"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      },
+      {
+        "claim": "Designated the XB-19, it made its first flight on June 27, 1941.",
+        "confidence": "high",
+        "evidence_id": "XB19-E8",
+        "kind": "onscreen_label",
+        "locator": "National Museum lines 85-88",
+        "numeric_tokens": [
+          "27",
+          "1941"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Douglas became involved with the super-bomber in 1935 when it began design of an enormous airplane having a 212-foot wingspan and a tricycle landing gear. Designated the XB-19, it made its first flight on June 27, 1941. Like the XB-15, the XB-19 was underpowered, and after numerous test projects were conducted with the plane, it also began carrying cargo.",
+        "source_excerpt_id": "NMUSAF-XB19-E1",
+        "source_tier": 1,
+        "source_tier_label": "Tier 1 primary/official",
+        "source_title": "Pre-war Super Bombers",
+        "source_url": "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/858881/pre-war-super-bombers/",
+        "source_variant_selection": {
+          "evaluated_variants": [],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 4,
+            "distinct_slot_excerpt_count": 4,
+            "excerpt_count": 5,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 357,
+            "text_hash": "ad80b3d89a72863667792dc2d6df6229b05b14470544e3fe1d2e14092bf7a0f1"
+          },
+          "selection_rule": "manual source patch after automated package missed source"
+        }
+      }
+    ],
+    "high_risk_claims": [],
+    "include": true,
+    "locked_roster_index": 2,
+    "narrative_weight": "standard",
+    "schema_version": 3,
+    "source_notes": [
+      "https://secure.boeingimages.com/archive/XB-19-Behemoth-in-Factory-2F3XC5GZK9.html",
+      "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/858881/pre-war-super-bombers/"
+    ],
+    "source_package_key": "XB19",
+    "surprising_fact": "The B-19 had passageways inside the wings so crewmembers could service the engines in flight.",
+    "timeframe": "The B-19 made its first flight on June 27, 1941, spent the next six months doing flight tests, and the XB-19 was reduced to scrap metal in 1949.",
+    "timeframe_evidence_ids": [
+      "XB19-E4",
+      "XB19-E7"
+    ],
+    "unit": "Douglas XB-19",
+    "visual_identity": "Douglas XB-19: enormous airplane with a 212-foot wingspan and a tricycle landing gear.",
+    "visual_identity_evidence_ids": [
+      "XB19-E2"
+    ],
+    "why_this_unit_deserves_a_paragraph": "XB-19 deserves a paragraph because it pushed the same pre-war super-bomber question beyond the XB-15 into an even larger Douglas prototype, then showed how a giant bomber could become a test and cargo machine before it became a combat answer."
+  },
+  "machine_key": "XB19",
+  "machine_name": "Douglas XB-19",
+  "roster_index": 2,
+  "validation": {
+    "machine": "Douglas XB-19",
+    "passed": true,
+    "warnings": []
+  }
+}

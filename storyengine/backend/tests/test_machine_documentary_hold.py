@@ -4095,7 +4095,12 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert response_payload["machine_story_plans"][response_key]["contract"]["opening_assignment"].startswith("A machine-name opening")
     assert any(card.get("unit") == "Boeing B-17 Flying Fortress" for card in response_payload["unit_research_cards"])
     assert load_calls == [("video-test", roster, "Boeing XB-15")]
-    assert fetch_calls == [("SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1", ("video-test", "tenant-test"))]
+    assert fetch_calls == [
+        # Readiness enrichment reads the stored per-card verdicts so the response
+        # payload carries card.readiness (single backend-owned readiness source).
+        ("SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2", ("tenant-test", "video-test")),
+        ("SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1", ("video-test", "tenant-test")),
+    ]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]
     assert "Original problem claim grounded in the supplied source" in fake_anthropic.prompts[0]
@@ -5379,6 +5384,11 @@ def test_machine_preview_readiness_passes_with_verified_card_and_package(monkeyp
 
 
 def test_machine_preview_readiness_does_not_touch_generation_side_effects(monkeypatch):
+    """Readiness stays no-spend: no prompt overrides, no script hold, no script or
+    video writes. Its ONLY sanctioned DB touches are the readiness enrichment
+    SELECT and the validation-only verdict refresh UPDATE on machine_research_cards.
+    DB doubles record-then-assert (instead of raising) because both sanctioned
+    touches are deliberately failure-tolerant and would swallow a raising double."""
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
     segments = _evidence_segments()
     payload = {
@@ -5412,19 +5422,24 @@ def test_machine_preview_readiness_does_not_touch_generation_side_effects(monkey
     async def forbidden_static_hold(*_args, **_kwargs):
         raise AssertionError("readiness preflight must not run script hold")
 
-    async def forbidden_execute(*_args, **_kwargs):
-        raise AssertionError("readiness preflight must not write database rows")
+    db_reads = []
+    db_writes = []
 
-    async def forbidden_fetch_all(*_args, **_kwargs):
-        raise AssertionError("readiness preflight must not look up voice/script rows")
+    async def recording_fetch_all(query, *args, **_kwargs):
+        db_reads.append((query, args))
+        return []
+
+    async def recording_execute(query, *args, **_kwargs):
+        db_writes.append((query, args))
+        return "UPDATE 1"
 
     monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
     monkeypatch.setattr(executor, "_get_video", fake_get_video)
     monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
     monkeypatch.setattr(executor, "_load_prompt_overrides", forbidden_prompt_overrides)
     monkeypatch.setattr(executor, "_run_static_script_hold", forbidden_static_hold)
-    monkeypatch.setattr(pe, "execute", forbidden_execute)
-    monkeypatch.setattr(pe, "fetch_all", forbidden_fetch_all)
+    monkeypatch.setattr(pe, "execute", recording_execute)
+    monkeypatch.setattr(pe, "fetch_all", recording_fetch_all)
 
     result = asyncio.run(
         executor.check_machine_script_preview_readiness("video-test", "Boeing XB-15")
@@ -5432,6 +5447,225 @@ def test_machine_preview_readiness_does_not_touch_generation_side_effects(monkey
 
     assert result["ready"] is True
     assert result["status"] == "completed"
+    # Reads: only the readiness enrichment SELECT; never voice/script lookups.
+    assert [query for query, _args in db_reads if "machine_research_cards" not in query] == []
+    # Writes: exactly one validation-only verdict refresh, UPDATE-only, right keys.
+    assert len(db_writes) == 1
+    write_query, write_args = db_writes[0]
+    assert "UPDATE machine_research_cards" in write_query
+    assert "SET validation" in write_query
+    assert "INSERT" not in write_query.upper()
+    assert "card" not in write_query.replace("machine_research_cards", "")
+    assert write_args[0] == "tenant-test"
+    assert write_args[1] == "video-test"
+    assert write_args[2] == "XB15"
+    assert json.loads(write_args[3])["passed"] is True
+
+
+def test_machine_preview_readiness_persists_fresh_verdict_and_serves_it(monkeypatch):
+    """Self-healing for stale stored verdicts (pre-scope-change grading).
+
+    The stored validation says passed=True while the live strict referee fails
+    the card. The no-spend readiness check must (1) issue a validation-only
+    UPDATE on machine_research_cards keyed by tenant/video/machine_key - never
+    an INSERT, never the card column - and (2) serve card.readiness matching
+    the LIVE verdict, not the stale stored one, so badge and toast agree."""
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _evidence_segments()
+    # Break exactly one strict rule: engineering_thesis below the 4-spoken-word minimum.
+    card = _valid_research_card("Boeing XB-15", segments, engineering_thesis="Too short.")
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [card],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": payload,
+        }
+
+    async def fake_load(_video_id, current_payload, _roster_arg, target_machine=None):
+        return dict(current_payload)
+
+    async def stale_verdict_fetch_all(query, *args, **_kwargs):
+        assert "machine_research_cards" in query
+        # STALE stored verdict: the old lenient full-roster grading said this card passed.
+        return [{"machine_key": "XB15", "validation": {"passed": True, "warnings": []}}]
+
+    writes = []
+
+    async def recording_execute(query, *args, **_kwargs):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(pe, "fetch_all", stale_verdict_fetch_all)
+    monkeypatch.setattr(pe, "execute", recording_execute)
+
+    result = asyncio.run(
+        executor.check_machine_script_preview_readiness("video-test", "Boeing XB-15")
+    )
+
+    assert result["status"] == "needs_review"
+    assert result["ready"] is False
+    assert result["warnings"] == ["missing/weak engineering_thesis"]
+
+    # Exactly one write: a validation-only UPDATE with the right keys.
+    assert len(writes) == 1
+    write_query, write_args = writes[0]
+    assert "UPDATE machine_research_cards" in write_query
+    assert "SET validation" in write_query
+    assert "INSERT" not in write_query.upper()
+    # The card column is never written from a read path.
+    assert "card" not in write_query.replace("machine_research_cards", "")
+    assert write_args[0] == "tenant-test"
+    assert write_args[1] == "video-test"
+    assert write_args[2] == "XB15"
+    assert json.loads(write_args[3]) == {
+        "machine": "Boeing XB-15",
+        "passed": False,
+        "warnings": ["missing/weak engineering_thesis"],
+        "revalidated_no_spend": True,
+    }
+
+    # The served payload carries the LIVE verdict, not the stale stored pass.
+    served_card = result["research_payload"]["unit_research_cards"][0]
+    assert served_card["readiness"] == {
+        "passed": False,
+        "warnings": ["missing/weak engineering_thesis"],
+    }
+
+
+def test_machine_preview_readiness_verdict_write_failure_is_tolerated(monkeypatch):
+    """The verdict refresh is fire-and-forget: a dead database must not fail the
+    no-spend readiness response, and the in-memory readiness patch still keeps
+    the served payload in sync with the live verdict."""
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _evidence_segments()
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [_valid_research_card("Boeing XB-15", segments)],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+        },
+    }
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "render_mode": "static_docu",
+            "research_payload": payload,
+        }
+
+    async def fake_load(_video_id, current_payload, _roster_arg, target_machine=None):
+        return dict(current_payload)
+
+    async def broken_fetch_all(*_args, **_kwargs):
+        raise RuntimeError("database is unavailable")
+
+    async def broken_execute(*_args, **_kwargs):
+        raise RuntimeError("database is unavailable")
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(pe, "fetch_all", broken_fetch_all)
+    monkeypatch.setattr(pe, "execute", broken_execute)
+
+    result = asyncio.run(
+        executor.check_machine_script_preview_readiness("video-test", "Boeing XB-15")
+    )
+
+    assert result["status"] == "completed"
+    assert result["ready"] is True
+    # Even with the enrichment read AND the verdict write both dead, the served
+    # payload reflects the live verdict via the in-memory patch.
+    served_card = result["research_payload"]["unit_research_cards"][0]
+    assert served_card["readiness"] == {"passed": True, "warnings": []}
+
+
+def test_reused_card_save_restamps_segment_provenance(monkeypatch):
+    """The referee grades a deep copy, so the save path must re-stamp
+    verified-source provenance on the REAL card before persisting. A reused
+    (revalidated) card's saved segments must carry source_tier / source_id /
+    source_excerpt_hash again when the verified package matches them."""
+    roster = ["Boeing XB-15"]
+    segments = _evidence_segments()
+    card = _valid_research_card("Boeing XB-15", segments)
+    for segment in card["evidence_segments"]:
+        assert "source_tier" not in segment
+        assert "source_id" not in segment
+        assert "source_excerpt_hash" not in segment
+    payload = {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": roster,
+        "unit_research_cards": [card],
+        "machine_raw_source_packages": {
+            pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+        },
+    }
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("a passing reused card must not trigger a paid research call")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("Pipeline", (), {"anthropic": ForbiddenAnthropic()})()
+
+    async def no_compact_rows(*_args, **_kwargs):
+        return []
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    saved = []
+
+    async def recording_upsert(video_id, machine, roster_index, card_arg, validation):
+        saved.append((video_id, machine, roster_index, card_arg, validation))
+
+    monkeypatch.setattr(pe, "fetch_all", no_compact_rows)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+    monkeypatch.setattr(executor, "_upsert_machine_research_card", recording_upsert)
+
+    result = asyncio.run(
+        executor._run_unit_research_hold("video-test", "Test title", payload, roster)
+    )
+
+    assert result["unit_research_hold_validation"]["passed"] is True
+    assert len(saved) == 1
+    _video_id, machine, _index, saved_card, validation = saved[0]
+    assert machine == "Boeing XB-15"
+    assert validation["passed"] is True
+    saved_segments = saved_card["evidence_segments"]
+    assert saved_segments
+    for segment in saved_segments:
+        # Provenance stamped from the matched verified candidates (si.edu = Tier 2).
+        assert segment["source_tier"] == 2
+        assert segment["source_id"].startswith("S")
+        assert segment["source_excerpt_hash"] == "test"
+        assert segment["source_capture_method"] == "fetched_page"
+        assert segment["source_excerpt_id"]
+        assert isinstance(segment["source_variant_selection"], dict)
 
 
 def test_machine_preview_readiness_route_returns_review_status(monkeypatch):

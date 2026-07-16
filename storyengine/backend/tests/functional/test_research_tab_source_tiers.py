@@ -73,8 +73,11 @@ def test_research_tab_reads_verified_raw_source_packages():
 
 
 def test_research_tab_source_capture_gate_uses_locked_machine_excerpts():
+    # sourcePackageStatus is kept as a PURE-DISPLAY helper (raw source-package
+    # coverage panel); it no longer gates readiness. Slice ends at the next
+    # helper now that sourcePackageReady has been deleted.
     text = _research_tab().read_text()
-    helper = text[text.index("function sourcePackageStatus"):text.index("function sourcePackageReady")]
+    helper = text[text.index("function sourcePackageStatus"):text.index("function sourceSlotCoverageRows")]
 
     assert "const targetExcerpts = machine ? excerpts.filter" in helper
     assert "const missingCaptureMethodCount = targetExcerpts.filter" in helper
@@ -83,114 +86,54 @@ def test_research_tab_source_capture_gate_uses_locked_machine_excerpts():
     assert helper.index("const targetExcerpts = machine ? excerpts.filter") < helper.index("const missingCaptureMethodCount = targetExcerpts.filter")
 
 
-def test_research_tab_blocks_preview_without_ready_raw_package():
+def test_research_tab_blocks_preview_on_served_readiness_not_client_recompute():
+    # The Research tab no longer recomputes card readiness client-side. The single
+    # source of truth is the backend verdict on card.readiness. The raw
+    # source-package helpers stay for the DISPLAY panel only (coverage, audit).
     text = _research_tab().read_text()
 
-    assert "function sourcePackageReady" in text
+    # No client-side readiness recompute.
+    assert "function machineResearchCardStatus" not in text
+    assert "function sourcePackageReady" not in text
+    assert 'return { ready: true, message: "Research card ready · visual identity grounded" }' not in text
+    assert "machineResearchCardStatus(" not in text
+
+    # Backend-owned readiness read straight off the served card.
+    assert "function machineResearchReadiness" in text
+    assert "const readiness = card?.readiness" in text
+    assert "readiness.passed === true" in text
+    assert "const selectedResearchReadiness = machineResearchReadiness(selectedResearchCard)" in text
+    assert "const selectedResearchReady = selectedResearchReadiness.ready" in text
+    assert "selectedResearchStatusMessage" in text
+    # readiness === null renders a Revalidate needed state; warnings shown verbatim.
+    assert "selectedResearchReadiness.needsRevalidate" in text
+    assert "selectedResearchReadiness.warnings" in text
+    assert "Revalidate needed" in text
+    assert "disabled={singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning}" in text
+
+    # Raw source-package DISPLAY helpers remain (informational only, not a gate).
     assert "function sourcePackageStatus" in text
     assert "function textMentionsMachine" in text
-    assert "function designationCodes" in text
-    assert "function designationCodeMatches" in text
     assert "designationCodeMatches(code, targetCode)" in text
-    assert "B-2 must not match B-21" in text
-    assert "compactBody.includes(targetCode)" not in text
-    assert "const bodyWords = new Set(bodyLower.match(/[a-z]{3,}/g) || [])" in text
-    assert "bodyWords.has(word)" in text
-    assert '"grumman", "general", "dynamics", "rockwell", "american", "republic", "mcdonnell"' in text
-    assert "rawExcerpts.filter((candidate: any) => String(candidate?.text || \"\").trim())" in text
-    assert "targetExcerpts.length < 6" in text
+    assert "Raw source package machine mismatch · preview blocked" in text
+    assert "packageKey && packageKey !== targetCode" in text
     assert "function sourceTierNumber" in text
     assert "function sourceTierForUrl" in text
-    assert "host.endsWith(\".gov\")" in text
     assert "wikipedia.org" in text
     assert "airandspace.si.edu" in text
-    assert "return host ? 3 : 0" in text
-    assert "Raw source package machine mismatch · preview blocked" in text
-    assert "const targetCode = normalizedUnitCode(machine)" in text
-    assert "const packageKey = normalizedUnitCode(String(sourcePackage?.machine_key || \"\"))" in text
-    assert "const packageMachine = normalizedUnitCode(String(sourcePackage?.machine || \"\"))" in text
-    assert "packageKey && packageKey !== targetCode" in text
-    assert "packageMachine && packageMachine !== targetCode" in text
-    assert "selectedSourcePackageReady" in text
     assert "sourcePackageStatus(selectedSourcePackage, selectedMachineLabel)" in text
-    assert "sourcePackageReady(selectedSourcePackage, selectedMachineLabel)" in text
-    assert "function machineResearchCardStatus" in text
-    assert "Timeframe missing · preview blocked" in text
-    assert "Timeframe evidence missing ·" in text
-    assert "Visual identity missing · preview blocked" in text
-    assert "Visual identity evidence missing ·" in text
-    assert "Sourced memorable fact missing · preview blocked" in text
-    assert "const hasSourcedMemorableFact" in text
-    assert "String(segment?.source_excerpt || \"\").trim()" in text
-    assert "Evidence source mismatch ·" in text
-    assert "Research card missing Anton slots ·" in text
-    assert "Research card needs distinct Anton excerpts · preview blocked" in text
-    assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
-    assert "Timeframe evidence Tier 4-only · preview blocked" in text
-    assert "Visual identity evidence Tier 4-only · preview blocked" in text
-    assert "sourceCandidateForEvidence(segment, sourcePackage)" in text
-    assert "function sourceSlotHintsForEvidence" in text
-    assert "function sourceSlotHintsForCandidate" in text
-    assert "anton_slot_hints" in text
-    assert "source_slot_hints" in text
-    assert "hints ${hints.join(\", \")}" in text
-    assert "hints ${evidence.source_slot_hints.join(\", \")}" in text
     assert "const selectedRawSourceExcerpts = useMemo" in text
     assert "const selectedSourceAuditRows = useMemo" in text
     assert "search_result_audit" in text
     assert "Raw source package excerpts" in text
     assert "Search result audit" in text
-    assert "accepted ${row?.source_id || \"\"}" in text
-    assert "rejected ${String(row?.rejected_reason || \"unknown\").replace(/_/g, \" \")}" in text
-    assert "No matching raw excerpts saved for the selected machine" in text
-    assert "function antonSlotRoleForEvidenceKind" in text
-    assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
-    assert "selectedResearchCardStatus.ready && selectedSourcePackageReady" in text
-    assert "machineResearchCardStatus(selectedResearchCard, selectedMachineLabel, selectedSourcePackage)" in text
-    assert "machineResearchCardReady(card, label, sourcePackage)" in text
-    assert "disabled={singleMachineRunning || singlePreviewRunning || readinessChecking || isResearching || taskRunning}" in text
-    assert "Raw source package missing · preview blocked" in text
-    assert "Raw source package target-thin ·" in text
-    assert "Raw source package thin ·" in text
-    assert "Raw source package caution-only · preview blocked" in text
-    assert "Raw source package needs Tier 1-2 source · preview blocked" in text
-    assert "Raw source package missing capture method ·" in text
-    assert "Raw source package unsupported capture ·" in text
-    assert "Raw source package missing provenance ·" in text
-    assert 'new Set(["fetched_page", "tavily_raw_content"])' in text
-    assert "missingCaptureMethodCount > 0" in text
-    assert "missingSourceProvenanceCount > 0" in text
-    assert "candidate?.source_variant_selection" in text
-    assert "unsupportedCaptureMethods.size > 0" in text
     assert "Raw source package ready ·" in text
-    assert "sourceUrls.size < 2" in text
-    assert "nonCautionUrls.size < 1" in text
-    assert "authoritativeUrls.size < 1" in text
-    assert "function sourceCandidateTraceable" in text
-    assert "function untraceableAntonSourceSlots" in text
-    assert "const untraceableSlots = untraceableAntonSourceSlots(targetExcerpts)" in text
-    assert "const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable)" in text
-    assert "const traceableEvidenceBySlot = sourceSlotEvidenceBySlot(traceableTargetExcerpts)" in text
-    assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
-    assert "Raw source package untraceable Anton slots ·" in text
-    assert "function tierFourOnlyAntonSourceSlots" in text
-    assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
-    assert "Raw source package Tier 4-only Anton slots ·" in text
-    assert "selectedResearchStatusMessage" in text
     assert "Research refresh required before preview." in text
+
+    # React Query hydration still carries the served (now readiness-enriched) payload.
     assert "queryClient.setQueryData([\"video\", video.id]" in text
     assert "{ ...current, research_payload: result.research_payload }" in text
     assert text.count("{ ...current, research_payload: result.research_payload }") >= 2
-    research_handler = text[text.index("const handleOneMachineResearch"):text.index("const handleOneMachinePreview")]
-    assert "setLocalMachinePreview(null)" in research_handler
-    assert "Raw source package saved. Research card needs review before script preview." in text
-    assert "One-machine research review" in text
-    assert "researchWarningsWithNextAction(result, message)" in text
-    assert "Raw source package missing Anton slots ·" in text
-    assert "sourcePackage?.traceable_source_slot_coverage?.missing_slots" in text
-    assert "antonSourceSlotHints(candidate?.text)" in text
-    assert "needs_distinct_slot_excerpts" in text
-    assert "Raw source package needs distinct Anton excerpts" in text
 
 
 def test_research_tab_canonicalizes_legacy_meaning_slots():
@@ -209,24 +152,21 @@ def test_research_tab_canonicalizes_legacy_meaning_slots():
     assert "sourcePackage.traceable_source_slot_coverage.missing_slots.map((slot: any) => String(slot || \"\").trim()).filter(Boolean)" not in text
 
 
-def test_script_voice_tab_blocks_preview_without_authoritative_source():
+def test_script_voice_tab_blocks_preview_on_served_readiness():
+    # ScriptVoiceTab gates on the served backend readiness verdict, not a client
+    # recompute. The raw source-package authoritative-tier checks stay for display.
     text = _script_voice_tab().read_text()
 
+    assert "function machineResearchCardStatus" not in text
+    assert "machineResearchCardStatus(" not in text
+    assert "function machineResearchReadiness" in text
+    assert "const activePreviewReadiness = machineResearchReadiness(activePreviewResearchCard)" in text
+    assert "const activePreviewReady = activePreviewReadiness.ready" in text
+    assert "machineResearchCardReady(card)" in text
+    assert "machineResearchCardReady(card, label, sourcePackage)" not in text
+
+    # Source-package DISPLAY helpers (authoritative-tier detection) remain.
     assert "function sourcePackageStatus" in text
-    assert "function machineResearchCardStatus" in text
-    assert "Timeframe missing · preview blocked" in text
-    assert "Visual identity missing · preview blocked" in text
-    assert "Sourced memorable fact missing · preview blocked" in text
-    assert "const hasSourcedMemorableFact" in text
-    assert "String(segment?.source_excerpt || \"\").trim()" in text
-    assert "Evidence source mismatch ·" in text
-    assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
-    assert "Timeframe evidence Tier 4-only · preview blocked" in text
-    assert "Visual identity evidence Tier 4-only · preview blocked" in text
-    assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
-    assert "activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady" in text
-    assert "machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage)" in text
-    assert "machineResearchCardReady(card, label, sourcePackage)" in text
     assert "Raw source package needs Tier 1-2 source · preview blocked" in text
     assert "authoritativeUrls.size < 1" in text
     assert "sourceTierNumber(candidate) <= 2" in text
@@ -234,7 +174,6 @@ def test_script_voice_tab_blocks_preview_without_authoritative_source():
     assert "function untraceableAntonSourceSlots" in text
     assert "const untraceableSlots = untraceableAntonSourceSlots(targetExcerpts)" in text
     assert "const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable)" in text
-    assert "const traceableEvidenceBySlot = sourceSlotEvidenceBySlot(traceableTargetExcerpts)" in text
     assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
     assert "Raw source package untraceable Anton slots ·" in text
     assert "function tierFourOnlyAntonSourceSlots" in text
@@ -280,14 +219,15 @@ def test_research_tab_counts_only_verified_machine_cards():
     assert "const candidate = Array.isArray(packages) ? row : row.value" in text
     assert "normalizedUnitCode(rawKey) === key" in text
     assert "const verifiedMachineResearchCount = useMemo" in text
-    assert "machineResearchCardReady(card, label, sourcePackage)" in text
-    assert "const sourcePackage = sourcePackageForMachine(research.machine_raw_source_packages, label)" in text
-    assert "sourcePackageReady(sourcePackage, label)" in text
+    # Verified count is driven purely by the served readiness verdict now.
+    assert "machineResearchCardReady(card)" in text
+    assert "machineResearchCardReady(card, label, sourcePackage)" not in text
+    assert "sourcePackageReady(sourcePackage, label)" not in text
     assert "cards verified" in text
     assert "verifiedMachineResearchCount / research.unit_roster.length" in text or "verifiedMachineResearchCount}/{research.unit_roster.length" in text
     assert "const fullMachineResearchPassed = fullMachineResearchGatePassed" in text
     assert "!fullMachineResearchGatePassed(machineResearchGate, verifiedCount, lockedRoster.length)" in text
-    assert "return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label)" in text
+    assert "return machineResearchCardReady(card);" in text
     assert "verified cards finished" in text
     assert "unit_research_cards?.length || 0" not in text
 
@@ -300,9 +240,7 @@ def test_research_tab_shows_raw_source_beat_coverage():
     assert "function excerptTextsOverlap" in text
     assert "function sourceExcerptTextById" in text
     assert "function sourceSlotEvidenceBySlot" in text
-    assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
     assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
-    assert "requiredSourceTextById" in text
     assert "sourcePackage?.traceable_source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text
@@ -500,6 +438,27 @@ def test_research_tab_matches_cards_and_previews_by_normalized_machine_code():
     assert "function previewForMachine" in text
     assert "previewMatchesMachine(localMachinePreview, selectedMachineLabel)" in text
     assert "previewForMachine(research?.machine_script_previews, selectedMachineLabel)" in text
+
+
+def test_research_tab_verified_badges_render_served_readiness():
+    """Per-card badges/counts render the served verdict; failed cards list warnings."""
+    text = _research_tab().read_text()
+
+    # No client recompute; shared readiness helper is the single source.
+    assert "function machineResearchCardStatus" not in text
+    assert "function machineResearchReadiness" in text
+
+    # Per-card badge derives from card.readiness.
+    assert "const cardReadiness = machineResearchReadiness(card)" in text
+    assert "const cardVerified = cardReadiness.ready" in text
+
+    # readiness === null renders a Revalidate needed state (not ready).
+    assert "cardReadiness.needsRevalidate" in text
+    assert "Revalidate needed" in text
+
+    # Failed-card warnings are listed verbatim.
+    assert "cardReadiness.warnings.length > 0" in text
+    assert "cardReadiness.warnings.map" in text
 
 
 def test_research_tab_keeps_failed_preview_reason_visible():

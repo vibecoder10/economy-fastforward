@@ -1,0 +1,522 @@
+{
+  "card": {
+    "actual_outcome": "During World War II 4,735 B-17s were lost during combat missions, representing 37.2% of production.",
+    "design_problem": "In the early 1930s the United States Army Air Corps sought a new long-range bomber capable of high-altitude operations.",
+    "engineering_response": "Wartime B-17s carried a crew of 10 and were armed with 10 to 13 .50-caliber machine guns on later G models.",
+    "evidence_segments": [
+      {
+        "claim": "In the early 1930s the United States Army Air Corps sought a new long-range bomber capable of high-altitude operations.",
+        "confidence": "high",
+        "evidence_id": "B17-E1",
+        "kind": "original_problem",
+        "locator": "S2-E3; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [
+          "1930s"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "The development of the Boeing B-17 Flying Fortress began in the early 1930s when the United States Army Air Corps sought a new long-range bomber capable of high-altitude operations.",
+        "source_excerpt_hash": "fee012eb3409fe6ee881a42a79029962df007da2f7fe9b1386971483598055d5",
+        "source_excerpt_id": "S2-E3",
+        "source_id": "S2",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "What was the history of the B-17? \u2014 The Fivecoat Consulting Group",
+        "source_url": "https://www.thefivecoatconsultinggroup.com/tfcg/k2dc9nacfwnd9tga5hfxjw6fkepyge",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10337,
+              "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 11478,
+              "text_hash": "389ee497897c857e1b3f5b391216b3dc4ef32acc4407d7cbed17d0986e901b42"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10337,
+            "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The B-17 design took form as the Boeing Model 299 and first flew in 1935.",
+        "confidence": "high",
+        "evidence_id": "B17-E2",
+        "kind": "timeframe",
+        "locator": "S3-E3; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [
+          "299",
+          "1935"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "The B-17 design took form as the Boeing Model 299 and first flew in 1935.",
+        "source_excerpt_hash": "366df6a0333dd114507640583c6dbc7f564a571106054a1698db0ff3c9f54eb8",
+        "source_excerpt_id": "S3-E3",
+        "source_id": "S3",
+        "source_tier": 2,
+        "source_tier_label": "Tier 2 museum/authoritative secondary",
+        "source_title": "Boeing B-17F Flying Fortress | The Museum of Flight",
+        "source_url": "https://www.museumofflight.org/exhibits-and-events/aircraft/boeing-b-17f-flying-fortress",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 2,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 9875,
+              "text_hash": "5d22c8b7083f5424d7b76114f70e3b3104635968916835e47e8e88d13645e178"
+            },
+            {
+              "covered_slot_count": 2,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 10721,
+              "text_hash": "8fa6269136b2923ba90300a8b4dc264f29ac12f84624cafce5890455c472426b"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 2,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 9875,
+            "text_hash": "5d22c8b7083f5424d7b76114f70e3b3104635968916835e47e8e88d13645e178"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The B-17 was a relatively fast, high-flying, long-range bomber with heavy defensive armament at the expense of bomb load.",
+        "confidence": "high",
+        "evidence_id": "B17-E3",
+        "kind": "engineering_decision",
+        "locator": "S1-E7; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "It was a relatively fast, high-flying, long-range bomber with heavy defensive armament at the expense of bomb load.",
+        "source_excerpt_hash": "104fa97b6e42f37876506df6bd5cb6e4010d8fa0ae4ebaad9d3e436cb36c63e9",
+        "source_excerpt_id": "S1-E7",
+        "source_id": "S1",
+        "source_tier": 4,
+        "source_tier_label": "Tier 4 caution/general",
+        "source_title": "Boeing B-17 Flying Fortress",
+        "source_url": "https://en.wikipedia.org/wiki/Boeing_B-17_Flying_Fortress",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 148222,
+              "text_hash": "71699ddaece2731c7fdee0a474f2cdc7e9dcc1213b3c46319ebfaf87cc5274bd"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 422262,
+              "text_hash": "4064c95dc0a456bb9f495e1be85c3462ff3c8902683e82bb52fb63e90aa2e23b"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 148222,
+            "text_hash": "71699ddaece2731c7fdee0a474f2cdc7e9dcc1213b3c46319ebfaf87cc5274bd"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The B-17F added the manned Sperry ball turret for ventral defense, along with an enlarged, nearly frameless Plexiglas bombardier's nose enclosure for better forward vision.",
+        "confidence": "high",
+        "evidence_id": "B17-E4",
+        "kind": "visual_identity",
+        "locator": "S2-E9; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "The next model, the B-17F, added the manned Sperry ball turret for ventral defense, along with an enlarged, nearly frameless Plexiglas bombardier's nose enclosure for better forward vision.",
+        "source_excerpt_hash": "c5193275f68df36d63ee64703b969137e271499fd7e98caae042622464549fb2",
+        "source_excerpt_id": "S2-E9",
+        "source_id": "S2",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "What was the history of the B-17? \u2014 The Fivecoat Consulting Group",
+        "source_url": "https://www.thefivecoatconsultinggroup.com/tfcg/k2dc9nacfwnd9tga5hfxjw6fkepyge",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10337,
+              "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 11478,
+              "text_hash": "389ee497897c857e1b3f5b391216b3dc4ef32acc4407d7cbed17d0986e901b42"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10337,
+            "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The B-17F lacked adequate defense against a head-on attack.",
+        "confidence": "high",
+        "evidence_id": "B17-E5",
+        "kind": "tradeoff",
+        "locator": "S2-E10; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "However, the B-17F lacked adequate defense against a head-on attack.",
+        "source_excerpt_hash": "ca5397511d8624260ff4a3bada30d778f68bd4b315177378b0c1de2941fd553d",
+        "source_excerpt_id": "S2-E10",
+        "source_id": "S2",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "What was the history of the B-17? \u2014 The Fivecoat Consulting Group",
+        "source_url": "https://www.thefivecoatconsultinggroup.com/tfcg/k2dc9nacfwnd9tga5hfxjw6fkepyge",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10337,
+              "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 11478,
+              "text_hash": "389ee497897c857e1b3f5b391216b3dc4ef32acc4407d7cbed17d0986e901b42"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10337,
+            "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "The B-17 dropped more bombs than any other aircraft during World War II.",
+        "confidence": "medium",
+        "evidence_id": "B17-E6",
+        "kind": "reality",
+        "locator": "S1-E3; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "A fast and high-flying bomber used primarily in the European Theater of Operations , the B-17 dropped more bombs than any other aircraft during World War II .",
+        "source_excerpt_hash": "84ef570453f500691971f19f2857a1b54ca6182a56ed74434877bcfc7b197cbf",
+        "source_excerpt_id": "S1-E3",
+        "source_id": "S1",
+        "source_tier": 4,
+        "source_tier_label": "Tier 4 caution/general",
+        "source_title": "Boeing B-17 Flying Fortress",
+        "source_url": "https://en.wikipedia.org/wiki/Boeing_B-17_Flying_Fortress",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 148222,
+              "text_hash": "71699ddaece2731c7fdee0a474f2cdc7e9dcc1213b3c46319ebfaf87cc5274bd"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 422262,
+              "text_hash": "4064c95dc0a456bb9f495e1be85c3462ff3c8902683e82bb52fb63e90aa2e23b"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 148222,
+            "text_hash": "71699ddaece2731c7fdee0a474f2cdc7e9dcc1213b3c46319ebfaf87cc5274bd"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "Wartime B-17s carried a crew of 10 and were armed with 10 to 13 .50-caliber machine guns on later G models.",
+        "confidence": "high",
+        "evidence_id": "B17-E7",
+        "kind": "engineering_decision",
+        "locator": "S3-E6; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [
+          "10",
+          "13",
+          ".50"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "Wartime B-17s carried a crew of 10 and were armed with 10 (up to 13 on later G models) .50-caliber machine guns.",
+        "source_excerpt_hash": "92a7ceab3a82c96c24d122ed8a8b4916fc333f2e2f726530395cbd5cf8eca762",
+        "source_excerpt_id": "S3-E6",
+        "source_id": "S3",
+        "source_tier": 2,
+        "source_tier_label": "Tier 2 museum/authoritative secondary",
+        "source_title": "Boeing B-17F Flying Fortress | The Museum of Flight",
+        "source_url": "https://www.museumofflight.org/exhibits-and-events/aircraft/boeing-b-17f-flying-fortress",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 2,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 9875,
+              "text_hash": "5d22c8b7083f5424d7b76114f70e3b3104635968916835e47e8e88d13645e178"
+            },
+            {
+              "covered_slot_count": 2,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 10721,
+              "text_hash": "8fa6269136b2923ba90300a8b4dc264f29ac12f84624cafce5890455c472426b"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 2,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 9875,
+            "text_hash": "5d22c8b7083f5424d7b76114f70e3b3104635968916835e47e8e88d13645e178"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "Between 1935 and May 1945, 12,732 B-17s were produced.",
+        "confidence": "high",
+        "evidence_id": "B17-E8",
+        "kind": "reality",
+        "locator": "S2-E6; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [
+          "1935",
+          "1945",
+          "12732"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "In total, between 1935 and May of 1945, 12,732 B-17s were produced.",
+        "source_excerpt_hash": "8675dc32eb1f127e6db3d758c9a4861d5be4e1046b18427007f07d17481c026d",
+        "source_excerpt_id": "S2-E6",
+        "source_id": "S2",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "What was the history of the B-17? \u2014 The Fivecoat Consulting Group",
+        "source_url": "https://www.thefivecoatconsultinggroup.com/tfcg/k2dc9nacfwnd9tga5hfxjw6fkepyge",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10337,
+              "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 11478,
+              "text_hash": "389ee497897c857e1b3f5b391216b3dc4ef32acc4407d7cbed17d0986e901b42"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10337,
+            "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      },
+      {
+        "claim": "During World War II 4,735 B-17s were lost during combat missions, representing 37.2% of production.",
+        "confidence": "high",
+        "evidence_id": "B17-E9",
+        "kind": "reality",
+        "locator": "S2-E7; query=\"Boeing B-17 Flying Fortress\" official history",
+        "numeric_tokens": [
+          "4735",
+          "37.2"
+        ],
+        "source_capture_method": "fetched_page",
+        "source_excerpt": "During World War II 4,735 B-17s were lost during combat missions (37.2%).",
+        "source_excerpt_hash": "3926a9ba5a81096359b55db01ffeca62a674c3f607bf6b13e2e2433edff4fdb8",
+        "source_excerpt_id": "S2-E7",
+        "source_id": "S2",
+        "source_tier": 3,
+        "source_tier_label": "Tier 3 reference/secondary",
+        "source_title": "What was the history of the B-17? \u2014 The Fivecoat Consulting Group",
+        "source_url": "https://www.thefivecoatconsultinggroup.com/tfcg/k2dc9nacfwnd9tga5hfxjw6fkepyge",
+        "source_variant_selection": {
+          "evaluated_variants": [
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 1,
+              "source_capture_method": "fetched_page",
+              "text_chars": 10337,
+              "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+            },
+            {
+              "covered_slot_count": 3,
+              "distinct_slot_excerpt_count": 0,
+              "excerpt_count": 10,
+              "method_priority": 0,
+              "source_capture_method": "tavily_raw_content",
+              "text_chars": 11478,
+              "text_hash": "389ee497897c857e1b3f5b391216b3dc4ef32acc4407d7cbed17d0986e901b42"
+            }
+          ],
+          "selected_capture_method": "fetched_page",
+          "selected_variant": {
+            "covered_slot_count": 3,
+            "distinct_slot_excerpt_count": 0,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "source_capture_method": "fetched_page",
+            "text_chars": 10337,
+            "text_hash": "020a1460f53e60e9c9dc069f4d6cb1457eeff43db18497bd0809309639792ceb"
+          },
+          "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties"
+        }
+      }
+    ],
+    "high_risk_claims": [],
+    "include": true,
+    "locked_roster_index": 3,
+    "narrative_weight": "major",
+    "onscreen_label": "",
+    "schema_version": 3,
+    "source_notes": [
+      "https://www.thefivecoatconsultinggroup.com/tfcg/k2dc9nacfwnd9tga5hfxjw6fkepyge",
+      "https://www.museumofflight.org/exhibits-and-events/aircraft/boeing-b-17f-flying-fortress",
+      "https://en.wikipedia.org/wiki/Boeing_B-17_Flying_Fortress"
+    ],
+    "source_package_key": "B17",
+    "surprising_fact": "During World War II 4,735 B-17s were lost during combat missions, representing 37.2% of production.",
+    "timeframe": "First flew 1935; entered service 1937",
+    "timeframe_evidence_ids": [
+      "B17-E1",
+      "B17-E2"
+    ],
+    "tradeoff": "The B-17F lacked adequate defense against a head-on attack.",
+    "unit": "Boeing B-17 Flying Fortress",
+    "visual_identity": "Four-engine heavy bomber with all-metal construction; enlarged nearly frameless Plexiglas bombardier's nose enclosure on F-model; manned Sperry ball turret for ventral defense",
+    "visual_identity_evidence_ids": [
+      "B17-E3",
+      "B17-E4"
+    ],
+    "why_this_unit_deserves_a_paragraph": "The B-17 demonstrates the strategic bomber design philosophy of prioritizing heavy defensive armament and high-altitude range at the expense of bomb load, a tradeoff that defined American daylight bombing doctrine."
+  },
+  "machine_key": "B17",
+  "machine_name": "Boeing B-17 Flying Fortress",
+  "roster_index": 3,
+  "validation": {
+    "machine": "Boeing B-17 Flying Fortress",
+    "passed": false,
+    "warnings": [
+      "missing/weak engineering_thesis",
+      "visual_identity must be specific to the locked machine",
+      "visual_identity contains detail(s) not grounded in cited evidence: engine, all, metal, construction",
+      "visual_identity introduced unsupported numerical detail(s): four",
+      "timeframe must be specific to the locked machine",
+      "timeframe contains detail(s) not grounded in cited evidence: entered",
+      "timeframe introduced unsupported numerical detail(s): 1937",
+      "evidence segment B17-E2 has unsupported Anton slot kind: timeframe",
+      "evidence segment B17-E4 has unsupported Anton slot kind: visual_identity",
+      "evidence segment B17-E7 numeric_tokens absent from claim/excerpt: .50",
+      "evidence segment B17-E9 numeric_tokens absent from claim/excerpt: 37.2",
+      "evidence segment B17-E1 maps original_problem to raw excerpt S2-E3 hinted for engineering_decision"
+    ]
+  }
+}

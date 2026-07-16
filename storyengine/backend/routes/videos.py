@@ -521,6 +521,14 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     if not r:
         raise HTTPException(status_code=404, detail="Video not found")
 
+    # Attach each research card's STORED referee verdict as card.readiness so the
+    # Research and Script tabs read one backend-owned readiness (no client recompute,
+    # failed cards never dropped). Single helper shared by every research_payload path.
+    from pipeline_executor import enrich_research_payload_readiness
+    research_payload = await enrich_research_payload_readiness(
+        tenant_id, video_id, _parse_json_field(r.get("research_payload"))
+    )
+
     return VideoDetail(
         id=str(r["id"]),
         video_title=r.get("video_title"),
@@ -537,7 +545,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         writer_guidance=r.get("writer_guidance"),
         thesis=r.get("thesis"),
         executive_hook=r.get("executive_hook"),
-        research_payload=_parse_json_field(r.get("research_payload")),
+        research_payload=research_payload,
         original_dna=_parse_json_field(r.get("original_dna")),
         script=r.get("script"),
         script_validation=_parse_script_validation(r.get("script_validation")),

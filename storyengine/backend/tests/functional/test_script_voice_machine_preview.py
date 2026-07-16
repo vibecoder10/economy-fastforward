@@ -31,8 +31,11 @@ def test_script_voice_preview_uses_normalized_machine_labels():
 
 
 def test_script_voice_source_capture_gate_uses_locked_machine_excerpts():
+    # sourcePackageStatus is kept as a PURE-DISPLAY helper (raw source-package
+    # coverage panel); it no longer gates readiness. Slice ends at the next
+    # helper now that sourcePackageReady has been deleted.
     text = _script_voice_tab().read_text()
-    helper = text[text.index("function sourcePackageStatus"):text.index("function sourcePackageReady")]
+    helper = text[text.index("function sourcePackageStatus"):text.index("function sourceSlotCoverageRows")]
 
     assert "const targetExcerpts = machine ? excerpts.filter" in helper
     assert "const missingCaptureMethodCount = targetExcerpts.filter" in helper
@@ -41,90 +44,43 @@ def test_script_voice_source_capture_gate_uses_locked_machine_excerpts():
     assert helper.index("const targetExcerpts = machine ? excerpts.filter") < helper.index("const missingCaptureMethodCount = targetExcerpts.filter")
 
 
-def test_script_voice_preview_blocks_without_ready_raw_package():
+def test_script_voice_preview_blocks_on_served_readiness_not_client_recompute():
+    # The client no longer recomputes research-card readiness. The single source
+    # of truth is the backend verdict served on each card as card.readiness. The
+    # raw source-package helpers are kept ONLY for the display panel (coverage,
+    # excerpt counts) - they no longer gate the Run Script button.
     text = _script_voice_tab().read_text()
 
+    # No client-side readiness recompute anywhere.
+    assert "function machineResearchCardStatus" not in text
+    assert "function sourcePackageReady" not in text
+    assert 'return { ready: true, message: "Research card ready · visual identity grounded" }' not in text
+    assert "machineResearchCardStatus(" not in text
+
+    # Backend-owned readiness is read straight off the served card.
+    assert "function machineResearchReadiness" in text
+    assert "const readiness = card?.readiness" in text
+    assert "readiness.passed === true" in text
+    assert "readiness === null || readiness === undefined" in text
+    assert "const activePreviewReadiness = machineResearchReadiness(activePreviewResearchCard)" in text
+    assert "const activePreviewReady = activePreviewReadiness.ready" in text
+    assert "disabled={previewGenerating || !activePreviewReady}" in text
+
+    # Raw source-package DISPLAY helpers remain (informational only, not a gate).
     assert "function sourcePackageForMachine" in text
-    assert "function sourcePackageReady" in text
     assert "function sourcePackageStatus" in text
     assert "function textMentionsMachine" in text
-    assert "function designationCodes" in text
     assert "function designationCodeMatches" in text
     assert "designationCodeMatches(code, targetCode)" in text
-    assert "B-2 must not match B-21" in text
-    assert "compactBody.includes(targetCode)" not in text
-    assert "const bodyWords = new Set(bodyLower.match(/[a-z]{3,}/g) || [])" in text
-    assert "bodyWords.has(word)" in text
-    assert '"grumman", "general", "dynamics", "rockwell", "american", "republic", "mcdonnell"' in text
-    assert "rawExcerpts.filter((candidate: any) => String(candidate?.text || \"\").trim())" in text
-    assert "targetExcerpts.length < 6" in text
-    assert "function sourceTierNumber" in text
-    assert "function sourceTierForUrl" in text
-    assert "host.endsWith(\".gov\")" in text
-    assert "wikipedia.org" in text
-    assert "airandspace.si.edu" in text
-    assert "return host ? 3 : 0" in text
     assert "Raw source package machine mismatch · preview blocked" in text
     assert "const targetCode = normalizedUnitCode(machine)" in text
-    assert "const packageKey = normalizedUnitCode(String(sourcePackage?.machine_key || \"\"))" in text
-    assert "const packageMachine = normalizedUnitCode(String(sourcePackage?.machine || \"\"))" in text
     assert "packageKey && packageKey !== targetCode" in text
-    assert "packageMachine && packageMachine !== targetCode" in text
-    assert "activePreviewSourcePackageReady" in text
-    assert "sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine)" in text
-    assert "sourcePackageReady(activePreviewSourcePackage, activePreviewMachine)" in text
-    assert "activePreviewResearchCard" in text
-    assert "activePreviewReady" in text
-    assert "Research card missing · preview blocked" in text
-    assert "Sourced memorable fact missing · preview blocked" in text
-    assert "const hasSourcedMemorableFact" in text
-    assert "String(segment?.source_excerpt || \"\").trim()" in text
-    assert "Evidence source mismatch ·" in text
-    assert "Research card missing Anton slots ·" in text
-    assert "Research card needs distinct Anton excerpts · preview blocked" in text
-    assert "Research card needs selected Tier 1-2 evidence · preview blocked" in text
-    assert "Timeframe evidence Tier 4-only · preview blocked" in text
-    assert "Visual identity evidence Tier 4-only · preview blocked" in text
-    assert "sourceTierForEvidence(segment, sourcePackage)?.tier" in text
-    assert "function sourceSlotHintsForEvidence" in text
-    assert "anton_slot_hints" in text
-    assert "source_slot_hints" in text
-    assert "hints ${evidence.source_slot_hints.join(\", \")}" in text
-    assert "function antonSlotRoleForEvidenceKind" in text
-    assert "machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage)" in text
-    assert "disabled={previewGenerating || !activePreviewReady}" in text
-    assert "Raw source package missing · preview blocked" in text
-    assert "Raw source package target-thin ·" in text
-    assert "Raw source package thin ·" in text
-    assert "Raw source package caution-only · preview blocked" in text
-    assert "Raw source package missing Anton slots ·" in text
-    assert "sourcePackage?.traceable_source_slot_coverage?.missing_slots" in text
-    assert "antonSourceSlotHints(candidate?.text)" in text
-    assert "needs_distinct_slot_excerpts" in text
-    assert "Raw source package needs distinct Anton excerpts" in text
-    assert "Raw source package missing capture method ·" in text
-    assert "Raw source package unsupported capture ·" in text
-    assert "Raw source package missing provenance ·" in text
-    assert 'new Set(["fetched_page", "tavily_raw_content"])' in text
-    assert "missingCaptureMethodCount > 0" in text
-    assert "missingSourceProvenanceCount > 0" in text
-    assert "candidate?.source_variant_selection" in text
-    assert "unsupportedCaptureMethods.size > 0" in text
+    assert "function sourceTierNumber" in text
+    assert "function sourceTierForUrl" in text
+    assert "wikipedia.org" in text
+    assert "airandspace.si.edu" in text
     assert "Raw source package ready ·" in text
-    assert "sourceUrls.size < 2" in text
-    assert "nonCautionUrls.size < 1" in text
-    assert "function sourceCandidateTraceable" in text
-    assert "function untraceableAntonSourceSlots" in text
-    assert "const untraceableSlots = untraceableAntonSourceSlots(targetExcerpts)" in text
-    assert "const traceableTargetExcerpts = targetExcerpts.filter(sourceCandidateTraceable)" in text
-    assert "const traceableEvidenceBySlot = sourceSlotEvidenceBySlot(traceableTargetExcerpts)" in text
-    assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
-    assert "Raw source package untraceable Anton slots ·" in text
-    assert "function tierFourOnlyAntonSourceSlots" in text
-    assert "const cautionOnlySlots = tierFourOnlyAntonSourceSlots(targetExcerpts)" in text
-    assert "Raw source package Tier 4-only Anton slots ·" in text
     assert "activePreviewSourcePackageStatus.message" in text
-    assert "Research refresh required before preview." in text
 
 
 def test_script_voice_research_gate_counts_only_verified_cards():
@@ -146,9 +102,10 @@ def test_script_voice_research_gate_counts_only_verified_cards():
     assert "units.length >= rosterCount" in text
     assert "!validation?.target_machine" in text
     assert "const verifiedMachineResearchCount = useMemo" in text
-    assert "const sourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label)" in text
-    assert "machineResearchCardReady(card, label, sourcePackage)" in text
-    assert "sourcePackageReady(sourcePackage, label)" in text
+    # Verified count is now driven purely by the served readiness verdict.
+    assert "machineResearchCardReady(card)" in text
+    assert "machineResearchCardReady(card, label, sourcePackage)" not in text
+    assert "sourcePackageReady(sourcePackage, label)" not in text
     assert "verified cards finished" in text
     assert "unit_research_cards?.length || 0" not in text
 
@@ -161,9 +118,7 @@ def test_script_voice_preview_shows_raw_source_beat_coverage():
     assert "function excerptTextsOverlap" in text
     assert "function sourceExcerptTextById" in text
     assert "function sourceSlotEvidenceBySlot" in text
-    assert "antonSlotRoleForEvidenceKind(segment?.kind)" in text
     assert "sourceExcerptTextById(traceableTargetExcerpts)" in text
-    assert "requiredSourceTextById" in text
     assert "sourcePackage?.traceable_source_slot_coverage" in text
     assert "savedEvidenceBySlot" in text
     assert "candidate?.anton_slot_hints" in text
@@ -196,8 +151,9 @@ def test_script_voice_full_script_generation_waits_for_full_machine_research_gat
     assert "Machine research is incomplete:" in text
     assert "fullMachineResearchGatePassed(validation, verifiedCount, roster.length)" in text
     assert "fullMachineResearchGatePassed(validation, verifiedMachineResearchCount, roster.length)" in text
-    assert "const sourcePackage = sourcePackageForMachine(packages, label)" in text
-    assert "return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label)" in text
+    # The full-script gate now counts verified cards via the served readiness verdict only.
+    assert "return machineResearchCardReady(card);" in text
+    assert "sourcePackageReady(sourcePackage, label)" not in text
     assert "const scriptGenerationBlockedByRoster" in text
     assert text.count("scriptGenerationBlockedByRoster") >= 5
     assert "scriptRegenerationBlockedReason()" in handler
@@ -335,3 +291,22 @@ def test_script_voice_preview_surfaces_source_capture_method():
     assert "selected ${selectedMethod}" in text
     assert "compared ${compared.join(\"/\")}" in text
     assert "evidence?.source_capture_method" in text
+
+
+def test_script_voice_run_script_gate_uses_served_readiness():
+    """Per-card Run Script gate reads the backend verdict; the on-click preflight stays."""
+    text = _script_voice_tab().read_text()
+
+    # The gate reads card.readiness via the shared helper - no client recompute.
+    assert "function machineResearchReadiness" in text
+    assert "const cardReadiness = machineResearchReadiness(researchCard)" in text
+    assert "const researchReady = cardReadiness.ready" in text
+    assert "disabled={previewGenerating || scriptTaskRunning || regeneratingScript || !researchReady}" in text
+
+    # readiness === null renders a Revalidate needed state (not ready).
+    assert "cardReadiness.needsRevalidate" in text
+    assert "Revalidate needed" in text
+
+    # The existing on-click backend preflight remains the freshness double-check.
+    assert "checkMachineScriptPreviewReadiness(video.id, machine)" in text
+    assert "runMachineScriptPreview(video.id, machine, true)" in text

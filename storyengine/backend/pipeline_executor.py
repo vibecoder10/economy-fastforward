@@ -1374,6 +1374,22 @@ def _clamp_card_excerpts_to_verified_sources(card: dict, package: Optional[dict]
     return card
 
 
+def _stamp_card_segment_provenance(card: Any, package: Optional[dict]) -> Any:
+    """Apply verified-source provenance to the REAL card's segments before save.
+
+    The referee is pure (it grades a deep copy), so the incidental segment
+    enrichment inside _validate_card_against_verified_sources (source_tier,
+    source_id, source_excerpt_id, source_excerpt_hash, source_tier_label,
+    source_capture_method, source_variant_selection) lands on the discarded
+    copy. Every save path must re-apply it to the card that is actually
+    persisted, or saved cards lose provenance (null tier/capture in the script
+    brief, vanished audit hashes). Warnings are discarded here on purpose -
+    grading stays the referee's job."""
+    if isinstance(card, dict) and isinstance(card.get("evidence_segments"), list):
+        _validate_card_against_verified_sources(card, package)
+    return card
+
+
 def _inventory_story_brief(payload: dict, machine: str) -> dict:
     """Compact source-addressable evidence summary for review artifacts."""
 
@@ -2102,13 +2118,16 @@ def _auto_cite_field_from_segments(
     field_text: str,
     segments: list[dict],
     machine: str,
+    extra_stopwords: Optional[set[str]] = None,
 ) -> list[str]:
     """Greedily pick the segments whose text grounds the field's words.
 
     Citation selection is a set-cover problem code solves deterministically;
     asking the model to do this bookkeeping failed five straight XB-15 runs.
     Only segments that actually contain the field's factual words are cited -
-    nothing is invented. Returns at most 3 evidence IDs."""
+    nothing is invented. Returns at most 3 evidence IDs. Uses the SAME
+    field-specific stopword set as the grounding grader so the citer never
+    hunts for words the grader would have ignored (confirmed asymmetry bug)."""
     text = " ".join(str(field_text or "").split())
     if not text:
         return []
@@ -2118,7 +2137,7 @@ def _auto_cite_field_from_segments(
     ]
     chosen: list[str] = []
     cited_text = ""
-    remaining = len(_ungrounded_factual_words(text, cited_text, machine))
+    remaining = len(_ungrounded_factual_words(text, cited_text, machine, extra_stopwords=extra_stopwords))
     for _ in range(3):
         if remaining == 0:
             break
@@ -2128,7 +2147,7 @@ def _auto_cite_field_from_segments(
             if evidence_id in chosen:
                 continue
             seg_text = f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
-            left = len(_ungrounded_factual_words(text, f"{cited_text} {seg_text}", machine))
+            left = len(_ungrounded_factual_words(text, f"{cited_text} {seg_text}", machine, extra_stopwords=extra_stopwords))
             if left < best_left:
                 best_id, best_left, best_seg_text = evidence_id, left, seg_text
         if not best_id:
@@ -2169,10 +2188,10 @@ def _normalize_card_field_citations(card: dict, machine: str = "") -> dict:
         if excerpt_id and evidence_id and excerpt_id not in excerpt_to_evidence:
             excerpt_to_evidence[excerpt_id] = evidence_id
     field_to_text = {
-        "timeframe_evidence_ids": str(card.get("timeframe") or ""),
-        "visual_identity_evidence_ids": str(card.get("visual_identity") or ""),
+        "timeframe_evidence_ids": (str(card.get("timeframe") or ""), _TIMEFRAME_EXTRA_STOPWORDS),
+        "visual_identity_evidence_ids": (str(card.get("visual_identity") or ""), _VISUAL_IDENTITY_EXTRA_STOPWORDS),
     }
-    for field, field_text in field_to_text.items():
+    for field, (field_text, field_stopwords) in field_to_text.items():
         cited = card.get(field)
         if not isinstance(cited, list):
             continue
@@ -2185,7 +2204,7 @@ def _normalize_card_field_citations(card: dict, machine: str = "") -> dict:
             if mapped and mapped not in cleaned:
                 cleaned.append(mapped)
         if not cleaned:
-            cleaned = _auto_cite_field_from_segments(field_text, segments, machine)
+            cleaned = _auto_cite_field_from_segments(field_text, segments, machine, extra_stopwords=field_stopwords)
         card[field] = cleaned
     return card
 
@@ -2211,6 +2230,34 @@ def _cited_evidence_tier_warning(
             f"{field}_evidence_ids cite Tier 4/caution sources only; cite at least one Tier 1-3 excerpt for {field}"
         ]
     return []
+
+
+# Field-specific grounding stopwords, shared by the graders AND the deterministic
+# auto-citer so both tokenize a field the same way. Keeping them out of sync let
+# the auto-citer cite for words the grader ignored (a confirmed XB-15 asymmetry).
+_VISUAL_IDENTITY_EXTRA_STOPWORDS = {
+    "appearance", "brief", "cited", "configuration", "exact", "feature", "features",
+    "identifiable", "identified", "identify", "image", "must", "recognizable",
+    "show", "shown", "shows", "source", "unmistakable", "visible",
+}
+_TIMEFRAME_EXTRA_STOPWORDS = {
+    "confirmed", "date", "dates", "documented", "era", "period", "service",
+    "source", "sourced", "timeframe", "verified",
+}
+
+
+def _all_segments_grounding_text(evidence: list[dict]) -> str:
+    """Grading universe for per-word grounding: every segment's claim + excerpt.
+
+    Ruling 2026-07-16: visual_identity and timeframe are graded against ALL of the
+    card's evidence segments, not only the <=3 cited ids. Citations stay as
+    provenance (validated separately) but are no longer the grounding universe.
+    """
+    return " ".join(
+        f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        for segment in evidence or []
+        if isinstance(segment, dict)
+    )
 
 
 def _visual_identity_warnings(
@@ -2271,24 +2318,20 @@ def _visual_identity_warnings(
         return warnings
     warnings.extend(_cited_evidence_tier_warning("visual_identity", cited_ids, evidence_by_id))
 
-    cited_text = " ".join(
-        f"{evidence_by_id[item].get('claim', '')} {evidence_by_id[item].get('source_excerpt', '')}"
-        for item in cited_ids
+    # Grounding + number support are graded against ALL evidence segments, not
+    # only the cited ids (ruling 2026-07-16). Citations above stay as provenance.
+    grounding_text = _all_segments_grounding_text(evidence)
+    ungrounded = _ungrounded_factual_words(
+        text, grounding_text, machine, extra_stopwords=_VISUAL_IDENTITY_EXTRA_STOPWORDS
     )
-    extra_stopwords = {
-        "appearance", "brief", "cited", "configuration", "exact", "feature", "features",
-        "identifiable", "identified", "identify", "image", "must", "recognizable",
-        "show", "shown", "shows", "source", "unmistakable", "visible",
-    }
-    ungrounded = _ungrounded_factual_words(text, cited_text, machine, extra_stopwords=extra_stopwords)
     if ungrounded:
         warnings.append(
-            "visual_identity contains detail(s) not grounded in cited evidence: "
+            "visual_identity contains detail(s) not grounded in evidence segments: "
             + ", ".join(ungrounded[:8])
         )
 
     identity_for_numbers = text
-    cited_for_numbers = cited_text
+    grounding_for_numbers = grounding_text
     for designation in _re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()):
         identity_for_numbers = _re.sub(
             rf"\b{_re.escape(designation)}(?:s)?\b",
@@ -2296,16 +2339,16 @@ def _visual_identity_warnings(
             identity_for_numbers,
             flags=_re.IGNORECASE,
         )
-        cited_for_numbers = _re.sub(
+        grounding_for_numbers = _re.sub(
             rf"\b{_re.escape(designation)}(?:s)?\b",
             "",
-            cited_for_numbers,
+            grounding_for_numbers,
             flags=_re.IGNORECASE,
         )
-    cited_number_keys = {_numeric_token_key(token) for token in _numeric_tokens_from_text(cited_for_numbers)}
+    grounded_number_keys = {_numeric_token_key(token) for token in _numeric_tokens_from_text(grounding_for_numbers)}
     unsupported_numbers = [
         mention["raw"] for mention in _numeric_mentions_from_text(identity_for_numbers)
-        if mention["key"] not in cited_number_keys
+        if mention["key"] not in grounded_number_keys
     ]
     if unsupported_numbers:
         warnings.append(
@@ -2363,23 +2406,20 @@ def _timeframe_warnings(
         return warnings
     warnings.extend(_cited_evidence_tier_warning("timeframe", cited_ids, evidence_by_id))
 
-    cited_text = " ".join(
-        f"{evidence_by_id[item].get('claim', '')} {evidence_by_id[item].get('source_excerpt', '')}"
-        for item in cited_ids
+    # Grounding + number support are graded against ALL evidence segments, not
+    # only the cited ids (ruling 2026-07-16). Citations above stay as provenance.
+    grounding_text = _all_segments_grounding_text(evidence)
+    ungrounded = _ungrounded_factual_words(
+        text, grounding_text, machine, extra_stopwords=_TIMEFRAME_EXTRA_STOPWORDS
     )
-    extra_stopwords = {
-        "confirmed", "date", "dates", "documented", "era", "period", "service",
-        "source", "sourced", "timeframe", "verified",
-    }
-    ungrounded = _ungrounded_factual_words(text, cited_text, machine, extra_stopwords=extra_stopwords)
     if ungrounded:
         warnings.append(
-            "timeframe contains detail(s) not grounded in cited evidence: "
+            "timeframe contains detail(s) not grounded in evidence segments: "
             + ", ".join(ungrounded[:8])
         )
 
     timeframe_for_numbers = text
-    cited_for_numbers = cited_text
+    grounding_for_numbers = grounding_text
     for designation in _re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()):
         timeframe_for_numbers = _re.sub(
             rf"\b{_re.escape(designation)}(?:s)?\b",
@@ -2387,16 +2427,16 @@ def _timeframe_warnings(
             timeframe_for_numbers,
             flags=_re.IGNORECASE,
         )
-        cited_for_numbers = _re.sub(
+        grounding_for_numbers = _re.sub(
             rf"\b{_re.escape(designation)}(?:s)?\b",
             "",
-            cited_for_numbers,
+            grounding_for_numbers,
             flags=_re.IGNORECASE,
         )
-    cited_number_keys = {_numeric_token_key(token) for token in _numeric_tokens_from_text(cited_for_numbers)}
+    grounded_number_keys = {_numeric_token_key(token) for token in _numeric_tokens_from_text(grounding_for_numbers)}
     unsupported_numbers = [
         mention["raw"] for mention in _numeric_mentions_from_text(timeframe_for_numbers)
-        if mention["key"] not in cited_number_keys
+        if mention["key"] not in grounded_number_keys
     ]
     if unsupported_numbers:
         warnings.append(
@@ -2412,16 +2452,24 @@ def _research_card_contract_warnings(
     source_package: Optional[dict] = None,
     require_source_package: bool = False,
 ) -> list[str]:
-    """Shared DVsU one-machine research-card contract before save or spend."""
+    """Shared DVsU one-machine research-card contract before save or spend.
+
+    IDEMPOTENT + READ-ONLY: citation normalization/auto-citing runs here on a
+    deep copy before grading, so the save path and the read-only readiness path
+    grade byte-identical input and the caller's stored card is never mutated.
+    Running the referee twice on its own output yields the same verdict."""
+    import copy as _copy
     warnings: list[str] = []
     if not isinstance(card, dict):
         return ["research card was not an object"]
+    card = _normalize_card_field_citations(_copy.deepcopy(card), machine)
     card_unit = _unit_display_name(
-        card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+        card.get("unit") or card.get("machine") or card.get("machine_name")
+        or card.get("name") or card.get("designation") or ""
     )
     if not card_unit or _normalized_unit_code(card_unit) != _normalized_unit_code(machine):
         warnings.append(f"card unit does not match locked machine {machine}")
-    if len(str(card.get("engineering_thesis") or "").strip()) < 20:
+    if _spoken_word_count(str(card.get("engineering_thesis") or "").strip()) < 4:
         warnings.append("missing/weak engineering_thesis")
     warnings.extend(
         _paragraph_worth_warnings(
@@ -2480,6 +2528,74 @@ def _research_card_contract_warnings(
         if missing_slots:
             warnings.append("evidence_segments missing required Anton slots for: " + ", ".join(missing_slots))
     return list(dict.fromkeys(warnings))
+
+
+def _card_readiness_from_validation(validation: Any) -> Optional[dict]:
+    """Shape one stored referee verdict as the UI-facing readiness object."""
+    import json as _json_readiness
+    if isinstance(validation, str):
+        try:
+            validation = _json_readiness.loads(validation)
+            if isinstance(validation, str):
+                validation = _json_readiness.loads(validation)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(validation, dict):
+        return None
+    return {
+        "passed": bool(validation.get("passed")),
+        "warnings": [str(item) for item in (validation.get("warnings") or []) if str(item).strip()],
+    }
+
+
+async def enrich_research_payload_readiness(tenant_id: str, video_id: str, research_payload: Any) -> Any:
+    """Attach each machine's STORED referee verdict to research_payload cards.
+
+    Single source of truth for the UI: every response that returns
+    research_payload runs through here so `unit_research_cards[].readiness` is
+    always present and consistent (no flicker between enriched/unenriched shapes).
+    readiness = {"passed": bool, "warnings": [str]} from machine_research_cards.validation,
+    matched by machine_key; a card with no stored verdict gets readiness = None.
+    Failed cards are NEVER dropped - their verdict and warnings are exactly what
+    the Research and Script tabs must display. Reads the compact verdict table
+    directly (not _load_machine_research_cards, which drops failed rows)."""
+    if not isinstance(research_payload, dict):
+        return research_payload
+    cards = research_payload.get("unit_research_cards")
+    if not isinstance(cards, list) or not cards:
+        return research_payload
+    verdict_by_key: dict[str, dict] = {}
+    try:
+        rows = await fetch_all(
+            "SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
+            tenant_id, video_id,
+        )
+    except Exception as exc:  # compact table unavailable -> serve cards with readiness=None
+        _logger.warning("[machine-research] readiness enrichment read unavailable: %s", str(exc)[:150])
+        rows = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        key = _normalized_unit_code(str(row.get("machine_key") or ""))
+        readiness = _card_readiness_from_validation(row.get("validation"))
+        if key and readiness is not None:
+            verdict_by_key[key] = readiness
+    enriched = dict(research_payload)
+    new_cards: list[Any] = []
+    for card in cards:
+        if not isinstance(card, dict):
+            new_cards.append(card)
+            continue
+        identity = (
+            card.get("unit") or card.get("machine") or card.get("machine_name")
+            or card.get("name") or card.get("designation") or ""
+        )
+        key = _normalized_unit_code(_unit_display_name(identity))
+        card = dict(card)
+        card["readiness"] = verdict_by_key.get(key)  # None when no stored verdict
+        new_cards.append(card)
+    enriched["unit_research_cards"] = new_cards
+    return enriched
 
 
 _STORY_UNIQUENESS_STOPWORDS = {
@@ -4718,6 +4834,29 @@ class PipelineExecutor:
                 raise
             _logger.warning("[machine-research] compact write unavailable; legacy checkpoint retained: %s", str(exc)[:150])
 
+    async def _update_machine_research_validation(self, video_id: str, machine: str, validation: dict) -> None:
+        """Persist a fresh referee verdict for one stored card (validation column ONLY).
+
+        Called from READ paths (the no-spend readiness check), so it is
+        UPDATE-only by design: it never INSERTs a row and never writes card
+        text computed on a read. A card row that does not exist yet simply
+        keeps readiness = null until a real save creates it. Fire-and-forget:
+        a failed write logs and must never fail the caller's response. This is
+        how stale pre-change verdicts self-heal on the first readiness check."""
+        import json
+        machine_key = _normalized_unit_code(machine)
+        if not machine_key:
+            return
+        try:
+            await execute(
+                """UPDATE machine_research_cards
+                   SET validation = $4::jsonb, updated_at = now()
+                   WHERE tenant_id = $1 AND video_id = $2 AND machine_key = $3""",
+                self.tenant_id, video_id, machine_key, json.dumps(validation),
+            )
+        except Exception as exc:
+            _logger.warning("[machine-research] readiness verdict refresh skipped: %s", str(exc)[:150])
+
     async def _checkpoint_machine_raw_source_package(
         self, video_id: str, machine_key: str, source_package: dict, locked_roster_snapshot: str
     ) -> Any:
@@ -5567,7 +5706,7 @@ class PipelineExecutor:
                 "error": "; ".join(str(item) for item in warnings),
                 "warnings": warnings,
                 "next_action": "review_research_warnings_before_script_preview",
-                "research_payload": payload,
+                "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, payload),
             }
         final_save_result = await execute(
             """UPDATE videos
@@ -5592,7 +5731,7 @@ class PipelineExecutor:
             "machine": matched,
             "research_card": card,
             "next_action": "run_machine_script_preview",
-            "research_payload": payload,
+            "research_payload": await enrich_research_payload_readiness(self.tenant_id, video_id, payload),
         }
 
     async def run_unit_research(self, video_id: str) -> dict:
@@ -6114,12 +6253,26 @@ class PipelineExecutor:
                     require_source_package=True,
                 )
                 if not warnings:
+                    # Referee grades a copy; re-stamp provenance on the card we persist.
+                    _stamp_card_segment_provenance(card, _verified_source_package_for_machine(payload, machine))
                     unit_cards.append(card)
                     reused_validation = {"machine": machine, "passed": True, "reused_existing": True, "warnings": []}
                     validation_units.append(reused_validation)
                     # Opportunistically backfill legacy JSONB-only cards.
                     await self._upsert_machine_research_card(video_id, machine, i, card, reused_validation)
                     continue
+                # Backfill the stored verdict for a stale/failing existing card
+                # before regenerating it. machine_research_cards.validation is what
+                # the tabs read; a stale passed=True left here is exactly the XB-15
+                # bug. Verdict-only write; the regeneration below overwrites it if
+                # the repair succeeds. Same video/tenant guard as every compact write.
+                # Intentional last-write-wins: no roster-snapshot guard on this
+                # freshness backfill - the newest referee verdict should always win.
+                _stamp_card_segment_provenance(card, _verified_source_package_for_machine(payload, machine))
+                await self._upsert_machine_research_card(
+                    video_id, machine, i, card,
+                    {"machine": machine, "passed": False, "revalidated_existing": True, "warnings": warnings},
+                )
 
             machine_scope_line = (
                 f"LOCKED SELECTED MACHINE: {machine}\n"
@@ -6145,7 +6298,7 @@ class PipelineExecutor:
                 "visual_identity may describe only what is visible on the machine; do not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions.\n"
                 "timeframe_evidence_ids and visual_identity_evidence_ids must each cite at least one SOURCE_TIER 1-3 excerpt when the package provides one for that fact; Tier 4/caution rows may support but never be the only citation.\n"
                 "timeframe and visual_identity are CARD FIELDS, never segment kinds: cite EXISTING evidence segments (of any valid Anton kind) via the *_evidence_ids arrays. NEVER create an evidence segment whose kind is timeframe, visual_identity, or spec.\n"
-                "timeframe and visual_identity text must each name the locked machine's designation explicitly (for example start with it), and timeframe may use only date words and numbers that appear inside the excerpts its timeframe_evidence_ids cite - if a cited excerpt lacks the month name, do not write the month.\n"
+                "timeframe and visual_identity text must each name the locked machine's designation explicitly (for example start with it), and may use only factual words and numbers that appear inside the returned evidence_segments (any segment's claim or source_excerpt, not only the cited ones) - if no evidence segment contains the month name, do not write the month.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
@@ -6195,7 +6348,7 @@ class PipelineExecutor:
                 card = _hydrate_compatibility_fields(_json_uh.loads(text))
                 card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
                 card = _normalize_card_field_citations(card, machine)
-                warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
+                warnings = _card_warnings(machine, card, verified_source_package if target_code else _verified_source_package_for_machine(payload, machine), require_source_package=True)
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
 
@@ -6215,7 +6368,7 @@ class PipelineExecutor:
                     "It must state exact visible machine features from cited evidence IDs and must not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions. "
                     "timeframe_evidence_ids and visual_identity_evidence_ids must each cite at least one SOURCE_TIER 1-3 excerpt when the package provides one for that fact; Tier 4/caution rows may support but never be the only citation. "
                     "timeframe and visual_identity are CARD FIELDS, never segment kinds: cite EXISTING evidence segments (of any valid Anton kind) via the *_evidence_ids arrays; NEVER create an evidence segment whose kind is timeframe, visual_identity, or spec. "
-                    "timeframe and visual_identity text must each name the locked machine's designation explicitly, and timeframe may use only date words and numbers that appear inside the excerpts its timeframe_evidence_ids cite - if a cited excerpt lacks the month name, do not write the month. "
+                    "timeframe and visual_identity text must each name the locked machine's designation explicitly, and may use only factual words and numbers that appear inside the returned evidence_segments (any segment's claim or source_excerpt, not only the cited ones) - if no evidence segment contains the month name, do not write the month. "
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, unrelated visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
@@ -6256,7 +6409,7 @@ class PipelineExecutor:
                     card = _hydrate_compatibility_fields(_json_uh.loads(text))
                     card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
                     card = _normalize_card_field_citations(card, machine)
-                    warnings = _card_warnings(machine, card, verified_source_package if target_code else None, require_source_package=bool(target_code))
+                    warnings = _card_warnings(machine, card, verified_source_package if target_code else _verified_source_package_for_machine(payload, machine), require_source_package=True)
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
                     warnings = [f"invalid JSON after repair: {str(e)[:120]}"]
@@ -6266,6 +6419,13 @@ class PipelineExecutor:
             if not isinstance(card, dict):
                 card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
                 warnings = warnings or ["research card was not an object after repair"]
+            # Referee grades a copy; re-stamp verified-source provenance on the
+            # REAL card so the JSONB checkpoint and compact upsert below persist
+            # segments with source_tier/source_id/source_excerpt_hash intact.
+            _stamp_card_segment_provenance(
+                card,
+                verified_source_package if target_code else _verified_source_package_for_machine(payload, machine),
+            )
             invalid_placeholder_card = (
                 bool(warnings)
                 and isinstance(card, dict)
@@ -6669,7 +6829,9 @@ class PipelineExecutor:
         rp = await self._load_machine_research_cards(
             video_id, rp, roster, target_machine=target_machine if target_machine else None
         )
-        response_research_payload = dict(rp)
+        response_research_payload = await enrich_research_payload_readiness(
+            self.tenant_id, video_id, dict(rp)
+        )
 
         def _mirror_response_artifact(container: str, key: str, value: dict) -> None:
             existing = response_research_payload.get(container)
@@ -7863,6 +8025,7 @@ separate scenes."""
         rp = await self._load_machine_research_cards(
             video_id, rp, roster, target_machine=matched
         )
+        rp = await enrich_research_payload_readiness(self.tenant_id, video_id, rp)
         scene = roster.index(matched) + 1
         card = _research_card_for_machine(rp, matched)
         if card is None:
@@ -7885,6 +8048,22 @@ separate scenes."""
             source_package,
             require_source_package=True,
         )
+        # Self-heal stale stored verdicts: this no-spend check just computed the
+        # freshest strict verdict, so persist it (validation column ONLY - never
+        # card text from a read path; UPDATE-only, failure-tolerant) and patch
+        # the served card.readiness in-place so the badge and the toast agree
+        # within one click even if the write fails.
+        await self._update_machine_research_validation(
+            video_id,
+            matched,
+            {
+                "machine": matched,
+                "passed": not source_errors,
+                "warnings": source_errors,
+                "revalidated_no_spend": True,
+            },
+        )
+        card["readiness"] = {"passed": not source_errors, "warnings": list(source_errors)}
         if source_errors:
             msg = "Script preview evidence gate failed: " + matched + ": " + "; ".join(source_errors)
             return {

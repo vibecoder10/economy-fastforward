@@ -741,10 +741,6 @@ function sourcePackageStatus(sourcePackage: any, machine: string = ""): { ready:
   return { ready: true, message: `Raw source package ready · ${targetExcerpts.length} excerpts · ${sourceUrls.size} sources` };
 }
 
-function sourcePackageReady(sourcePackage: any, machine: string = ""): boolean {
-  return sourcePackageStatus(sourcePackage, machine).ready;
-}
-
 function sourceSlotCoverageRows(sourcePackage: any, machine: string = "") {
   const requiredSlots = REQUIRED_ANTON_SOURCE_SLOTS;
   const savedCoverage = sourcePackage?.traceable_source_slot_coverage;
@@ -774,112 +770,29 @@ function sourceSlotCoverageRows(sourcePackage: any, machine: string = "") {
   });
 }
 
-function machineResearchCardStatus(card: any, machine: string = "", sourcePackage: any = null): { ready: boolean; message: string } {
-  if (!card) return { ready: false, message: "Research card missing · preview blocked" };
-  const timeframe = String(card?.timeframe || "").trim();
-  const timeframeEvidenceIds = Array.isArray(card?.timeframe_evidence_ids)
-    ? card.timeframe_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
+// Backend-owned readiness is the ONLY source of truth for whether a machine
+// research card is ready. The tabs no longer recompute readiness client-side -
+// that divergence is exactly what let a card look "verified" here while the
+// backend script-preview gate rejected it (XB-15). The card carries the served
+// verdict as card.readiness = { passed, warnings } (or null when no verdict is
+// stored yet -> revalidate needed).
+function machineResearchReadiness(card: any): { ready: boolean; needsRevalidate: boolean; message: string; warnings: string[] } {
+  if (!card) return { ready: false, needsRevalidate: false, message: "Research card missing · run research", warnings: [] };
+  const readiness = card?.readiness;
+  if (readiness === null || readiness === undefined) {
+    return { ready: false, needsRevalidate: true, message: "Revalidate needed", warnings: [] };
+  }
+  const warnings = Array.isArray(readiness.warnings)
+    ? readiness.warnings.map((item: any) => String(item || "").trim()).filter(Boolean)
     : [];
-  if (timeframe.split(/\s+/).filter(Boolean).length < 5 || timeframeEvidenceIds.length < 1) {
-    return { ready: false, message: "Timeframe missing · preview blocked" };
+  if (readiness.passed === true) {
+    return { ready: true, needsRevalidate: false, message: "Research card verified", warnings: [] };
   }
-  const visualIdentity = String(card?.visual_identity || "").trim();
-  const visualIdentityEvidenceIds = Array.isArray(card?.visual_identity_evidence_ids)
-    ? card.visual_identity_evidence_ids.map((item: any) => String(item || "").trim()).filter(Boolean)
-    : [];
-  if (visualIdentity.split(/\s+/).filter(Boolean).length < 8 || visualIdentityEvidenceIds.length < 1) {
-    return { ready: false, message: "Visual identity missing · preview blocked" };
-  }
-  const evidenceSegments = Array.isArray(card?.evidence_segments) ? card.evidence_segments : [];
-  const hasSourcedMemorableFact = evidenceSegments.some((segment: any) => (
-    ["memorable_fact", "surprising_fact", "retention_fact"].includes(String(segment?.kind || "").trim().toLowerCase())
-    && String(segment?.source_excerpt || "").trim()
-    && (String(segment?.source_url || "").trim() || String(segment?.locator || "").trim())
-  ));
-  if (!hasSourcedMemorableFact) {
-    return { ready: false, message: "Sourced memorable fact missing · preview blocked" };
-  }
-  const evidenceIds = new Set(
-    evidenceSegments
-      .map((segment: any) => String(segment?.evidence_id || "").trim())
-      .filter(Boolean)
-  );
-  const evidenceById = new Map(
-    evidenceSegments
-      .filter((segment: any) => String(segment?.evidence_id || "").trim())
-      .map((segment: any) => [String(segment?.evidence_id || "").trim(), segment])
-  );
-  const unknownTimeframeEvidenceIds = timeframeEvidenceIds.filter((id: string) => !evidenceIds.has(id));
-  if (unknownTimeframeEvidenceIds.length > 0) {
-    return { ready: false, message: `Timeframe evidence missing · ${unknownTimeframeEvidenceIds.join(", ")} · preview blocked` };
-  }
-  const unknownEvidenceIds = visualIdentityEvidenceIds.filter((id: string) => !evidenceIds.has(id));
-  if (unknownEvidenceIds.length > 0) {
-    return { ready: false, message: `Visual identity evidence missing · ${unknownEvidenceIds.join(", ")} · preview blocked` };
-  }
-  if (machine && !machineLabelMatches(cardLabel(card), machine)) {
-    return { ready: false, message: "Research card machine mismatch · preview blocked" };
-  }
-  if (sourcePackage && Array.isArray(sourcePackage?.candidate_excerpts)) {
-    const sourcedSegments = evidenceSegments.filter((segment: any) => String(segment?.source_excerpt || "").trim());
-    const staleSegment = sourcedSegments.find((segment: any) => (
-      !String(segment?.source_url || "").trim()
-      || !String(segment?.locator || "").trim()
-      || !sourceCandidateForEvidence(segment, sourcePackage)
-    ));
-    if (staleSegment) {
-      const evidenceId = String(staleSegment?.evidence_id || "unknown evidence").trim();
-      return { ready: false, message: `Evidence source mismatch · ${evidenceId} · preview blocked` };
-    }
-    const requiredSourceTextById: Record<string, string> = {};
-    const requiredSourceIdsBySlot = sourcedSegments.reduce((rows: Record<string, string[]>, segment: any) => {
-      const role = antonSlotRoleForEvidenceKind(segment?.kind);
-      if (!REQUIRED_ANTON_SOURCE_SLOTS.includes(role)) return rows;
-      const match = sourceCandidateForEvidence(segment, sourcePackage);
-      const excerptId = String(match?.excerpt_id || segment?.source_excerpt_id || match?.locator || segment?.locator || "").trim();
-      if (!excerptId) return rows;
-      const excerptText = String(match?.text || segment?.source_excerpt || "").trim();
-      if (excerptText) requiredSourceTextById[excerptId] = excerptText;
-      rows[role] = rows[role] || [];
-      if (!rows[role].includes(excerptId)) rows[role].push(excerptId);
-      return rows;
-    }, {});
-    const missingRequiredSlots = REQUIRED_ANTON_SOURCE_SLOTS.filter((slot) => !(requiredSourceIdsBySlot[slot]?.length));
-    if (missingRequiredSlots.length > 0) {
-      return { ready: false, message: `Research card missing Anton slots · ${missingRequiredSlots.join(", ")} · preview blocked` };
-    }
-    const requiredAssignment = distinctAntonSlotAssignment(
-      requiredSourceIdsBySlot,
-      REQUIRED_ANTON_SOURCE_SLOTS,
-      requiredSourceTextById
-    );
-    if (Object.keys(requiredAssignment).length < REQUIRED_ANTON_SOURCE_SLOTS.length) {
-      return { ready: false, message: "Research card needs distinct Anton excerpts · preview blocked" };
-    }
-    const selectedTiers = sourcedSegments
-      .map((segment: any) => sourceTierForEvidence(segment, sourcePackage)?.tier || 0)
-      .filter((tier: number) => tier > 0);
-    if (selectedTiers.length > 0 && selectedTiers.every((tier: number) => tier > 2)) {
-      return { ready: false, message: "Research card needs selected Tier 1-2 evidence · preview blocked" };
-    }
-    const timeframeTiers = timeframeEvidenceIds
-      .map((id: string) => sourceTierForEvidence(evidenceById.get(id), sourcePackage)?.tier || 0)
-      .filter((tier: number) => tier > 0);
-    if (timeframeTiers.length > 0 && timeframeTiers.every((tier: number) => tier >= 4)) {
-      return { ready: false, message: "Timeframe evidence Tier 4-only · preview blocked" };
-    }
-    const visualTiers = visualIdentityEvidenceIds
-      .map((id: string) => sourceTierForEvidence(evidenceById.get(id), sourcePackage)?.tier || 0)
-      .filter((tier: number) => tier > 0);
-    if (visualTiers.length > 0 && visualTiers.every((tier: number) => tier >= 4)) {
-      return { ready: false, message: "Visual identity evidence Tier 4-only · preview blocked" };
-    }
-  }
-  return { ready: true, message: "Research card ready · visual identity grounded" };
+  return { ready: false, needsRevalidate: false, message: warnings[0] || "Preview blocked", warnings };
 }
 
-function machineResearchCardReady(card: any, machine: string = "", sourcePackage: any = null): boolean {
-  return machineResearchCardStatus(card, machine, sourcePackage).ready;
+function machineResearchCardReady(card: any): boolean {
+  return machineResearchReadiness(card).ready;
 }
 
 function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
@@ -1641,14 +1554,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       if (video.render_mode === "static_docu" && roster.length > 0) {
         const validation = payload?.unit_research_hold_validation;
         const cards = Array.isArray(payload?.unit_research_cards) ? payload.unit_research_cards : [];
-        const packages = payload?.machine_raw_source_packages && typeof payload.machine_raw_source_packages === "object" && !Array.isArray(payload.machine_raw_source_packages)
-          ? payload.machine_raw_source_packages
-          : {};
         const verifiedCount = roster.filter((item: any) => {
           const label = machineLabel(item);
           const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-          const sourcePackage = sourcePackageForMachine(packages, label);
-          return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
+          return machineResearchCardReady(card);
         }).length;
         if (!fullMachineResearchGatePassed(validation, verifiedCount, roster.length)) {
           return `Machine research is incomplete: ${verifiedCount}/${roster.length} verified cards finished.`;
@@ -2038,8 +1947,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     return machineRoster.filter((item: any) => {
       const label = machineLabel(item);
       const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
-      const sourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, label);
-      return machineResearchCardReady(card, label, sourcePackage) && sourcePackageReady(sourcePackage, label);
+      return machineResearchCardReady(card);
     }).length;
   }, [machineRoster, researchPayload]);
   const machineResearchGate = (() => {
@@ -2086,13 +1994,12 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     .find((candidate: any) => cardMatchesMachine(candidate, activePreviewMachine));
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
   const activePreviewSourcePackageStatus = sourcePackageStatus(activePreviewSourcePackage, activePreviewMachine);
-  const activePreviewSourcePackageReady = sourcePackageReady(activePreviewSourcePackage, activePreviewMachine);
   const activePreviewSourceCoverageRows = sourceSlotCoverageRows(activePreviewSourcePackage, activePreviewMachine);
-  const activePreviewResearchCardStatus = machineResearchCardStatus(activePreviewResearchCard, activePreviewMachine, activePreviewSourcePackage);
-  const activePreviewReady = activePreviewResearchCardStatus.ready && activePreviewSourcePackageReady;
-  const activePreviewStatusMessage = activePreviewResearchCardStatus.ready
+  const activePreviewReadiness = machineResearchReadiness(activePreviewResearchCard);
+  const activePreviewReady = activePreviewReadiness.ready;
+  const activePreviewStatusMessage = activePreviewReady
     ? activePreviewSourcePackageStatus.message
-    : activePreviewResearchCardStatus.message;
+    : activePreviewReadiness.message;
   const activeMachinePreview = useMemo(() => {
     if (machinePreview && previewMatchesMachine(machinePreview, activePreviewMachine)) return machinePreview;
     return previewForMachine(researchPayload?.machine_script_previews, activePreviewMachine);
@@ -2317,9 +2224,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           const researchCard = (Array.isArray(researchPayload?.unit_research_cards) ? researchPayload.unit_research_cards : [])
             .find((candidate: any) => cardMatchesMachine(candidate, machine));
           const sourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, machine);
-          const cardResearchStatus = machineResearchCardStatus(researchCard, machine, sourcePackage);
           const cardSourceStatus = sourcePackageStatus(sourcePackage, machine);
-          const researchReady = cardResearchStatus.ready && cardSourceStatus.ready;
+          const cardReadiness = machineResearchReadiness(researchCard);
+          const researchReady = cardReadiness.ready;
           const preview = previewForMachine(researchPayload?.machine_script_previews, machine);
           const previewPassed = machinePreviewPassesAntonGate(preview);
           const holdUnit = Array.isArray(scriptHold?.units)
@@ -2334,7 +2241,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
               ? "Script test passed"
               : preview
                 ? "Needs review"
-                : researchReady ? "Ready to script" : "Research blocked";
+                : researchReady ? "Ready to script"
+                  : cardReadiness.needsRevalidate ? "Revalidate needed"
+                    : "Research blocked";
           const statusColor = productionDone || previewPassed ? "var(--green)" : researchReady ? "var(--orange)" : "var(--text-tertiary)";
           const runningThisPreview = previewGeneratingMachine === machine;
           const checkingThisMachine = readinessCheckingMachine === machine;
@@ -2368,7 +2277,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
                       ? `Scene ${scene?.sceneNumber || index + 1} has script text.`
                       : researchReady
                         ? cardSourceStatus.message
-                        : "Run or fix this machine on the Research tab before scripting."}
+                        : cardReadiness.needsRevalidate
+                          ? "Revalidate needed - re-run research on the Research tab to compute readiness."
+                          : (cardReadiness.warnings[0] || "Run or fix this machine on the Research tab before scripting.")}
                   </p>
                 </button>
                 <div className="flex shrink-0 flex-col gap-2 sm:flex-row md:justify-end">
