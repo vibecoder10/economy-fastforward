@@ -1,4 +1,4 @@
-# HANDOFF - 2026-07-17 (early am) Shared checklist SHIPPED; 4/23 pass; B-24 writer oscillates
+# HANDOFF - 2026-07-17 PLAN->WRITE->EDIT shipped: writer restructured, 5/23 pass, B-24 fixed
 
 ## State
 - Prod: cec7bc6d deployed, healthy. Six deploys this session (51daa8df writer
@@ -8,6 +8,26 @@
 - Branch: main - clean except this wrap and untracked storyengine/.claude/.
 - **XB-15, B-17, and B-52 previews ALL PASS the full frozen law + Anton
   quality audit** (4/23 with the XB-19 control). Verified live on prod.
+
+## PLAN -> WRITE -> EDIT (prod @ 5c15a380) - the writer restructure that stuck
+Root cause of the oscillation named and fixed: ONE prompt was doing three
+jobs (choosing facts, writing prose, keeping the citation ledger) under
+~35 laws, dropping a different one per roll. Now:
+- CODE picks the facts: _deterministic_beat_plan assigns each beat its
+  slot + supports, names the twist source and the MANDATORY numbers
+  (spec -> sentence 2, production count -> sentence 4).
+- The model ONLY writes: small schema {thesis, twist, sentences[5]},
+  ~14 voice rules, evidence inline under each sentence.
+- CODE keeps the ledger: _derive_claim_ledger backs sentence N whole
+  with beat N's ids; model claim maps are discarded.
+- EDIT loop replaces the re-roll: same draft back with only the
+  violations, up to 2 minimal rounds.
+PROOF: B-24 (five straight failures on the old flow) PASSED FIRST ROLL,
+richest paragraph the system has produced (contract number, Davis wing,
+3,700-mile range, 18,500+ built in beat 4, number-free closer). B-17
+regression: PASSED at 142 words, strictly richer than its old 102-word
+pass. Zero gate edits; flow tests rewritten to the new contract;
+suite 725.
 
 ## Shared checklist shipped (the 'once and for all' build, prod @ 450bc990)
 Research and the script audit now grade by ONE checklist:
@@ -28,12 +48,7 @@ zero hand-editing. That whole leg is proven. The writer pass did NOT
 converge in 5 rolls (~$0.50): each roll violated a DIFFERENT law
 (count-in-closer x3 -> count dropped -> invented 'January' + decor +
 semicolon). Two permanent laws came out of it. Do NOT keep re-rolling:
-next session, one calm pass on the B-24 writer with fresh eyes - likely
-fixes are a lower distiller temperature for benchmark machines, or a
-'plan the sentence budget before writing' pre-step. Also fix a cosmetic
-mechanics artifact first: the starved-number hedge produced 'a roughly
-Four-engine heavy bomber' (mid-sentence capital from span start) and
-'in January about 1944'.
+RESOLVED by the PLAN->WRITE->EDIT restructure above - B-24 passes.
 
 ## RESOLVED late night: key topped up; 3/3 PASS
 After credits landed, B-52 passed on its first roll. B-17 took three more
