@@ -7253,6 +7253,11 @@ class PipelineExecutor:
         if field not in _REWRITABLE_CARD_FIELDS:
             return {"status": "failed", "error": f"No rewritable field warning found (field={field or 'auto'})"}
         field_warnings = [w for w in warnings_before if _warning_targets_field(w, field)]
+        # Show the LLM the NORMALIZED evidence (post-clamp), never the raw
+        # claims: a raw claim can carry words the excerpt lacks (the XB-15
+        # calendar-page "October"), and the referee grades against the clamped
+        # universe - a rewrite fed raw claims keeps the ungrounded word forever.
+        normalized_evidence, _normalize_errors = _normalize_machine_evidence(card, ctx["machine"])
         segments_view = [
             {
                 "evidence_id": segment.get("evidence_id"),
@@ -7260,7 +7265,7 @@ class PipelineExecutor:
                 "claim": segment.get("claim"),
                 "source_excerpt": segment.get("source_excerpt"),
             }
-            for segment in card.get("evidence_segments") or []
+            for segment in normalized_evidence
             if isinstance(segment, dict)
         ]
         cites_ids = field in ("timeframe", "visual_identity")
