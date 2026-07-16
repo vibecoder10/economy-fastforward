@@ -1584,6 +1584,22 @@ def _numeric_tokens_from_text(text: str) -> list[str]:
     return [mention["raw"] for mention in _numeric_mentions_from_text(text)]
 
 
+def _strip_designations_for_numbers(text: str, machine: str = "") -> str:
+    """LAW (2026-07-16): designations are IDENTIFIERS, never numbers.
+
+    Remove the locked machine's designation tokens and any designation-shaped
+    token (XB-15, B-52, F-86D) before extracting numeric mentions, so a
+    designation's digits are never graded as numbers needing spelling, source
+    support, or hedges. XB-15's live preview flagged "15" from its own
+    designation, and the hedge instruction then produced "XB-about 15".
+    Foreign designations stay policed by the dedicated unsupported-designation
+    check - this scrub only keeps them out of the NUMBER checks."""
+    scrubbed = str(text or "")
+    for designation in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", str(machine or "").upper()):
+        scrubbed = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", " ", scrubbed, flags=re.IGNORECASE)
+    return _AIRCRAFT_DESIGNATION_RE.sub(" ", scrubbed)
+
+
 def _raw_digit_mentions_for_voiceover(text: str) -> list[str]:
     """Find non-designation digits that should be spoken words in DVsU narration."""
     scrubbed = str(text or "")
@@ -1594,6 +1610,9 @@ def _raw_digit_mentions_for_voiceover(text: str) -> list[str]:
         r")-?\d{1,4}[A-Z]?\b"
     )
     scrubbed = re.sub(designation_pattern, " ", scrubbed, flags=re.IGNORECASE)
+    # LAW (2026-07-16): digits inside ANY designation-shaped token are legal
+    # and expected voiceover ("XB-15" is spoken as a name), never raw numerals.
+    scrubbed = _AIRCRAFT_DESIGNATION_RE.sub(" ", scrubbed)
     return list(dict.fromkeys(
         match.group(0)
         for match in re.finditer(_NUMERIC_DIGIT_PATTERN, scrubbed)
@@ -2679,12 +2698,11 @@ def _roster_story_uniqueness_warnings(roster: list[str], cards_by_roster_code: d
 
 
 def _span_numeric_mentions_without_locked_designation(span: str, machine: str) -> list[dict[str, str]]:
-    text = str(span or "")
-    allowed = _target_machine_designation_codes(machine)
-    for token in _AIRCRAFT_DESIGNATION_RE.findall(text):
-        if _normalized_unit_code(token) in allowed:
-            text = re.sub(rf"\b{re.escape(token)}(?:s)?\b", "", text, flags=re.IGNORECASE)
-    return _numeric_mentions_from_text(text)
+    # LAW (2026-07-16): designations are identifiers, never numbers. Any
+    # designation-shaped token is excluded from numeric mentions, so the
+    # single-source softeners can never treat "XB-15" as an exact fact that
+    # needs a hedge (foreign designations are policed by their own check).
+    return _numeric_mentions_from_text(_strip_designations_for_numbers(span, machine))
 
 
 def _span_has_high_risk_exact_fact(span: str, machine: str) -> bool:
@@ -2769,8 +2787,11 @@ def _soften_single_source_span(span: str, machine: str) -> str:
                 flags=re.IGNORECASE,
             )
         if softened == updated:
+            # LAW (2026-07-16): never hedge a designation's digits. The old
+            # lookbehind allowed digits after a hyphen (or mid-number), which
+            # turned "XB-15" into "XB-about 15" on live XB-15 previews.
             softened = re.sub(
-                r"(?<![A-Za-z])(\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?)",
+                r"(?<![A-Za-z0-9-])(\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?)",
                 r"about \1",
                 updated,
                 count=1,
@@ -2957,6 +2978,18 @@ def _trim_machine_story_bundle_to_contract(machine: str, plan: dict, bundle: dic
     return trimmed_bundle
 
 
+# Function/quantifier glue for script-stage word grounding (LAW 2026-07-16):
+# connective and quantifier words the narration needs that carry no checkable
+# fact. Real factual nouns stay strict (e.g. "giant" still needs grounded
+# vocabulary - the evidence offers "mammoth"). Explicit inflections included
+# because the grounding stemmer does not fold every form ("carried" -> "carri").
+_SCRIPT_GLUE_STOPWORDS = {
+    "build", "builds", "building", "built",
+    "carry", "carries", "carrying", "carried",
+    "over", "single", "such", "where", "year", "years",
+}
+
+
 def _final_sentence_novel_words(
     last_sentence: str,
     prior_text: str,
@@ -3062,6 +3095,14 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             if evidence_id:
                 evidence_by_id[evidence_id] = segment
                 role_by_id[evidence_id] = role
+    # LAW (2026-07-16): per-row WORD grounding is graded against ALL locked
+    # story-plan evidence (same scope ruling as the two-source number check);
+    # row citations stay provenance. "prototype" grounded by an uncited
+    # onscreen_label segment is still grounded.
+    all_locked_evidence_text = " ".join(
+        f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        for segment in evidence_by_id.values()
+    )
 
     claim_rows = bundle.get("claim_map")
     if not isinstance(claim_rows, list) or not claim_rows:
@@ -3070,7 +3111,6 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     used_ids: list[str] = []
     claim_span_details: list[dict[str, Any]] = []
     high_risk_terms = {"first", "only", "largest", "fastest", "most", "never"}
-    designation_tokens = set(re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper()))
     for index, row in enumerate(claim_rows, start=1):
         if not isinstance(row, dict):
             warnings.append(f"claim_map row {index} must be an object")
@@ -3107,17 +3147,21 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
         if declared_slot and row_slots and declared_slot not in row_slots:
             warnings.append(f"claim_map row {index} declares slot {declared_slot} but uses {', '.join(sorted(row_slots))}")
         if span and row_ids:
-            span_for_numbers = span
-            for designation in designation_tokens:
-                span_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", span_for_numbers, flags=re.IGNORECASE)
+            # LAW: designations are identifiers, never numbers.
+            span_for_numbers = _strip_designations_for_numbers(span, machine)
             row_mentions = _numeric_mentions_from_text(span_for_numbers)
             row_evidence_text = " ".join(
                 f"{evidence_by_id.get(evidence_id, {}).get('claim', '')} {evidence_by_id.get(evidence_id, {}).get('source_excerpt', '')}"
                 for evidence_id in row_ids
                 if evidence_id in evidence_by_id
             )
-            if row_evidence_text:
-                unsupported_words = _ungrounded_factual_words(span, row_evidence_text, machine)
+            if all_locked_evidence_text:
+                unsupported_words = _ungrounded_factual_words(
+                    span,
+                    all_locked_evidence_text,
+                    machine,
+                    extra_stopwords=_SCRIPT_GLUE_STOPWORDS,
+                )
                 if unsupported_words:
                     warnings.append(
                         f"claim_map row {index} introduced unsupported factual word(s): "
@@ -3239,10 +3283,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if len(covered_roles) < 4:
         warnings.append("paragraph must use evidence from at least four Anton slots")
 
-    paragraph_for_numbers = paragraph
-    for designation in designation_tokens:
-        paragraph_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", paragraph_for_numbers, flags=re.IGNORECASE)
-    paragraph_numbers = _numeric_mentions_from_text(paragraph_for_numbers)
+    # LAW: designations are identifiers, never numbers.
+    paragraph_numbers = _numeric_mentions_from_text(_strip_designations_for_numbers(paragraph, machine))
     allowed_number_keys = {
         _numeric_token_key(token)
         for evidence_id in used_ids
@@ -3332,9 +3374,8 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                     f"sentence {sentence_index} used out-of-order required Anton slot evidence: "
                     + ", ".join(unexpected_required_roles)
                 )
-        sentence_for_numbers = sentence
-        for designation in designation_tokens:
-            sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", sentence_for_numbers, flags=re.IGNORECASE)
+        # LAW: designations are identifiers, never numbers.
+        sentence_for_numbers = _strip_designations_for_numbers(sentence, machine)
         span_number_keys = {
             key
             for detail in sentence_claim_spans
@@ -3371,14 +3412,14 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 if span:
                     uncovered_text = uncovered_text.replace(span, " ", 1)
             if uncovered_text.strip():
-                sentence_evidence_text = " ".join(
-                    str(detail.get("evidence_text") or "")
-                    for detail in sentence_claim_spans
-                )
+                # LAW (2026-07-16): unmapped words are graded against ALL
+                # locked evidence too (with the glue stoplist), matching the
+                # row-level word-grounding scope.
                 unsupported_unmapped_words = _ungrounded_factual_words(
                     uncovered_text,
-                    sentence_evidence_text,
+                    all_locked_evidence_text,
                     machine,
+                    extra_stopwords=_SCRIPT_GLUE_STOPWORDS,
                 )
                 if unsupported_unmapped_words:
                     warnings.append(
@@ -3398,10 +3439,9 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
             last_sentence.lower(),
         ):
             warnings.append("final sentence uses generic summary language instead of a landed Anton line")
-        final_sentence_for_numbers = last_sentence
-        for designation in designation_tokens:
-            final_sentence_for_numbers = re.sub(rf"\b{re.escape(designation)}(?:s)?\b", "", final_sentence_for_numbers, flags=re.IGNORECASE)
-        final_numbers = _numeric_mentions_from_text(final_sentence_for_numbers)
+        # LAW: designations are identifiers, never numbers - the closer may
+        # name the machine without its digits counting as new numbers.
+        final_numbers = _numeric_mentions_from_text(_strip_designations_for_numbers(last_sentence, machine))
         if final_numbers:
             warnings.append(
                 "final sentence must be paragraph-derived synthesis without new numerical detail(s): "
@@ -3447,12 +3487,25 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
                 last_sentence,
             )
         ]
+        machine_code = _normalized_unit_code(machine)
         new_final_entities = []
         for entity in final_entities:
             if entity.lower() in ignored_final_entities:
                 continue
-            if entity not in known_entity_text:
-                new_final_entities.append(entity)
+            # LAW (2026-07-16): the locked machine's own name/designation is
+            # always legal in the closer, including sentence-glued forms like
+            # "The XB-15" where the leading article joined the entity match.
+            entity_tokens = entity.split()
+            while entity_tokens and entity_tokens[0].lower() in ignored_final_entities:
+                entity_tokens = entity_tokens[1:]
+            stripped_entity = " ".join(entity_tokens)
+            if not stripped_entity:
+                continue
+            if stripped_entity in known_entity_text:
+                continue
+            if machine_code and _normalized_unit_code(stripped_entity) == machine_code:
+                continue
+            new_final_entities.append(entity)
         if new_final_entities:
             warnings.append(
                 "final sentence must not introduce new named entity/event detail(s): "
@@ -3659,17 +3712,10 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
             for spans in claim_text_by_role.values()
             for span in spans
         )
-        paragraph_for_numbers = claim_mapped_text
-        for designation in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", str(machine or "").upper()):
-            paragraph_for_numbers = re.sub(
-                rf"\b{re.escape(designation)}(?:s)?\b",
-                "",
-                paragraph_for_numbers,
-                flags=re.IGNORECASE,
-            )
+        # LAW: designations are identifiers, never numbers.
         numeric_keys = {
             mention["key"]
-            for mention in _numeric_mentions_from_text(paragraph_for_numbers)
+            for mention in _numeric_mentions_from_text(_strip_designations_for_numbers(claim_mapped_text, machine))
             if mention.get("key")
         }
         decision_text = " ".join(claim_text_by_role.get("engineering_decision") or []).lower()
@@ -7267,10 +7313,10 @@ class PipelineExecutor:
                     "- The final sentence is editorial synthesis from the assembled paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact.\n"
                     "- Each claim_map span must be copied exactly from one formula sentence and use only evidence IDs from that span's real source slot.\n"
                     "- Each claim_map span must sit inside exactly one formula sentence. Never use a whole paragraph, multiple sentences, or a span that crosses sentence boundaries.\n"
-                    "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it.\n"
+                    "- Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation.\n"
                     "- You may include role_category and combat_reality when they strengthen the paragraph and are sourced.\n"
                     "- Use only facts supported by the selected evidence IDs. Do not add dates, numbers, names, programs, specifications, causes, events, or claims absent from those claims/source excerpts.\n"
-                    "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Keep designations/model names like B-52, XB-15, and F-86 as designations. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. Every number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
+                    "- Use voice-ready spoken number words for years and quantities, matching the DVsU Voiceover File Standard. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. Every quantity number, spelled or numeral, must map to numeric_tokens/source_excerpt in the selected evidence.\n"
                     "- Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers.\n"
                     "- Prefer fewer than 6 numerical details when optional slots add clutter, but a Strategic Bomber benchmark paragraph may use 6-8 when each one proves scale, capability, production, service reality, or the final contrast.\n"
                     "- Do not include optional-slot numbers if required slots already tell the story.\n"
@@ -7350,9 +7396,9 @@ class PipelineExecutor:
                         "If the plan provides a memorable_fact slot, use at least one memorable_fact evidence ID inside the strongest required beat; do not add a separate trivia sentence. "
                         "If the plan provides a human_detail slot for one of the first three benchmark machines, use it inside the strongest evidence-backed beat; do not add a separate anecdote sentence. "
                         "The final sentence must be editorial synthesis from the rebuilt paragraph only. Do not include it in claim_map; if it needs evidence IDs, rewrite it without the new fact. "
-                        "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. "
+                        "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise hedge the claim or remove it. Designations are exempt: never hedge, source-check, or reword a designation. "
                         "For the Strategic Bomber benchmark, keep Anton's compact inventory cadence: selected scale/spec facts, production or service reality, and a landed verdict, all from locked evidence. "
-                        "Use voice-ready spoken number words for years and quantities while preserving designations/model names like B-52, XB-15, and F-86. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite it as spoken words. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
+                        "Use voice-ready spoken number words for years and quantities. Designations like XB-15, B-52, and F-86 are NAMES, not numbers: keep their digits exactly as written, never spell them out, never hedge them, and they need no numeric source support. Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words in narration. If validation says raw numeric digit or written unit abbreviation, rewrite that quantity as spoken words but leave designations untouched. Use at most 8 numerical details total, including years, counts, ranges, speeds, weights, percentages, and spelled numbers. "
                         "If validation says a number is unsupported, remove that exact number from the paragraph and claim_map entirely; do not try to remap it. "
                         "If validation says there are too many numerical details, rewrite around fewer concepts: original problem, engineering decision, tradeoff, and reality. "
                         "No orphan facts: every technical detail must explain why the machine was designed that way, what problem it solved, or what consequence it created. "

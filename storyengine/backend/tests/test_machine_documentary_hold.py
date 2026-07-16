@@ -2655,6 +2655,101 @@ def test_two_source_numeric_check_scans_all_locked_evidence():
     )
 
 
+def test_designations_are_identifiers_never_numbers_in_script_checks():
+    """LAW (2026-07-16): designation digits (XB-15, B-52, F-86D) are names in
+    every script-stage number check; a real raw digit still fails."""
+    # Unit level: the digit scrubbers ignore ANY designation-shaped token
+    # (not only the locked machine's) while real numerals still surface.
+    assert pe._raw_digit_mentions_for_voiceover(
+        "The B-52 escorted the F-86D and the XB-15 over 15 miles."
+    ) == ["15"]
+    assert pe._numeric_mentions_from_text(
+        pe._strip_designations_for_numbers("The XB-15 and the F-86 flew 87 sorties.", "Boeing XB-15")
+    ) == [{"raw": "87", "key": "87"}]
+
+    # Validator level: the locked designation in narration AND in the closer
+    # produces zero number/entity warnings...
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "Boeing XB-15")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    old_final = "The proof survived the machine."
+    new_final = "The proof survived the XB-15."
+    bundle["formula_sentences"] = [
+        new_final if sentence == old_final else sentence
+        for sentence in bundle["formula_sentences"]
+    ]
+    _paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
+    assert warnings == []
+
+    # ...while a real raw digit in a sentence still fails the number checks,
+    # and no check ever names the designation's "15".
+    digit_bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
+    old_span = digit_bundle["claim_map"][1]["span"]
+    digit_span = old_span.rstrip(".") + " over 87 years."
+    digit_bundle["claim_map"][1]["span"] = digit_span
+    digit_bundle["formula_sentences"] = [
+        digit_span if sentence == old_span else sentence
+        for sentence in digit_bundle["formula_sentences"]
+    ]
+    _paragraph, digit_warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, digit_bundle)
+    assert any("raw numeric digit" in warning and "87" in warning for warning in digit_warnings)
+    assert any("unsupported numerical detail(s): 87" in warning for warning in digit_warnings)
+    assert not any(": 15" in warning or " 15," in warning for warning in digit_warnings)
+
+
+def test_softener_never_hedges_designation_digits():
+    """LAW (2026-07-16): the single-source softener may hedge quantities but must
+    never touch a designation - the old fallback produced "XB-about 15" live."""
+    softened = pe._soften_single_source_span("The XB-15 recorded 5000.", "Boeing XB-15")
+    assert "XB-about 15" not in softened
+    assert "XB-15" in softened
+    assert "about 5000" in softened
+    # A designation-only span has no numeric mentions at all, so the number
+    # branch of the softener never fires on it.
+    assert pe._span_numeric_mentions_without_locked_designation(
+        "The B-52 followed the XB-15.", "Boeing XB-15"
+    ) == []
+
+
+def test_row_word_grounding_scans_all_locked_evidence_with_glue_stoplist():
+    """LAW (2026-07-16): a span word grounded in ANY locked segment (claim or
+    excerpt) is supported - row citations stay provenance. Function/quantifier
+    glue is stoplisted; genuinely ungrounded nouns still fail."""
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+
+    def _bundle_with_sentence2_suffix(suffix: str) -> dict:
+        bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+        old_span = bundle["claim_map"][1]["span"]
+        new_span = old_span.rstrip(".") + suffix
+        bundle["claim_map"][1]["span"] = new_span
+        bundle["formula_sentences"] = [
+            new_span if sentence == old_span else sentence
+            for sentence in bundle["formula_sentences"]
+        ]
+        return bundle
+
+    # "role category" lives in the E-ROLE segment, which row 2 does NOT cite:
+    # cross-row grounding passes.
+    cross_row = _bundle_with_sentence2_suffix(" in the role category.")
+    _p, cross_warnings = pe._validate_machine_story_sentences("B-52", plan, cross_row)
+    assert not any("unsupported factual word" in warning for warning in cross_warnings)
+
+    # A genuinely ungrounded colorful noun still fails ("giant" is nowhere in
+    # the locked evidence; the model must use grounded vocabulary).
+    ungrounded = _bundle_with_sentence2_suffix(" with the giant wing.")
+    _p, giant_warnings = pe._validate_machine_story_sentences("B-52", plan, ungrounded)
+    assert any(
+        "unsupported factual word(s)" in warning and "giant" in warning
+        for warning in giant_warnings
+    )
+
+    # Function/quantifier glue is stoplisted at the script stage.
+    glue = _bundle_with_sentence2_suffix(" built over the years where such carrying was single.")
+    _p, glue_warnings = pe._validate_machine_story_sentences("B-52", plan, glue)
+    assert not any("unsupported factual word" in warning for warning in glue_warnings)
+
+
 def test_story_paragraph_validator_requires_memorable_fact_in_story_plan():
     evidence = [
         segment for segment in _evidence_segments()
@@ -3823,7 +3918,11 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     assert "Do not use ranked-list connectors" in fake_anthropic.prompts[0]
     assert "Use voice-ready spoken number words" in fake_anthropic.prompts[0]
     assert "Spell unit abbreviations like mph, rpm, ft, lb, mi, and hp into spoken words" in fake_anthropic.prompts[0]
-    assert "Keep designations/model names like B-52, XB-15, and F-86 as designations" in fake_anthropic.prompts[0]
+    # LAW: designations are names - digits kept, never spelled out, never hedged.
+    assert "Designations like XB-15, B-52, and F-86 are NAMES, not numbers" in fake_anthropic.prompts[0]
+    assert "never spell them out, never hedge them" in fake_anthropic.prompts[0]
+    assert "Designations are exempt: never hedge, source-check, or reword a designation" in fake_anthropic.prompts[0]
+    assert "Designations are exempt: never hedge, source-check, or reword a designation" in fake_anthropic.prompts[1]
     assert "Vary sentence length for spoken delivery. Do not write three long sentences in a row" in fake_anthropic.prompts[0]
     assert "Do not write a chronological biography" in fake_anthropic.prompts[0]
     assert "No citations, headings, markdown, commentary, unit labels, act labels, b-roll cues, thumbnail lines, bracketed production notes" in fake_anthropic.prompts[0]
