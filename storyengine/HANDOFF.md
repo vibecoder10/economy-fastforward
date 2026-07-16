@@ -1,4 +1,4 @@
-# HANDOFF - 2026-07-16 (late night) WRITER PASS 5 DONE: 3/3 previews PASS (XB-15, B-17, B-52)
+# HANDOFF - 2026-07-17 (early am) Shared checklist SHIPPED; 4/23 pass; B-24 writer oscillates
 
 ## State
 - Prod: cec7bc6d deployed, healthy. Six deploys this session (51daa8df writer
@@ -8,6 +8,32 @@
 - Branch: main - clean except this wrap and untracked storyengine/.claude/.
 - **XB-15, B-17, and B-52 previews ALL PASS the full frozen law + Anton
   quality audit** (4/23 with the XB-19 control). Verified live on prod.
+
+## Shared checklist shipped (the 'once and for all' build, prod @ 450bc990)
+Research and the script audit now grade by ONE checklist:
+- _script_starvation_gaps predicts the frozen benchmark_cadence audit
+  card-side (same vocab regexes, extracted to shared constants).
+- _script_starvation_promote_actions plans FREE promotes from the package
+  (support kinds only - never overwrites actual_outcome, bypasses the
+  hint gate; plural 'B-17s' correctly reads as the locked machine).
+- Wired: Repair ladder returns starvation promotes for referee-clean
+  cards; single-machine preview SELF-HEALS before writing; readiness
+  reports script_audit_gaps. 3 lock tests; suite 721.
+- Also: COVERAGE LAW + production-count-home + under-length nudge in both
+  prompts (prompt-vs-gate gaps five and six this pass).
+
+## B-24 end-to-end proof: research automation PERFECT, writer oscillates
+Fresh one-machine research -> auto Repair (2 free verbs) -> VERIFIED with
+zero hand-editing. That whole leg is proven. The writer pass did NOT
+converge in 5 rolls (~$0.50): each roll violated a DIFFERENT law
+(count-in-closer x3 -> count dropped -> invented 'January' + decor +
+semicolon). Two permanent laws came out of it. Do NOT keep re-rolling:
+next session, one calm pass on the B-24 writer with fresh eyes - likely
+fixes are a lower distiller temperature for benchmark machines, or a
+'plan the sentence budget before writing' pre-step. Also fix a cosmetic
+mechanics artifact first: the starved-number hedge produced 'a roughly
+Four-engine heavy bomber' (mid-sentence capital from span start) and
+'in January about 1944'.
 
 ## RESOLVED late night: key topped up; 3/3 PASS
 After credits landed, B-52 passed on its first roll. B-17 took three more
