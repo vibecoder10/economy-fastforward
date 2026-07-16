@@ -93,23 +93,26 @@ export function ReadinessCheck({
   ];
 
   return (
-    <>
+    // One motion root owns the only exit animation. A fragment root with two
+    // exiting motion.divs stalls mid-exit on framer-motion 12 + React 19 and
+    // never unmounts, leaving the backdrop blocking every click (same bug as
+    // ui/modal.tsx, verified 2026-07-16).
+    <motion.div
+      data-testid="readiness-check"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50"
+    >
       {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-      />
+      <div onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
       {/* Modal */}
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ type: "spring", damping: 30, stiffness: 300 }}
-        className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-32px)] max-w-lg max-h-[85vh] overflow-y-auto"
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-32px)] max-w-lg max-h-[85vh] overflow-y-auto"
       >
         <div
           className="rounded-xl border shadow-2xl"
@@ -340,6 +343,6 @@ export function ReadinessCheck({
           </div>
         </div>
       </motion.div>
-    </>
+    </motion.div>
   );
 }

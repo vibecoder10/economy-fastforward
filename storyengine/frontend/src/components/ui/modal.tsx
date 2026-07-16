@@ -37,25 +37,32 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
 
   return (
     <AnimatePresence>
+      {/* AnimatePresence tracks its DIRECT children by key. A keyless fragment
+          wrapping both layers breaks exit tracking on framer-motion 12 + React
+          19: the exit stalls and the closed dialog never unmounts, leaving the
+          invisible backdrop swallowing every click (verified 2026-07-15/16).
+          Keep backdrop and card as separately keyed direct children. */}
       {open && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-          />
-
-          {/* Modal */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2"
-          >
+        <motion.div
+          key="modal-backdrop"
+          data-testid="modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        />
+      )}
+      {open && (
+        <motion.div
+          key="modal-card"
+          data-testid="modal-card"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2"
+        >
             <div
               className={cn(
                 "flex max-h-[90vh] flex-col w-[calc(100vw-32px)] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl",
@@ -78,8 +85,7 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
               {/* Body — scrolls when content exceeds the viewport */}
               <div className="overflow-y-auto p-4">{children}</div>
             </div>
-          </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );

@@ -1712,6 +1712,7 @@ export default function VideosPage() {
       <AnimatePresence>
         {activeModal === "readiness" && readinessData && (
           <ReadinessCheck
+            key="readiness-check"
             missing={readinessData.missing_keys}
             configured={readinessData.configured_keys}
             warnings={readinessData.warnings}
@@ -1726,6 +1727,7 @@ export default function VideosPage() {
       <AnimatePresence>
         {activeModal === "firstVideo" && (
           <FirstVideoFlow
+            key="first-video-flow"
             onCreateVideo={handleFirstVideoCreate}
             onClose={handleModalClose}
             initialTopic={initialTopic}

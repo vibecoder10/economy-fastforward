@@ -24,9 +24,11 @@ export function useConfirm(): ConfirmFn {
 // same ask-then-proceed contract without freezing the page.
 //
 // Deliberately NOT built on ui/modal.tsx: its AnimatePresence exit never
-// unmounts the closed dialog, leaving an invisible full-screen backdrop that
-// blocks every click (verified in dev 2026-07-15). Plain conditional rendering
-// matches the revision-modal idiom in ScriptVoiceTab and cannot wedge.
+// unmounted the closed dialog, leaving an invisible full-screen backdrop that
+// blocked every click (verified in dev 2026-07-15; Modal fixed 2026-07-16 with
+// keyed direct children). Plain conditional rendering matches the
+// revision-modal idiom in ScriptVoiceTab and cannot wedge; moving this back
+// onto Modal is now possible but optional.
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [options, setOptions] = useState<ConfirmOptions | null>(null);
   const resolverRef = useRef<((confirmed: boolean) => void) | null>(null);
