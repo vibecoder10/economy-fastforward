@@ -1437,6 +1437,44 @@ def test_timeframe_requires_source_grounded_date_or_service_period():
     ) == []
 
 
+def test_timeframe_and_visual_identity_reject_tier4_only_citations():
+    """Regression: prod XB-15 card (2026-07-15) cited Wikipedia-only timeframe
+    evidence while a Tier-1 boeing.com excerpt sat unused in the same card;
+    the backend saved it and the UI then blocked the preview."""
+    machine = "Boeing XB-15"
+    evidence = copy.deepcopy(_evidence_segments())
+    # Make the reality segment Tier 4 (Wikipedia) like the prod card.
+    for segment in evidence:
+        if segment["evidence_id"] in ("E-REALITY", "E-PROBLEM"):
+            segment["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    normalized, errors = pe._normalize_machine_evidence(
+        {"evidence_segments": evidence}, machine
+    )
+    assert errors == []
+    tier4_only = pe._timeframe_warnings(
+        machine,
+        _timeframe_fields(machine)["timeframe"],
+        normalized,
+        ["E-REALITY"],
+    )
+    assert any("Tier 4/caution sources only" in warning for warning in tier4_only)
+    # Citing a Tier 1-3 segment alongside clears the tier warning.
+    mixed = pe._timeframe_warnings(
+        machine,
+        _timeframe_fields(machine)["timeframe"],
+        normalized,
+        ["E-REALITY", "E-MEANING"],
+    )
+    assert not any("Tier 4/caution" in warning for warning in mixed)
+    # Card-level: all-Tier-3+ segments must demand a Tier 1-2 citation.
+    all_tier3 = copy.deepcopy(_evidence_segments())
+    for segment in all_tier3:
+        segment["source_url"] = "https://www.thisdayinaviation.com/tag/boeing-xb-15"
+    card = _valid_research_card(machine, segments=all_tier3)
+    warnings = pe._research_card_contract_warnings(machine, card)
+    assert any("no Tier 1-2 source" in warning for warning in warnings)
+
+
 def test_card_validation_requires_sourced_memorable_fact_slot(monkeypatch):
     roster = ["Boeing XB-15"]
     segments = [

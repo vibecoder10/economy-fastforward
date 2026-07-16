@@ -2098,6 +2098,29 @@ def _paragraph_worth_warnings(machine: str, paragraph_worth: str) -> list[str]:
     return warnings
 
 
+def _cited_evidence_tier_warning(
+    field: str,
+    cited_ids: list[str],
+    evidence_by_id: dict[str, dict],
+) -> list[str]:
+    """Mirror the UI readiness gate: a card field cited only by Tier-4 sources is not ready.
+
+    Without this warning the one repair pass never hears about the tier problem,
+    so the backend saves a card the Research/Script tabs then refuse to run
+    (frontend machineResearchCardStatus 'Tier 4-only · preview blocked')."""
+    tiers = [
+        _source_tier_number(evidence_by_id[item])
+        for item in cited_ids
+        if str(evidence_by_id[item].get("source_url") or evidence_by_id[item].get("url") or "").strip()
+    ]
+    tiers = [tier for tier in tiers if tier > 0]
+    if tiers and all(tier >= 4 for tier in tiers):
+        return [
+            f"{field}_evidence_ids cite Tier 4/caution sources only; cite at least one Tier 1-3 excerpt for {field}"
+        ]
+    return []
+
+
 def _visual_identity_warnings(
     machine: str,
     visual_identity: str,
@@ -2154,6 +2177,7 @@ def _visual_identity_warnings(
     if unknown_ids:
         warnings.append("visual_identity_evidence_ids reference unknown evidence ID(s): " + ", ".join(unknown_ids))
         return warnings
+    warnings.extend(_cited_evidence_tier_warning("visual_identity", cited_ids, evidence_by_id))
 
     cited_text = " ".join(
         f"{evidence_by_id[item].get('claim', '')} {evidence_by_id[item].get('source_excerpt', '')}"
@@ -2245,6 +2269,7 @@ def _timeframe_warnings(
     if unknown_ids:
         warnings.append("timeframe_evidence_ids reference unknown evidence ID(s): " + ", ".join(unknown_ids))
         return warnings
+    warnings.extend(_cited_evidence_tier_warning("timeframe", cited_ids, evidence_by_id))
 
     cited_text = " ".join(
         f"{evidence_by_id[item].get('claim', '')} {evidence_by_id[item].get('source_excerpt', '')}"
@@ -2335,6 +2360,17 @@ def _research_card_contract_warnings(
     if not isinstance(source_notes, list) or not source_notes:
         warnings.append("missing source_notes")
     warnings.extend(evidence_errors)
+    if not evidence_errors:
+        sourced_tiers = [
+            tier for tier in (
+                _source_tier_number(segment) for segment in evidence
+                if isinstance(segment, dict)
+                and str(segment.get("source_url") or segment.get("url") or "").strip()
+            ) if tier > 0
+        ]
+        # Mirror the UI's "Research card needs selected Tier 1-2 evidence" gate.
+        if sourced_tiers and all(tier > 2 for tier in sourced_tiers):
+            warnings.append("evidence_segments cite no Tier 1-2 source; cite at least one Tier 1-2 excerpt")
     if not evidence_errors and not any(
         segment.get("slot_role") == "memorable_fact" for segment in evidence
     ):
@@ -6076,6 +6112,7 @@ class PipelineExecutor:
                 "timeframe is the research-standard date/service-period basis only: state the sourced date range, era, first-flight/service period, or prototype/operational period, and cite it with timeframe_evidence_ids. Do not invent dates.\n"
                 "visual_identity is Producer File/image-brief basis only, never spoken narration: state the exact visible machine features that make the locked unit unmistakable, and cite them with visual_identity_evidence_ids.\n"
                 "visual_identity may describe only what is visible on the machine; do not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions.\n"
+                "timeframe_evidence_ids and visual_identity_evidence_ids must each cite at least one SOURCE_TIER 1-3 excerpt when the package provides one for that fact; Tier 4/caution rows may support but never be the only citation.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
@@ -6138,6 +6175,7 @@ class PipelineExecutor:
                     "Return timeframe plus timeframe_evidence_ids; timeframe is the research-standard date/service-period basis only and must cite exact evidence IDs for the sourced date range, era, first-flight/service period, or prototype/operational period. "
                     "Return visual_identity plus visual_identity_evidence_ids; visual_identity is Producer File/image-brief basis only, never spoken narration. "
                     "It must state exact visible machine features from cited evidence IDs and must not include camera movement, animation, transitions, thumbnail copy, on-screen text, captions, or editing directions. "
+                    "timeframe_evidence_ids and visual_identity_evidence_ids must each cite at least one SOURCE_TIER 1-3 excerpt when the package provides one for that fact; Tier 4/caution rows may support but never be the only citation. "
                     "If the excerpts clearly support it, include narrative_weight as major, standard, or transitional; use major for pivotal machines and transitional for prototype/interim/limited bridge machines. "
                     "Do not return legacy prose fields, source_notes, high_risk_claims, unrelated visual metadata, or script beats. "
                     "Return 6-9 Anton-slot evidence segments. Required four-beat kinds at least once: original_problem, engineering_decision, tradeoff, reality. "
