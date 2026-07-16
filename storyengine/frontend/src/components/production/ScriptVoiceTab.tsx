@@ -22,6 +22,7 @@ import { API_URL } from "@/lib/env";
 import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview, MachineScriptPreviewReadiness } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm, type ConfirmFn } from "@/components/ui/confirm";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -274,8 +275,10 @@ function readinessWarningsWithNextAction(
     : warnings;
 }
 
-function confirmPaidOneMachineAction(message: string): boolean {
-  return typeof window !== "undefined" && window.confirm(message);
+// Paid-run confirms go through the app's modal, never window.confirm - the
+// native dialog synchronously freezes the renderer and wedges browser automation.
+function confirmPaidOneMachineAction(confirmAction: ConfirmFn, message: string): Promise<boolean> {
+  return confirmAction({ message });
 }
 
 function cardMatchesMachine(card: any, machine: string): boolean {
@@ -1151,6 +1154,7 @@ function CustomVoiceCard() {
 export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const confirmDialog = useConfirm();
 
   // ---- Data fetching ----
   const { data: apiScenes, isLoading } = useQuery({
@@ -1514,7 +1518,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   // ---------------------------------------------------------------------------
 
   const handleApprove = useCallback(async () => {
-    if (!confirm("Approve script & voice and advance to next stage?")) return;
+    if (!(await confirmDialog({ message: "Approve script & voice and advance to next stage?" }))) return;
     setApproving(true);
     try {
       await advanceVideo(video.id);
@@ -1524,7 +1528,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       toast.error(`Failed to approve: ${(err as Error).message}`);
       setApproving(false);
     }
-  }, [video.id, invalidateAll]);
+  }, [video.id, invalidateAll, confirmDialog]);
 
   const handleReject = useCallback(() => {
     setShowRevisionModal(true);
@@ -2159,9 +2163,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         toast.error(`Preview blocked: ${message}. Production script unchanged.`);
         return;
       }
-      if (!confirmPaidOneMachineAction(
+      if (!(await confirmPaidOneMachineAction(
+        confirmDialog,
         `Run paid single-machine script preview for ${readiness.machine || machine}? This calls Claude to compile the Anton-style preview paragraph. Production script remains unchanged.`
-      )) {
+      ))) {
         toast.error("Single-machine script preview canceled before any provider call.");
         return;
       }

@@ -18,6 +18,7 @@ import {
 import type { MachineScriptPreview, MachineScriptPreviewReadiness, OneMachineResearchResult } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm, type ConfirmFn } from "@/components/ui/confirm";
 
 interface ResearchTabProps {
   video: any;
@@ -205,8 +206,10 @@ function researchWarningsWithNextAction(
     : warnings;
 }
 
-function confirmPaidOneMachineAction(message: string): boolean {
-  return typeof window !== "undefined" && window.confirm(message);
+// Paid-run confirms go through the app's modal, never window.confirm - the
+// native dialog synchronously freezes the renderer and wedges browser automation.
+function confirmPaidOneMachineAction(confirmAction: ConfirmFn, message: string): Promise<boolean> {
+  return confirmAction({ message });
 }
 
 function previewForMachine(previews: any, machine: string): MachineScriptPreview | null {
@@ -856,6 +859,7 @@ function EditableText({ text, mono }: { text: string; mono?: boolean }) {
 export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [isResearching, setIsResearching] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [approved, setApproved] = useState(false);
@@ -931,7 +935,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       toast.error("No locked machine roster found.");
       return;
     }
-    if (!confirm(`Run research for all ${rosterCount} machine cards? This uses the locked roster and updates each research card in order.`)) {
+    if (!(await confirmDialog({ message: `Run research for all ${rosterCount} machine cards? This uses the locked roster and updates each research card in order.` }))) {
       return;
     }
     setAllMachineResearchRunning(true);
@@ -956,7 +960,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setAllMachineResearchRunning(false);
       setIsResearching(false);
     }
-  }, [video.id, video.research_payload, toast]);
+  }, [video.id, video.research_payload, toast, confirmDialog]);
 
   const handleOneMachineResearch = useCallback(async (machineOverride?: string) => {
     let started = false;
@@ -968,9 +972,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         throw new Error("No locked machine selected.");
       }
       setSelectedMachine(machine);
-      if (!confirmPaidOneMachineAction(
+      if (!(await confirmPaidOneMachineAction(
+        confirmDialog,
         `Run paid one-machine research refresh for ${machine}? This calls Tavily search plus Claude card writing, then replaces only this machine's raw package/card/preview artifacts.`
-      )) {
+      ))) {
         toast.error("One-machine research refresh canceled before any provider call.");
         return;
       }
@@ -999,7 +1004,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         setResearchRunningMachine("");
       }
     }
-  }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
+  }, [video.id, video.research_payload, selectedMachine, queryClient, toast, confirmDialog]);
 
   const handleOneMachineReadiness = useCallback(async (machineOverride?: string) => {
     setReadinessChecking(true);
@@ -1089,9 +1094,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
         toast.error(`Preview blocked: ${message}. Production script unchanged.`);
         return;
       }
-      if (!confirmPaidOneMachineAction(
+      if (!(await confirmPaidOneMachineAction(
+        confirmDialog,
         `Run paid single-machine script preview for ${readiness.machine || machine}? This calls Claude to compile the Anton-style preview paragraph. Production script remains unchanged.`
-      )) {
+      ))) {
         toast.error("Single-machine script preview canceled before any provider call.");
         return;
       }
@@ -1116,7 +1122,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setSinglePreviewRunning(false);
       setPreviewRunningMachine("");
     }
-  }, [video.id, video.research_payload, selectedMachine, queryClient, toast]);
+  }, [video.id, video.research_payload, selectedMachine, queryClient, toast, confirmDialog]);
 
   const handleApproveResearch = useCallback(async () => {
     let rosterGate: any = null;
@@ -1140,7 +1146,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setApproveError(`Roster gate failed: ${(rosterGate.warnings || []).join("; ") || "research roster is incomplete"}`);
       return;
     }
-    if (!confirm("Approve research and move to scripting?")) return;
+    if (!(await confirmDialog({ message: "Approve research and move to scripting?" }))) return;
     setIsApproving(true);
     setApproveError(null);
     try {
@@ -1153,7 +1159,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
       setApproveError((err as Error).message);
       setIsApproving(false);
     }
-  }, [video.id, video.research_payload, queryClient, onApproved]);
+  }, [video.id, video.research_payload, queryClient, onApproved, confirmDialog]);
 
   const research = useMemo(() => {
     if (!video) return null;
