@@ -8931,3 +8931,118 @@ def test_conversion_signal_evidence_ids_ranking_helper():
     assert ids[1:] == ["E-VERB-ONLY", "E-BY-EXCERPT-ID"]
     assert "E-UNRELATED" not in ids
     assert pe._conversion_signal_evidence_ids(evidence, None, machine) == []
+
+
+# ---------------------------------------------------------------------------
+# Writer pass 5 (2026-07-16): repair mechanics close the last deterministic
+# gaps - spelled years revert to digits, single-source numbers get hedged
+# per the gate's own two-source rule, model numbers are never hedged.
+# ---------------------------------------------------------------------------
+
+def test_normalize_spelled_years_and_decades():
+    assert pe._normalize_spelled_years(
+        "The Army sought a bomber in the early nineteen thirties."
+    ) == "The Army sought a bomber in the early 1930s."
+    assert pe._normalize_spelled_years(
+        "Boeing's Model 299 first flew in nineteen thirty-five as a platform."
+    ) == "Boeing's Model 299 first flew in 1935 as a platform."
+    assert pe._normalize_spelled_years("It carried nineteen guns.") == "It carried nineteen guns."
+    assert pe._normalize_spelled_years("Planned for twenty fifty.") == "Planned for 2050."
+
+
+def test_span_two_source_starved_number_keys_mirrors_gate():
+    machine = "Boeing XB-15"
+    evidence_by_id = {
+        "E-A": {"source_url": "https://a.test/1", "numeric_tokens": ["5,000", "149"]},
+        "E-B": {"source_url": "https://b.test/2", "numeric_tokens": ["149"]},
+        "E-C": {"source_url": "https://a.test/other", "numeric_tokens": ["1937"]},
+    }
+    starved = pe._span_two_source_starved_number_keys(
+        "It offered a five-thousand-mile range on a one hundred forty nine foot wingspan in 1937.",
+        machine,
+        evidence_by_id,
+    )
+    # 5,000: one source -> starved. 149: two sources -> clean. 1937: year-like -> exempt.
+    assert pe._numeric_token_key("5,000") in starved
+    assert pe._numeric_token_key("149") not in starved
+    assert not any(pe._is_year_like_key(key) for key in starved)
+    # A hedged span never starves; an unsourced number is not hedgeable.
+    assert pe._span_two_source_starved_number_keys(
+        "It offered a range of roughly five thousand miles.", machine, evidence_by_id
+    ) == set()
+    assert pe._span_two_source_starved_number_keys(
+        "It carried eighty-eight rockets.", machine, evidence_by_id
+    ) == set()
+
+
+def test_hedge_starved_number_mentions_handles_hyphenated_phrases():
+    machine = "Boeing XB-15"
+    starved = {pe._numeric_token_key("5,000")}
+    hedged = pe._hedge_starved_number_mentions(
+        "It promised a five-thousand-mile range.", machine, starved
+    )
+    assert hedged == "It promised a roughly five-thousand-mile range."
+    # Already-hedged spans and non-starved numbers stay untouched.
+    assert pe._hedge_starved_number_mentions(
+        "It promised roughly five thousand miles.", machine, starved
+    ) == "It promised roughly five thousand miles."
+    assert pe._hedge_starved_number_mentions(
+        "It carried ninety guns.", machine, starved
+    ) == "It carried ninety guns."
+
+
+def test_softener_never_hedges_model_numbers():
+    """Live B-17 artifact: "Model 299" must never become "Model about 299" -
+    model/type numbers are names; a real quantity in the same span still hedges."""
+    softened = pe._soften_single_source_span(
+        "The Model 299 carried 5000 pounds.", "Boeing B-17 Flying Fortress"
+    )
+    assert "Model about 299" not in softened
+    assert "Model 299" in softened
+    assert "about 5000" in softened
+    # A span with ONLY a model number gets no digit hedge at all.
+    solo = pe._soften_single_source_span(
+        "The Model 299 impressed observers.", "Boeing B-17 Flying Fortress"
+    )
+    assert "about" not in solo and "Model 299" in solo
+
+
+def test_repair_mechanics_hedges_gate_starved_numbers_and_digitizes_years():
+    """Integration: mechanics normalizes spelled decades in place and hedges a
+    single-source spelled number, so the frozen two-source gate passes rows
+    the writer left unhedged."""
+    machine = "B-52"
+    segments = _evidence_segments()
+    decision = next(s for s in segments if s["evidence_id"] == "E-DECISION")
+    decision["claim"] = "The wingspan measured 185 feet across the design finalized in the early 1950s."
+    decision["source_excerpt"] = decision["claim"]
+    decision["numeric_tokens"] = ["185", "1950s"]
+    payload = {"unit_research_cards": [{"unit": machine, "evidence_segments": segments}]}
+    plan = pe._machine_story_plan(payload, machine)
+
+    span = "Its one hundred eighty five foot wingspan dominated ramps in the early nineteen fifties."
+    bundle = {
+        "editorial_thesis": "Scale traded ramp space for range in one wingspan decision.",
+        "formula_sentences": [span],
+        "paragraph": span,
+        "claim_map": [{"span": span, "slot": "engineering_decision", "used_evidence_ids": ["E-DECISION"]}],
+    }
+    repaired = pe._repair_machine_story_bundle_mechanics(machine, plan, bundle)
+    out_span = repaired["claim_map"][0]["span"]
+    assert "1950s" in out_span and "nineteen fifties" not in out_span
+    # The gate's hedge check is span-level: any recognized hedge legalizes the
+    # single-source number (here the year softener's "around" lands first).
+    assert pe._HEDGE_WORDS_RE.search(out_span.lower())
+    assert repaired["paragraph"] == " ".join(repaired["formula_sentences"])
+    assert out_span in repaired["paragraph"]
+
+    # Without a year in the span, the starved number itself gets the hedge.
+    bare_span = "Its one hundred eighty five foot wingspan dominated every ramp."
+    bare_bundle = {
+        "editorial_thesis": "Scale traded ramp space for range in one wingspan decision.",
+        "formula_sentences": [bare_span],
+        "paragraph": bare_span,
+        "claim_map": [{"span": bare_span, "slot": "engineering_decision", "used_evidence_ids": ["E-DECISION"]}],
+    }
+    bare_repaired = pe._repair_machine_story_bundle_mechanics(machine, plan, bare_bundle)
+    assert "roughly one hundred eighty five" in bare_repaired["claim_map"][0]["span"]

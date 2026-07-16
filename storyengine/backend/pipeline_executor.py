@@ -3831,6 +3831,117 @@ def _remove_unsupported_never_clause(text: str) -> str:
     return _capitalize_sentence_starts(updated)
 
 
+# Writer pass 5 (2026-07-16): the digits-for-years law is enforced
+# mechanically. The writer keeps spelling years and decades ("nineteen
+# thirties", "nineteen thirty-five"), which the number gate then reads as
+# unsupported quantities (B-17, twice). Years are calendar identifiers - they
+# stay digits, and the repair layer converts spelled forms back.
+_SPELLED_CENTURIES = {"eighteen": 18, "nineteen": 19, "twenty": 20}
+_SPELLED_YEAR_TENS = {
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_SPELLED_YEAR_ONES = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9,
+}
+_SPELLED_DECADE_TENS = {
+    "twenties": 20, "thirties": 30, "forties": 40, "fifties": 50,
+    "sixties": 60, "seventies": 70, "eighties": 80, "nineties": 90,
+}
+_SPELLED_DECADE_RE = re.compile(
+    r"\b(eighteen|nineteen|twenty)[ -](" + "|".join(_SPELLED_DECADE_TENS) + r")\b",
+    re.IGNORECASE,
+)
+_SPELLED_YEAR_RE = re.compile(
+    r"\b(eighteen|nineteen|twenty)[ -](" + "|".join(_SPELLED_YEAR_TENS) + r")"
+    r"(?:[ -](" + "|".join(_SPELLED_YEAR_ONES) + r"))?\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_spelled_years(text: str) -> str:
+    """Convert spelled years/decades back to the digit forms the voiceover
+    law demands ("nineteen thirties" -> 1930s, "nineteen thirty-five" -> 1935)."""
+    updated = str(text or "")
+    updated = _SPELLED_DECADE_RE.sub(
+        lambda m: f"{_SPELLED_CENTURIES[m.group(1).lower()] * 100 + _SPELLED_DECADE_TENS[m.group(2).lower()]}s",
+        updated,
+    )
+    updated = _SPELLED_YEAR_RE.sub(
+        lambda m: str(
+            _SPELLED_CENTURIES[m.group(1).lower()] * 100
+            + _SPELLED_YEAR_TENS[m.group(2).lower()]
+            + (_SPELLED_YEAR_ONES[m.group(3).lower()] if m.group(3) else 0)
+        ),
+        updated,
+    )
+    return updated
+
+
+def _span_two_source_starved_number_keys(
+    span: str, machine: str, evidence_by_id: dict
+) -> set[str]:
+    """Number mentions in an UNHEDGED span that the validator's two-source
+    scan will block: sourced in exactly ONE distinct source across ALL locked
+    evidence (year-like keys exempt, designations already stripped). Mirrors
+    the _validate_machine_story_sentences rule so the repair layer hedges
+    exactly what the frozen gate would flag."""
+    if _HEDGE_WORDS_RE.search(str(span or "").lower()):
+        return set()
+    starved: set[str] = set()
+    for mention in _span_numeric_mentions_without_locked_designation(span, machine):
+        key = mention.get("key")
+        if not key or key in starved or _is_year_like_key(key):
+            continue
+        supporting = {
+            str(
+                segment.get("source_url")
+                or segment.get("source_id")
+                or segment.get("locator")
+                or ""
+            ).strip()
+            for segment in evidence_by_id.values()
+            if key in {
+                _numeric_token_key(token)
+                for token in (segment.get("numeric_tokens") or [])
+            }
+        }
+        supporting = {source for source in supporting if source}
+        # Exactly one source: a hedge legalizes it. Zero sources: the number
+        # is unsupported either way and belongs to the rebuild prompt.
+        if len(supporting) == 1:
+            starved.add(str(key))
+    return starved
+
+
+def _hedge_starved_number_mentions(span: str, machine: str, starved_keys: set) -> str:
+    """Insert one legal hedge before the first single-source number phrase.
+    `roughly` reads naturally even after articles ("a roughly five-thousand-mile
+    range"); one hedge marks the whole span as hedged for the gate."""
+    updated = str(span or "")
+    if not starved_keys or _HEDGE_WORDS_RE.search(updated.lower()):
+        return updated
+    for mention in _span_numeric_mentions_without_locked_designation(updated, machine):
+        if str(mention.get("key") or "") not in starved_keys:
+            continue
+        raw = str(mention.get("raw") or "").strip()
+        if not raw:
+            continue
+        # Mentions come back space-joined even when the span hyphenates
+        # ("five-thousand-mile"), so match across spaces and hyphens.
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9-])" + r"[\s-]+".join(re.escape(part) for part in raw.split()),
+            re.IGNORECASE,
+        )
+        match = pattern.search(updated)
+        if match:
+            return updated[:match.start()] + "roughly " + updated[match.start():]
+    return updated
+
+
 def _soften_single_source_span(span: str, machine: str) -> str:
     """Make single-source exact claims less brittle without adding facts."""
     updated = _remove_unsupported_never_clause(str(span or ""))
@@ -3883,13 +3994,19 @@ def _soften_single_source_span(span: str, machine: str) -> str:
             # LAW (2026-07-16): never hedge a designation's digits. The old
             # lookbehind allowed digits after a hyphen (or mid-number), which
             # turned "XB-15" into "XB-about 15" on live XB-15 previews.
-            softened = re.sub(
-                r"(?<![A-Za-z0-9-])(\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?)",
-                r"about \1",
-                updated,
-                count=1,
-                flags=re.IGNORECASE,
-            )
+            # Writer pass 5: model/type numbers are NAMES too - "Model 299"
+            # must never become "Model about 299" (live B-17 artifact).
+            for digit_match in re.finditer(
+                r"(?<![A-Za-z0-9-])(\d+(?:[,.]\d+)*(?:%|st|nd|rd|th|s)?)", updated
+            ):
+                preceding = updated[:digit_match.start()].rstrip()
+                preceding_word = preceding.rsplit(None, 1)[-1].lower() if preceding else ""
+                if preceding_word in {"model", "type", "mark", "mk", "mk."}:
+                    continue
+                softened = (
+                    updated[:digit_match.start()] + "about " + updated[digit_match.start():]
+                )
+                break
         updated = softened
     updated = re.sub(r"\s+([,.;:!?])", r"\1", updated)
     updated = re.sub(r"\s{2,}", " ", updated).strip()
@@ -3960,6 +4077,14 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
         if len(row_roles) == 1:
             repaired["slot"] = next(iter(row_roles))
         span = " ".join(str(repaired.get("span") or repaired.get("text") or repaired.get("claim") or "").split())
+        # Writer pass 5: spelled years/decades revert to digits BEFORE the
+        # number checks, so "nineteen thirties" never grades as a quantity.
+        if span:
+            normalized_span = _normalize_spelled_years(span)
+            if normalized_span != span and span in repaired_paragraph:
+                repaired_paragraph = repaired_paragraph.replace(span, normalized_span, 1)
+                repaired["span"] = normalized_span
+                span = normalized_span
         if span and row_ids:
             row_evidence_text = " ".join(
                 f"{evidence_by_id.get(evidence_id, {}).get('claim', '')} {evidence_by_id.get(evidence_id, {}).get('source_excerpt', '')}"
@@ -3976,12 +4101,23 @@ def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dic
                 if evidence_id in evidence_by_id
             }
             source_keys = {source for source in source_keys if source}
-            if unsupported_risk_terms or (len(source_keys) < 2 and _span_has_high_risk_exact_fact(span, machine)):
+            # Writer pass 5: grade numbers the way the gate does - per number
+            # against ALL locked evidence - not per row citation.
+            starved_number_keys = _span_two_source_starved_number_keys(span, machine, evidence_by_id)
+            if unsupported_risk_terms or starved_number_keys or (
+                len(source_keys) < 2 and _span_has_high_risk_exact_fact(span, machine)
+            ):
                 softened = _soften_single_source_span(span, machine)
+                if starved_number_keys:
+                    softened = _hedge_starved_number_mentions(softened, machine, starved_number_keys)
                 if softened and softened != span and span in repaired_paragraph:
                     repaired_paragraph = repaired_paragraph.replace(span, softened, 1)
                     repaired["span"] = softened
         repaired_rows.append(repaired)
+
+    # Catch spelled years the claim map never covered (rows already normalized
+    # in place, so this only touches text outside the mapped spans).
+    repaired_paragraph = _normalize_spelled_years(repaired_paragraph)
 
     all_evidence_text = " ".join(
         f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
