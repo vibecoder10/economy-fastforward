@@ -57,9 +57,18 @@ _ALL_FIXTURES = (
 # (A) conformance: exact referee verdicts with require_source_package=True
 # ---------------------------------------------------------------------------
 
-# A clean real card: its timeframe + visual_identity words all appear in its
-# evidence segments, so the referee returns an EMPTY warning list (passes).
-_GOLDEN_XB19 = []
+# Round-8 FIX 2 re-pin (2026-07-16): XB19's card is clean on grounding, but
+# its raw package holds the real conversion story (the XB-19 ended as a
+# transport conversion; excerpts S3-E3/S4-E1/S4-E3 carry "transport") and the
+# card selected NONE of it. Under the must-select law the gap warning stays
+# and names the excerpts. The clean-pass control now lives in
+# test_gap_satisfied_when_conversion_evidence_selected (same card + a
+# transport-carrying segment -> passes).
+_GOLDEN_XB19 = [
+    "no designed-vs-used gap found - the package holds the role-conversion story and the card "
+    "selected none of it; select excerpt(s) S3-E3 (transport), S4-E1 (transport), S4-E3 (transport) "
+    "as evidence and write actual_outcome from it",
+]
 
 # Scope-change ruling: the timeframe words "flew"/"December" DO appear in an
 # (uncited) evidence segment, so the old timeframe grounding warning is CLEARED.
@@ -76,8 +85,11 @@ _GOLDEN_XB19 = []
 _GOLDEN_XB15 = [
     "visual_identity contains detail(s) not grounded in evidence segments: mid, wing, monoplane, retractable, landing, gear",
     "visual_identity introduced unsupported numerical detail(s): four",
-    "no designed-vs-used gap found - research must surface how it was ACTUALLY used; "
-    "if the hunt already ran and no gap exists, mark deliberately_bare with gap_hunt_summary",
+    # Round-8 FIX 2: the package names its unselected conversion story
+    # (S2-E6 "redesignated", S6-E7 "cargo" - the XC-105 conversion).
+    "no designed-vs-used gap found - the package holds the role-conversion story and the card "
+    "selected none of it; select excerpt(s) S2-E6 (redesignated), S6-E7 (cargo) "
+    "as evidence and write actual_outcome from it",
 ]
 
 # Fails across multiple families: empty thesis, ungrounded visual/timeframe,
@@ -106,12 +118,19 @@ _GOLDEN_B17 = [
     #   story-plan beats are covered.
     # - All other lines unchanged.
     "missing sourced memorable_fact evidence segment",
+    # Round-8 FIX 2: B-17's package holds its transport-conversion story
+    # (S1-E4 "transport", S3-E10 "N17W, converted" - the C-108 conversions)
+    # and the card selected none of it.
+    "no designed-vs-used gap found - the package holds the role-conversion story and the card "
+    "selected none of it; select excerpt(s) S1-E4 (transport), S3-E10 (N17W, converted) "
+    "as evidence and write actual_outcome from it",
     "evidence segment B17-E1 maps original_problem to raw excerpt S2-E3 hinted for engineering_decision",
 ]
 
 
-def test_conformance_xb19_passes_clean():
-    """Douglas XB-19: a clean real card -> zero warnings."""
+def test_conformance_xb19_unselected_conversion_story():
+    """Douglas XB-19: grounding-clean, but the package's transport-conversion
+    story went unselected - the Round-8 must-select law keeps the gap warning."""
     row = _CARD_XB19
     warnings = pe._research_card_contract_warnings(
         row["machine_name"], row["card"], _package_for("XB19"), require_source_package=True

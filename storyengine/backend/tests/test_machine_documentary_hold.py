@@ -8655,3 +8655,140 @@ def test_register_density_and_fragment_folding():
     warnings = _closer_probe("Boeing B-52 Stratofortress", body, ["Big wings.", "Bigger patience.", "No combat."])
     assert not any("sentence count" in w for w in pe._blocking_warnings(warnings))
     assert not any("closer restates facts" in w for w in pe._blocking_warnings(warnings))
+
+
+# ---------------------------------------------------------------------------
+# Round-8 (2026-07-16): conversion-signal must-select + timeframe repair hints.
+# ---------------------------------------------------------------------------
+
+def _package_with_extra_excerpt(machine: str, segments: list, extra_text: str, excerpt_id: str = "S9-E1") -> dict:
+    package = _verified_package_for_segments(machine, segments)
+    package["candidate_excerpts"].append({
+        "excerpt_id": excerpt_id,
+        "source_id": "S9",
+        "source_title": "Conversion source",
+        "source_url": "https://history.test/conversion",
+        "locator": excerpt_id,
+        "text": extra_text,
+        "text_hash": "test",
+        "source_capture_method": "fetched_page",
+        "source_variant_selection": {"selected_capture_method": "fetched_page"},
+    })
+    return package
+
+
+def test_package_conversion_signal_scan_positive_and_negative():
+    """FIX 1: the deterministic scan finds role-conversion signals (vocab and
+    different-prefix designations co-occurring with the locked machine) and
+    stays silent on packages without them."""
+    machine = "Boeing XB-15"
+    segments = _evidence_segments()
+    package = _package_with_extra_excerpt(
+        machine, segments,
+        "The Boeing XB-15 was redesignated XC-105 and served as a cargo transport.",
+    )
+    signals = pe._package_conversion_signals(package, machine)
+    hit = next(signal for signal in signals if signal["excerpt_id"] == "S9-E1")
+    assert "XC105" in hit["tokens"]
+    assert "cargo" in hit["terms"] and "redesignated" in hit["terms"] and "transport" in hit["terms"]
+    assert hit["enforce"] is True
+
+    # Prompt line names the excerpt and its signals.
+    line = pe._conversion_signal_prompt_line([hit])
+    assert "MUST-SELECT" in line and "S9-E1" in line and "XC105" in line
+
+    # Negative: the base package (no conversion vocabulary, no foreign-prefix
+    # designations in machine-mentioning excerpts) yields no signals.
+    clean = pe._package_conversion_signals(_verified_package_for_segments(machine, segments), machine)
+    assert clean == []
+    # An excerpt that does not mention the locked machine never signals.
+    unrelated = _package_with_extra_excerpt(
+        machine, segments, "The C-47 hauled cargo across every theater.", "S9-E2",
+    )
+    assert all(s["excerpt_id"] != "S9-E2" for s in pe._package_conversion_signals(unrelated, machine))
+
+
+def test_gap_stays_when_conversion_signal_unselected():
+    """FIX 2: a delivery/records-only outcome never satisfies the gap while an
+    enforceable conversion signal sits unselected - the warning names it."""
+    machine = "Boeing XB-15"
+    segments = _evidence_segments()
+    # Delivery/records-only reality (would otherwise be judged by the marker
+    # heuristic) with a conversion story sitting in the package.
+    card = _valid_research_card(machine, segments)
+    package = _package_with_extra_excerpt(
+        machine, segments,
+        "The Boeing XB-15 was redesignated XC-105 and served as a cargo transport.",
+    )
+    evidence, _errors = pe._normalize_machine_evidence(card, machine)
+    warnings = pe._designed_vs_used_gap_warnings(card, evidence, machine, package)
+    assert warnings and "selected none of it" in warnings[0] and "S9-E1" in warnings[0]
+
+    # Referee end-to-end: the same signal keeps the card failing.
+    referee = pe._research_card_contract_warnings(machine, card, package, require_source_package=True)
+    assert any("selected none of it" in w and "S9-E1" in w for w in referee)
+
+
+def test_gap_satisfied_when_conversion_evidence_selected():
+    """FIX 2 positive control: once the card carries the conversion evidence
+    (same excerpt identity / designation / vocabulary), the gap clears."""
+    machine = "Boeing XB-15"
+    segments = _evidence_segments()
+    conversion_text = "The Boeing XB-15 was redesignated XC-105 and served as a cargo transport."
+    package = _package_with_extra_excerpt(machine, segments, conversion_text)
+    selected = segments + [{
+        "evidence_id": "E-CONVERSION",
+        "kind": "reality",
+        "claim": conversion_text,
+        "source_excerpt": conversion_text,
+        "source_url": "https://history.test/conversion",
+        "source_title": "Conversion source",
+        "locator": "S9-E1",
+        "source_excerpt_id": "S9-E1",
+        "numeric_tokens": [],
+        "confidence": "high",
+    }]
+    card = _valid_research_card(machine, selected)
+    evidence, errors = pe._normalize_machine_evidence(card, machine)
+    assert errors == []
+    assert pe._designed_vs_used_gap_warnings(card, evidence, machine, package) == []
+
+
+def test_timeframe_repair_hints_name_the_dated_excerpt():
+    """FIX 3: when the timeframe states dates its segments lack while the
+    package holds them, the repair hint names the exact excerpt; once a
+    kind=timeframe support segment carries it, the referee's timeframe
+    grounding clears (rounds 2/5 machinery)."""
+    machine = "Boeing XB-15"
+    segments = _evidence_segments()
+    dated_text = "The Boeing XB-15 first flew in October 1937 and was delivered that December."
+    package = _package_with_extra_excerpt(machine, segments, dated_text, "S9-E9")
+    card = _valid_research_card(machine, segments)
+    card["timeframe"] = f"{machine} first flew in October 1937."
+    card["timeframe_evidence_ids"] = ["E-REALITY"]
+
+    hints = pe._timeframe_repair_hints(card, package)
+    assert hints and "S9-E9" in hints[0] and "1937" in hints[0]
+    assert "kind=timeframe support segment" in hints[0]
+
+    # No hints when the segments already carry the dates.
+    repaired_segments = segments + [{
+        "evidence_id": "E-TIMEFRAME-FIX",
+        "kind": "timeframe",
+        "claim": dated_text,
+        "source_excerpt": dated_text,
+        "source_url": "https://history.test/conversion",
+        "source_title": "Conversion source",
+        "locator": "S9-E9",
+        "source_excerpt_id": "S9-E9",
+        "numeric_tokens": ["1937"],
+        "confidence": "high",
+    }]
+    repaired = _valid_research_card(machine, repaired_segments)
+    repaired["timeframe"] = f"{machine} first flew in October 1937."
+    repaired["timeframe_evidence_ids"] = ["E-TIMEFRAME-FIX"]
+    assert pe._timeframe_repair_hints(repaired, package) == []
+    # The referee's timeframe grounding clears with the support segment.
+    referee = pe._research_card_contract_warnings(machine, repaired)
+    assert not any("timeframe contains detail(s) not grounded" in w for w in referee)
+    assert not any("timeframe introduced unsupported numerical" in w for w in referee)

@@ -2664,7 +2664,169 @@ def _timeframe_warnings(
     return warnings
 
 
-def _designed_vs_used_gap_warnings(card: dict, evidence: list[dict]) -> list[str]:
+# Round-8 FIX 1 (2026-07-16): role-conversion vocabulary that marks the
+# designed-vs-used story inside raw package excerpts.
+_CONVERSION_ROLE_TERMS = (
+    "cargo", "converted", "conversion", "redesignated", "tanker",
+    "target drone", "testbed", "trainer", "transport",
+)
+
+
+def _package_conversion_signals(package: Optional[dict], machine: str) -> list[dict]:
+    """Deterministic scan for REDESIGNATION/CONVERSION signals in a raw
+    source package (Round-8 FIX 1). No LLM involved.
+
+    A package excerpt is a conversion signal when it mentions the locked
+    machine AND carries (a) role-conversion vocabulary and/or (b) a
+    designation token whose letter-prefix differs from the locked machine's
+    (XB-15 -> XC-105). Signals with vocabulary are ENFORCED by the gap gate
+    (a prefix-only hit can be a mere comparison mention, so it guides the
+    prompt but never blocks on its own). Live evidence: XB-15's package held
+    the XC-105/cargo transport story and the model selected none of it."""
+    if not isinstance(package, dict):
+        return []
+    locked_codes = {code for code in _target_machine_designation_codes(machine) if code}
+    locked_prefixes = {
+        re.match(r"[A-Z]+", code).group(0)
+        for code in locked_codes
+        if re.match(r"[A-Z]+", code)
+    }
+    signals: list[dict] = []
+    for item in package.get("candidate_excerpts") or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text or not _mentions_machine(text, machine):
+            continue
+        lower = text.lower()
+        terms = sorted(
+            term for term in _CONVERSION_ROLE_TERMS
+            if re.search(rf"\b{re.escape(term)}\b", lower)
+        )
+        tokens: list[str] = []
+        for raw_token in _AIRCRAFT_DESIGNATION_RE.findall(text.upper()):
+            code = _normalized_unit_code(raw_token)
+            if not code or code in locked_codes:
+                continue
+            prefix_match = re.match(r"[A-Z]+", code)
+            if prefix_match and prefix_match.group(0) not in locked_prefixes:
+                if code not in tokens:
+                    tokens.append(code)
+        if terms or tokens:
+            signals.append({
+                "excerpt_id": str(item.get("excerpt_id") or item.get("locator") or "").strip(),
+                "terms": terms,
+                "tokens": tokens,
+                # Enforced by the gap gate only when conversion vocabulary is
+                # present (prefix-only = prompt guidance, not a block).
+                "enforce": bool(terms),
+            })
+    return signals
+
+
+def _conversion_signal_prompt_line(signals: list[dict]) -> str:
+    """Round-8 FIX 1: the explicit must-select instruction for the card prompts."""
+    enforced = [signal for signal in signals if signal.get("excerpt_id")]
+    if not enforced:
+        return ""
+    described = ", ".join(
+        signal["excerpt_id"]
+        + " ("
+        + ", ".join((signal.get("tokens") or []) + (signal.get("terms") or []))
+        + ")"
+        for signal in enforced[:4]
+    )
+    return (
+        "- MUST-SELECT: the package contains a role-conversion signal - "
+        f"{described}: this is the designed-vs-used story. Select that excerpt as evidence "
+        "(reality/service kind) and write actual_outcome from it.\n"
+    )
+
+
+def _card_evidence_carries_signal(evidence: list[dict], signal: dict) -> bool:
+    """True when any card evidence segment carries the conversion signal:
+    same excerpt identity, the signal designation, or the signal vocabulary."""
+    excerpt_id = str(signal.get("excerpt_id") or "")
+    tokens = set(signal.get("tokens") or [])
+    terms = signal.get("terms") or []
+    for segment in evidence or []:
+        if not isinstance(segment, dict):
+            continue
+        identity = {
+            str(segment.get("source_excerpt_id") or "").strip(),
+            str(segment.get("excerpt_id") or "").strip(),
+            str(segment.get("locator") or "").strip(),
+        }
+        if excerpt_id and excerpt_id in identity:
+            return True
+        segment_text = f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        if tokens and any(
+            _normalized_unit_code(raw) in tokens
+            for raw in _AIRCRAFT_DESIGNATION_RE.findall(segment_text.upper())
+        ):
+            return True
+        segment_lower = segment_text.lower()
+        if terms and any(re.search(rf"\b{re.escape(term)}\b", segment_lower) for term in terms):
+            return True
+    return False
+
+
+def _timeframe_repair_hints(card: dict, package: Optional[dict]) -> list[str]:
+    """Round-8 FIX 3: when the timeframe field states dates its segments lack
+    while the PACKAGE holds them, name the exact excerpt the repair should
+    return as a kind=timeframe support segment. Deterministic."""
+    if not isinstance(card, dict) or not isinstance(package, dict):
+        return []
+    timeframe = str(card.get("timeframe") or "")
+    if not timeframe.strip():
+        return []
+    wanted_keys = {
+        mention["key"]
+        for mention in _numeric_mentions_from_text(_strip_designations_for_numbers(timeframe))
+        if mention.get("key")
+    }
+    if not wanted_keys:
+        return []
+    segment_keys = {
+        _numeric_token_key(token)
+        for segment in (card.get("evidence_segments") or [])
+        if isinstance(segment, dict)
+        for token in _numeric_tokens_from_text(
+            f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+        )
+    }
+    missing_keys = wanted_keys - segment_keys
+    if not missing_keys:
+        return []
+    hints: list[str] = []
+    for item in package.get("candidate_excerpts") or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "")
+        excerpt_id = str(item.get("excerpt_id") or item.get("locator") or "").strip()
+        if not text or not excerpt_id:
+            continue
+        excerpt_keys = {
+            mention["key"] for mention in _numeric_mentions_from_text(_strip_designations_for_numbers(text))
+        }
+        covered = sorted(missing_keys & excerpt_keys)
+        if covered:
+            hints.append(
+                f"REPAIR HINT: excerpt {excerpt_id} contains the timeframe's date(s) "
+                f"({', '.join(covered)}) - return it as a kind=timeframe support segment "
+                "and cite it in timeframe_evidence_ids."
+            )
+        if len(hints) >= 3:
+            break
+    return hints
+
+
+def _designed_vs_used_gap_warnings(
+    card: dict,
+    evidence: list[dict],
+    machine: str = "",
+    source_package: Optional[dict] = None,
+) -> list[str]:
     """QL-3 research leg (OR-1 approved): research must surface the GAP.
 
     The channel engine runs on built-for-X-used-as-Y. If the card's
@@ -2674,11 +2836,34 @@ def _designed_vs_used_gap_warnings(card: dict, evidence: list[dict]) -> list[str
     restated the design intent and the writer has no gap to run on.
     Deterministic form: the used-side text must carry at least three novel
     content stems absent from the design-side text. The explicit
-    deliberately_bare tag is the only exemption."""
+    deliberately_bare tag is the only exemption.
+
+    Round-8 FIX 2: when the raw package holds enforceable conversion signals
+    (vocabulary-bearing excerpts) and the card selected NONE of them,
+    delivery/records-only outcomes never satisfy the gap - the warning stays
+    and names the exact excerpt(s) to select."""
     import re as _re
 
     if not isinstance(card, dict) or _bare_tag_is_valid(card):
         return []
+    unselected_signals = []
+    if machine and source_package is not None:
+        unselected_signals = [
+            signal for signal in _package_conversion_signals(source_package, machine)
+            if signal.get("enforce") and not _card_evidence_carries_signal(evidence, signal)
+        ]
+    if unselected_signals:
+        described = ", ".join(
+            (signal.get("excerpt_id") or "?")
+            + " ("
+            + ", ".join((signal.get("tokens") or []) + (signal.get("terms") or []))
+            + ")"
+            for signal in unselected_signals[:3]
+        )
+        return [
+            "no designed-vs-used gap found - the package holds the role-conversion story and the card "
+            f"selected none of it; select excerpt(s) {described} as evidence and write actual_outcome from it"
+        ]
     design_texts = [
         str(card.get("design_problem") or ""),
         str(card.get("engineering_response") or ""),
@@ -2817,7 +3002,7 @@ def _research_card_contract_warnings(
     # QL-3 research leg (OR-1 approved): the card must surface how the machine
     # was ACTUALLY used, not restate its design intent.
     if not evidence_errors:
-        warnings.extend(_designed_vs_used_gap_warnings(card, evidence))
+        warnings.extend(_designed_vs_used_gap_warnings(card, evidence, machine, source_package))
     if source_package is not None or require_source_package:
         warnings.extend(_verified_machine_source_package_quality_errors(source_package, machine))
         warnings.extend(_verified_machine_source_package_identity_errors(source_package, machine))
@@ -7017,6 +7202,15 @@ class PipelineExecutor:
                 f"LOCKED SELECTED MACHINE: {machine}\n"
                 if target_code else f"LOCKED MACHINE {i} OF {len(roster)}: {machine}\n"
             )
+            # Round-8 FIX 1: deterministic conversion-signal scan of the raw
+            # package; signals become an explicit must-select prompt line.
+            machine_source_package = (
+                verified_source_package if target_code
+                else _verified_source_package_for_machine(payload, machine)
+            )
+            conversion_signal_line = _conversion_signal_prompt_line(
+                _package_conversion_signals(machine_source_package, machine)
+            )
             prompt = (
                 "Create ONE Designed vs Used machine research card.\n\n"
                 f"VIDEO TITLE: {title}\n"
@@ -7027,6 +7221,7 @@ class PipelineExecutor:
                 "- Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine.\n"
                 "- If an excerpt mentions a different aircraft or machine designation, ignore that excerpt.\n"
                 "- HUNT THE GAP: DVsU runs on built-as-X-actually-used-as-Y. Prioritize evidence for how the machine was ACTUALLY used or ended - combat, service, conversion, redesignation, cancellation, scrapping - not its delivery, acceptance, or first flight. A card whose actual-use story merely restates the design intent fails review.\n"
+                f"{conversion_signal_line}"
                 "- Only when the hunt genuinely finds no use-story may you set \"deliberately_bare\": true, and then you MUST also return \"gap_hunt_summary\": one or two sentences stating what was searched and why no use-story exists. A bare tag without that summary is rejected.\n"
                 "- DVsU is engineering documentary: facts serve the engineering decision, not an encyclopedia/spec dump.\n"
                 "- Keep every prose value concise (normally 1-3 sentences) so the complete JSON object fits comfortably.\n"
@@ -7098,9 +7293,12 @@ class PipelineExecutor:
             for _card_repair_round in range(2):
                 if not warnings:
                     break
+                timeframe_hints = _timeframe_repair_hints(card, machine_source_package)
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
+                    + "".join(hint + "\n" for hint in timeframe_hints)
+                    + f"{conversion_signal_line}"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
                     "why_this_unit_deserves_a_paragraph must state the unique engineering idea this locked machine contributes to the video, specific enough that no other roster machine could replace it; do not use generic fame/importance wording. "
                     "It may not introduce dates, numbers, other machine designations, events, or specifications absent from the returned evidence_segments. "
