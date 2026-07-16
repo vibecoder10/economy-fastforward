@@ -1,4 +1,4 @@
-# HANDOFF - 2026-07-16 (night) Writer pass 5 shipped; XB-15 PASSES; key out of credits
+# HANDOFF - 2026-07-16 (late night) WRITER PASS 5 DONE: 3/3 previews PASS (XB-15, B-17, B-52)
 
 ## State
 - Prod: 4270bd22 deployed, healthy. Three deploys this session (51daa8df writer
@@ -9,12 +9,24 @@
 - B-17/B-52: reran twice, each round strictly better; final blockers are FIXED
   in 4270bd22 but the proof rerun is BLOCKED (below).
 
-## BLOCKER (Ryan): DvsU tenant Anthropic key is OUT OF CREDITS
-machine-script-preview returns 400 "Your Anthropic/Claude key is out of
-credits" (hit right after XB-15's pass). Add credits or swap the key
-(Settings -> API Keys for the Designed vs Used tenant), then just click
-Rerun Script on B-17 and B-52 in the Script tab. Expected: both pass - their
-last blockers were exactly what 4270bd22 fixes (see below).
+## RESOLVED late night: key topped up; 3/3 PASS
+After credits landed, B-52 passed on its first roll. B-17 took three more
+surgical fixes (all deployed, prod @ cec7bc6d):
+- B-17's requirement/tradeoff statements were hint-locked in the
+  engineering_decision slot; promoted S9-E3 (original_problem) + S2-E10
+  (tradeoff) + S2-E6/S2-E7/S10-E5 (production count, loss figure, spec
+  numbers) - all FREE promote_excerpt calls.
+- Designation + no-acronym-expansion laws added to the inventory prompts
+  (gate existed, prompt did not - contract triangle gap).
+- distiller max_tokens 950 -> 1500 (enriched plan truncated the bundle
+  JSON mid-parse).
+- NUMBER FLOOR added to both prompts (benchmark_cadence demands >=2
+  claim-mapped numbers; the prompt only ever said to limit numbers -
+  third triangle gap this pass).
+Final paragraphs: XB-15 (transport twist, hedged spec block), B-52
+("Built for nuclear deterrence, it outlasted the mission."), B-17
+(guns/bomb-load spec, 12,700+ built, 4,700 lost, "Heavy guns bought
+survival, not victory.").
 
 ## What shipped (all prompt/plan/repair-side, LAW FREEZE intact - zero gate edits)
 1. Twist flag: _machine_story_plan flags conversion-signal evidence
