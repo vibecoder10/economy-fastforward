@@ -198,3 +198,25 @@
 **Context:** S1.4's "invented toddler" was our own direction: the card's sentence carries the tail of Tom's line (sentence-level match_lines), so the native prompt told Tom to SPEAK on a bird close-up where only his sneakers show — Grok obliged by walking him in. Name-substring visibility checks can't fix this ("Tom's sneakers… without face" names Tom).
 **Alternatives:** suppress speech on cards where the speaker isn't fully visible (loses the spoken words — that sentence fragment is voiced ONLY by this card in grok_native); re-allocating spanned lines to the speaker-visible card (changes timing, complex). 
 **Why this won:** off-screen dialogue over a cutaway is normal film grammar, it's one deterministic sentence in the prompt, and it verified live on the first try (legs stay at frame edge, audio track carries the line).
+
+## 2026-07-17: StoryEngine positioning vs Higgsfield — open BYOK + YouTube-native loop
+**Decision:** StoryEngine competes with Higgsfield head-on as the open alternative: user's own API keys at true cost (vs their credit-markup wall), full videos not clips, published to YouTube with CTR/retention feeding back into future creative decisions. The copilot replicates Higgsfield's winning UX (outcome-based model routing, preset-first, agentic co-creation) without their dark patterns (throttled "unlimited", billing traps, rage-bait marketing).
+**Context:** Deep-research teardown 2026-07-17 (`docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md`): Higgsfield hit ~$500M ARR in 15 months on multi-model aggregation + camera presets + paid-UGC distribution, but has no timeline editor, no social integrations, and a documented trust deficit.
+**Why this won:** Their two structural blind spots map exactly onto our existing strengths (end-to-end pipeline, YouTube publishing + analytics). Their MCP proves agentic co-creation is a growth channel; ours is better-shaped because sessions end in a published video with performance data, not a downloaded clip.
+
+## 2026-07-17: Two doors, one registry (interaction law)
+**Decision:** Every user-facing capability ships BOTH a clickable control AND a conversational path (Producer/co-pilot), both calling the same verb in `storyengine/backend/actions.py`. The planned MCP server is the third door on the same registry. A feature with one door is incomplete by definition.
+**Context:** The 4-agent audit found ~25 cases of built-but-invisible (40+ camera moves, 5 visual profiles, per-user BYOK) or visible-but-fake (image-model dropdown ignored by the live path, dead registry models). Root cause: layers built without wiring to the layers users touch.
+**Alternatives:** chat-first only (breaks discoverability), UI-first only (copilot says "I can't do that" for things buttons do — trust-killer for a co-creation partner).
+**Why this won:** The registry already exists and already powers both chat and buttons for ~20 verbs — the law formalizes what the architecture was built for, at near-zero marginal cost.
+
+## 2026-07-17: Copilot routes models by declared outcome, per scene, with visible reasoning
+**Decision:** Users declare intent ("hero shot", "b-roll", "keep it under $10"); the router maps scene intent → model via a decision table stored as data (`best_for`/`tier`/`cost`/`wired` per model, served by `GET /api/models`). Every routed choice shows a one-line "why" and a one-tap override. Routing is per-scene (`routed_model`/`routing_reason`/`model_used` columns), not one global video model. "Draft cheap, finish expensive" ships as verbs (draft_pass / finalize on approved scenes), not advice.
+**Context:** Higgsfield's core insight — users think in outcomes, not model names; their presets/MCP hide model selection. StoryEngine already classifies scenes (camera purpose REVEAL/ESTABLISH/PAYOFF, scene-planner peaks), so intent tags largely exist.
+**Alternatives:** keep global model dropdown (10x cost mistakes, user must learn models); fully hidden auto-routing (black box — breaks trust and the BYOK true-cost story).
+**Why this won:** Auto-with-visible-reasoning is the only version consistent with our trust positioning, and per-scene routing is what makes draft/finalize economics possible ($1-2 drafts vs $17+ all-premium).
+
+## 2026-07-17: Cost ledger is truth; estimates are hints; one price source
+**Decision:** Every generation writes an actual-cost row (`generation_ledger`: video, stage, model, units, actual cost, kie_task_id) and rolls up `videos.total_cost`. Price constants live in ONE place (model registry / `/api/models`); `actions.py` estimates and all frontend displays derive from it. UI shows "Est → Actual". Frontend copies of price tables are deleted, not synced.
+**Context:** Cost counter is wrong today: prices duplicated across `actions.py`, `lib/next-action.ts`, and `MODEL_REGISTRY` (drift), and spend is inferred from artifact counts because no ledger exists.
+**Why this won:** BYOK's whole pitch is true cost; a platform that can't state actual spend can't make that pitch. Ledger rows are also the substrate for budget caps and per-preset ROI analytics (P3).

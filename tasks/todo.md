@@ -1,41 +1,87 @@
 # Task Tracking
 
-## Handoff — 2026-07-17 (Higgsfield competitive teardown DONE → next: copilot router build)
+## Handoff — 2026-07-17 (Higgsfield teardown + full build plan COMPLETE → next session BUILDS)
 
-Mission context: StoryEngine is to become the main competitor to Higgsfield (higgsfield.ai),
-differentiating on open BYOK + YouTube-native publishing. The copilot should model what makes
-Higgsfield great.
+**Mission:** StoryEngine becomes the main competitor to Higgsfield (higgsfield.ai).
+Differentiation: open BYOK (user's own keys at true cost — Higgsfield's MCP/API locks billing
+into their credits) + YouTube-native publishing with a performance feedback loop (Higgsfield
+has NO social integrations — their agent makes clips; ours runs a channel). The copilot should
+feel like Higgsfield's best trick: talk to it like a co-writing partner and it just makes what
+you want — with our mapped shots.
 
-- **Read first:** `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md` — full
-  teardown (product/promotion/routing), side-by-side comparison table, and 8 ranked copilot
-  recommendations. All research is in that one file; do NOT re-run research.
-- **Work from:** `tasks/storyengine-wiring-fix-checklist.md` — the complete fix list (P0
-  integrity bugs → P1 copilot router → P2 surfacing incl. StoryEngine MCP server → P3
-  learning loops/stubs), every item mapped to Data/Backend/UI layers with a Verify step.
-  An item is not done until all its layers ship and Verify passes.
-- **Build UX to:** `tasks/storyengine-copilot-ux-map.md` — per-feature interaction map:
-  the clickable door AND the conversational door (example utterances + click paths), the
-  "two doors, one registry" law, and the MCP server spec (§7) for co-creating from Claude.
-- **Top build priorities agreed with Ryan (in order):**
-  1. **Copilot as router** — outcome → model per scene ("hero shot → Veo Quality, b-roll → Grok"),
-     show "why this model", one-tap override. Higgsfield's MCP pattern; wire through the existing
-     `storyengine/backend/actions.py` verb registry.
-  2. **"Draft cheap, finish expensive" workflow** — iterate scenes on Grok ($0.10/clip), a
-     "Finalize" pass regenerates only approved/hero shots on Veo Quality ($1.25); show projected
-     savings in the cost quote.
-- **Known routing bugs to fix before/with #1** (from the model-routing audit):
-  - Image-model dropdown is cosmetic: `scripts/coverage_to_app.py` hardcodes
-    `generate_scene_image_gpt` and never reads `video.image_model_override`.
-  - 3 dead video models in `shared/channel_profile.py` MODEL_REGISTRY (Kling 3.0 Pro, Runway
-    Gen-4 Turbo, Hailuo 2.3) — wire or hide.
-  - Home Producer hard-requires an Anthropic key (`chat.py` ~3176) while onboarding promises
-    Kie-only is enough — use the Kie text-client fallback the in-video copilot already has.
-  - No actual-spend ledger — costs estimated from constants duplicated in `actions.py` /
-    `lib/next-action.ts` / `MODEL_REGISTRY`.
-- **New standing rule (CLAUDE.md → Subagent Strategy):** premium model for main-loop
-  orchestration/synthesis only; ALL fan-out subagents get explicit `model: "sonnet"`.
-- Branch: `claude/story-engine-repo-sgnm8l` (commits e914be6 policy, f92ded1 report). Not merged
-  to main yet.
+### What this session produced (all on main, nothing pending)
+This was a research + planning session. NO product code was changed. Four docs were produced,
+all committed to main (through `c7ac683`) and cross-referenced:
+
+1. `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md` — the research.
+   Higgsfield teardown (product / promotion / prompt-routing), 13-dimension comparison table,
+   8 ranked recommendations. Claims labeled [verified] (survived adversarial checks) vs
+   [reported]. Do NOT re-run research; do NOT trust Higgsfield price points beyond July 2026.
+2. `tasks/storyengine-wiring-fix-checklist.md` — THE WORK QUEUE. P0→P3, every item mapped
+   to `[D]`ata / `[B]`ackend / `[U]`I layers with a `[V]`erify step. An item is not done until
+   every listed layer ships AND Verify passes with evidence. This exists because the audit
+   found ~25 cases of "built but invisible" or "visible but fake."
+3. `tasks/storyengine-copilot-ux-map.md` — HOW USERS TOUCH EACH FEATURE. Per feature: the
+   clickable door (exact controls/click paths) AND the conversational door (example
+   utterances), plus the MCP server spec (§7) and the conversational quality bar.
+4. CLAUDE.md + tasks/lessons.md — subagent model policy (see Session rules below).
+
+### Build order (work the checklist top-down)
+1. **P0 first — integrity bugs that lie to users today.** Cosmetic image-model dropdown
+   (`scripts/coverage_to_app.py` hardcodes `generate_scene_image_gpt`, never reads
+   `video.image_model_override`); 3 dead models in `MODEL_REGISTRY` (Kling 3.0 Pro, Runway
+   Gen-4 Turbo, Hailuo 2.3); cost counter wrong (prices duplicated in `actions.py` +
+   `lib/next-action.ts` + `MODEL_REGISTRY`, no actual-spend ledger, `videos.total_cost`
+   never rolled up); home Producer hard-requires Anthropic key (`routes/chat.py` ~3176)
+   breaking Kie-only tenants; research silently skipped in default autobuild
+   (`actions.py` L401-421); docked co-pilot drops file attachments (`ChatCore.attachFiles`
+   early-returns when docked ~L359).
+2. **P1 — the copilot router.** Decision table as data (`GET /api/models` with best_for/tier/
+   cost/wired) → per-scene routing (scene intent from existing `camera_selector.py` purpose
+   tags → routed_model + routing_reason columns) → model badges with "why" + one-tap override
+   in ScenesWorkspaceTab → draft-cheap/finalize-expensive verbs with itemized quotes.
+3. **P2 — surface the buried machinery.** Style gallery from the 5 Python visual profiles
+   (styles become DB rows; DELETE the duplicated 6-preset lists in `visual-presets.ts` and
+   `producer_prompt.VISUAL_PRESETS`); camera-move chips from the 40+ catalog; script voice
+   selection; **StoryEngine MCP server (P2.4)** — expose the `actions.py` verb registry to
+   external agents, per-user tokens, BYOK pass-through, quote+confirm_token money gate.
+4. **P3 — learning loops + stub cleanup.** Per-preset CTR/retention tracking (the moat);
+   legacy stubs get wired or deleted, no third option (momentum/retention placeholders
+   returning 50.0 in `confidence_scorer.py`; `learning_extractor` CTR TODO;
+   `get_competitor_title_patterns()` returning "").
+
+### Key architectural decisions (also in tasks/decisions.md — do not re-litigate)
+- **Two doors, one registry:** every capability = clickable control + conversational path,
+  both calling the same `actions.py` verb; MCP becomes the third door on the same registry.
+- **Router routes by declared outcome, not model name;** always shows "why"; override always
+  one tap away; per-scene not per-video.
+- **Ledger is truth, estimates are hints:** actual per-generation spend recorded from API
+  responses; single price source; Est → Actual shown in UI.
+- **Styles are data, not code:** DB-backed preset catalog; Python profiles remain the runtime
+  engine behind it.
+
+### Session rules established (in CLAUDE.md, follow them)
+- **Subagent model policy:** premium model (Fable/Opus tier) for main-loop orchestration/
+  synthesis ONLY; ALL fan-out subagents get explicit `model: "sonnet"` (Agent calls and
+  workflow `agent()` opts). This session burned ~4M premium tokens by not doing this.
+- Docs-only commits were fast-forward merged to main with Ryan's explicit approval; code
+  changes go through the normal branch flow — main must stay deployable (VPS auto-pulls
+  hourly).
+
+### Watch-outs for the builder
+- The StoryEngine SaaS backend (`storyengine/backend`) is canonical; `skills/video-pipeline/`
+  is the legacy Airtable side. When both implement a thing, fix the SaaS side; legacy stubs
+  are wire-or-delete decisions, not silent parallel maintenance.
+- Frontend/backend duplicated constants are the #1 drift source found (prices, presets,
+  wired-model lists). Every fix should END with one source of truth + derived consumers.
+- Money gate is sacred: no new path (router, MCP, finalize) may spend without a quote and
+  explicit confirm — extend `_estimate_cost`/confirm cards, don't fork them.
+- Per the checklist's Definition of Done: `[V]` evidence required, `npx tsc --noEmit` clean,
+  SYSTEM_STATE.md updated for structural changes, checklist box ticked in the same commit
+  as the fix.
+
+**Opener for next session:** "Read the handoff in tasks/todo.md, then start at P0.1 of
+tasks/storyengine-wiring-fix-checklist.md, building UX to tasks/storyengine-copilot-ux-map.md."
 
 ## Handoff - 2026-07-16 (Modal close wedge FIXED - on main, NOT pushed, NOT deployed)
 
