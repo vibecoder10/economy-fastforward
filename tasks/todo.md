@@ -1,5 +1,35 @@
 # Task Tracking
 
+## Handoff — 2026-07-17 (Higgsfield competitive teardown DONE → next: copilot router build)
+
+Mission context: StoryEngine is to become the main competitor to Higgsfield (higgsfield.ai),
+differentiating on open BYOK + YouTube-native publishing. The copilot should model what makes
+Higgsfield great.
+
+- **Read first:** `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md` — full
+  teardown (product/promotion/routing), side-by-side comparison table, and 8 ranked copilot
+  recommendations. All research is in that one file; do NOT re-run research.
+- **Top build priorities agreed with Ryan (in order):**
+  1. **Copilot as router** — outcome → model per scene ("hero shot → Veo Quality, b-roll → Grok"),
+     show "why this model", one-tap override. Higgsfield's MCP pattern; wire through the existing
+     `storyengine/backend/actions.py` verb registry.
+  2. **"Draft cheap, finish expensive" workflow** — iterate scenes on Grok ($0.10/clip), a
+     "Finalize" pass regenerates only approved/hero shots on Veo Quality ($1.25); show projected
+     savings in the cost quote.
+- **Known routing bugs to fix before/with #1** (from the model-routing audit):
+  - Image-model dropdown is cosmetic: `scripts/coverage_to_app.py` hardcodes
+    `generate_scene_image_gpt` and never reads `video.image_model_override`.
+  - 3 dead video models in `shared/channel_profile.py` MODEL_REGISTRY (Kling 3.0 Pro, Runway
+    Gen-4 Turbo, Hailuo 2.3) — wire or hide.
+  - Home Producer hard-requires an Anthropic key (`chat.py` ~3176) while onboarding promises
+    Kie-only is enough — use the Kie text-client fallback the in-video copilot already has.
+  - No actual-spend ledger — costs estimated from constants duplicated in `actions.py` /
+    `lib/next-action.ts` / `MODEL_REGISTRY`.
+- **New standing rule (CLAUDE.md → Subagent Strategy):** premium model for main-loop
+  orchestration/synthesis only; ALL fan-out subagents get explicit `model: "sonnet"`.
+- Branch: `claude/story-engine-repo-sgnm8l` (commits e914be6 policy, f92ded1 report). Not merged
+  to main yet.
+
 ## Handoff - 2026-07-16 (Modal close wedge FIXED - on main, NOT pushed, NOT deployed)
 
 The shared Modal (`ui/modal.tsx`) never unmounted after close: AnimatePresence held the exited
