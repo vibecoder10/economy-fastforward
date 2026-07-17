@@ -148,3 +148,79 @@ Once P1.1 makes the registry data-driven, adding a model = one registry row (bes
 3. `cd storyengine/frontend && npx tsc --noEmit` clean.
 4. No new duplicated constants between frontend and backend.
 5. `SYSTEM_STATE.md` updated if files moved/created; this checklist's box ticked in the same commit as the fix.
+
+---
+
+# LOOP EXECUTION PLAN — chunked order + iteration protocol
+
+Built for running with `/loop`. Each chunk = ONE loop iteration = one clean commit. Big items
+above are split here; **this section's order is the execution order** (the P-sections above hold
+the full layer detail — chunks reference them).
+
+## Iteration protocol (every loop pass)
+1. **Pick the topmost unchecked chunk below.** Never skip past an unchecked SWEEP gate.
+2. **Ship the whole chunk** — all its layers, per the parent item's [D]/[B]/[U] spec and the
+   UX map. A chunk too big to finish this pass = STOP, split it in this file first, do part 1.
+3. **Verify** per the parent's `[V]`. Cost cap for verification: cheapest model, 1 unit,
+   target < $1/chunk; NEVER verify with Veo Quality unless the chunk is about Veo Quality.
+   Use existing test tenants/videos; no real YouTube publishes for verification.
+4. **End clean:** `npx tsc --noEmit` green → commit on the designated `claude/*` branch with
+   the chunk ID in the message → tick the chunk here (same commit) → ff-merge to main ONLY if
+   the chunk is deploy-safe (main auto-deploys hourly; when unsure, stay on branch and note it).
+5. **Update the `## Handoff` in tasks/todo.md** (2 lines: chunk done, next chunk) so an
+   interrupted loop resumes cold.
+6. **Blocked?** Don't half-wire: revert, or commit WIP to branch with a `⚠ WIP` note in the
+   handoff, and tick NOTHING. Product calls flagged "Ryan" → skip the chunk, leave a question
+   in the handoff, continue to the next chunk.
+7. Sweeps run as ONE Sonnet Explore agent; append findings to the audit report + add any new
+   fixes as chunks here, in the same iteration.
+
+## Chunk queue (execution order)
+
+**Phase 0 — integrity**
+- [ ] C01 · SWEEP S6 (schema drift) — gate for all migrations. Knowledge map §3.
+- [ ] C02 · P0.1 image-model override honored on coverage path + asset model badge
+- [ ] C03 · P0.2 dead models: `wired` flag in registry + minimal `GET /api/models` + frontend derives from it
+- [ ] C04 · P0.4 home Producer works Kie-only (text-client fallback + soft hint)
+- [ ] C05 · P0.6 docked co-pilot accepts file attachments
+- [ ] C06 · P0.5 research-skipped transparency chip + one-tap enable
+- [ ] C07 · P0.3a `generation_ledger` migration + ledger writes on CLIP path + `total_cost` rollup
+- [ ] C08 · P0.3b ledger writes on images/voice/thumbnail/sound paths
+- [ ] C09 · P0.3c single price source (registry → `actions.py` estimates; DELETE `next-action.ts` constants)
+- [ ] C10 · P0.3d UI "Est → Actual" chip + ledger drawer; update `docs/cost-awareness.md`
+
+**Phase 1 — router**
+- [ ] C11 · P1.1 decision table: extend `/api/models` with best_for/tier
+- [ ] C12 · P1.2a router module + scene columns migration (`routed_model`/`routing_reason`/`model_used`) + routing written at shot-plan time
+- [ ] C13 · P1.2b clip generation reads per-scene routed model; records `model_used`
+- [ ] C14 · P1.2c UI: per-scene model badges + "why" + one-tap override sheet
+- [ ] C15 · P1.2d copilot routing conversation + itemized per-tier confirm cards (UX map §1)
+- [ ] C16 · SWEEP S7 (queue/idempotency) — gate for finalize billing safety
+- [ ] C17 · P1.3a `draft_pass` + `finalize` verbs, idempotent job_ids
+- [ ] C18 · P1.3b GuidedNextStep draft/finalize labels + scene Approve ticks + savings line (UX map §2)
+
+**Phase 2 — surfacing + MCP**
+- [ ] C19 · SWEEP S9 (frontend state) — before the big UI wave
+- [ ] C20 · P2.1a `style_presets` table seeded from the 5 profiles + `GET /api/style-presets` + executor mapping
+- [ ] C21 · P2.1b gallery UI + chat LOOK card from the API; DELETE `visual-presets.ts` + `producer_prompt.VISUAL_PRESETS` duplicates
+- [ ] C22 · P2.1c user-created presets via chat ("make me a new style…") (UX map §3)
+- [ ] C23 · P2.2 camera-preset chips: `/api/camera-presets` + scene chip + sheet (UX map §4)
+- [ ] C24 · P2.3 script-profile selection (column + env seam + UI option)
+- [ ] C25 · SWEEP S5 (security/tenancy) — HARD gate for MCP; fix any criticals it finds as inserted chunks before proceeding
+- [ ] C26 · P2.4a MCP endpoint + `agent_tokens` migration + auth
+- [ ] C27 · P2.4b tool set + quote/confirm_token money gate on every paid tool
+- [ ] C28 · P2.4c Settings "Agent access" UI + "via agent" attribution chip
+- [ ] C29 · P2.4d full external-client loop verify (create → route → draft → finalize → upload draft)
+
+**Phase 3 — learning loops + debt**
+- [ ] C30 · P3.1a preset/model choices queryable next to CTR/retention snapshots + aggregation query
+- [ ] C31 · P3.1b analytics "by style" panel + producer cites channel-data in LOOK recommendations
+- [ ] C32 · P3.2 legacy stubs: scorer placeholders + learning_extractor + competitor_title_patterns — wire or delete (may split on findings)
+- [ ] C33 · P3.4 quota guard + own-video VPH
+- [ ] C34 · SWEEP S10 (multi-tenant branding) + P3.4 SEO branding parameterization
+- [ ] C35 · P3.4 Whisper-key friction + Claude tier map single-sourcing
+- [ ] C36 · P3.3 UX debt: checkpoint-audio expectation, cold-start card, budget ceiling, confidence telemetry (split per item if any runs long)
+- [ ] C37 · P3.3/P3.4 product calls for Ryan: create-surface convergence, per-user BYOK slice — decision chunk, not build
+
+**Deliberately AFTER the loop:** Backlog B1 (new models), Growth G1-G5 (marketing), S8 render
+sweep fires before C17 only if draft-pass verify shows render turnaround is the bottleneck.
