@@ -1,5 +1,10 @@
 # Task Tracking
 
+## ⟳ LOOP PROGRESS (read this first — resume point)
+- **Last done:** C01 · SWEEP S6 (schema drift). Live Supabase (`wrromlupsmyzrrcqlucn`) confirms base CLEAN for the ledger migration (`videos.total_cost`/`image_model_override` exist; `generation_ledger`/`style_presets`/`agent_tokens` correctly absent). Findings in audit report §S6. Merged to main (`a85ebf4`), pushed.
+- **Next chunk:** C01a · Schema/migration hygiene (NON-blocking cleanup the sweep surfaced: reconstruct missing migration 050 source, retire ad-hoc DDL for `secrets`/`static_reference_cache` + close their RLS gaps, refresh stale `schema.sql`). C01a does NOT gate C07 (base is verified) — a builder may skip C01a to C02 if prioritizing product integrity over schema hygiene; loop default is top-down so do C01a next.
+- **Branch:** work + push on `claude/story-engine-build-loop-tfdg8n` (NOT the stale `sgnm8l` name in the loop docs — that branch doesn't exist); ff-merge deploy-safe chunks to main.
+
 ## Handoff — 2026-07-17 (Higgsfield teardown + full build plan COMPLETE → next session BUILDS)
 
 **Mission:** StoryEngine becomes the main competitor to Higgsfield (higgsfield.ai).
