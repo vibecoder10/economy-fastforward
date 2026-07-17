@@ -1672,6 +1672,10 @@ export interface Asset {
   duration_seconds?: number | null;
   /** Bad-crop validation flags from extraction: 'label_leak', 'gutter_split' */
   extraction_flags?: string[] | null;
+  /** Which image model ACTUALLY drew this picture ('gpt-image-2' | 'nano-banana-2' |
+   * 'z-image'), independent of the video's current image_model_override — a mismatch
+   * means the override wasn't honored when this picture was made, or a fallback fired. */
+  image_model?: string | null;
   created_at: string | null;
 }
 
@@ -1721,6 +1725,7 @@ export interface ImageVariant {
   sentence_text: string | null;
   panel_position?: number | null;
   generation_method?: string | null;
+  image_model?: string | null;
   created_at: string | null;
 }
 

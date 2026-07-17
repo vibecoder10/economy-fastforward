@@ -338,6 +338,10 @@ CREATE TABLE assets (
   assigned_dialogue TEXT,  -- coverage-assigned spoken line for a speaking shot (migration 065)
   assigned_video_duration NUMERIC,
   estimated_clip_cost NUMERIC,
+  -- WHICH image model actually drew this picture (migration 084): 'gpt-image-2',
+  -- 'nano-banana-2', 'z-image', or NULL for pre-migration rows. May differ from
+  -- videos.image_model_override when a content-policy/failure fallback fired.
+  image_model TEXT,
 
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

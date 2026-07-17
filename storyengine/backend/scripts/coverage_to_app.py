@@ -57,8 +57,8 @@ from storyboard.coverage import (  # noqa: E402
     parse_axis_line, parse_setups_line, panels_per_sheet_for,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
+from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
 from shared.channel_profile import load_profile               # noqa: E402
-from orchestrator.pipeline_constants import Models            # noqa: E402
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
@@ -602,6 +602,8 @@ async def redo_characters(vid, tenant, claude, claude_model, ic, script_text, on
     rows = [r for r in rows if not only or r["name"].lower() == only.lower()]
     if not rows:
         print("No characters to redo."); return 0
+    v = await fetch_one("SELECT image_model_override FROM videos WHERE id=$1 AND tenant_id=$2", vid, tenant)
+    model_override = (v or {}).get("image_model_override")
     n = 0
     for r in rows:
         desc = (r["description"] or "").strip()
@@ -618,8 +620,8 @@ async def redo_characters(vid, tenant, claude, claude_model, ic, script_text, on
                 kw["model"] = claude_model
             desc = ((await claude.generate(**kw)) or "").strip() or r["description"]
         prompt = CHARACTER_SHEET_TEMPLATE.format(style=CHARACTER_SHEET_STYLE, desc=desc)
-        r = await ic.generate_scene_image_gpt(prompt, None, "16:9")  # GPT Image 2 text-to-image
-        url = r.get("url") if isinstance(r, dict) else r
+        # No reference image — the 4-view sheet IS the identity anchor being (re)built.
+        url, _model_used = await generate_scene_image_for_model(ic, model_override, prompt, aspect_ratio="16:9")
         if not url:
             print(f"  {r['name']}: 4-view sheet generation FAILED — keeping old"); continue
         stable = await _stable_url(url, f"{vid}/characters/{r['name'].replace(' ', '_')}_sheet.png", tenant)
@@ -783,13 +785,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style, "
+        "image_style_override, visual_style, image_model_override, "
         "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
+    model_override = v["image_model_override"]
     profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
@@ -902,9 +905,9 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             on_sheet = min(_cap, shot_count - _cap * (bi - 1))
             _p(f"Scene {sc}: drawing {'ONLY board' if beat is not None else 'board'} "
                f"{bi} of {len(prompts)} — one sheet, {on_sheet} panels{lock_note}…")
-            res = (await ic.generate_thumbnail_gpt2(sp + env_block, sheet_refs, aspect) if sheet_refs
-                   else await ic.generate_scene_image_gpt(sp + env_block, None, aspect))
-            url = res.get("url") if isinstance(res, dict) else res
+            # Storyboard SHEETS are a preview, not an asset row — no image_model to persist here.
+            url, _model_used = await generate_scene_image_for_model(
+                ic, model_override, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect)
             if url:
                 stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant)
                 # bi is 1-5 by construction (prompts capped, beat validated).
@@ -942,7 +945,10 @@ SAFE_REFRAME_PREFIX = (
 
 async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_reframe=False):
     """Redraw ONE picture from its (possibly edited) image_prompt, anchored on the LOCKED
-    cast sheets so the characters stay consistent. Clears the now-stale clip. GPT Image 2.
+    cast sheets so the characters stay consistent. Clears the now-stale clip. Honors the
+    video's image_model_override (GPT Image 2 stays the default + the content-policy
+    fallback — see shared.clients.image_model_router, the ONE resolver this and the
+    legacy pipeline_executor.py variant path both use).
 
     safe_reframe: prepend a wholesome medium-shot directive so a frame that grok's
     content filter rejected gets redrawn into a framing the filter accepts."""
@@ -955,7 +961,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
 
     a = await fetch_one(
         "SELECT a.id, a.scene, a.image_index, a.image_prompt, "
-        "COALESCE(v.aspect_ratio,'16:9') AS aspect "
+        "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
         "WHERE a.id=$1 AND a.video_id=$2 AND a.tenant_id=$3", asset_id, video_id, tenant_id)
     if not a:
@@ -973,18 +979,20 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         "AND reference_url IS NOT NULL ORDER BY sort", video_id, tenant_id)
     cast_refs = [r["reference_url"] for r in crows]
 
-    _p(f"Redrawing S{a['scene']}.{a['image_index']} (GPT Image 2)…")
-    res = (await ic.generate_thumbnail_gpt2(prompt, cast_refs, a["aspect"]) if cast_refs
-           else await ic.generate_scene_image_gpt(prompt, None, a["aspect"]))
-    url = res.get("url") if isinstance(res, dict) else res
+    model_override = a.get("image_model_override")
+    _p(f"Redrawing S{a['scene']}.{a['image_index']} ({model_override or 'GPT Image 2'})…")
+    url, model_used = await generate_scene_image_for_model(
+        ic, model_override, prompt, reference_urls=cast_refs, aspect_ratio=a["aspect"])
     if not url:
         return {"status": "failed", "error": "image generation failed"}
     stable = await _stable_url(url, f"{video_id}/coverage/S{a['scene']}_i{a['image_index']}.png", tenant_id)
     # New picture → the old clip is stale: clear it so the scene re-animates clean.
+    # image_model records WHICH model actually drew it (may differ from the override
+    # if a content-policy/failure fallback fired) — the truth the badge shows.
     await execute(
         "UPDATE assets SET image_url=$1, drive_image_url=$1, video_clip_url=NULL, "
-        "video_status=NULL, updated_at=now() WHERE id=$2 AND tenant_id=$3",
-        stable, asset_id, tenant_id)
+        "video_status=NULL, image_model=$2, updated_at=now() WHERE id=$3 AND tenant_id=$4",
+        stable, model_used, asset_id, tenant_id)
     return {"status": "completed", "message": f"Picture S{a['scene']}.{a['image_index']} redrawn"}
 
 

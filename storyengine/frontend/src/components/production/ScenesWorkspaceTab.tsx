@@ -50,6 +50,15 @@ const WIRED_MODELS: { id: string; label: string }[] = [
   { id: "veo-3.1-quality", label: "Veo 3.1 Quality — $1.25/clip" },
 ];
 
+/** Short labels for the picture-model badge (asset.image_model — the model that
+ * ACTUALLY drew this panel, from shared/clients/image_model_router.py). Matches
+ * the Pictures selector's 3 values (ScenesWorkspaceTab L1121-1126). */
+const IMAGE_MODEL_BADGE: Record<string, string> = {
+  "gpt-image-2": "GPT",
+  "nano-banana-2": "Nano",
+  "z-image": "Z",
+};
+
 /** Loose containment match for the 💬 badge — mirrors backend match_lines. */
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
@@ -1900,6 +1909,18 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
           <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium"
             style={{ background: "rgba(0,0,0,0.55)", color: "var(--turquoise)", backdropFilter: "blur(4px)" }}>
             <MessageCircle size={10} /> {speaker}
+          </span>
+        )}
+
+        {/* Picture-model badge — the model that ACTUALLY generated this panel, so a
+            creator who picked one model but sees a stale/fallback badge can tell at
+            a glance instead of the override silently lying (checklist §0.1). */}
+        {asset.image_model && (
+          <span
+            className="absolute top-2 right-2 z-10 inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium"
+            title={`Generated with ${asset.image_model}`}
+            style={{ background: "rgba(0,0,0,0.55)", color: "var(--text-secondary)", backdropFilter: "blur(4px)" }}>
+            {IMAGE_MODEL_BADGE[asset.image_model] ?? asset.image_model}
           </span>
         )}
 

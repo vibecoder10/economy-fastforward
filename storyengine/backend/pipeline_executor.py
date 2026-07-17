@@ -13689,15 +13689,14 @@ separate scenes."""
 
             self._load_idea_from_video(video_id)
 
-            from orchestrator.pipeline_constants import Models
-            from shared.clients.image_client import ImageClient
             from shared.clients.airtable_client import get_image_model_override
+            from shared.clients.image_model_router import (
+                generate_scene_image_for_model, VALID_IMAGE_MODELS,
+            )
 
             model_override = get_image_model_override(self._pipeline.current_idea or {})
-            if model_override and model_override not in ImageClient.VALID_SCENE_MODELS:
+            if model_override and model_override not in VALID_IMAGE_MODELS:
                 model_override = ""
-
-            use_reference = bool(self._pipeline.core_image_url) and model_override != Models.IMAGE_ZIMAGE
 
             existing = await fetch_one(
                 """SELECT COALESCE(MAX(panel_position), 0) AS max_variant
@@ -13710,18 +13709,18 @@ separate scenes."""
             created = 0
 
             for offset in range(variants):
-                if model_override == Models.IMAGE_ZIMAGE:
-                    result = await self._pipeline.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
-                elif use_reference:
-                    result = await self._pipeline.image_client.generate_scene_image(prompt, self._pipeline.core_image_url)
-                else:
-                    result_urls = await self._pipeline.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
-                    result = {"url": result_urls[0]} if result_urls else None
+                # ONE shared resolver for the whole app (also used by
+                # scripts/coverage_to_app.py) — GPT Image 2 stays the default
+                # and the content-policy/failure fallback for an explicit
+                # nano-banana-2/z-image override; see image_model_router.py.
+                image_url, model_used = await generate_scene_image_for_model(
+                    self._pipeline.image_client, model_override, prompt,
+                    reference_urls=self._pipeline.core_image_url, aspect_ratio="16:9",
+                )
 
-                if not result or not result.get("url"):
+                if not image_url:
                     continue
 
-                image_url = result["url"]
                 # Persist variant to Supabase Storage
                 variant_path = f"{video_id}/images/S{scene}-{index}-v{next_variant_position + offset}.png"
                 image_url = await self._persist_url(image_url, variant_path)
@@ -13745,11 +13744,11 @@ separate scenes."""
                     """INSERT INTO assets (
                         id, tenant_id, video_id, video_title, scene, image_index, sentence_index,
                         sentence_text, image_prompt, shot_type, hero_shot, image_url, drive_image_url,
-                        status, generation_method, panel_position, created_at, updated_at
+                        status, generation_method, panel_position, image_model, created_at, updated_at
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6, $7,
                         $8, $9, $10, $11, $12, $13,
-                        $14, $15, $16, now(), now()
+                        $14, $15, $16, $17, now(), now()
                     )""",
                     str(uuid.uuid4()),
                     self.tenant_id,
@@ -13767,6 +13766,7 @@ separate scenes."""
                     "done",
                     "variant_candidate",
                     next_variant_position + offset,
+                    model_used,
                 )
                 created += 1
 

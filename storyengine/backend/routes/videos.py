@@ -791,7 +791,7 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
         """SELECT id, video_id, scene, image_index, image_url, image_prompt,
                   status, shot_type, hero_shot, sentence_text, video_clip_url,
                   video_prompt, sound_prompt, sound_effect_url, sound_volume,
-                  duration_seconds, extraction_flags,
+                  duration_seconds, extraction_flags, image_model,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
              AND (generation_method IS NULL OR generation_method <> 'variant_candidate')
@@ -812,7 +812,7 @@ async def get_video_asset_variants(
     rows = await fetch_all(
         """SELECT id, video_id, scene, image_index, image_url, drive_image_url, image_prompt,
                   status, shot_type, hero_shot, sentence_text, panel_position,
-                  generation_method, created_at::text
+                  generation_method, image_model, created_at::text
            FROM assets
            WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 AND image_index = $4
              AND generation_method = 'variant_candidate'

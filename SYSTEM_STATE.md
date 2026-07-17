@@ -713,3 +713,33 @@ against the current live DB (see commit message + report for the proof).
 | Path | Change |
 |------|--------|
 | `storyengine/schema.sql` | Regenerated from live introspection: added the 11 tables created by migrations 041-081 that were missing (`intelligence_reports`, `channel_videos`, `secrets`, `channel_profile_documents`, `chat_assets`, `production_queue`, `script_templates`, `channel_analytics_daily`, `static_reference_cache`, `channel_video_retention`, `machine_research_cards`); removed the dead `title_tests` declaration (no live table, zero code references). |
+
+---
+
+## C02 — Image-Model Override Honored on Coverage Path (added 2026-07-17)
+
+Follow-up to checklist §0.1 ("Image-model dropdown is cosmetic ⚠ worst
+offender" — `tasks/storyengine-wiring-fix-checklist.md`). The Pictures model
+select writes `videos.image_model_override`, but `coverage_to_app.py`'s
+character-sheet / storyboard-sheet / redraw-picture calls and the legacy
+`pipeline_executor.py` image-variant path each hardcoded (or ad hoc
+branched) their own model choice, ignoring it.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `skills/video-pipeline/shared/clients/image_model_router.py` | The ONE resolver both call sites now use: `generate_scene_image_for_model(image_client, model_override, prompt, reference_urls, aspect_ratio, resolution) -> (url, model_used)`. GPT Image 2 stays the default AND the fallback for an explicit z-image/nano-banana-2 override that fails or gets content-policy blocked. `VALID_IMAGE_MODELS = {"nano-banana-2", "gpt-image-2", "z-image"}` is the single source of truth for the 3 values the Pictures selector writes. |
+| `skills/video-pipeline/tests/test_image_model_router.py` | 12 unit tests (FakeImageClient, no network) covering all 3 overrides, their fallback-on-failure paths, and proving the default (no-override) path calls the exact same methods with the exact same arguments as before this fix. |
+| `storyengine/backend/migrations/084_asset_image_model.sql` | `ALTER TABLE assets ADD COLUMN IF NOT EXISTS image_model TEXT` — records which model actually drew each picture. Applied live to project `wrromlupsmyzrrcqlucn` via Supabase MCP; will also auto-apply (no-op) on next backend startup via `_run_pending_migrations()`. |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/scripts/coverage_to_app.py` | `redo_characters`, `generate_storyboard_sheet_for_scene`, `redraw_asset_image` now read `videos.image_model_override` and route through `generate_scene_image_for_model` instead of a hardcoded `generate_scene_image_gpt` call. `redraw_asset_image` persists the resolved model onto `assets.image_model`. |
+| `storyengine/backend/pipeline_executor.py` | `run_image_variants` (the legacy Airtable-driven variant-regen path, ~L13690-13770) replaced its bespoke model branching (which never actually distinguished 'gpt-image-2' from no-override, and never called GPT at all when a reference image existed) with the same shared resolver; the INSERT into `assets` now writes `image_model`. |
+| `skills/video-pipeline/shared/clients/image_client.py` | `generate_scene_image_gpt`'s two success returns now include a `"model"` key (`"gpt-image-2"` or `"nano-banana-2"`, whichever branch actually produced the URL) so the resolver can report the truth even when GPT's own internal content-policy fallback fires. Purely additive to the returned dict — every existing caller only reads `.get("url")`. |
+| `storyengine/backend/routes/videos.py` | `GET /{video_id}/assets` and `GET /{video_id}/assets/variants` now SELECT `image_model`. |
+| `storyengine/frontend/src/lib/api.ts` | `Asset` and `ImageVariant` interfaces gained `image_model?: string \| null`. |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | `SegmentCard` shows a small top-right badge naming the model that actually generated each panel (from `asset.image_model`), so a mismatch against the Pictures selector's current value is visible instead of silent. |
+
+**Known gap (out of this chunk's scope, confirmed against the checklist's own line references):** the BULK "Generate pictures" button (`generate_coverage_for_video` → `run_coverage` → `generate_coverage_frames` → `_gen_ref` in `skills/video-pipeline/storyboard/coverage.py`) still hardcodes `generate_thumbnail_gpt2` and does not read `image_model_override` at all. The checklist's §0.1 items name only the 3 `coverage_to_app.py` call sites + the legacy `pipeline_executor.py` path; the bulk coverage-frame path is presumably intended to be covered by the later per-scene router chunks (C11-C15, which add `routed_model`/`model_used` scene columns). Flagged here so it isn't mistaken for already fixed.

@@ -926,7 +926,7 @@ class ImageClient:
         for attempt in range(2):
             status, url = await _run("gpt-image-2-text-to-image", {"resolution": resolution}, "gpt-image-2")
             if status == "ok":
-                return {"url": url}
+                return {"url": url, "model": "gpt-image-2"}
             if status == "blocked":
                 break  # GPT will never render this — switch to nano now
             await asyncio.sleep(2 * (attempt + 1))  # transient — retry GPT
@@ -936,7 +936,7 @@ class ImageClient:
             return None
         print(f"      ↩️  {why} — switching to nano-banana-2...")
         status, url = await _run("nano-banana-2", {"output_format": "png"}, "nano-banana-2")
-        return {"url": url} if status == "ok" and url else None
+        return {"url": url, "model": "nano-banana-2"} if status == "ok" and url else None
 
     async def generate_talking_video(
         self,
