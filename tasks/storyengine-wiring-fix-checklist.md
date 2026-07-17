@@ -175,6 +175,33 @@ the full layer detail — chunks reference them).
 7. Sweeps run as ONE Sonnet Explore agent; append findings to the audit report + add any new
    fixes as chunks here, in the same iteration.
 
+### Model discipline & token efficiency (MANDATORY — this is what keeps the loop cheap)
+The main loop is the ORCHESTRATOR and stays on the premium session model (Fable). It does NOT
+write code and does NOT open large source files — that is the entire token sink. Per iteration:
+- **Orchestrator (Fable) does only:** read the handoff (2 lines) + the one chunk line + the
+  subagent's report; skeptically judge whether the verify EVIDENCE actually proves the chunk
+  works (the anti-stub guard); decide the deploy-safe ff-merge; write the 2-line handoff; pick
+  next chunk. That's it. If you catch yourself Reading `chat.py`/`ScenesWorkspaceTab.tsx`/etc.
+  in the main loop, STOP — dispatch a subagent instead.
+- **Worker (Sonnet) does the chunk:** ONE `Agent` call, `model:"sonnet"`, `subagent_type:
+  general-purpose`. Brief it with: the chunk ID, its parent P-section (layer detail), its UX-map
+  section (both doors), and the Definition of Done. It reads the files, ships ALL layers, runs
+  the `[V]` verify under the cost cap, ticks the chunk box, and commits to
+  `claude/story-engine-repo-sgnm8l` with the chunk ID in the message. It reports back ONLY:
+  files touched, verify evidence, `tsc` status, commit SHA, deploy-safe y/n, blockers. Keep the
+  report tight — the orchestrator should never need the full diff.
+- **Never escalate a worker to premium** for C01–C37 (all wiring, no hard reasoning). Sweeps
+  (S5–S10) = Sonnet `Explore` agent. If evidence looks thin, dispatch a SECOND Sonnet subagent
+  to independently re-verify — cheaper than the orchestrator reading the code itself.
+- **One chunk per iteration.** End the iteration after the commit + handoff even if context is
+  fresh — the handoff makes the next "continue" resume cold for near-zero orchestrator cost.
+
+### "continue" semantics
+When the operator says **continue** (or the loop fires): read the handoff in `tasks/todo.md`,
+do the next unchecked chunk per this protocol, end. Nothing else needs to be said. If the next
+chunk is a `Ryan` product-decision chunk, skip it, leave the question in the handoff, and take
+the following build chunk.
+
 ## Chunk queue (execution order)
 
 **Phase 0 — integrity**
