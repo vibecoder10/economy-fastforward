@@ -338,6 +338,7 @@ cd storyengine/backend && arq backend.worker.WorkerSettings                # arq
 ### 2. Subagent Strategy
 - Use subagents liberally to keep main context window clean
 - One task per subagent for focused execution
+- **Model policy — brains vs hands (MANDATORY):** The premium session model (Fable/Opus tier) is for the main loop only — orchestration, architecture decisions, adversarial verification, and final synthesis/deliverables. ALL fan-out subagent work — codebase exploration, file reading, search sweeps, web research, mechanical edits — runs on **Sonnet**: pass `model: "sonnet"` on every Agent call, and `{model: 'sonnet'}` in workflow `agent()` opts. Only escalate a subagent to the premium model when that subtask itself demands deep reasoning (judging, complex verification, synthesis) — and say so when you do.
 
 ### 3. Self-Improvement Loop
 - After ANY correction from the user: update `tasks/lessons.md` with the pattern

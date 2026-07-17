@@ -499,3 +499,7 @@ _After each session, add a one-line summary of what was done and any new lessons
 - Research phase must only gather, verify, and save selected-machine research cards with exact evidence. Do not run or display script output from Research just because an endpoint exists.
 - Script phase owns one-machine writing. The operator action should be "write/save selected machine script block"; an internal preview/dry-run may exist for developer validation, but product UI should not present it as the script workflow.
 - Saving one machine script block should update only that machine's `scripts.scene_text`, keep script-hold progress in `script_validation`, and advance to voice only after every locked roster machine has passed.
+
+### Subagent model tiers: premium for brains, Sonnet for hands (2026-07-17)
+- Fan-out subagents (codebase exploration, search sweeps, web research, mechanical edits) inherit the SESSION model when no override is passed — a premium-model session silently makes every fan-out premium. A 4-agent repo exploration + 28-agent research workflow all ran on the top tier when Sonnet would have produced the same file-reading output.
+- Standing policy (now in CLAUDE.md → Subagent Strategy): premium model for the main loop only (orchestration, architecture, verification, final synthesis); pass `model: "sonnet"` on every Agent call and `{model: 'sonnet'}` in workflow `agent()` opts for all hands-work. Escalate a subagent to premium only when the subtask itself needs deep reasoning, and say so.
