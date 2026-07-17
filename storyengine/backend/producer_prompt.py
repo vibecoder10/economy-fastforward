@@ -5,9 +5,12 @@ creator's idea, asks ONLY what's missing, prefers selector cards over open
 questions, and ends with a production plan the creator approves. It returns ONE
 JSON object per turn so the frontend can render cards / the plan deterministically.
 
-Direct Anthropic call (NOT the Kie gateway) so a Kie outage never blocks intake —
-same pattern as originality.py:355-399. Fails soft: a malformed turn returns a
-gentle "say that again" without crashing the conversation.
+Uses the tenant's resolved text client (see kie_unified.get_text_client_for_tenant):
+their direct Anthropic key when they have one, else their Kie.ai key — the SAME
+fallback the in-video co-pilot uses (_handle_copilot in routes/chat.py), so a
+Kie-only tenant gets a working Producer instead of a hard "add an Anthropic key"
+wall. Fails soft: a malformed turn returns a gentle "say that again" without
+crashing the conversation.
 """
 
 from __future__ import annotations
@@ -227,13 +230,25 @@ def call_producer(
     transcript: list[dict[str, Any]],
     system_prompt: str,
     *,
+    client: Any = None,
     api_key: str | None = None,
     model: str = MODEL,
     max_tokens: int = 1500,
 ) -> dict[str, Any]:
     """Run one producer turn. ``transcript`` is the alternating user/assistant
     message list (assistant turns carry the raw JSON the model emitted last time).
-    ``api_key`` is the tenant's direct Anthropic key (from Vault).
+
+    ``client`` is the tenant's resolved text client from
+    kie_unified.get_text_client_for_tenant: AnthropicDirectClient when they have
+    a direct Anthropic key, else KieClaudeClient on their Kie.ai key. Both types
+    expose a sync-compatible ``.client.messages.create(...)`` (kie_unified's
+    ``_KieMessagesCompat`` shim, or the raw anthropic SDK client) — same shape,
+    same call, no branching needed here. This mirrors the fallback
+    ``_handle_copilot`` (routes/chat.py) already uses for the in-video co-pilot.
+
+    ``api_key`` is a legacy direct-Anthropic-key path kept for callers (and the
+    module self-test below) that haven't been threaded a resolved client yet;
+    ignored when ``client`` is given.
 
     Returns the parsed turn dict ({assistant_text, phase, cards?, plan?}). Fails
     soft: any error or malformed JSON returns a gentle re-prompt so the
@@ -245,10 +260,10 @@ def call_producer(
     last_err = None
     for attempt in range(2):
         try:
-            client = _client(api_key)
+            msg_client = client.client if client is not None else _client(api_key)
             sys_prompt = system_prompt if attempt == 0 else (
                 system_prompt + "\n\nIMPORTANT: Reply with ONE valid JSON object and nothing else.")
-            resp = client.messages.create(
+            resp = msg_client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
                 system=sys_prompt,

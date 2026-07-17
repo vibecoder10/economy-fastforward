@@ -2542,18 +2542,58 @@ async def _annotate_style_recommendation(data, tenant_id, state):
         spec["detected_style_label"] = label
 
 
+# --- producer text-client resolution (home path) ----------------------------
+# The home Producer needs the SAME key fallback the in-video co-pilot already
+# has (_handle_copilot above): the tenant's direct Anthropic key if they have
+# one, else their Kie.ai key, and only the friendly "add a key" message (never
+# a crash) when they have neither. Shared by both home producer entry points
+# below (_seed_producer and chat_turn's intake turn) so they can't drift apart.
+
+_NO_KEY_PRODUCER_MSG = (
+    "I just need an API key to think this through. Add your Kie.ai or Anthropic key under "
+    "Profile → API Keys, then tell me your idea again — I'll take it from there."
+)
+
+_KIE_PRODUCER_HINT = (
+    "\n\n**Tip:** you're running on your Kie.ai key, which works great — add an "
+    f"Anthropic key too ([console.anthropic.com →]({_CLAUDE_KEY_URL}), under Profile → "
+    "API Keys) any time you want the sharpest possible plans."
+)
+
+
+async def _resolve_producer_client(tenant_id: str):
+    """Resolve the tenant's producer text client. Returns None (never raises)
+    when neither an Anthropic nor a Kie.ai key is configured — mirrors the
+    try/except around get_text_client_for_tenant in _handle_copilot exactly."""
+    try:
+        from kie_unified import get_text_client_for_tenant
+        return await get_text_client_for_tenant(tenant_id)
+    except Exception:  # noqa: BLE001 — no key configured at all
+        return None
+
+
+def _with_kie_hint(assistant_text: str, state: dict, client) -> str:
+    """Append a soft, one-time 'add an Anthropic key' tip when this turn ran on
+    the Kie fallback client. Never a wall — Kie-only tenants already got their
+    full plan; this just nudges once per conversation, unobtrusively."""
+    if type(client).__name__ != "AnthropicDirectClient" and not state.get("kie_hint_shown"):
+        state["kie_hint_shown"] = True
+        return assistant_text + _KIE_PRODUCER_HINT
+    return assistant_text
+
+
 async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     """Hand off into the producer seeded with a chosen/typed idea: start a fresh
     producer transcript and run one intake turn."""
     state["mode"] = "producer"
     state["onboarding_step"] = "done"
-    api_key = await get_secret("anthropic_api_key", tenant_id)
+    client = await _resolve_producer_client(tenant_id)
     transcript = [{"role": "user", "content": seed_text}]
-    if not api_key:
-        msg = "I just need an Anthropic API key to draft this — add one under Profile → API Keys."
-        transcript.append(_assistant_turn({"assistant_text": msg, "phase": "asking"}))
+    if client is None:
+        transcript.append(_assistant_turn({"assistant_text": _NO_KEY_PRODUCER_MSG, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=_NO_KEY_PRODUCER_MSG, phase="asking")
     brief = (
         _creator_brief(state)
         + await _modeled_runtime_hint(tenant_id)
@@ -2565,7 +2605,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         + await _profile_state_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
     )
-    data = call_producer(transcript, build_system_prompt(brief), api_key=api_key)
+    data = call_producer(transcript, build_system_prompt(brief), client=client)
     await _stamp_length_default(data, tenant_id)
     await _annotate_style_recommendation(data, tenant_id, state)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, None)
@@ -2575,6 +2615,8 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         if state.get("pending_reference_url") and not plan["spec"].get("reference_url"):
             plan["spec"]["reference_url"] = state["pending_reference_url"]
         state["last_spec"] = plan["spec"]
+    if plan:
+        assistant_text = _with_kie_hint(assistant_text, state, client)
     phase = "plan" if plan else "asking"
     await _persist(conversation_id, tenant_id, transcript, state, phase)
     return ChatTurnResponse(
@@ -3171,17 +3213,16 @@ async def chat_turn(
 
     transcript.append({"role": "user", "content": "\n".join(user_parts)})
 
-    # The producer uses the tenant's DIRECT Anthropic key (from Vault). Without
-    # one, tell the creator how to add it rather than failing a model call.
-    api_key = await get_secret("anthropic_api_key", tenant_id)
-    if not api_key:
-        msg = (
-            "I just need an Anthropic API key to get started. Add one under "
-            "Profile → API Keys and tell me your idea again — I'll take it from there."
-        )
-        transcript.append(_assistant_turn({"assistant_text": msg, "phase": "asking"}))
+    # The producer needs a text model. Same fallback the in-video co-pilot uses
+    # (_handle_copilot): the tenant's direct Anthropic key if they have one,
+    # else their Kie.ai key — never a hard wall, only the friendly key prompt
+    # if they have neither configured at all.
+    client = await _resolve_producer_client(tenant_id)
+    if client is None:
+        transcript.append(_assistant_turn({"assistant_text": _NO_KEY_PRODUCER_MSG, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=msg, phase="asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=_NO_KEY_PRODUCER_MSG, phase="asking")
 
     # Producer sees the durable creator brief + a real length anchor + the channel
     # intelligence brief (top titles / hook pattern / thumbnail motifs / cadence) +
@@ -3201,7 +3242,7 @@ async def chat_turn(
         + await _script_template_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
     )
-    data = call_producer(transcript, system_prompt, api_key=api_key)
+    data = call_producer(transcript, system_prompt, client=client)
     await _stamp_length_default(data, tenant_id)
     await _annotate_style_recommendation(data, tenant_id, state)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
@@ -3212,6 +3253,8 @@ async def chat_turn(
         if state.get("pending_reference_url") and not plan["spec"].get("reference_url"):
             plan["spec"]["reference_url"] = state["pending_reference_url"]
         state["last_spec"] = plan["spec"]
+    if plan:
+        assistant_text = _with_kie_hint(assistant_text, state, client)
     phase = "plan" if plan else "asking"
     await _persist(conversation_id, tenant_id, transcript, state, phase)
 

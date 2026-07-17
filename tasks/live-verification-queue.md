@@ -55,6 +55,42 @@ model generates without the isn't-available-yet error"):
 
 ---
 
+## C04 — home Producer Kie-only fallback · live production-plan confirmation
+The home Producer (the main chat intake turn in `chat_turn`, and the onboarding
+hand-off in `_seed_producer`, both in `storyengine/backend/routes/chat.py`) used
+to hard-require an `anthropic_api_key` and tell a Kie-only tenant to go add one.
+It now resolves through the same fallback the in-video co-pilot already uses
+(`_resolve_producer_client` → `kie_unified.get_text_client_for_tenant`: direct
+Anthropic key first, else the Kie.ai key, friendly "add a key" message only if
+neither exists) and `producer_prompt.call_producer` drives whichever client
+comes back through its shared `.client.messages.create(...)` shape. Proven
+in-sandbox: source trace (both entry points call the shared resolver, the old
+`anthropic_api_key` hard-gate is gone from both) + 6 new unit tests
+(`tests/functional/test_producer_kie_fallback.py`) covering client resolution
+(Kie-only → `KieClaudeClient`, both-keys → `AnthropicDirectClient` still wins,
+neither → `None` not a raise) and `call_producer` driving a fake resolved
+client without an `api_key`. What's NOT provable without a paid key is the
+full live turn:
+- [ ] **Fresh tenant, Kie key only:** create/use a tenant with ONLY a Kie.ai
+      key configured (no Anthropic key in Vault). Complete onboarding, then
+      type an idea on the home chat (or let onboarding hand off to the
+      producer with a typed idea). Expected: a normal production plan comes
+      back — no "add an Anthropic key" wall, no 500, no silent hang.
+- [ ] Confirm the assistant's plan-turn reply includes the soft **Tip:** line
+      ("add an Anthropic key too... for the sharpest possible plans") — visible
+      but not blocking, and only appears once per conversation (ask a
+      follow-up in the same conversation and confirm the tip doesn't repeat).
+- [ ] **Anthropic-key tenant unaffected:** same test on a tenant with an
+      Anthropic key configured — plan comes back with NO Kie tip line (control
+      case, proves the hint is gated correctly).
+- **Cost:** one small producer text call on Kie's Claude endpoint (~$0.01-0.05
+  equivalent) — negligible. **No image/video/YouTube spend, no publish needed.**
+- **Safety net:** `_resolve_producer_client` only ever returns `None` (never
+  raises) when both keys are missing, so a live failure here degrades to the
+  existing friendly key-prompt message, not a crash.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

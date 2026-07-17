@@ -807,3 +807,38 @@ never touches the database): the 3 dead models come back `wired:false`, the
 4 live ones `wired:true`, exactly matching `pipeline_executor`'s gate. The
 live/paid step ("selecting every wired model actually generates a clip") is
 deferred — see `tasks/live-verification-queue.md` §C03.
+
+## C04 — Home Producer Works Kie-Only (added 2026-07-17)
+
+Follow-up to checklist §0.4. The home Producer (`routes/chat.py`'s main chat
+intake turn in `chat_turn`, and the onboarding hand-off in `_seed_producer`)
+hard-required `anthropic_api_key` and told a Kie-only tenant to go add one,
+even though the in-video co-pilot (`_handle_copilot`) already had a working
+fallback via `kie_unified.get_text_client_for_tenant` (direct Anthropic key
+first, else the Kie.ai key). Both home entry points now go through a shared
+`_resolve_producer_client` helper that mirrors `_handle_copilot`'s exact
+try/except — no new resolution logic invented. `producer_prompt.call_producer`
+now takes the resolved client and drives it through its `.client.messages.create(...)`
+shape (identical for `KieClaudeClient` and `AnthropicDirectClient`) instead of
+building its own Anthropic-only client from a raw `api_key`. A soft, one-time
+"add an Anthropic key for the sharpest plans" tip is appended to the plan
+reply when running on the Kie fallback — never a wall.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_producer_kie_fallback.py` | 6 tests: `_resolve_producer_client` falls back to `KieClaudeClient` (Kie-only), still prefers `AnthropicDirectClient` (both keys), returns `None` (not a raise) with neither key; a source lock that both home entry points call the shared resolver and the old hard `anthropic_api_key` gate is gone from `_seed_producer`; `call_producer` drives a fake resolved client (proves no Anthropic-specific assumption downstream) and still fails soft with nothing configured. |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/producer_prompt.py` | `call_producer` gained a `client` kwarg (the tenant's resolved text client); uses `client.client.messages.create(...)` when given, falling back to the legacy `_client(api_key)` path only when no client is passed (kept for the module self-test). Module docstring updated — no longer claims "Direct Anthropic call (NOT the Kie gateway)". |
+| `storyengine/backend/routes/chat.py` | Added `_resolve_producer_client` (mirrors `_handle_copilot`'s `get_text_client_for_tenant` try/except), `_NO_KEY_PRODUCER_MSG`, `_KIE_PRODUCER_HINT`, `_with_kie_hint`. Both `_seed_producer` and the `chat_turn` producer intake turn now resolve via `_resolve_producer_client` instead of hard-requiring `anthropic_api_key`, and call `call_producer(..., client=client)`. The soft hint is appended to `assistant_text` once per conversation (`state["kie_hint_shown"]`) only when a plan is produced on the Kie fallback client. |
+
+`./venv/bin/python -m pytest tests/ -q` run before and after (via `git stash`):
+same 16 pre-existing failures + 1 pre-existing error on both, unrelated to
+this change (YouTube OAuth, discovery error-surfacing, SQL-injection lock,
+etc.) — confirmed by diff, not just inspection. The live step ("fresh
+Kie-only tenant completes onboarding → gets a production plan on home, no
+error") needs a real Kie key and is deferred — see
+`tasks/live-verification-queue.md` §C04.
