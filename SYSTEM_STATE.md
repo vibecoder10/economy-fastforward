@@ -721,18 +721,32 @@ against the current live DB (see commit message + report for the proof).
 Follow-up to checklist §0.1 ("Image-model dropdown is cosmetic ⚠ worst
 offender" — `tasks/storyengine-wiring-fix-checklist.md`). The Pictures model
 select writes `videos.image_model_override`, but `coverage_to_app.py`'s
-character-sheet / storyboard-sheet / redraw-picture calls and the legacy
-`pipeline_executor.py` image-variant path each hardcoded (or ad hoc
-branched) their own model choice, ignoring it.
+character-sheet / storyboard-sheet / redraw-picture calls, the legacy
+`pipeline_executor.py` image-variant path, AND the primary bulk "Generate all
+pictures" path (`generate_coverage_for_video` → `run_coverage` →
+`generate_coverage_frames` → `_gen_ref` in `storyboard/coverage.py`) each
+hardcoded (or ad hoc branched) their own model choice, ignoring it.
+
+**Correction from the first C02 pass (same day):** that pass fixed only the
+3 `coverage_to_app.py` call sites + the legacy path and left the bulk path
+flagged as a "known gap," reasoning it was deferred to the C11-C15 per-scene
+router. That reasoning was wrong — C11-C15 route per-SCENE CLIP/video models
+(Veo/Grok/Kling), a different axis from IMAGE models (gpt-image-2/nano-
+banana-2/z-image). The bulk image path was covered nowhere else and is the
+primary flow real users hit (`ScenesWorkspaceTab.tsx`'s "Generate all
+pictures" button → stage `coverage-images` → `POST /coverage-images/{id}` →
+`generate_coverage_for_video`, same function the chat auto-build's `actions.py`
+loop calls). This follow-up commit closes that gap — see the second table
+below.
 
 ### New Files
 | Path | Purpose |
 |------|---------|
-| `skills/video-pipeline/shared/clients/image_model_router.py` | The ONE resolver both call sites now use: `generate_scene_image_for_model(image_client, model_override, prompt, reference_urls, aspect_ratio, resolution) -> (url, model_used)`. GPT Image 2 stays the default AND the fallback for an explicit z-image/nano-banana-2 override that fails or gets content-policy blocked. `VALID_IMAGE_MODELS = {"nano-banana-2", "gpt-image-2", "z-image"}` is the single source of truth for the 3 values the Pictures selector writes. |
+| `skills/video-pipeline/shared/clients/image_model_router.py` | The ONE resolver every image-model-selecting call site now uses: `generate_scene_image_for_model(image_client, model_override, prompt, reference_urls, aspect_ratio, resolution) -> (url, model_used)`. GPT Image 2 stays the default AND the fallback for an explicit z-image/nano-banana-2 override that fails or gets content-policy blocked. `VALID_IMAGE_MODELS = {"nano-banana-2", "gpt-image-2", "z-image"}` is the single source of truth for the 3 values the Pictures selector writes. |
 | `skills/video-pipeline/tests/test_image_model_router.py` | 12 unit tests (FakeImageClient, no network) covering all 3 overrides, their fallback-on-failure paths, and proving the default (no-override) path calls the exact same methods with the exact same arguments as before this fix. |
 | `storyengine/backend/migrations/084_asset_image_model.sql` | `ALTER TABLE assets ADD COLUMN IF NOT EXISTS image_model TEXT` — records which model actually drew each picture. Applied live to project `wrromlupsmyzrrcqlucn` via Supabase MCP; will also auto-apply (no-op) on next backend startup via `_run_pending_migrations()`. |
 
-### Modified
+### Modified (first pass — redraw/redo/legacy paths)
 | Path | Change |
 |------|--------|
 | `storyengine/backend/scripts/coverage_to_app.py` | `redo_characters`, `generate_storyboard_sheet_for_scene`, `redraw_asset_image` now read `videos.image_model_override` and route through `generate_scene_image_for_model` instead of a hardcoded `generate_scene_image_gpt` call. `redraw_asset_image` persists the resolved model onto `assets.image_model`. |
@@ -742,4 +756,13 @@ branched) their own model choice, ignoring it.
 | `storyengine/frontend/src/lib/api.ts` | `Asset` and `ImageVariant` interfaces gained `image_model?: string \| null`. |
 | `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | `SegmentCard` shows a small top-right badge naming the model that actually generated each panel (from `asset.image_model`), so a mismatch against the Pictures selector's current value is visible instead of silent. |
 
-**Known gap (out of this chunk's scope, confirmed against the checklist's own line references):** the BULK "Generate pictures" button (`generate_coverage_for_video` → `run_coverage` → `generate_coverage_frames` → `_gen_ref` in `skills/video-pipeline/storyboard/coverage.py`) still hardcodes `generate_thumbnail_gpt2` and does not read `image_model_override` at all. The checklist's §0.1 items name only the 3 `coverage_to_app.py` call sites + the legacy `pipeline_executor.py` path; the bulk coverage-frame path is presumably intended to be covered by the later per-scene router chunks (C11-C15, which add `routed_model`/`model_used` scene columns). Flagged here so it isn't mistaken for already fixed.
+### Modified (follow-up pass — the bulk "Generate all pictures" path)
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/storyboard/coverage.py` | `_gen_ref` now takes `model_override` and routes through `generate_scene_image_for_model` instead of a hardcoded `generate_thumbnail_gpt2` call; returns `(url, model_used)`. `generate_coverage_frames` threads `model_override` down to `_gen_ref` and stamps `"image_model"` onto every master/angle frame dict. `run_coverage` gained a `model_override` param, threaded to both `generate_coverage_frames` and `resolve_cast_url` (the auto-built cast-sheet anchor now honors the override too). `resolve_cast_url` routes its cast-sheet draw through the same resolver. |
+| `storyengine/backend/scripts/coverage_to_app.py` | `generate_coverage_for_video` — THE bulk "Generate all pictures" entry point — now SELECTs `image_model_override` and passes it to both `resolve_cast_url` calls and to `run_coverage`. `store_scene`'s `INSERT INTO assets` now writes `image_model` from each frame's resolved model (the value `generate_coverage_frames` stamped on it), so coverage assets — the majority of a video's pictures — record the truth. |
+| `skills/video-pipeline/tests/test_coverage.py` | Added `test_generate_coverage_frames_honors_model_override` — an integration test proving the bulk path (`generate_coverage_frames`/`_gen_ref`) resolves a `z-image` override for both the master and angle frame, with no GPT fallback. |
+
+The gap flagged in the first pass is now closed: the primary "Generate all
+pictures" flow honors `image_model_override` end to end, with GPT Image 2
+unchanged as the default and the content-policy/failure fallback.

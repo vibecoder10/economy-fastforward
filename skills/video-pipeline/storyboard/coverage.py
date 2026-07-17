@@ -45,7 +45,7 @@ from storyboard.bot import (  # noqa: E402  reuse, don't reinvent
     build_image_prompt_from_keyframe,
 )
 from shared.channel_profile import load_profile  # noqa: E402
-from orchestrator.pipeline_constants import Models  # noqa: E402
+from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
 
 SHOT_TYPES = "ELS, WS, MS, MCU, CU, ECU, OTS, INSERT"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
@@ -373,9 +373,6 @@ def parse_coverage(directive_text: str) -> list[dict]:
 # Image generation — the reference-chaining port
 # =============================================================================
 
-def _url_of(result):
-    return result.get("url") if isinstance(result, dict) else result
-
 
 # Anchoring an angle on the master frame makes the model preserve the master's
 # subject placement and, for tight recomposes onto a face, ADD a new foreground
@@ -429,25 +426,31 @@ _BOARD_ANCHOR = (
 # caller) and the board-anchor math below must both use it on the same plan.
 
 
-async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2):
-    """Generate one frame via GPT Image 2 (gpt-image-2-image-to-image — our main model; holds the
-    cast's identity from the reference sheet far better than nano-banana), with a light retry.
+async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2, model_override=None):
+    """Generate one frame honoring `model_override` (routed through
+    shared.clients.image_model_router — the SAME resolver coverage_to_app.py and the
+    legacy pipeline_executor.py variant path use), with a light retry. GPT Image 2
+    (gpt-image-2-image-to-image — holds the cast's identity from the reference sheet
+    far better than nano-banana) stays the default AND the content-policy/failure
+    fallback for an explicit z-image/nano-banana-2 override, unchanged from before.
     ponytail: retry only covers transient None/502; a moderation 400 also returns None and may not
-    recover — that frame is then skipped (coverage degrades to fewer angles rather than failing)."""
+    recover — that frame is then skipped (coverage degrades to fewer angles rather than failing).
+    Returns (url, model_used) or (None, None)."""
     for i in range(attempts):
         # A raised error (SSL reset, timeout, connection drop) must count as a
         # failed attempt, not escape — an escaped exception here used to kill
         # the whole scene's gather and stop the build mid-run.
         try:
-            url = _url_of(await image_client.generate_thumbnail_gpt2(
-                prompt, refs, aspect, resolution=resolution))
+            url, model_used = await generate_scene_image_for_model(
+                image_client, model_override, prompt, reference_urls=refs,
+                aspect_ratio=aspect, resolution=resolution)
         except Exception as e:  # noqa: BLE001
             print(f"  frame gen error (attempt {i + 1}/{attempts}): {str(e)[:120]}", flush=True)
-            url = None
+            url, model_used = None, None
         if url:
-            return url
+            return url, model_used
         await asyncio.sleep(2 * (i + 1))
-    return None
+    return None, None
 
 
 # =============================================================================
@@ -520,11 +523,17 @@ def plan_camera_moves(moments: list) -> int:
 
 
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
-                                   env_url=None, aspect="16:9", resolution="1K", sem=None) -> list[dict] | None:
+                                   env_url=None, aspect="16:9", resolution="1K", sem=None,
+                                   model_override=None) -> list[dict] | None:
     """Master frame (anchored on cast) -> each angle (anchored on cast + master).
-    Returns frames [{role, shot_type, description, url}] or None if the master fails.
-    The master MUST be drawn first (angles reference it), but the angles only depend on
-    the master, not on each other — so they draw in PARALLEL. `sem` caps total Kie gens."""
+    Returns frames [{role, shot_type, description, url, image_model}] or None if the master
+    fails. The master MUST be drawn first (angles reference it), but the angles only depend on
+    the master, not on each other — so they draw in PARALLEL. `sem` caps total Kie gens.
+
+    model_override honors videos.image_model_override end to end (see
+    shared.clients.image_model_router) — GPT Image 2 stays the default and the
+    content-policy/failure fallback; each frame records WHICH model actually drew it in
+    image_model, so store_scene can persist the truth onto the asset row."""
     # cast_url may be one URL or a LIST (e.g. the locked per-character 4-view sheets).
     cast_refs = list(cast_url) if isinstance(cast_url, list) else [cast_url]
     base = cast_refs + ([env_url] if env_url else [])
@@ -532,7 +541,8 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
 
     async def _gen(prompt, refs):
         async with sem:
-            return await _gen_ref(image_client, prompt, refs, aspect, resolution)
+            return await _gen_ref(image_client, prompt, refs, aspect, resolution,
+                                  model_override=model_override)
 
     def _board(shot):
         """(anchor_text, extra_ref) when this shot is pinned to an approved board panel.
@@ -545,20 +555,20 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
     m_anchor, m_ref = _board(m)
     master_prompt = (build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
                      + _STYLE_LOCK + m_anchor)
-    master_url = await _gen(master_prompt, base + m_ref)  # master first — angles anchor on it
+    master_url, master_model = await _gen(master_prompt, base + m_ref)  # master first — angles anchor on it
     if not master_url:
         return None
     frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"],
-               "camera_move": m.get("camera_move"), "url": master_url}]
+               "camera_move": m.get("camera_move"), "url": master_url, "image_model": master_model}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
         a_anchor, a_ref = _board(a)
         ap = (build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
               + _SAME_SUBJECT + _STYLE_LOCK + a_anchor)
-        url = await _gen(ap, angle_base + a_ref)
+        url, model_used = await _gen(ap, angle_base + a_ref)
         return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"],
-                "camera_move": a.get("camera_move"), "url": url} if url else None
+                "camera_move": a.get("camera_move"), "url": url, "image_model": model_used} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -598,17 +608,19 @@ def cast_prompt_from_story_bible(story_bible, profile) -> str | None:
 
 
 async def resolve_cast_url(cast_url, image_client, *, cast_prompt=None, story_bible=None,
-                           profile=None, aspect="16:9", outdir=None) -> str | None:
+                           profile=None, aspect="16:9", outdir=None, model_override=None) -> str | None:
     """A locked cast wins; otherwise auto-build a cast sheet (from cast_prompt, else the
-    story bible) so coverage always has an anchor. Returns the cast URL or None."""
+    story bible) so coverage always has an anchor. Returns the cast URL or None.
+
+    model_override: honors videos.image_model_override for the auto-built cast sheet too
+    (via shared.clients.image_model_router) — GPT Image 2 stays the default + fallback."""
     if cast_url:
         return cast_url
     cp = cast_prompt or cast_prompt_from_story_bible(story_bible, profile or load_profile({}))
     if not cp:
         return None
-    print("No locked cast — auto-building a cast sheet (GPT Image 2) ...", flush=True)
-    r = await image_client.generate_scene_image_gpt(cp, None, aspect)  # gpt-image-2 text-to-image
-    url = r.get("url") if isinstance(r, dict) else r
+    print(f"No locked cast — auto-building a cast sheet ({model_override or 'GPT Image 2'}) ...", flush=True)
+    url, _model_used = await generate_scene_image_for_model(image_client, model_override, cp, aspect_ratio=aspect)
     if url and outdir:
         try:
             _download(url, os.path.join(outdir, "0_cast_sheet.png"))
@@ -663,17 +675,22 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        anthropic_client=None, directive_model=None,
                        max_moments=3, angles_min=2, angles_max=4, max_frames=None,
                        aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
-                       board_urls=None) -> dict:
+                       board_urls=None, model_override=None) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
     bible (or cast_prompt) so coverage always has something to lock characters to.
     Saves frames + coverage.json locally with angle/shot-type metadata. No DB writes
-    (storing into Image records is Phase 2, where the animator consumes them)."""
+    (storing into Image records is Phase 2, where the animator consumes them).
+
+    model_override: videos.image_model_override ('nano-banana-2' | 'gpt-image-2' | 'z-image' |
+    None). Threaded down to every frame draw via generate_coverage_frames/_gen_ref (the shared
+    shared.clients.image_model_router resolver) AND to the cast-sheet auto-build below — GPT
+    Image 2 stays the default and the content-policy/failure fallback either way."""
     profile = profile or load_profile({})
     os.makedirs(outdir, exist_ok=True)
     cast_url = await resolve_cast_url(cast_url, image_client, cast_prompt=cast_prompt,
                                       story_bible=story_bible, profile=profile,
-                                      aspect=aspect, outdir=outdir)
+                                      aspect=aspect, outdir=outdir, model_override=model_override)
     if not cast_url:
         return {"error": "no cast: provide cast_url, cast_prompt, or a story_bible with characters"}
     if directive_text is None:
@@ -764,7 +781,8 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # moments' gather — the scene keeps every moment that finished.
     moment_results = await asyncio.gather(*[
         generate_coverage_frames(moment, cast_url, image_client, profile,
-                                 env_url=env_url, aspect=aspect, resolution=resolution, sem=sem)
+                                 env_url=env_url, aspect=aspect, resolution=resolution, sem=sem,
+                                 model_override=model_override)
         for moment in moments
     ], return_exceptions=True)
 

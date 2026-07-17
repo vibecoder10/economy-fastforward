@@ -229,12 +229,13 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
                 "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
-                "location_id, camera_movement) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15,$16,$17)",
+                "location_id, camera_movement, image_model) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15,$16,$17,$18)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
                 title, aspect, url, url, is_master, assigned, location_id,
                 fr.get("camera_move"),  # camera engine plan: "move_id|PURPOSE" or "static"
+                fr.get("image_model"),  # WHICH model actually drew this frame (image_model_router)
             )
             idx += 1
     return idx - COVERAGE_INDEX_BASE
@@ -1333,8 +1334,11 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
 async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=None):
     """Backend stage entry point: generate the burger-style COVERAGE for a video's scene(s) and
     store it in the app (frames as assets + the storyboard board), anchored on the LOCKED character
-    sheets, drawn with GPT Image 2. Called by the pipeline route so the UI 'Generate' button runs
-    coverage. Returns {status, message}. `progress(msg)` streams status to the task poller."""
+    sheets. THIS is the live path the Scenes-page "Generate all pictures" button and the chat
+    auto-build both call (stage 'coverage-images' -> routes/pipeline.py::run_coverage_images, and
+    actions.py's autobuild loop). Honors videos.image_model_override end to end via
+    shared.clients.image_model_router — GPT Image 2 stays the default and the content-policy/
+    failure fallback. Returns {status, message}. `progress(msg)` streams status to the task poller."""
     def _p(msg):
         if progress:
             try:
@@ -1344,13 +1348,14 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style, "
+        "image_style_override, visual_style, image_model_override, "
         "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
+    model_override = v["image_model_override"]
 
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
@@ -1378,7 +1383,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         "AND reference_url IS NOT NULL ORDER BY sort", vid, tenant)
     cast_refs = [r["reference_url"] for r in crows]
     if not cast_refs:
-        cu = await resolve_cast_url(None, ic, story_bible=bible, profile=profile, aspect=aspect, outdir=base_dir)
+        cu = await resolve_cast_url(None, ic, story_bible=bible, profile=profile, aspect=aspect,
+                                    outdir=base_dir, model_override=model_override)
         cast_refs = [cu] if cu else []
     if not cast_refs:
         # No locked characters AND no character bible to build from — the common case for chat
@@ -1390,7 +1396,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
             cast_text = "\n\n".join((s["scene_text"] or "") for s in targets)
             cast_prompt = await build_cast_prompt(claude, cast_text, model=claude_model, style=style_dir)
             cu = await resolve_cast_url(None, ic, cast_prompt=cast_prompt, profile=profile,
-                                        aspect=aspect, outdir=base_dir)
+                                        aspect=aspect, outdir=base_dir, model_override=model_override)
             cast_refs = [cu] if cu else []
         except Exception as e:  # noqa: BLE001
             return {"status": "failed", "error": f"couldn't build a cast from the script: {e}"}
@@ -1428,11 +1434,11 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 while board_urls and not board_urls[-1]:
                     board_urls.pop()
                 anchored = " — matching the approved boards" if any(board_urls) else ""
-                _p(f"Scene {sc}: drawing the storyboarded plan (GPT Image 2){anchored}…")
+                _p(f"Scene {sc}: drawing the storyboarded plan ({model_override or 'GPT Image 2'}){anchored}…")
             else:
                 _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
         if directive is None:
-            _p(f"Scene {sc}: planning + drawing coverage (GPT Image 2)…")
+            _p(f"Scene {sc}: planning + drawing coverage ({model_override or 'GPT Image 2'})…")
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         if env:
             _p(f"Scene {sc}: locked to {env['name']}")
@@ -1443,7 +1449,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 anthropic_client=claude, directive_model=claude_model, directive_text=directive,
                 max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
                 aspect=aspect, env_url=(env or {}).get("reference_url"),
-                board_urls=board_urls or None)
+                board_urls=board_urls or None, model_override=model_override)
         except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest
             _p(f"Scene {sc}: errored ({str(e)[:150]}) — moving on to the next scene")
             continue

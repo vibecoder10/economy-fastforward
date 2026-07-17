@@ -2,13 +2,14 @@
 
 Run: python skills/video-pipeline/tests/test_coverage.py   (or via pytest)
 """
+import asyncio
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "storyboard"))
 
-from storyboard.coverage import parse_coverage, cast_prompt_from_story_bible
+from storyboard.coverage import parse_coverage, cast_prompt_from_story_bible, generate_coverage_frames
 
 SAMPLE = """\
 Here is the coverage plan.
@@ -77,9 +78,47 @@ def test_cast_prompt_from_bible():
     assert cast_prompt_from_story_bible({"characters": []}, _Profile()) is None
 
 
+class _FakeImageClientForFrames:
+    """Records every frame-draw call; only the z-image path is exercised (no GPT
+    fallback expected when it succeeds every time)."""
+    SCENE_MODEL = "nano-banana-2"
+
+    def __init__(self):
+        self.calls = []
+
+    async def generate_scene_image_zimage(self, prompt, aspect_ratio="16:9"):
+        self.calls.append(("generate_scene_image_zimage", prompt, aspect_ratio))
+        return {"url": f"https://img/{len(self.calls)}.png"}
+
+
+def test_generate_coverage_frames_honors_model_override():
+    """Bulk-path integration proof (checklist §0.1): generate_coverage_for_video ->
+    run_coverage -> generate_coverage_frames -> _gen_ref must reach the SAME
+    shared.clients.image_model_router resolver as coverage_to_app.py's other 3 call
+    sites, given the video's image_model_override — this was the gap the first C02
+    pass left open (the bulk 'Generate all pictures' button still hardcoded GPT)."""
+    moment = {
+        "moment_number": 1,
+        "master": {"shot_type": "WS", "description": "wide shot of the rider at dawn"},
+        "angles": [{"shot_type": "MCU", "description": "close on the rider's face"}],
+    }
+    ic = _FakeImageClientForFrames()
+    frames = asyncio.run(generate_coverage_frames(
+        moment, "https://cast.png", ic, None,
+        aspect="16:9", resolution="1K", model_override="z-image"))
+    assert frames is not None
+    assert len(frames) == 2, "expected master + 1 angle"
+    # Every frame recorded the model that ACTUALLY drew it — the truth store_scene
+    # persists onto assets.image_model for the badge.
+    assert [fr["image_model"] for fr in frames] == ["z-image", "z-image"]
+    # Both draws went through z-image, never fell back to GPT.
+    assert [c[0] for c in ic.calls] == ["generate_scene_image_zimage", "generate_scene_image_zimage"]
+
+
 if __name__ == "__main__":
     test_parses_two_moments()
     test_parses_no_bracket_and_multiword_shot_types()
     test_drops_moment_with_no_angles()
     test_cast_prompt_from_bible()
+    test_generate_coverage_frames_honors_model_override()
     print("ok — coverage parser + cast-builder self-checks passed")
