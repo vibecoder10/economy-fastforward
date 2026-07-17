@@ -34,7 +34,11 @@ all committed to main and cross-referenced:
    drift, queue reliability, render path, frontend state, multi-tenant branding) each with
    its just-in-time trigger tied to a checklist phase. Run pending sweeps as ONE Sonnet
    Explore agent each when their trigger fires; append results to the audit findings report.
-6. CLAUDE.md + tasks/lessons.md — subagent model policy (see Session rules below).
+6. `tasks/research-to-build-map.md` — NO INSIGHT WASTED. Traceability matrix: every research
+   insight → disposition (BUILD-NOW w/ checklist ref, BUILD-LATER w/ backlog ref, GROWTH
+   play G1-G5, PARKED w/ revisit trigger, or REJECTED w/ reason). Maintenance rule: new
+   research gets rows here in the same commit, or it's a process bug.
+7. CLAUDE.md + tasks/lessons.md — subagent model policy (see Session rules below).
 
 ### Build order (work the checklist top-down)
 1. **P0 first — integrity bugs that lie to users today.** Cosmetic image-model dropdown

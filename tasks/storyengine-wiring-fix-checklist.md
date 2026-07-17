@@ -132,6 +132,16 @@ These are in `skills/video-pipeline/` (legacy Airtable side). StoryEngine SaaS r
 
 ---
 
+## Backlog (post-router; from `tasks/research-to-build-map.md`)
+
+### B1 — Expand the wired video-model lineup
+Once P1.1 makes the registry data-driven, adding a model = one registry row (best_for, tier, cost, wired), no code-path changes.
+- [ ] `[B]` Wire Kling 3.0 via Kie when exposed; `[V]` generates + ledger row + badge correct.
+- [ ] `[B]` Wire WAN (restyle strength) via Kie when exposed; same `[V]`.
+- [ ] `[B]` Evaluate Sora 2 via Kie (cost/limits) before wiring — premium-tier hero option.
+
+---
+
 ## Definition of done (every item)
 1. All listed layers shipped — no layer deferred "for later."
 2. `[V]` step executed with evidence (curl output, Playwright run, ledger row, screenshot).

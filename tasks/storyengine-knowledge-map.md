@@ -13,6 +13,8 @@ for something a doc below already answers** — the audit cost real money; spend
 | Start any session | `tasks/todo.md` (handoff) → this map | Current state + what's next; this map routes the rest |
 | Build a checklist item | `tasks/storyengine-wiring-fix-checklist.md` → the item's finding in `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` → its section in `tasks/storyengine-copilot-ux-map.md` | Checklist = WHAT + layers + verify; audit = WHY + file:line evidence; UX map = HOW users touch it (both doors) |
 | Question strategy, scope, or "should we even…" | `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md` + `tasks/decisions.md` (2026-07-17 entries) | The competitive why; settled decisions — don't re-litigate, append if genuinely new |
+| Wonder "did research insight X ever become work?" | `tasks/research-to-build-map.md` | Traceability matrix: EVERY research insight → disposition (build ref / growth backlog / parked+trigger / rejected+reason). If an insight has no row, that's a process bug — add one |
+| Plan marketing/distribution | `tasks/research-to-build-map.md` §Growth backlog | G1-G5 plays with their blockers; engineering checklist stays engineering-only |
 | Touch models/prompts/routing code | Audit findings §Sweep 2 (model inventory, routing map, fallback chains) | Exact client files + the fallback behavior that must survive refactors |
 | Touch chat/copilot code | Audit findings §Sweep 1 + UX map "conversational quality bar" | The two-persona architecture, verb registry seam, money-gate pattern to extend not fork |
 | Touch styles/camera/presets | Audit findings §Sweep 4 | The 5 profiles' 11 config sections; the env-var seam; what's already built |
@@ -81,6 +83,7 @@ report so this map stays the single index.
 | `tasks/storyengine-knowledge-map.md` | This map — routing + sweep queue | When docs/sweeps are added |
 | `tasks/storyengine-wiring-fix-checklist.md` | Work queue with layer mapping | Tick boxes in fix commits |
 | `tasks/storyengine-copilot-ux-map.md` | Interaction spec (two doors + MCP) | When UX decisions change |
+| `tasks/research-to-build-map.md` | Research→work traceability + growth backlog | Same commit as any new research |
 | `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` | Audit evidence (append future sweep results here) | Append-only |
 | `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md` | Competitive research | Frozen (re-research only on demand) |
 | `tasks/decisions.md` / `tasks/lessons.md` | Settled choices / hard-won patterns | Append-only, per protocol |
