@@ -9,6 +9,10 @@ Higgsfield great.
 - **Read first:** `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md` — full
   teardown (product/promotion/routing), side-by-side comparison table, and 8 ranked copilot
   recommendations. All research is in that one file; do NOT re-run research.
+- **Work from:** `tasks/storyengine-wiring-fix-checklist.md` — the complete fix list (P0
+  integrity bugs → P1 copilot router → P2 surfacing → P3 learning loops/stubs), every item
+  mapped to Data/Backend/UI layers with a Verify step. An item is not done until all its
+  layers ship and Verify passes.
 - **Top build priorities agreed with Ryan (in order):**
   1. **Copilot as router** — outcome → model per scene ("hero shot → Veo Quality, b-roll → Grok"),
      show "why this model", one-tap override. Higgsfield's MCP pattern; wire through the existing
