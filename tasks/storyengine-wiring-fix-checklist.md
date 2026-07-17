@@ -205,7 +205,12 @@ the following build chunk.
 ## Chunk queue (execution order)
 
 **Phase 0 — integrity**
-- [ ] C01 · SWEEP S6 (schema drift) — gate for all migrations. Knowledge map §3.
+- [x] C01 · SWEEP S6 (schema drift) — gate for all migrations. Knowledge map §3.
+- [ ] C01a · Schema/migration hygiene from S6: reconstruct missing migration source, retire ad-hoc DDL, close RLS gaps, refresh stale schema.sql
+  - `[D]` `_migrations` (live tracking table) has 90 applied rows; committed `migrations/` has 89 files. The missing one, `050_enable_rls_auth_tables.sql`, ran against prod but has zero trace in git history (all branches). Introspect current live RLS policies on the auth tables it touched (`pg_policies`), reconstruct an idempotent migration that codifies that state, and commit it under a fresh number — don't reuse `050`.
+  - `[D]` `secrets` (`vault.py::_ensure_secrets_table()`) and `static_reference_cache` (`static_docu.py` ~L383) are created by in-process `CREATE TABLE IF NOT EXISTS` calls, invisible to `migrations/` and `_migrations`. Backfill both as tracked migration files. `static_reference_cache` has a real `tenant_id` column with **no RLS** (confirmed live: `rls_enabled=false`) — add the standard tenant-isolation policy. Same for `channel_video_retention` (migration 080 never added RLS; live confirms `rls_enabled=false`).
+  - `[D]` `storyengine/schema.sql` is stale — missing 11 live tables created by migrations 041–081 (`intelligence_reports`, `channel_videos`, `secrets`, `channel_profile_documents`, `chat_assets`, `production_queue`, `script_templates`, `channel_analytics_daily`, `static_reference_cache`, `channel_video_retention`, `machine_research_cards`) and still declares `title_tests`, which doesn't exist live and has zero code references. Regenerate from live (`pg_dump --schema-only` or equivalent) and drop/flag `title_tests`.
+  - `[V]` `_migrations` row count == committed migration file count (currently 90 vs 89 — should be equal after this chunk). `secrets`, `static_reference_cache`, `channel_video_retention` all show `rls_enabled=true` via a fresh `list_tables` check.
 - [ ] C02 · P0.1 image-model override honored on coverage path + asset model badge
 - [ ] C03 · P0.2 dead models: `wired` flag in registry + minimal `GET /api/models` + frontend derives from it
 - [ ] C04 · P0.4 home Producer works Kie-only (text-client fallback + soft hint)
