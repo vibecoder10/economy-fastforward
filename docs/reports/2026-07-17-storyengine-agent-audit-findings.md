@@ -64,7 +64,7 @@
 3. Camera catalog auto-only, invisible; no user-pickable moves, no previews. → P2.2
 4. Script profiles env-only, not in product. → P2.3
 5. No preview of composed result before spend (only static preset icons). → P2.1 gallery previews + P1.3 draft pass are the answer
-6. Characters tab is real per-video customization (cast lock) — competitive with Soul ID; don't rebuild, market it.
+6. Characters tab is real per-video customization (cast lock) — competitive with Soul ID; don't rebuild, market it. → G5 (research-to-build map)
 
 ---
 
