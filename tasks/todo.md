@@ -10,9 +10,12 @@ Higgsfield great.
   teardown (product/promotion/routing), side-by-side comparison table, and 8 ranked copilot
   recommendations. All research is in that one file; do NOT re-run research.
 - **Work from:** `tasks/storyengine-wiring-fix-checklist.md` — the complete fix list (P0
-  integrity bugs → P1 copilot router → P2 surfacing → P3 learning loops/stubs), every item
-  mapped to Data/Backend/UI layers with a Verify step. An item is not done until all its
-  layers ship and Verify passes.
+  integrity bugs → P1 copilot router → P2 surfacing incl. StoryEngine MCP server → P3
+  learning loops/stubs), every item mapped to Data/Backend/UI layers with a Verify step.
+  An item is not done until all its layers ship and Verify passes.
+- **Build UX to:** `tasks/storyengine-copilot-ux-map.md` — per-feature interaction map:
+  the clickable door AND the conversational door (example utterances + click paths), the
+  "two doors, one registry" law, and the MCP server spec (§7) for co-creating from Claude.
 - **Top build priorities agreed with Ryan (in order):**
   1. **Copilot as router** — outcome → model per scene ("hero shot → Veo Quality, b-roll → Grok"),
      show "why this model", one-tap override. Higgsfield's MCP pattern; wire through the existing

@@ -4,6 +4,8 @@
 
 **The law (from CLAUDE.md):** every item below lists ALL layers it touches — Data, Backend, UI/UX, Verify. An item is NOT done until every listed layer ships and the Verify step passes. A fix that lands in one layer only creates exactly the stubs this list exists to kill. No checkbox flips without the Verify evidence.
 
+**Second law — two doors, one registry (see `tasks/storyengine-copilot-ux-map.md`):** every user-facing capability ships BOTH a clickable control AND a conversational path (Producer/co-pilot phrasing), both calling the same `actions.py` verb. The UX map defines the exact click paths and example utterances per feature — build to it.
+
 Legend: `[B]` backend · `[D]` data/schema · `[U]` UI/UX · `[V]` verify
 
 ---
@@ -88,6 +90,13 @@ Onboarding promises Kie-only is enough; home producer errors without `anthropic_
 - [ ] `[B]` `script_profile` per video (column + plumb to `SCRIPT_PROFILE` env, mirroring visual profile seam).
 - [ ] `[U]` Advanced option in create flow + ScriptVoiceTab: Neutral / Investigative Reveal (power_doctrine_v2) with one-line descriptions.
 - [ ] `[V]` Generate same topic under both profiles; scripts differ per profile laws.
+
+### 2.4 StoryEngine MCP server — "talk to it from Claude" (see UX map §7)
+The Higgsfield-killer door: co-create from Claude/any MCP client; verbs come from the same `actions.py` registry as buttons and chat. BYOK carries through (user's vault keys); money gate preserved via quote + confirm_token.
+- [ ] `[B]` MCP endpoint wrapping the actions registry + read tools (list_scenes with routed models, get_ledger, get_performance, upload_draft_to_youtube); per-user token auth; confirm-token gate on every paid tool.
+- [ ] `[D]` `agent_tokens` table (user, tenant, scopes, created/revoked, last_used).
+- [ ] `[U]` Settings → "Agent access": create/revoke token, MCP config snippet, last-used display. "via agent" chip on videos/actions created through MCP.
+- [ ] `[V]` From an MCP client on a test tenant: create → route shots → draft → finalize → upload draft, every paid step quote-gated, ledger rows written, video + badges visible in the web UI.
 
 ---
 
