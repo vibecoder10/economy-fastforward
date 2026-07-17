@@ -10,21 +10,26 @@ feel like Higgsfield's best trick: talk to it like a co-writing partner and it j
 you want — with our mapped shots.
 
 ### What this session produced (all on main, nothing pending)
-This was a research + planning session. NO product code was changed. Four docs were produced,
-all committed to main (through `c7ac683`) and cross-referenced:
+This was a research + planning session. NO product code was changed. Five docs were produced,
+all committed to main and cross-referenced:
 
 1. `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md` — the research.
    Higgsfield teardown (product / promotion / prompt-routing), 13-dimension comparison table,
    8 ranked recommendations. Claims labeled [verified] (survived adversarial checks) vs
    [reported]. Do NOT re-run research; do NOT trust Higgsfield price points beyond July 2026.
-2. `tasks/storyengine-wiring-fix-checklist.md` — THE WORK QUEUE. P0→P3, every item mapped
+2. `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` — THE EVIDENCE. Full
+   findings of the 4-agent StoryEngine sweep (copilot flow, model routing/BYOK, growth loop,
+   styles/presets) with file:line references. Every checklist item traces to a finding here —
+   consult it before re-exploring the codebase; do NOT re-run the audit.
+3. `tasks/storyengine-wiring-fix-checklist.md` — THE WORK QUEUE. P0→P3, every item mapped
    to `[D]`ata / `[B]`ackend / `[U]`I layers with a `[V]`erify step. An item is not done until
-   every listed layer ships AND Verify passes with evidence. This exists because the audit
-   found ~25 cases of "built but invisible" or "visible but fake."
-3. `tasks/storyengine-copilot-ux-map.md` — HOW USERS TOUCH EACH FEATURE. Per feature: the
+   every listed layer ships AND Verify passes with evidence. P3.4 holds the audit findings
+   that aren't part of the router build (quota guard, own-video VPH, per-user BYOK slice,
+   Whisper-key friction, hardcoded Claude tiers, Power-Doctrine-branded SEO).
+4. `tasks/storyengine-copilot-ux-map.md` — HOW USERS TOUCH EACH FEATURE. Per feature: the
    clickable door (exact controls/click paths) AND the conversational door (example
    utterances), plus the MCP server spec (§7) and the conversational quality bar.
-4. CLAUDE.md + tasks/lessons.md — subagent model policy (see Session rules below).
+5. CLAUDE.md + tasks/lessons.md — subagent model policy (see Session rules below).
 
 ### Build order (work the checklist top-down)
 1. **P0 first — integrity bugs that lie to users today.** Cosmetic image-model dropdown

@@ -1,6 +1,6 @@
 # StoryEngine Wiring Fix Checklist
 
-**Date:** 2026-07-17 · **Source:** 4-agent codebase audit (copilot flow, model routing/BYOK, growth loop, styles/presets) + Higgsfield gap analysis (`docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md`)
+**Date:** 2026-07-17 · **Source:** 4-agent codebase audit — full findings with file:line evidence in `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` — + Higgsfield gap analysis (`docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md`). Every item below traces to a finding in the audit report; consult it before re-exploring the codebase.
 
 **The law (from CLAUDE.md):** every item below lists ALL layers it touches — Data, Backend, UI/UX, Verify. An item is NOT done until every listed layer ships and the Verify step passes. A fix that lands in one layer only creates exactly the stubs this list exists to kill. No checkbox flips without the Verify evidence.
 
@@ -120,6 +120,15 @@ These are in `skills/video-pipeline/` (legacy Airtable side). StoryEngine SaaS r
 - [ ] 4+ parallel create surfaces (home chat, /pipeline form, Model A Video, onboarding CreateVideoStep, FirstVideoFlow) — converge on chat-plan + one form; kill or thin the rest (decision needed, flag to Ryan).
 - [ ] Cold-start: no competitors → producer gives generic examples; add "add 3 competitors now" inline card instead of degrading silently.
 - [ ] Budget ceiling: per-video `max_spend` (default off) checked before each paid verb; autobuild stops with "budget reached" card instead of only the 18-iteration cap.
+- [ ] Copilot clarify-loop: `COPILOT_CONFIDENCE = 0.55` (`chat.py:543`) — log confidence scores on real traffic first, then tune; don't guess a new threshold.
+
+### 3.4 Remaining audit findings (from `docs/reports/2026-07-17-storyengine-agent-audit-findings.md`)
+- [ ] **Claude tier hardcoded per call site** — `[B]` single-source the text-model tier map (which stages use Sonnet vs Haiku) next to the model registry; no UI exposure needed yet, but one file to change instead of grep-and-pray. `[V]` grep shows no literal `Models.CLAUDE_*` outside the map.
+- [ ] **Whisper forces OpenAI key in Kie-only setup** — `[B]` route transcription via Kie if a Whisper-equivalent exists there, else `[U]` mark `openai_api_key` as required-for-voice-alignment in onboarding/keys UI so it's a visible requirement, not a silent stage failure. `[V]` Kie-only tenant either transcribes or sees the requirement before building.
+- [ ] **Per-user BYOK (PER_USER_KEYS_ENABLED)** — resolution logic done (`vault.py` L165-196), NO write path or UI. `[D]` `tenant:user:name` writes; `[B]` set-key accepts user scope; `[U]` Settings → Keys per-user section. Product call: needed for multi-seat tenants — flag to Ryan before building. `[V]` two users, same tenant, different Kie keys, generations bill separately.
+- [ ] **YouTube quota guard** — `[B]` count today's uploads per channel (~1,600 units each, 10k/day); block the 7th with a "quota resets midnight PT" card instead of a raw 403. `[U]` remaining-uploads chip on Upload tab. `[V]` simulated 6-upload day → 7th blocked gracefully.
+- [ ] **VPH for own videos** — competitor VPH exists (`competitor_scraper.calculate_vph`) but own videos never get it, so scorecards compare apples to oranges. `[B]` compute VPH on own snapshots; `[U]` show it beside CTR in analytics/scorecards. `[V]` own video shows VPH within 24h of publish.
+- [ ] **SEO generator is Power-Doctrine-branded** — hardcoded `@Power_Doctrine` subscribe line + `#PowerDoctrine` hashtags in `upload/seo_generator.py`; parameterize per tenant/channel before any multi-tenant upload ships. `[V]` second tenant's draft carries its own branding.
 
 ---
 
