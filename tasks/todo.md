@@ -29,7 +29,12 @@ all committed to main and cross-referenced:
 4. `tasks/storyengine-copilot-ux-map.md` — HOW USERS TOUCH EACH FEATURE. Per feature: the
    clickable door (exact controls/click paths) AND the conversational door (example
    utterances), plus the MCP server spec (§7) and the conversational quality bar.
-5. CLAUDE.md + tasks/lessons.md — subagent model policy (see Session rules below).
+5. `tasks/storyengine-knowledge-map.md` — THE ROUTER. Where to look by task, when to reuse
+   vs re-verify knowledge, and the queue of 6 NOT-yet-run sweeps (security/tenancy, schema
+   drift, queue reliability, render path, frontend state, multi-tenant branding) each with
+   its just-in-time trigger tied to a checklist phase. Run pending sweeps as ONE Sonnet
+   Explore agent each when their trigger fires; append results to the audit findings report.
+6. CLAUDE.md + tasks/lessons.md — subagent model policy (see Session rules below).
 
 ### Build order (work the checklist top-down)
 1. **P0 first — integrity bugs that lie to users today.** Cosmetic image-model dropdown
