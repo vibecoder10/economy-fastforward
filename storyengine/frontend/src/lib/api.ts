@@ -2695,5 +2695,21 @@ export interface SuggestedModels {
   channel: string | null;
   videos: SuggestedModelVideo[];
 }
+// --- Video generation models (single source of truth: shared.channel_profile
+// .MODEL_REGISTRY, storyengine-wiring-fix-checklist.md §0.2). The Scenes
+// clip-model dropdown derives its selectable list from this endpoint instead
+// of a hand-copied constant — `wired` mirrors pipeline_executor's own gate. ---
+export interface VideoModelInfo {
+  id: string;
+  name: string;
+  kind: string; // "video" today — the registry may grow other kinds later
+  wired: boolean;
+}
+export interface ModelsResponse {
+  models: VideoModelInfo[];
+  default_video_model: string;
+}
+export const getModels = () => fetchApi<ModelsResponse>("/api/models");
+
 export const getSuggestedModels = () =>
   fetchApi<SuggestedModels>("/api/chat/suggested-models");

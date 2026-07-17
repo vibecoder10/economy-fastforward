@@ -160,6 +160,14 @@ class ModelProfile:
     includes_audio: bool = False
     strip_audio: bool = True
 
+    # Single source of truth for "does this model have a live generation path".
+    # Read directly by pipeline_executor.run_clip_generation's gate AND by
+    # GET /api/models (storyengine/backend/routes/model_registry.py) — the
+    # frontend's clip-model dropdown derives its selectable list from that
+    # endpoint instead of hand-copying model ids, so this flag is the ONLY
+    # place "wired" is decided (see tasks/storyengine-wiring-fix-checklist.md §0.2).
+    wired: bool = False
+
 
 # --- Model Instances ---
 
@@ -179,6 +187,7 @@ GROK_IMAGINE = ModelProfile(
     strip_audio=True,
     avg_generation_time_seconds=15,
     max_concurrent=10,
+    wired=True,
 )
 
 VEO_31_FAST = ModelProfile(
@@ -196,6 +205,7 @@ VEO_31_FAST = ModelProfile(
     camera_control_type="none",
     avg_generation_time_seconds=60,
     max_concurrent=5,
+    wired=True,
 )
 
 VEO_31_QUALITY = ModelProfile(
@@ -213,6 +223,7 @@ VEO_31_QUALITY = ModelProfile(
     camera_control_type="none",
     avg_generation_time_seconds=120,
     max_concurrent=3,
+    wired=True,
 )
 
 KLING_30_PRO = ModelProfile(
@@ -229,6 +240,7 @@ KLING_30_PRO = ModelProfile(
     camera_control_type="keyframe",
     avg_generation_time_seconds=90,
     max_concurrent=3,
+    wired=False,  # no live generation path yet
 )
 
 RUNWAY_GEN4_TURBO = ModelProfile(
@@ -245,6 +257,7 @@ RUNWAY_GEN4_TURBO = ModelProfile(
     camera_control_type="prompt",
     avg_generation_time_seconds=360,
     max_concurrent=5,
+    wired=False,  # no live generation path yet
 )
 
 HAILUO_23_STANDARD = ModelProfile(
@@ -261,6 +274,7 @@ HAILUO_23_STANDARD = ModelProfile(
     camera_control_type="bracket",
     avg_generation_time_seconds=45,
     max_concurrent=5,
+    wired=False,  # no live generation path yet
 )
 
 SEEDANCE_2_FAST = ModelProfile(
@@ -278,6 +292,7 @@ SEEDANCE_2_FAST = ModelProfile(
     camera_control_type="prompt",
     avg_generation_time_seconds=90,
     max_concurrent=3,
+    wired=True,
 )
 
 # --- Model Registry ---

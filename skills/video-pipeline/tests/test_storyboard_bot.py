@@ -34,13 +34,21 @@ from storyboard.bot import (
 
 class TestModelProfile:
     def test_registry_has_all_models(self):
-        assert len(MODEL_REGISTRY) == 6
+        assert len(MODEL_REGISTRY) == 7
         assert "grok-imagine" in MODEL_REGISTRY
+        assert "seedance-2-fast" in MODEL_REGISTRY
         assert "veo-3.1-fast" in MODEL_REGISTRY
         assert "veo-3.1-quality" in MODEL_REGISTRY
         assert "kling-3.0-pro" in MODEL_REGISTRY
         assert "runway-gen4-turbo" in MODEL_REGISTRY
         assert "hailuo-2.3-standard" in MODEL_REGISTRY
+
+    def test_wired_flag_matches_live_generation_path(self):
+        # Single source of truth for the Scenes clip-model dropdown (GET
+        # /api/models) AND pipeline_executor's gate — see
+        # tasks/storyengine-wiring-fix-checklist.md §0.2.
+        wired_ids = {m for m, p in MODEL_REGISTRY.items() if p.wired}
+        assert wired_ids == {"grok-imagine", "seedance-2-fast", "veo-3.1-fast", "veo-3.1-quality"}
 
     def test_default_model_is_grok(self):
         assert DEFAULT_VIDEO_MODEL == "grok-imagine"

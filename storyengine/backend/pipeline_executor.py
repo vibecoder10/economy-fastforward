@@ -11777,8 +11777,10 @@ separate scenes."""
             profile = MODEL_REGISTRY.get(model_id)
             # Only models with a live generation path are selectable — the
             # old dropdown silently ignored the choice and always ran Grok.
-            wired = {"grok-imagine", "seedance-2-fast", "veo-3.1-fast", "veo-3.1-quality"}
-            if not profile or model_id not in wired:
+            # `wired` lives on the ModelProfile itself (single source of truth,
+            # also exposed via GET /api/models) — no second hardcoded set that
+            # can drift from this gate (storyengine-wiring-fix-checklist.md §0.2).
+            if not profile or not profile.wired:
                 return {"status": "failed", "error": user_facing(
                     f"'{model_id}' isn't available yet — pick Grok Imagine or Veo 3.1 under Advanced.")}
 

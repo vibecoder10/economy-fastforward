@@ -766,3 +766,44 @@ below.
 The gap flagged in the first pass is now closed: the primary "Generate all
 pictures" flow honors `image_model_override` end to end, with GPT Image 2
 unchanged as the default and the content-policy/failure fallback.
+
+---
+
+## C03 — Single-Sourced `wired` Flag + `GET /api/models` (added 2026-07-17)
+
+Follow-up to checklist §0.2 ("Dead model options in the registry" —
+`tasks/storyengine-wiring-fix-checklist.md`). `MODEL_REGISTRY` listed 3 video
+models (Kling 3.0 Pro, Runway Gen-4 Turbo, Hailuo 2.3 Standard) with no live
+generation path. The Scenes clip-model dropdown hand-copied its own
+`WIRED_MODELS` constant, separate from `pipeline_executor.run_clip_generation`'s
+own hardcoded `wired = {...}` set — the two could (and did) drift, so the
+dropdown offered models the backend then rejected with "isn't available yet".
+
+Both call sites (and the new endpoint below) now read a single `wired: bool`
+field on `ModelProfile` itself — one flag, one registry entry, no second set
+to keep in sync. `storyengine/backend/` has no registry of its own; it
+imports `shared.channel_profile.MODEL_REGISTRY` from `skills/video-pipeline/`
+via the same `sys.path` pattern `routes/skills.py` already uses.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/routes/model_registry.py` | `GET /api/models` — returns every `MODEL_REGISTRY` entry (`id`, `name`, `kind` (always `"video"` today — the registry has no image models), `wired`) plus `default_video_model`. Read straight off the registry so it stays trivially extensible (a later chunk, C11/P1.1, adds `best_for`/`tier`/`cost_per_clip` to the same response). |
+| `storyengine/backend/tests/functional/test_model_registry.py` | 3 tests (FastAPI `TestClient`, `get_tenant_id` dependency overridden, no DB needed) proving the endpoint returns all 7 registry entries and that the 3 dead models come back `wired:false` while the 4 live ones come back `wired:true`. |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/shared/channel_profile.py` | `ModelProfile` gained `wired: bool = False`. Set `wired=True` on `GROK_IMAGINE`, `SEEDANCE_2_FAST`, `VEO_31_FAST`, `VEO_31_QUALITY`; explicit `wired=False` on `KLING_30_PRO`, `RUNWAY_GEN4_TURBO`, `HAILUO_23_STANDARD`. |
+| `storyengine/backend/pipeline_executor.py` | `run_clip_generation`'s gate (~L11775-11783) dropped its own hardcoded `wired = {...}` set; now checks `profile.wired` on the same `MODEL_REGISTRY` entry it already looked up. |
+| `storyengine/backend/main.py` | Registered `model_registry.router`. |
+| `storyengine/frontend/src/lib/api.ts` | Added `VideoModelInfo` / `ModelsResponse` types and `getModels()`. |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | Deleted the hand-copied `WIRED_MODELS` constant. The clip-model `<select>` now derives its options from `useQuery(["models"], getModels)`, filtered to `kind === "video" && wired`. A small `FALLBACK_WIRED_MODELS` (Grok Imagine only) covers the case where the endpoint is unreachable/empty — the dropdown is never rendered broken or empty. |
+| `skills/video-pipeline/tests/test_storyboard_bot.py` | Fixed a stale `len(MODEL_REGISTRY) == 6` assertion (registry has held 7 entries since `seedance-2-fast` was added — pre-existing, unrelated failure found while touching this file) and added `test_wired_flag_matches_live_generation_path`. |
+
+`curl http://127.0.0.1:8001/api/models` verified locally (backend booted with
+no DB/Redis — `DEV_MODE=true`/`DEV_TOKEN`/`DEV_TENANT_ID`, since the route
+never touches the database): the 3 dead models come back `wired:false`, the
+4 live ones `wired:true`, exactly matching `pipeline_executor`'s gate. The
+live/paid step ("selecting every wired model actually generates a clip") is
+deferred — see `tasks/live-verification-queue.md` §C03.

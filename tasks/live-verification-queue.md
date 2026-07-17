@@ -26,6 +26,35 @@ The Pictures model selector now routes the **bulk "Generate all pictures"** path
 
 ---
 
+## C03 — single-sourced `wired` flag + `GET /api/models` · live clip-generation confirmation
+The Scenes clip-model dropdown now derives its options from `GET /api/models`
+(`storyengine/backend/routes/model_registry.py`), which reads the same
+`ModelProfile.wired` flag `pipeline_executor.run_clip_generation`'s gate
+checks — the two can no longer drift. Confirmed in-sandbox: `curl
+/api/models` (backend booted locally with no DB/Redis) returned `wired:false`
+for Kling 3.0 Pro / Runway Gen-4 Turbo / Hailuo 2.3 Standard and `wired:true`
+for Grok Imagine / Seedance 2.0 / Veo 3.1 Fast / Veo 3.1 Quality, matching the
+gate exactly; `tests/functional/test_model_registry.py` pins this. What's
+NOT provable without a paid Kie key is that every *wired* model actually
+produces a clip end to end (the checklist's literal "selecting every listed
+model generates without the isn't-available-yet error"):
+- [ ] For each wired model (**Grok Imagine, Seedance 2.0 Cinematic, Veo 3.1
+      Fast, Veo 3.1 Quality**) on a test video: select it in the Clips
+      dropdown, animate one scene, confirm the clip completes (no "isn't
+      available yet" error, no silent fallback to Grok) and the resulting
+      `assets.video_clip_url` is playable.
+- [ ] Confirm the 3 unwired models (Kling 3.0 Pro, Runway Gen-4 Turbo, Hailuo
+      2.3 Standard) are simply absent from the rendered dropdown (or shown
+      disabled) — never selectable — matching what `GET /api/models` reports.
+- **Cost:** one clip per wired model — Grok Imagine ~$0.10-0.15, Seedance 2.0
+  ~$0.30, Veo 3.1 Fast ~$0.30, Veo 3.1 Quality ~$1.25 (durations vary; use the
+  shortest tier). ~$2 total for all four. **No YouTube publish needed.**
+- **Safety net:** the gate (`pipeline_executor.py`) still rejects any
+  unwired `model_id` server-side even if a stale client somehow posts one —
+  a live failure here is a generation-quality issue, not a data-integrity one.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

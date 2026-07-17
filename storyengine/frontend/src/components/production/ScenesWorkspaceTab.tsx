@@ -32,7 +32,9 @@ import {
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
   deleteClip, recropAsset, getEnvironments, getVideoCharacters, updateVideoPrompt, updateImagePrompt, improvePrompt,
+  getModels,
 } from "@/lib/api";
+import type { VideoModelInfo } from "@/lib/api";
 import { clipCost } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
@@ -42,12 +44,13 @@ import { API_URL } from "@/lib/env";
 import { AnimaticPlayer } from "@/components/production/AnimaticPlayer";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 
-/** Models with a live generation path (the registry rejects the rest). */
-const WIRED_MODELS: { id: string; label: string }[] = [
+/** Network-failure safety net ONLY — if GET /api/models can't be reached, the
+ * clip-model selector still needs something selectable instead of rendering
+ * empty. This is NOT the source of truth (that's the `wiredVideoModels`
+ * derivation below, backed by the `["models"]` query); it exists so a
+ * dropped request never breaks the UI. */
+const FALLBACK_WIRED_MODELS: { id: string; label: string }[] = [
   { id: "grok-imagine", label: "Grok Imagine — $0.10/clip" },
-  { id: "seedance-2-fast", label: "Seedance 2.0 Cinematic — $0.30/clip" },
-  { id: "veo-3.1-fast", label: "Veo 3.1 Fast — $0.30/clip" },
-  { id: "veo-3.1-quality", label: "Veo 3.1 Quality — $1.25/clip" },
 ];
 
 /** Short labels for the picture-model badge (asset.image_model — the model that
@@ -299,6 +302,29 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   });
   const castDrafted = (charactersData?.characters?.length ?? 0) > 0;
   const castReady = !castDrafted || !!charactersData?.approved_at;
+
+  // Clip-model options: derived from the backend registry (GET /api/models),
+  // never hand-copied — see storyengine-wiring-fix-checklist.md §0.2. Not
+  // per-video (queryKey has no video.id) since the registry is global; a long
+  // staleTime keeps it from refetching on every tab switch.
+  const { data: modelsData } = useQuery({
+    queryKey: ["models"],
+    queryFn: getModels,
+    staleTime: 5 * 60_000,
+  });
+  const wiredVideoModels = useMemo((): { id: string; label: string }[] => {
+    const wired = (modelsData?.models ?? []).filter((m) => m.kind === "video" && m.wired);
+    if (!wired.length) {
+      // Endpoint unreachable, still loading, or (shouldn't happen) came back
+      // empty — never render a broken/empty dropdown; fall back to the one
+      // model we know is always live.
+      return FALLBACK_WIRED_MODELS;
+    }
+    return wired.map((m: VideoModelInfo) => ({
+      id: m.id,
+      label: `${m.name} — $${clipCost(m.id, 1).toFixed(2)}/clip`,
+    }));
+  }, [modelsData]);
 
   // Guard every storyboard-generating action: bounce with a clear message
   // (and a pointer to the Environments tab) instead of firing a doomed task.
@@ -554,7 +580,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     : (extractedCount > 0 && picturesMissing > 0) ? { kind: "finish", label: `Finish pictures (${picturesMissing} missing)` }
     : (videoStageEnabled && clipsPending > 0) ? { kind: "animate", label: `Animate everything · $${remainingCost.toFixed(2)}` }
     : null;
-  const modelLabel = WIRED_MODELS.find((m) => m.id === model)?.label.split(" — ")[0] ?? model;
+  const modelLabel = wiredVideoModels.find((m) => m.id === model)?.label.split(" — ")[0] ?? model;
   const storyLocked = !!video.story_locked_at;
 
   // Scene → dialogue lines for the 💬 badge.
@@ -1141,7 +1167,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
             <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Clips</span>
             <select value={model} onChange={(e) => handleClipModelChange(e.target.value)}
               className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
-              {WIRED_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {wiredVideoModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
           </div>
         )}
