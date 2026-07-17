@@ -2594,11 +2594,15 @@ export interface ChatAssetInfo {
 export const uploadChatAsset = async (
   file: File,
   conversationId?: string | null,
+  // Set when dropped into a video's docked co-pilot, so the backend stamps the
+  // asset with that video from the moment it lands. Omitted by the home chat.
+  videoId?: string | null,
 ): Promise<{ asset: ChatAssetInfo }> => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const formData = new FormData();
   formData.append("file", file);
   if (conversationId) formData.append("conversation_id", conversationId);
+  if (videoId) formData.append("video_id", videoId);
   const res = await fetch(`${API_URL}/api/chat/upload`, {
     method: "POST",
     headers: uploadHeaders(),

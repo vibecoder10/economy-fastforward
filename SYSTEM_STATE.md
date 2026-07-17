@@ -842,3 +842,61 @@ etc.) — confirmed by diff, not just inspection. The live step ("fresh
 Kie-only tenant completes onboarding → gets a production plan on home, no
 error") needs a real Kie key and is deferred — see
 `tasks/live-verification-queue.md` §C04.
+
+## C05 — Docked Co-Pilot Accepts File Attachments (added 2026-07-17)
+
+Follow-up to checklist §0.6. The docked co-pilot's file drop was dead on
+arrival two ways: (1) `ChatCore.attachFiles` hard early-returned `if (docked)
+return;`, and (2) even the docked `<Composer>` render never passed it
+`attachments`/`uploading`/`onAttach` at all, so there was no drop-zone or
+paperclip affordance in the dock in the first place — only the home welcome
+and home "started" composers wired those props. Both are fixed: the docked
+composer now passes the same props as home, and `attachFiles` uploads in
+both modes, passing `videoId` through when docked.
+
+`chat_assets` gained a `video_id UUID` column (migration
+`085_chat_assets_video_id.sql`, applied live) so a docked drop is stamped to
+the video it landed on at upload time — `POST /api/chat/upload` now accepts
+an optional `video_id` form field, verifies the video belongs to the
+tenant (fail-soft to unscoped on mismatch, never errors the upload), and
+persists it on the `chat_assets` row. The home chat sends no `video_id` —
+unchanged.
+
+Separately, `_handle_copilot` (the video-scoped turn handler) previously
+returned before the turn-level `_attach_assets`/`_assets_brief` call ran at
+all (that call lives further down `chat_turn`, gated behind `if not
+video_id`), so even a `body.attachments` id list on a docked turn was
+silently dropped — the copilot could never reference a file dropped mid
+conversation. `_handle_copilot` now calls the same `_attach_assets` helper
+the home flow uses (no new path invented) and folds `_assets_brief` into the
+summary line fed to both `agent_brain.run_copilot_brain` and the legacy
+classifier prompt, so a follow-up like "use the reference I dropped" has the
+file in context.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/085_chat_assets_video_id.sql` | `ALTER TABLE chat_assets ADD COLUMN IF NOT EXISTS video_id UUID` + `idx_chat_assets_tenant_video` index. Applied live to project `wrromlupsmyzrrcqlucn` via Supabase MCP; column confirmed present via `information_schema.columns`. |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/schema.sql` | `chat_assets` gained `video_id UUID` + its index, matching migration 085. |
+| `storyengine/backend/routes/chat.py` | `/api/chat/upload` takes optional `video_id` form field, verifies tenant ownership, persists it on the INSERT. `_handle_copilot` now calls `_attach_assets` on `body.attachments` (mirroring the home turn path) and threads `_assets_brief(...)` into the summary line used by both `agent_brain.run_copilot_brain` and the legacy classifier prompt. A lone file drop with no message gets a "saved to this video, what should I do with it" reply instead of the generic ask-me-anything line. |
+| `storyengine/frontend/src/lib/api.ts` | `uploadChatAsset(file, conversationId, videoId?)` — new optional third param, sent as a `video_id` form field. |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | Removed the `if (docked) return;` early-return in `attachFiles`; it now passes `videoId` through when docked. The docked `<Composer>` render now passes `attachments`/`uploading`/`onAttach`/`onRemoveAttachment` (previously omitted entirely — the dock had no attach UI at all). Updated the stale "home chat only" comment on `Composer`'s `attachments` prop. |
+
+Scope note: this chunk stops at "the dropped reference is saved + attached to
+the video and the copilot can reference it in conversation." It does NOT
+route a dropped image into the CharactersTab cast-generation flow (i.e.
+auto-using it as a locked character reference) — that deeper filing is a
+later chunk, same pattern as `filed_as` on other `chat_assets` rows.
+
+`cd storyengine/frontend && npx tsc --noEmit` clean. `python -m py_compile
+routes/chat.py` clean. `./venv/bin/python -m pytest tests/ -q -k "chat or
+upload"` — 5 passed. Full suite: same 16 pre-existing failures + 1
+pre-existing error before and after (confirmed via `git stash`), unrelated
+to this change. The live step ("open a video's co-pilot dock, drop a PNG,
+confirm it lands in `chat_assets` with the video's id and the copilot
+references it") needs a running app + browser and is deferred — see
+`tasks/live-verification-queue.md` §C05.

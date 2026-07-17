@@ -1253,12 +1253,13 @@ CREATE POLICY channel_profile_documents_tenant_isolation ON channel_profile_docu
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 -- ---------------------------------------------------------------------------
--- CHAT_ASSETS (migration 073_chat_assets.sql)
+-- CHAT_ASSETS (migration 073_chat_assets.sql; video_id added in 085_chat_assets_video_id.sql)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS chat_assets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL,
   conversation_id UUID,
+  video_id UUID,  -- set when the file was dropped into a video's docked co-pilot (NULL = home chat)
   kind TEXT NOT NULL,
   filename TEXT,
   content_type TEXT,
@@ -1271,6 +1272,7 @@ CREATE TABLE IF NOT EXISTS chat_assets (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX idx_chat_assets_tenant_conv ON chat_assets(tenant_id, conversation_id);
+CREATE INDEX idx_chat_assets_tenant_video ON chat_assets(tenant_id, video_id);
 
 ALTER TABLE chat_assets ENABLE ROW LEVEL SECURITY;
 -- RLS enabled live with zero policies (deny-all to anon/authenticated);

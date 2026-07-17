@@ -149,6 +149,10 @@ def _assistant_turn(data: dict[str, Any]) -> dict[str, str]:
 async def upload_chat_asset(
     file: UploadFile = File(...),
     conversation_id: Optional[str] = Form(None),
+    # Optional: set when the drop happened in a video's docked co-pilot, so the
+    # asset is associated with that video from the moment it lands. The home
+    # chat sends no video_id — that path is unchanged.
+    video_id: Optional[str] = Form(None),
     tenant_id=Depends(get_tenant_id),
 ):
     import uuid as _uuid
@@ -160,6 +164,19 @@ async def upload_chat_asset(
         raise HTTPException(status_code=400, detail="File too large (max 15 MB).")
     if not content:
         raise HTTPException(status_code=400, detail="That file is empty.")
+
+    # Verify the video belongs to this tenant before stamping it on — a foreign
+    # or stale id must not leak cross-tenant association; fail-soft to unscoped
+    # (still uploads fine, just not tied to a video) rather than erroring the drop.
+    checked_video_id: Optional[str] = None
+    if video_id:
+        owns = await fetch_one(
+            "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id
+        )
+        if owns:
+            checked_video_id = video_id
+        else:
+            logger.warning("chat: upload video_id %s not owned by tenant %s — uploading unscoped", video_id, tenant_id)
 
     kind = asset_intake.detect_kind(file.filename, file.content_type)
     parsed, parsed_text = None, None
@@ -188,10 +205,10 @@ async def upload_chat_asset(
         logger.warning("chat: asset storage upload failed (%s): %s", file.filename, e)
 
     await execute(
-        "INSERT INTO chat_assets (id, tenant_id, conversation_id, kind, filename, "
+        "INSERT INTO chat_assets (id, tenant_id, conversation_id, video_id, kind, filename, "
         "content_type, storage_url, parsed, parsed_text, summary) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)",
-        asset_id, tenant_id, conversation_id or None, kind,
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)",
+        asset_id, tenant_id, conversation_id or None, checked_video_id, kind,
         (file.filename or "")[:255] or None, file.content_type,
         storage_url, json.dumps(parsed) if parsed is not None else None,
         parsed_text, summary,
@@ -676,9 +693,24 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
             return await _reply(line)
         return await _reply("No problem — kept the original prompt. Tell me what else you'd like.")
 
+    # Files dropped into the docked co-pilot: bind them to this conversation
+    # (they're already stamped with video_id at upload time — see /api/chat/upload)
+    # and fold a description into the transcript so the copilot sees what arrived.
+    # Reuses the same _attach_assets the home chat uses — no separate path.
+    if body.attachments:
+        attach_lines: list[str] = []
+        await _attach_assets(tenant_id, conversation_id, body.attachments, state, attach_lines)
+        for line in attach_lines:
+            transcript.append({"role": "user", "content": line})
+
     if msg:
         transcript.append({"role": "user", "content": msg})
     if not msg:
+        if body.attachments:
+            return await _reply(
+                "Got it — that's saved to this video. Tell me what you'd like me to do with it "
+                "(e.g. use it as a character reference, or work it into the script)."
+            )
         return await _reply("Ask me anything about this video, or tell me what to do next — e.g. "
                             "“animate scene 2”, “redo the thumbnail”, or “how much has this cost?”")
 
@@ -729,11 +761,16 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
                 "(or keep adjusting in words).", cards=[_prompt_apply_card(draft, new)])
         return await _reply("I couldn't adjust that — try wording it a different way?")
 
+    # Files the creator has dropped into this video's co-pilot (chat_assets rows
+    # bound to this conversation) — folded into the summary so the copilot can
+    # reference them ("use the reference I dropped", "that image I attached").
+    summary_with_assets = _summary_line(summary) + await _assets_brief(tenant_id, state)
+
     prompt = (
         "You are the in-app co-pilot for ONE video. The creator can (a) ASK a question, (b) tell you to RUN a "
         "production step, or (c) work on a generation PROMPT (view it, get suggestions, or rewrite/enhance it "
         "for a specific shot). Decide which.\n\n"
-        + _summary_line(summary) + "\n"
+        + summary_with_assets + "\n"
         + (f"They are currently viewing scene {ui_context.get('scene')}"
            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
            + ".\n" if ui_context.get("scene") else "")
@@ -788,7 +825,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     try:
         from agent_brain import run_copilot_brain
         data = await run_copilot_brain(client, copilot_model, tenant_id, video_id,
-                                       summary, msg, ui_context, _summary_line(summary))
+                                       summary, msg, ui_context, summary_with_assets)
     except Exception as e:  # noqa: BLE001
         logger.warning("copilot: agent brain failed, falling back: %s", e)
     if data is None:

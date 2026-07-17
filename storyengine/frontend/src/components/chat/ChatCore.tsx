@@ -355,14 +355,14 @@ export function ChatCore({
   }
 
   // Upload dropped/picked/pasted files right away; they ride the NEXT sent turn
-  // as chat_assets ids. Home chat only for now (the dock ignores attachments).
+  // as chat_assets ids. Works in both the home chat and the docked co-pilot —
+  // docked drops carry videoId so the backend stamps the asset to this video.
   async function attachFiles(files: FileList | File[]) {
-    if (docked) return;
     const list = Array.from(files).slice(0, Math.max(0, 5 - attachments.length));
     for (const f of list) {
       setUploadingFiles((n) => n + 1);
       try {
-        const res = await uploadChatAsset(f, conversationId);
+        const res = await uploadChatAsset(f, conversationId, docked ? videoId ?? null : null);
         setAttachments((a) => [
           ...a,
           { id: res.asset.id, filename: res.asset.filename || f.name, kind: res.asset.kind },
@@ -516,7 +516,17 @@ export function ChatCore({
           <div ref={endRef} />
         </div>
         <div className="absolute bottom-0 left-0 right-0 px-3 py-3" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
-          <Composer input={input} setInput={setInput} onSubmit={submitInput} sending={sending} placeholder="Ask or tell me what to do…" />
+          <Composer
+            input={input}
+            setInput={setInput}
+            onSubmit={submitInput}
+            sending={sending}
+            placeholder="Ask or tell me what to do…"
+            attachments={attachments}
+            uploading={uploadingFiles > 0}
+            onAttach={attachFiles}
+            onRemoveAttachment={removeAttachment}
+          />
         </div>
       </div>
     );
@@ -885,7 +895,8 @@ function Composer({
   sending: boolean;
   placeholder?: string;
   autoFocus?: boolean;
-  // File drop-in (home chat only — the dock doesn't pass these).
+  // File drop-in: home chat and the docked co-pilot both pass these (docked
+  // drops carry the video's id through to /api/chat/upload — see attachFiles).
   attachments?: { id: string; filename: string; kind: string }[];
   uploading?: boolean;
   onAttach?: (files: FileList | File[]) => void;

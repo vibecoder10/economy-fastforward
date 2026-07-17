@@ -91,6 +91,56 @@ full live turn:
 
 ---
 
+## C05 — docked co-pilot accepts file attachments · live drop confirmation
+The docked co-pilot (`ChatCore.tsx` with `docked`) silently swallowed file
+drops two ways: `attachFiles` hard early-returned `if (docked) return;`, and
+the docked `<Composer>` render never even received the
+`attachments`/`uploading`/`onAttach` props — so there was no attach
+affordance in the dock at all, only in the home chat. Both are fixed:
+- the docked `<Composer>` now gets the same props as the home composers, so
+  drag-drop, paste, and the paperclip button all render in the dock;
+- `attachFiles` no longer early-returns for `docked`, and passes `videoId`
+  through to `uploadChatAsset`;
+- `POST /api/chat/upload` (`storyengine/backend/routes/chat.py`) takes an
+  optional `video_id` form field, verifies the video belongs to the tenant,
+  and persists it on the new `chat_assets.video_id` column (migration
+  `085_chat_assets_video_id.sql`, applied live to `wrromlupsmyzrrcqlucn` —
+  confirmed present via `information_schema.columns`);
+- `_handle_copilot` now calls the same `_attach_assets` helper the home flow
+  uses on `body.attachments`, and folds `_assets_brief(...)` into the summary
+  fed to both the agent brain and the legacy classifier, so a follow-up
+  message can reference a dropped file.
+
+Proven in-sandbox: source trace (request → `/api/chat/upload` handler →
+`chat_assets` INSERT with `video_id`; docked turn → `_handle_copilot` →
+`_attach_assets` → `_assets_brief` → prompt), `npx tsc --noEmit` clean,
+`python -m py_compile routes/chat.py` clean, `pytest -k "chat or upload"` (5
+passed), column confirmed live via MCP `execute_sql` introspection. What's
+NOT provable without a running app + browser:
+- [ ] **Open a video's co-pilot dock** (any video's pipeline page, the
+      docked chat panel) and **drop a PNG** onto the composer (drag-drop or
+      the paperclip button). Expected: an upload progress spinner, then an
+      attachment chip appears — no silent no-op.
+- [ ] Query `chat_assets` for that row and confirm `video_id` matches the
+      video the dock was open on (`kind = 'image'`, `video_id` set, not
+      NULL).
+- [ ] Send a follow-up message referencing the drop (e.g. "use that image I
+      just dropped as a reference for scene 2") and confirm the copilot's
+      reply acknowledges the file (it should show up in
+      `_assets_brief`'s "FILES THE CREATOR DROPPED..." block fed to the
+      model) rather than asking "what file?".
+- [ ] **Home chat unaffected:** drop a file on the home (un-docked) chat and
+      confirm it still uploads and attaches exactly as before (no
+      `video_id` on that row).
+- **Cost:** free — just an upload + a read-only chat turn, no paid
+  generation triggered by a drop alone.
+- **Safety net:** `video_id` is fully optional end to end (Pydantic field
+  defaults to `None`, DB column nullable, upload route ownership-check
+  fails soft to unscoped) — a mismatched frontend/backend deploy order
+  degrades to "upload works, just not video-scoped," never an error.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:
