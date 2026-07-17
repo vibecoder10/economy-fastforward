@@ -691,3 +691,25 @@ storyboard gate (Lock Story before image spend).
 - Gates in pipeline_executor: characters pending approval block grids/images;
   `story_locked_at` required for full image runs + storyboard extraction.
   `POST /{video_id}/lock-story` requires ≥1 reviewed grid; unlock-story to iterate.
+
+---
+
+## C01a — Schema/Migration Hygiene (added 2026-07-17)
+
+Follow-up to the S6 schema-drift sweep (`docs/reports/2026-07-17-storyengine-agent-audit-findings.md`).
+`storyengine/schema.sql` was stale (missing 11 live tables, still declared the
+dead `title_tests` table) and one applied prod migration had no source file
+in git. All three new migration files below are confirmed idempotent no-ops
+against the current live DB (see commit message + report for the proof).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/050_enable_rls_auth_tables.sql` | Reconstruction of a migration applied to prod on 2026-06-12 with no git source (S6 finding #1). Filename matches the exact row already in the live `_migrations` table, so the migration runner (`main.py::_run_pending_migrations()`, filename-keyed) always skips it — pure documentation/reproducibility, never re-executes. |
+| `storyengine/backend/migrations/082_untracked_ad_hoc_tables.sql` | Backfills `secrets` and `static_reference_cache` (previously created only via in-process `CREATE TABLE IF NOT EXISTS` in `vault.py` / `static_docu.py`, invisible to the migration lineage) into tracked migrations. Both in-process guards are kept (belt-and-suspenders), not removed. |
+| `storyengine/backend/migrations/083_enable_rls_ad_hoc_tables.sql` | Enables RLS (no policies) on `secrets`, `static_reference_cache`, `channel_video_retention` — closes the public PostgREST/anon access path. Safe because the backend connects as the `postgres` role (table owner, `BYPASSRLS`), proven inline in the file. |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/schema.sql` | Regenerated from live introspection: added the 11 tables created by migrations 041-081 that were missing (`intelligence_reports`, `channel_videos`, `secrets`, `channel_profile_documents`, `chat_assets`, `production_queue`, `script_templates`, `channel_analytics_daily`, `static_reference_cache`, `channel_video_retention`, `machine_research_cards`); removed the dead `title_tests` declaration (no live table, zero code references). |
