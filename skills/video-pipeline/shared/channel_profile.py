@@ -178,7 +178,18 @@ GROK_IMAGINE = ModelProfile(
     durations=[6, 10, 15],
     preferred_max=10,
     allow_max_override=True,
-    cost_per_clip={6: 0.10, 10: 0.15, 15: 0.20},
+    # C09a (researched, kie.ai/grok-imagine, $0.005/credit): $0.008/s at 480p,
+    # $0.015/s at 720p. StoryEngine requests 720p by default —
+    # pipeline_executor.run_clip_generation: `_vres = video.get("video_resolution")
+    # or "720p"` — so priced at the 720p rate. Duration is VARIABLE per clip
+    # (clip_dialogue.pick_clip_duration rounds a spoken line up to the
+    # smallest tier that fits, floor=6s for silent/short shots); each of the
+    # 3 tiers below is 720p-rate x that tier's seconds (6*0.015, 10*0.015,
+    # 15*0.015) so a caller picking any tier still prices accurately, not
+    # just the cheapest one. A per-video 480p choice would over-charge here —
+    # flagged as a known limitation (a fully resolution-aware ledger is a
+    # bigger change than this pass).
+    cost_per_clip={6: 0.09, 10: 0.15, 15: 0.225},
     resolution="720p",
     supports_image_input=True,
     supports_camera_control=False,
@@ -197,6 +208,12 @@ VEO_31_FAST = ModelProfile(
     durations=[8],
     preferred_max=8,
     allow_max_override=False,
+    # C09a FLAGGED unconfirmed — dashboard check needed. Kie's public page
+    # shows $0.40/8s, but a later Kie post claims a cut to $0.30/8s; unclear
+    # whether that cut applies to 3.0 or 3.1, or both. This registry value
+    # already matches the LOWER (cut) figure — left UNCHANGED rather than
+    # bumped to the page's $0.40, since it's not clear which is current. See
+    # tasks/live-verification-queue.md §C09.
     cost_per_clip={8: 0.30},
     resolution="720p",
     supports_image_input=True,
@@ -215,6 +232,10 @@ VEO_31_QUALITY = ModelProfile(
     durations=[8],
     preferred_max=8,
     allow_max_override=False,
+    # C09a FLAGGED unconfirmed — same ambiguity as VEO_31_FAST above: page
+    # says $2.00/8s, a later post claims a cut to $1.25/8s. This value
+    # already matches the cut figure — left UNCHANGED, needs a dashboard
+    # read to confirm. See tasks/live-verification-queue.md §C09.
     cost_per_clip={8: 1.25},
     resolution="1080p",
     supports_image_input=True,
@@ -233,6 +254,10 @@ KLING_30_PRO = ModelProfile(
     durations=[5, 10],
     preferred_max=10,
     allow_max_override=False,
+    # C09a FLAGGED — only a "Turbo" tier's price was found on Kie's public
+    # pages, not this exact "Pro" tier; unclear if they're the same SKU.
+    # UNWIRED (no live generation path — see `wired=False` below), so left
+    # unchanged rather than guessed. See tasks/live-verification-queue.md §C09.
     cost_per_clip={5: 0.80, 10: 1.50},
     resolution="1080p",
     supports_image_input=True,
@@ -250,6 +275,10 @@ RUNWAY_GEN4_TURBO = ModelProfile(
     durations=[5, 10],
     preferred_max=10,
     allow_max_override=False,
+    # C09a FLAGGED — only found via a low-confidence secondary source (not
+    # Runway's or Kie's own pricing page directly). UNWIRED (no live
+    # generation path — see `wired=False` below), so left unchanged rather
+    # than guessed. See tasks/live-verification-queue.md §C09.
     cost_per_clip={5: 0.25, 10: 0.50},
     resolution="720p",
     supports_image_input=True,
@@ -267,6 +296,9 @@ HAILUO_23_STANDARD = ModelProfile(
     durations=[6, 10],
     preferred_max=10,
     allow_max_override=False,
+    # C09a FLAGGED — fal.ai, not Kie, so out of scope for the $0.005/credit
+    # Kie research pass. UNWIRED (no live generation path — see `wired=False`
+    # below), left unchanged.
     cost_per_clip={6: 0.28, 10: 0.47},
     resolution="768p",
     supports_image_input=True,
@@ -284,7 +316,16 @@ SEEDANCE_2_FAST = ModelProfile(
     durations=[6, 10],
     preferred_max=10,
     allow_max_override=False,
-    cost_per_clip={6: 0.30, 10: 0.50},
+    # C09a (researched, kie.ai/seedance-2, $0.005/credit): 4 tiers exist —
+    # 480p no-input $0.0775/s, 480p w/input $0.045/s, 720p no-input $0.165/s,
+    # 720p w/input $0.100/s. `ImageClient.generate_video_seedance` (shared/
+    # clients/image_client.py) HARDCODES `"resolution": "720p"` and ALWAYS
+    # passes `first_frame_url` (an image input) — never variable, never
+    # text-only — so the 720p-with-input tier ($0.100/s) is the one and only
+    # tier this call site can ever hit. 6s = 6*0.100 = $0.60, 10s =
+    # 10*0.100 = $1.00 (was 0.30/0.50 — the old numbers matched neither this
+    # nor any other Kie seedance-2 tier; corrected).
+    cost_per_clip={6: 0.60, 10: 1.00},
     resolution="720p",
     supports_image_input=True,
     supports_first_last_frame=True,
@@ -332,24 +373,49 @@ MODEL_REGISTRY: dict[str, ModelProfile] = {
 # tasks/live-verification-queue.md §C09 for the manual dashboard-reconciliation
 # this leaves as a follow-up, and the report for which numbers below are
 # still unconfirmed guesses vs. numbers backed by a real source.
+#
+# C09a (2026-07-18): prices below were updated from Kie's PUBLISHED per-model
+# pricing pages at the confirmed $0.005/credit rate (kie.ai/<model>). This is
+# real published pricing, not a per-task dashboard read — still not the exact
+# "actual Kie charged this task X" number the paragraph above describes, but
+# a large accuracy upgrade over the prior guesses (some of which mixed up a
+# different model's price entirely — see git history). Each image model is
+# tiered by RESOLUTION; the tier applied below is the one StoryEngine's live
+# code path actually requests (quoted where each model is priced).
 # =============================================================================
 
-# Per-model image price ($/image). The 3 selectable scene-image models
-# (shared.clients.image_model_router.VALID_IMAGE_MODELS) price very
-# differently — collapsing them into one flat number (the pre-C09 behavior)
-# blurs a 20x spread. nano-banana-2 and z-image both carry their real price
-# in the model-picker's own label text (see _valid_scene_models_from_profile
-# below: "$0.025/img", "$0.004/img"), which also matches
-# docs/cost-awareness.md's Seed Dream figure. GPT Image 2 is the default
-# engine (storyengine/CLAUDE.md "Image gen policy") and quality/resolution-
-# tiered — OpenAI's own published per-image cost for gpt-image-2 ranges
-# roughly $0.006-$0.21 depending on quality tier — Kie doesn't publish one
-# flat rate for it, so 0.08 is an ESTIMATE, UNCONFIRMED against the Kie
-# dashboard. Flagged in the C09 report.
+# Per-model image price ($/image), tiered by resolution — priced at the tier
+# StoryEngine's live code actually requests, confirmed by reading the call
+# sites (not assumed):
+#   - gpt-image-2 (kie.ai/gpt-image-2): 1K=$0.03 (6 credits), 2K=$0.05
+#     (10 credits), 4K=$0.08 (16 credits). GPT Image 2 is the default engine
+#     (storyengine/CLAUDE.md "Image gen policy") and its live call path —
+#     shared/clients/image_model_router.py's `generate_scene_image_for_model`
+#     (the ONE resolver both coverage_to_app.py and pipeline_executor.py's
+#     image-generating call sites use) — has `resolution: str = "2K"` as its
+#     OWN default and every caller in this codebase (redo_characters,
+#     storyboard sheets, redraw_asset_image, run_image_variants) calls it
+#     WITHOUT overriding that default. That default flows straight into
+#     ImageClient.generate_thumbnail_gpt2/generate_scene_image_gpt, which
+#     also default resolution to "2K". So the tier actually requested is 2K
+#     = $0.05, not the previous $0.08 (which was an unsourced guess at the
+#     4K tier).
+#   - nano-banana-2 (kie.ai/nano-banana-2): 1K=$0.04 (8 credits), 2K=$0.06
+#     (12 credits), 4K=$0.09 (18 credits). This model is reached only via an
+#     EXPLICIT image_model_override — image_model_router.py's nano-banana-2
+#     branch calls ImageClient.generate_with_reference (default
+#     resolution="1K") when references exist, or generate_scene_image
+#     (hardcodes "resolution": "1K") otherwise — both request the 1K tier,
+#     so priced at $0.04 (was $0.025, which was actually a stale "Seed Dream
+#     4.5" figure per docs/cost-awareness.md — a different, no-longer-used
+#     model name; corrected here).
+#   - z-image (kie.ai/z-image): flat $0.004 (0.8 credits, no resolution
+#     tiers) — matches the pre-existing value exactly, now confirmed against
+#     published pricing rather than just the model-picker's own label text.
 IMAGE_PRICE_BY_MODEL: dict[str, float] = {
-    "gpt-image-2": 0.08,      # UNCONFIRMED — see note above; verify on Kie dashboard
-    "nano-banana-2": 0.025,   # matches the model-picker's own label + docs/cost-awareness.md
-    "z-image": 0.004,         # matches the model-picker's own label
+    "gpt-image-2": 0.05,      # 2K tier — see comment above for the code trace
+    "nano-banana-2": 0.04,    # 1K tier — see comment above for the code trace
+    "z-image": 0.004,         # flat rate, confirmed against kie.ai/z-image
 }
 # Default/blended picture price — used pre-generation (no model chosen yet;
 # GPT Image 2 is the default engine) and whenever a batch mixes models.
@@ -366,8 +432,24 @@ def picture_price_for(model_id: Optional[str]) -> float:
     return PICTURE_PRICE_DEFAULT
 
 
-THUMBNAIL_PRICE = 0.075  # Nano Banana Pro flat rate — docs/cost-awareness.md
-                          # (corrected from 0.10 in C09; see report)
+# C09a (2026-07-18): re-traced which model StoryEngine's thumbnail path
+# ACTUALLY uses — the prior "Nano Banana Pro flat rate" label was wrong.
+# `PipelineExecutor.run_thumbnail` (all 3 completion branches) and
+# `_run_channel_formula_thumbnail` (storyengine/backend/pipeline_executor.py)
+# call `ImageClient.generate_thumbnail_gpt2` / `generate_scene_image_gpt`
+# — both GPT Image 2 — as the PRIMARY path every time; `generate_with_reference`
+# (nano-banana-pro, kie.ai/nano-banana-pro: 1K/2K=$0.09, 4K=$0.12) only fires
+# as a same-call FALLBACK when GPT returns no url (see run_thumbnail's
+# cast-sheet branch). None of these calls pass an explicit `resolution`
+# override, so — same as scene images above — they land on
+# generate_thumbnail_gpt2/generate_scene_image_gpt's own "2K" default.
+# Thumbnail price is therefore the SAME gpt-image-2 2K rate as scene images,
+# not a separate Nano Banana Pro number. A model-aware
+# `thumbnail_price_for(model_used)` (mirroring `picture_price_for`) would be
+# more accurate for the rarer nano-banana-pro-fallback case, but the
+# thumbnail ledger write doesn't currently thread `model_used` through to
+# price by it — flagged as a follow-up, not built here (scope).
+THUMBNAIL_PRICE = IMAGE_PRICE_BY_MODEL["gpt-image-2"]
 
 # ElevenLabs is billed per character, not per run (docs/cost-awareness.md:
 # ~$0.30/1000 chars) — a video with a long narration and one with a single

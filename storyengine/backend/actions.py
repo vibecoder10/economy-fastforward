@@ -291,7 +291,7 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     elif verb == "render":
         cost = 0.0
     elif verb == "build":
-        # Rough: pictures phase ~= scenes * ~6 shots * $0.08; finish phase ~= the
+        # Rough: pictures phase ~= scenes * ~6 shots * PICTURE_COST; finish phase ~= the
         # clips. Scenes unknown on a fresh video -> assume ~5.
         scenes = summary["scenes"] or 5
         if summary["status"] in BUILD_TO_PICTURES:

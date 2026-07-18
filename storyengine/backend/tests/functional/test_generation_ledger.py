@@ -234,7 +234,10 @@ def test_image_stage_row_uses_picture_cost_from_actions():
     ))
     row = LEDGER_ROWS[0]
     assert row["stage"] == "image"
-    assert row["unit_cost"] == PICTURE_COST == 0.08
+    # C09a: gpt-image-2's 2K tier (the resolution the live code path actually
+    # requests — see shared/channel_profile.py) is $0.05, not the prior
+    # unsourced $0.08 guess.
+    assert row["unit_cost"] == PICTURE_COST == 0.05
     assert row["actual_cost"] == round(n * PICTURE_COST, 2)
     assert VIDEOS["video-1"]["total_cost"] == round(n * PICTURE_COST, 2)
     print("✅ test_image_stage_row_uses_picture_cost_from_actions")
@@ -259,8 +262,9 @@ def test_voice_stage_row_uses_voice_cost_estimate_from_actions():
 def test_thumbnail_stage_row_uses_thumbnail_cost_from_actions():
     """run_thumbnail() (all 3 completion paths — modeled/channel-formula/
     from-scratch) prices with actions.THUMBNAIL_COST. Value corrected
-    0.10 -> 0.075 in C09 to match the real Nano Banana Pro rate
-    (docs/cost-awareness.md) — see channel_profile.THUMBNAIL_PRICE."""
+    0.10 -> 0.075 in C09 (then 0.075 -> 0.05 in C09a, once tracing the real
+    call sites showed the thumbnail path's PRIMARY model is GPT Image 2 at
+    its 2K tier, not Nano Banana Pro — see channel_profile.THUMBNAIL_PRICE)."""
     _reset()
     asyncio.run(generation_ledger.record_ledger_entry(
         tenant_id="tenant-1", video_id="video-1", stage="thumbnail",
@@ -269,7 +273,7 @@ def test_thumbnail_stage_row_uses_thumbnail_cost_from_actions():
     ))
     row = LEDGER_ROWS[0]
     assert row["stage"] == "thumbnail"
-    assert row["unit_cost"] == THUMBNAIL_COST == 0.075
+    assert row["unit_cost"] == THUMBNAIL_COST == 0.05
     print("✅ test_thumbnail_stage_row_uses_thumbnail_cost_from_actions")
 
 
@@ -353,10 +357,13 @@ def test_actions_prices_are_the_same_object_as_channel_profile():
 def test_picture_price_for_uses_real_per_model_rate():
     """C09: a known, unambiguous image model prices at its OWN rate (the
     accuracy upgrade — was previously always the flat PICTURE_COST default
-    regardless of which of the 3 models actually drew the pixels)."""
-    assert picture_price_for("nano-banana-2") == 0.025
+    regardless of which of the 3 models actually drew the pixels). C09a
+    updated the actual numbers to Kie's published per-model/per-resolution
+    pricing at the tier each model's live call path requests (nano-banana-2
+    0.025 -> 0.04, gpt-image-2 0.08 -> 0.05; z-image unchanged)."""
+    assert picture_price_for("nano-banana-2") == 0.04
     assert picture_price_for("z-image") == 0.004
-    assert picture_price_for("gpt-image-2") == PICTURE_COST == 0.08
+    assert picture_price_for("gpt-image-2") == PICTURE_COST == 0.05
     # Unknown / mixed-batch / None all fall back to the default — never a
     # KeyError, never a silently wrong guess at which model dominated.
     assert picture_price_for(None) == PICTURE_COST
@@ -377,7 +384,7 @@ def test_image_ledger_row_prices_by_actual_model_used():
     ))
     row = LEDGER_ROWS[0]
     assert row["model"] == "nano-banana-2"
-    assert row["unit_cost"] == 0.025, "nano-banana-2 must NOT be priced at the flat 0.08 default"
+    assert row["unit_cost"] == 0.04, "nano-banana-2 must NOT be priced at the flat 0.05 (gpt-image-2) default"
     print("✅ test_image_ledger_row_prices_by_actual_model_used")
 
 

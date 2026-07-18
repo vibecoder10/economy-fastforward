@@ -143,32 +143,46 @@ balance, not a per-task charge — so there is no way to get a REAL
 per-generation number without observing the Kie dashboard directly as the
 account drains. That observation is what this section queues; it's the
 product owner's explicitly requested follow-up, not a nice-to-have.
-- [ ] **Read the Kie dashboard's per-task credit consumption**
-      (`kie.ai/logs` — each task row shows model, input params, and credit
-      consumption per the Kie docs) for one recent generation of EACH type
-      below, and back out the true $/unit (credits ÷ the account's $/credit
-      rate). Compare against the registry price and update
-      `shared/channel_profile.py` if it's off:
-  - [ ] **gpt-image-2** (the default image engine) — current price
-        `IMAGE_PRICE_BY_MODEL["gpt-image-2"] = 0.08`, UNCONFIRMED (flagged
-        in the C09 report — GPT Image 2 is quality/resolution-tiered, Kie
-        doesn't publish one flat rate). **This is the price most likely to
-        be wrong** since most StoryEngine images use this model.
-  - [ ] **nano-banana-2** — current price `0.025` (matches the model-picker's
-        own label text + `docs/cost-awareness.md`, but never checked
-        against a live Kie task).
-  - [ ] **z-image** — current price `0.004` (same caveat as nano-banana-2).
-  - [ ] **grok-imagine clip** (6s tier) — current price `0.10`
-        (`MODEL_REGISTRY["grok-imagine"].cost_per_clip[6]`) — lower
-        confidence needed since this is the DEFAULT clip model and the
-        highest-volume paid call in the pipeline (20-40 clips/video).
-  - [ ] **nano-banana-pro thumbnail** — current price `0.075` (corrected
-        from `0.10` in C09 to match `docs/cost-awareness.md` — confirm the
-        correction landed on the right number, not just a different guess).
-  - [ ] **ElevenLabs voice** — current price `$0.30/1000 chars`
-        (`docs/cost-awareness.md`) — confirm against a real synthesis call's
-        billed character count (ElevenLabs' own dashboard/invoice, not
-        Kie's — voice doesn't route through Kie).
+
+**C09a (2026-07-18) update:** a web-research pass found Kie's PUBLISHED
+per-model/per-resolution pricing pages at a confirmed $0.005/credit rate,
+and traced each StoryEngine call site to the exact resolution/duration tier
+it actually requests (see `shared/channel_profile.py`'s comments and
+`docs/cost-awareness.md`). This RESOLVED gpt-image-2, nano-banana-2,
+z-image, grok-imagine clips, and nano-banana-pro/thumbnail — all now priced
+off published rates, not guesses, and struck from the list below. What's
+left is genuinely still uncertain (no public price found, or two
+conflicting public prices) — a real Kie-dashboard read is still the only
+way to close these out:
+- [ ] **veo-3.1-fast / veo-3.1-quality clip prices** — Kie's pricing page
+      lists $0.40 / $2.00 per 8s clip, but a later Kie announcement claims a
+      cut to $0.30 / $1.25; unclear whether that cut is Veo-3.0-vs-3.1
+      specific or applies to both, and unclear which figure is current.
+      `MODEL_REGISTRY["veo-3.1-fast"].cost_per_clip[8]` / `["veo-3.1-quality"]
+      .cost_per_clip[8]` already carry the LOWER (cut) figures — left
+      unchanged by C09a, not re-verified. These are WIRED, live, selectable
+      models (unlike the 3 below) — highest priority of what's left here.
+  - [ ] **Read the Kie dashboard's per-task credit consumption**
+        (`kie.ai/logs`) for one recent Veo 3.1 Fast and one Veo 3.1 Quality
+        clip, back out $/unit (credits ÷ $0.005), compare against 0.30/1.25,
+        update `shared/channel_profile.py` if off.
+- [ ] **kling-3.0-pro clip price** — only a "Turbo" tier price was found on
+      Kie's public pages; unconfirmed whether that's the same SKU as "Pro".
+      UNWIRED (`wired=False`, no live generation path) — no real spend
+      depends on this, low priority.
+- [ ] **runway-gen4-turbo clip price** — found via a low-confidence
+      secondary source only, not Runway's or Kie's own pricing page.
+      UNWIRED — low priority, same reasoning as kling above.
+- [ ] **Grok's image-generation price** (a distinct SKU from Grok Imagine's
+      video-clip price, which IS resolved) — not found published anywhere.
+      Not currently a selectable image model in StoryEngine
+      (`image_model_router.VALID_IMAGE_MODELS` doesn't include it) — no real
+      spend depends on this either.
+- [ ] **ElevenLabs voice** — current price `$0.30/1000 chars`
+      (`docs/cost-awareness.md`) — confirm against a real synthesis call's
+      billed character count (ElevenLabs' own dashboard/invoice, not
+      Kie's — voice doesn't route through Kie, so the $0.005/credit research
+      pass didn't touch it).
 - [ ] **After confirming/correcting any price above**, update the SAME
       constant in `shared/channel_profile.py` (never re-add a hand-copied
       number anywhere else — `actions.py` and the frontend both re-export

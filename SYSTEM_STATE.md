@@ -1341,3 +1341,94 @@ duplicate constant — confirmed via `tsc --noEmit` and by tracing
 `priceForModel`/`videoActions.prices` reads by hand (no live browser
 session in this sandbox). Live Kie-dashboard price confirmation (esp.
 GPT Image 2 $0.08) queued — see `tasks/live-verification-queue.md` §C09.
+
+## C09a — Price-Accuracy Pass on the Single Price Source (added 2026-07-18)
+
+Follow-up to C09: applied Kie's PUBLISHED per-model/per-resolution pricing
+(confirmed $0.005/credit rate, `kie.ai/<model>` pages) to
+`shared/channel_profile.py`, in place of the guesses/mislabels C09 flagged.
+Resolved by first tracing the LIVE code path each model uses (which
+resolution it requests, which duration, which model actually draws a
+thumbnail) so the researched price is applied to the RIGHT tier, not just
+the cheapest or most obvious one:
+
+- **`IMAGE_PRICE_BY_MODEL["gpt-image-2"]`: 0.08 → 0.05.** GPT Image 2 is
+  tiered by resolution (1K=$0.03, 2K=$0.05, 4K=$0.08); the live call path
+  (`image_model_router.generate_scene_image_for_model`, the one resolver
+  every image call site uses) defaults `resolution="2K"` and nothing
+  overrides it — 2K tier, not the 4K guess the old 0.08 amounted to.
+- **`IMAGE_PRICE_BY_MODEL["nano-banana-2"]`: 0.025 → 0.04.** The old 0.025
+  was actually a mislabeled "Seed Dream 4.5" figure (that model doesn't
+  exist in this codebase anymore). nano-banana-2's real published 1K tier
+  (the one `generate_with_reference`/`generate_scene_image` request) is
+  $0.04.
+- **`IMAGE_PRICE_BY_MODEL["z-image"]`: 0.004 unchanged**, now confirmed
+  against published pricing instead of just the model-picker's label text.
+- **`THUMBNAIL_PRICE`: 0.075 → 0.05, AND its whole basis corrected.** C09's
+  "Nano Banana Pro flat rate" label was wrong — tracing
+  `PipelineExecutor.run_thumbnail`/`_run_channel_formula_thumbnail` shows
+  the PRIMARY thumbnail call is `generate_thumbnail_gpt2`/
+  `generate_scene_image_gpt` (GPT Image 2, defaulting to the same 2K tier
+  as scene images) every time; `generate_with_reference` (nano-banana-pro)
+  only fires as a same-call fallback when GPT returns no url. Thumbnails
+  now price at `IMAGE_PRICE_BY_MODEL["gpt-image-2"]` directly (same number,
+  correct reason) instead of a separately-guessed Nano Banana Pro figure.
+- **`MODEL_REGISTRY["grok-imagine"].cost_per_clip`: {6:0.10,10:0.15,15:0.20}
+  → {6:0.09,10:0.15,15:0.225}.** Grok Imagine is $0.015/s at 720p (Kie
+  published); StoryEngine requests 720p by default
+  (`pipeline_executor.run_clip_generation`: `_vres = video.get(
+  "video_resolution") or "720p"`). Each tier is now that per-second rate ×
+  the tier's seconds, not a flat guess per tier.
+- **`MODEL_REGISTRY["seedance-2-fast"].cost_per_clip`: {6:0.30,10:0.50} →
+  {6:0.60,10:1.00}.** Seedance 2.0 has 4 published tiers by
+  resolution×input; `ImageClient.generate_video_seedance` hardcodes
+  `"resolution": "720p"` and ALWAYS passes `first_frame_url` (an image
+  input), so the "720p with input" tier ($0.100/s) is the only one this
+  code path can ever hit — a real ~2x price correction, not a rounding
+  tweak.
+- **Left unchanged, explicitly flagged (not silently trusted) — see
+  `tasks/live-verification-queue.md` §C09 for the narrowed remaining list:**
+  `veo-3.1-fast`/`veo-3.1-quality` (two conflicting public prices — current
+  registry values already match the lower/cut figure, needs a dashboard
+  read to pick one for certain), `kling-3.0-pro` (only a "Turbo" tier price
+  found, unconfirmed same SKU), `runway-gen4-turbo` (low-confidence
+  secondary source only), `hailuo-2.3-standard` (fal.ai, out of scope for
+  the Kie research pass) — the last 3 are UNWIRED (`wired=False`), so no
+  live spend depends on them.
+
+**Not touched:** `VOICE_PRICE_PER_1K_CHARS`, `SOUND_PRICE_ESTIMATE` (voice
+and sound don't route through Kie, so this Kie-pricing research pass
+doesn't apply — both remain queued in `tasks/live-verification-queue.md`
+§C09 against their own sources).
+
+### Modified (C09a)
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/shared/channel_profile.py` | `IMAGE_PRICE_BY_MODEL`, `THUMBNAIL_PRICE`, `GROK_IMAGINE.cost_per_clip`, `SEEDANCE_2_FAST.cost_per_clip` updated to researched values (see above); sourcing comments added at each changed constant; FLAG comments added at `veo-3.1-fast`/`veo-3.1-quality`/`kling-3.0-pro`/`runway-gen4-turbo`/`hailuo-2.3-standard` (values unchanged). |
+| `storyengine/backend/actions.py` | One stale comment fixed (`"$0.08"` → `PICTURE_COST`) — no logic change; re-export block untouched. |
+| `docs/cost-awareness.md` | Full rewrite of the price table + basis section: researched per-model/per-resolution prices, $0.005/credit sourcing, kie.ai/<model> pointers, narrowed "still dashboard-pending" list. |
+| `tasks/live-verification-queue.md` §C09 | Narrowed to only the still-uncertain models (veo-3.1 price-cut question, kling, runway, grok image-gen, ElevenLabs) — the rest struck as resolved by this pass. |
+| `storyengine/backend/tests/functional/test_generation_ledger.py` | Updated pinned values: `PICTURE_COST`/`THUMBNAIL_COST` 0.08/0.075 → 0.05, `picture_price_for("nano-banana-2")` 0.025 → 0.04 (2 tests + 1 ledger-row assertion). |
+| `skills/video-pipeline/tests/test_storyboard_bot.py` | `test_cost_assigned`: grok-imagine 6s tier 0.10 → 0.09. |
+
+`python -m py_compile` clean on every touched backend/pipeline file.
+`npx tsc --noEmit` clean (frontend reads prices via API, no local
+duplicate — nothing to break). `./venv/bin/python -m pytest
+tests/functional/test_generation_ledger.py tests/functional/test_model_registry.py
+-q` — 20 passed. Backend full suite (`git stash` compare): 759 passed / 16
+failed / 1 error both before and after — same pre-existing failures
+(YouTube OAuth, SQL-injection lock, discovery error-surfacing, etc.,
+unrelated to pricing), zero new failures. `skills/video-pipeline` suite
+(`git stash` compare, `tests/` minus 2 pre-broken collection files
+unrelated to this change — missing `sound_prompt_bot`/other module):
+before 24 failed/281 passed/3 errors, after identical 24/281/3 — zero new
+failures, and the one price-pinned test (`test_cost_assigned`) was updated
+to the new correct value rather than left red.
+
+**Deploy-safety note:** same as C09 — these numbers only feed the cost
+dashboard/ledger (`generation_ledger`, `videos.total_cost`, the UI's
+"Est → Actual" chip); StoryEngine doesn't bill per-generation yet, so no
+creator gets charged differently. The change makes reported spend MORE
+accurate, in both directions (thumbnail/gpt-image-2 costs report lower;
+nano-banana-2 and Seedance costs report higher, Seedance materially so —
+~2x). Frontend still compiles with no local price duplicate to drift.

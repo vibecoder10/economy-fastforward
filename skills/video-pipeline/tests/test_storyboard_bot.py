@@ -155,7 +155,9 @@ class TestAssignClipDurations:
     def test_cost_assigned(self):
         segments = [_make_segment("Normal.", 15)]
         result = assign_clip_durations(segments, GROK_IMAGINE)
-        assert result[0]["estimated_cost"] == 0.10  # 6s tier
+        # C09a: 6s tier priced at Kie's published $0.015/s (720p) rate = 0.09,
+        # not the prior unsourced 0.10.
+        assert result[0]["estimated_cost"] == 0.09  # 6s tier
 
 
 # =============================================================================
