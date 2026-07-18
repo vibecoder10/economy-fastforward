@@ -373,6 +373,67 @@ NOT provable without a live conversation:
 
 ---
 
+## C15b — director review loop part 1 (show boards + approve scene) · live round-trip check
+Checklist §1.2 (Ryan's Hermes-director vision, 2026-07-18). New `kind="show"`
+copilot path (`routes/chat.py::_handle_show_op` + matching vocabulary in
+`agent_brain.py`) surfaces a scene's pictures inline via a new `images` field
+on the chat card, every URL run through new `_media_proxy_url`; new free
+`approve_scene` verb (`actions.py`) flips one scene's `assets.status` to
+`'approved'`. All covered at the unit level (18 tests in
+`test_c15b_show_and_approve_scene.py`, confirmed non-vacuous via `git
+stash`; `npx tsc --noEmit` + `npm run build` clean) — no live chat turn, no
+real Drive-hosted image, and no live agent-brain LLM call in that pass (no
+paid Anthropic/Kie key in this sandbox). What's NOT provable without a real
+video with real pictures:
+- [ ] **Local E2E boot** (same recipe as C14/C15/C15a's entries above):
+      source prod `storyengine/.env`, `DEV_MODE=true DEV_TOKEN=<random>
+      DEV_TENANT_ID=<disposable tenant>`, uvicorn on :8002,
+      `NEXT_PUBLIC_API_URL=http://127.0.0.1:8002 npm run dev -- --port 3002`.
+- [ ] **Open (or build) a video that already has pictures for at least 2
+      scenes.** In the video's co-pilot dock, type "show me scene 2's
+      boards" (or whatever scene has pictures). Confirm: a thumbnail grid
+      renders inline in the chat bubble, each tile shows a real picture (not
+      a broken-image icon), and opening the browser network tab shows every
+      image request hitting `/api/media/drive/<id>` on the SAME origin —
+      never a `drive.google.com` URL directly from the browser.
+- [ ] **Ask for a scene with NO pictures yet** ("show me scene 19's boards"
+      on a scene that hasn't generated): confirm the reply is the friendly
+      "doesn't have any pictures yet — want me to generate them? (~$X)" line
+      with a real, non-zero dollar figure — not a crash, not an empty card.
+- [ ] **Scroll back up** through the conversation after a few more turns:
+      confirm the scene-2 thumbnail grid is STILL rendered in its original
+      message bubble (proves the "renders in every past turn, not just the
+      newest" design — unlike the ephemeral confirm/prompt cards).
+- [ ] **Say "approve scene 2"** (chat, in the same video): confirm the reply
+      is "Scene 2 approved ✓ — N shots locked in…" with NO confirm-tap
+      required (free verb), then verify directly in the DB (`se db "SELECT
+      scene, status FROM assets WHERE video_id='<id>' ORDER BY scene,
+      image_index"`) that ONLY scene 2's rows flipped to `'approved'` —
+      every other scene's rows must be untouched.
+- [ ] **Say "approve scene 2" again on a DIFFERENT tenant's video** (or a
+      video with no scene 2): confirm it either approves that tenant's OWN
+      scene 2 (never cross-tenant) or replies "doesn't have any pictures yet
+      — nothing to approve there" if that scene has none.
+- [ ] **Agent-brain path:** repeat the two chat turns above with a real
+      Anthropic/Kie key configured (whichever the tenant already uses) so
+      `run_copilot_brain` actually runs instead of silently falling back to
+      the one-shot classifier — confirm both `kind="show"` and
+      `verb="approve_scene"` are reachable through THAT path too, not just
+      the fallback classifier the unit tests exercise directly.
+- **Cost:** free — `show`/`approve_scene` are both read/free paths; the only
+  spend possible in this recipe is if the creator accepts the "want me to
+  generate them?" offer on an empty scene, which is the pre-existing
+  per-scene "images" verb's own cost (~$0.30 for 6 shots at GPT Image 2 2K),
+  not a new charge this chunk introduces.
+- **Safety net:** `_handle_show_op` is a pure read (SELECT only, no writes);
+  `approve_scene`'s only write is the single scoped `UPDATE` already unit-
+  tested for its exact WHERE clause and bound params. The new `images` card
+  field and `kind="show"`/`verb="approve_scene"` vocabulary are additive —
+  a stale frontend build simply never renders the grid (text reply still
+  lands), and a stale backend never emits the new kind/verb at all.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

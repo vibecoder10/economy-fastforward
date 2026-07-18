@@ -121,6 +121,13 @@ ACTIONS: dict[str, dict[str, Any]] = {
                     "doing": "pulling the script from Google Drive", "label": "Pull script from Drive"},
     "advance":     {"runner": "advance", "paid": False, "needs": None,
                     "doing": "moving to the next stage", "label": "Skip to the next stage"},
+    # C15b (checklist §1.2/UX map director-review loop): approve ONE scene's
+    # pictures — scoped to that scene only, unlike approve_cast/approve_environments
+    # which gate the whole video. Free (no money moves) and reversible (the status
+    # column can always be flipped again), so it never needs a confirm card — the
+    # non-paid branch in routes/chat.py runs it straight from the classifier's pick.
+    "approve_scene": {"runner": "approve_scene", "paid": False, "needs": "pictures",
+                    "doing": "approving this scene", "label": "Approve this scene"},
     # meta verb: build auto-runs the pipeline to the next checkpoint — to the pictures
     # if we're before them, else all the way to a finished video. NOT one step.
     "build":       {"calls": None, "paid": True, "needs": None,
@@ -961,12 +968,47 @@ async def _runner_advance(tenant_id, video_id, background_tasks, pending) -> str
             "Say “build it” anytime and I'll take it from here.")
 
 
+async def _runner_approve_scene(tenant_id, video_id, background_tasks, pending) -> str:
+    """C15b: 'approve scene 2' locks in that ONE scene's pictures
+    (assets.status='approved') — the same column the /review page's
+    approve/batch-approve endpoints already write (routes/assets.py), just
+    scoped to a scene instead of one asset id or a hand-picked list. Tenant +
+    video + scene scoped in one WHERE clause, so this can never touch another
+    scene's, another video's, or another tenant's rows.
+
+    No confirm card: ACTIONS marks this verb paid=False, so routes/chat.py's
+    free-action branch runs it straight from the classifier's pick — nothing
+    is spent and the status flip is reversible (re-run batch-approve/approve
+    on the /review page to change it back), so a tap-to-confirm round-trip
+    would only add friction for zero risk."""
+    scene = pending.get("scene")
+    if scene is None:
+        return "Which scene would you like me to approve? e.g. \"approve scene 2\"."
+    scene = int(scene)
+    result = await execute(
+        "UPDATE assets SET status = 'approved', updated_at = now() "
+        "WHERE video_id = $1 AND tenant_id = $2 AND scene = $3",
+        video_id, tenant_id, scene,
+    )
+    count = 0
+    if result:
+        try:
+            count = int(str(result).strip().split()[-1])
+        except (ValueError, IndexError):
+            count = 0
+    if count == 0:
+        return f"Scene {scene} doesn't have any pictures yet — nothing to approve there."
+    return (f"Scene {scene} approved ✓ — {count} shot{'s' if count != 1 else ''} locked in. "
+            "This is free and reversible any time (approve it again later to change your mind).")
+
+
 RUNNERS = {
     "advance": _runner_advance,
     "seo": _runner_seo,
     "approve_cast": _runner_approve_cast,
     "approve_environments": _runner_approve_environments,
     "skip_environments": _runner_skip_environments,
+    "approve_scene": _runner_approve_scene,
     "lock": _runner_lock,
     "unlock": _runner_unlock,
     "drive_push": _runner_drive_push,

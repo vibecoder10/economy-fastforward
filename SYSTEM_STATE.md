@@ -2439,6 +2439,170 @@ the server-side wording/number changed):**
 | `tasks/storyengine-wiring-fix-checklist.md` | C15a line ticked with summary |
 | `tasks/live-verification-queue.md` | New §C15a deferral (live "Make it" tap recipe) |
 
+## C15b — Director Review Loop, Part 1: Inline Storyboards + Per-Scene Approve (added 2026-07-18)
+
+Ryan's Hermes-director vision — "the copilot sends me the storyboards for
+scene 1, I approve or tell it what's wrong" — had one half already built
+(revise-by-description: prompt studio → `_rewrite_prompt` →
+`redraw_asset_image`) and two missing: the chat surface never showed an
+image at all, and there was no per-scene approve verb (only whole-video
+`approve_cast`/`approve_environments` gates existed). This chunk closes
+both, reusing the existing classify → dispatch → confirm-card machinery
+instead of adding a parallel path.
+
+**Backend (`storyengine/backend/actions.py`):**
+- New `approve_scene` verb in `ACTIONS`: `{"runner": "approve_scene", "paid":
+  False, "needs": "pictures", ...}`. Free and reversible (the `assets.status`
+  column can always be flipped again), so it deliberately carries NO confirm
+  card — `routes/chat.py`'s existing `if not cfg["paid"]:` branch runs it
+  straight from the classifier's pick, same as `approve_cast`/`lock`/`advance`.
+- New `_runner_approve_scene(tenant_id, video_id, background_tasks, pending)`:
+  reads `pending["scene"]`; `None` → a clarifying question, no write attempted.
+  Otherwise a single tenant+video+scene scoped `UPDATE assets SET
+  status='approved' ... WHERE video_id=$1 AND tenant_id=$2 AND scene=$3` — the
+  same column `routes/assets.py`'s per-asset `approve`/`batch-approve`
+  endpoints already write, just scoped to a whole scene in one query instead
+  of one asset id or a hand-picked list. Parses the `UPDATE N` command tag to
+  report how many shots were touched; 0 rows → "nothing to approve there"
+  instead of a false "approved ✓". Registered in `RUNNERS["approve_scene"]`.
+
+**Backend (`storyengine/backend/routes/chat.py`):**
+- New `kind: "show"` alongside the existing `read|action|prompt` — dispatched
+  in `_handle_copilot` right after the `kind == "prompt"` branch, before the
+  paid-verb legality gate (mirrors how prompt-studio bypasses the verb table
+  entirely). Both decision-schema copies got the new vocabulary: the inline
+  fallback classifier prompt (`_handle_copilot`'s own JSON prompt) AND
+  `agent_brain.py::_decision_schema()`/its system prompt — kept in sync so
+  neither the agent-brain path nor its legacy-classifier fallback can regress
+  independently (same class of drift C04's `_resolve_producer_client` guard
+  and C15a's dual-call-site test protect against).
+- New `_media_proxy_url(url)`: converts a stored Drive link (`?id=`/`&id=` or
+  `/d/<id>/` share-link shape) into `{PUBLIC_MEDIA_BASE}/api/media/drive/{id}`
+  — the SAME conversion `pipeline_executor.py`'s per-clip `_proxy_url` and
+  `routes/characters.py`'s `_fetch_image_bytes` already do (Drive's public
+  links unpredictably degrade into HTML interstitials; the authorized proxy
+  streams reliably). A URL that was never a Drive link (e.g. the Supabase
+  storage backend's own public URL) passes through unchanged — it was never
+  a Drive link to convert, matching the existing precedent exactly. Never
+  returns a raw `drive.google.com` URL.
+- New `_handle_show_op(tenant_id, video_id, summary, data, ui_context,
+  _reply)`: scene comes from the classifier's `data["scene"]` or falls back
+  to `ui_context["scene"]` (the page the creator is looking at); neither
+  present → a clarifying question. Query is tenant+video+scene scoped
+  (`WHERE video_id=$1 AND tenant_id=$2 AND scene=$3`) and capped via both the
+  SQL `LIMIT $4` (`_MAX_SHOW_IMAGES = 6`) AND a client-side `rows[:6]` slice
+  (defense-in-depth — a turn can never surface more than 6 images regardless
+  of what the query returns). No pictures yet for that scene → a friendly
+  offer to generate them naming a REAL quote (`actions.estimate_cost(...,
+  "images", scene, summary)` — the same per-scene pricing the "images" verb's
+  own confirm card already uses, no second price path), not an empty/broken
+  card. Every image URL is run through `_media_proxy_url` before it ever
+  reaches the card payload. Card shape (new, additive — see below); reply
+  text nudges toward the new approve verb ("... or "approve scene N" if
+  these are good").
+- `agent_brain.py`'s `run_copilot_brain` system prompt and `_decision_schema`
+  gained matching `kind=show`/`approve_scene` guidance so the smarter
+  tool-using loop makes the identical decision the fallback classifier would.
+
+**New card shape** (`{"id": "scene_boards", "label": "Scene 2 storyboards",
+"type": "single", "options": [], "images": [{"url":
+"https://storyengine.dev/api/media/drive/FILE1", "label": "Scene 2 · shot 1",
+"asset_id": "asset-1", "scene": 2, "index": 1}, ...]}`) — additive `images`
+field only ever appears on this card; every other card (`confirm_action`,
+`prompt_apply`, `secure_key`, selector cards) is byte-identical to before.
+
+**Frontend (`storyengine/frontend/src/lib/api.ts`):**
+- New `ChatCardImage` interface (`url`, `label`, `asset_id`, `scene`,
+  `index`); `ChatCard` gains optional `images?: ChatCardImage[]` — absent on
+  every pre-C15b card and on every card type that isn't `scene_boards`.
+
+**Frontend (`storyengine/frontend/src/components/chat/ChatCore.tsx`):**
+- `MessageThread` now renders a `SceneBoardsGrid` under ANY assistant
+  message's card that carries a non-empty `images` array — gated on the
+  field, not the card id, so an old frontend build (field absent) and an old
+  backend build (key never sent) both render byte-identical to pre-C15b.
+  Unlike the ephemeral `confirm_action`/`prompt_apply` cards (which only ever
+  render for the LAST turn), the boards persist in every past message so they
+  stay visible when scrolling back through the conversation.
+- `SceneBoardsGrid`: a 3-column thumbnail grid (capped at 6 client-side too),
+  each tile a `<a target="_blank">` to the full-size proxied URL (the simple
+  fallback door the checklist explicitly allows — `ScenesWorkspaceTab.tsx`'s
+  `BoardLightbox` is a private, unexported component in a different file, so
+  reaching into it would mean exporting/refactoring a component this chunk
+  doesn't otherwise touch). A failed image swap to its label text instead of
+  the browser's broken-image icon (`onError` + per-image `broken` state).
+
+**Scenes tab approve-button gap (found, not fixed here):** the CURRENT Scenes
+tab (`ScenesWorkspaceTab.tsx`/`SegmentCard`) has NO approve affordance at
+all — no `status` field read, no approve button, no `approveAsset`/
+`batchApproveAssets` call anywhere in that file. Those calls only exist in
+the older, still-linked `/review` page (`app/review/page.tsx` +
+`storyboard-viewer.tsx`) — a different, asset-by-asset review flow. Per the
+checklist's own instruction ("note it as a gap for the orchestrator rather
+than building new tab UI in this chunk"), no new Scenes-tab UI was built
+here; `approve_scene` today is chat-only until a future chunk adds a
+scene-level approve control to `SegmentCard`.
+
+**Tests:** new `storyengine/backend/tests/functional/
+test_c15b_show_and_approve_scene.py` (18 tests) — `approve_scene` registry
+shape + free/no-confirm; no-scene clarifying question with NO write attempted;
+tenant+video+scene-scoped UPDATE (asserts the WHERE clause AND the exact
+bound param tuple `(video_id, tenant_id, scene)`); a different tenant gets its
+own scoped call (no leaked/hardcoded tenant); zero-rows → "nothing to
+approve"; singular/plural shot wording; `_media_proxy_url` converts both
+Drive URL shapes and passes non-Drive URLs through unchanged (`None`
+in/`None` out); `_handle_show_op` — no-scene clarifying question, `ui_context`
+fallback, tenant+video+scene-scoped+capped query (an 8-row fake response
+proves the client-side cap independent of the SQL LIMIT), every returned
+image URL is asserted to NOT contain `drive.google.com` (negative check, not
+just a shape check) and DOES contain `/api/media/drive/`, empty-scene offers
+a real quote, reply nudges toward `approve_scene`; both decision-schema
+copies (`agent_brain._decision_schema()` and the `_handle_copilot` source)
+carry the new `show`/`approve_scene` vocabulary. All 18 confirmed non-vacuous
+via `git stash` (every test fails against the pre-C15b source — 15 with
+`AttributeError`/`KeyError` on the missing function/verb, 2 on the missing
+schema vocabulary, 1 on the missing registry entry).
+
+Full backend suite: 869 passed (851 baseline + 18 new) / 16 pre-existing
+failures (identical file list to C15a) / 1 pre-existing error — zero new
+failures. `python -m py_compile` clean on all three touched `.py` files.
+Frontend: `npx tsc --noEmit` clean; `npm run build` clean (with
+`NEXT_PUBLIC_API_URL` set — the sandbox has no `.env.production`, a
+pre-existing, unrelated condition of this checkout, not a C15b regression).
+
+**Deploy-safe:** additive only in both directions. New backend + old
+frontend: the frontend never reads `card.images`, so a "show" card renders
+its text only (a bit less useful, never broken); a chat.py/agent_brain.py
+`show`/`approve_scene` addition is inert without a matching frontend build,
+but the assistant TEXT reply always carries the substance either way. Old
+backend + new frontend: `ChatCore.tsx`'s new grid render is gated on
+`card.images?.length`, which is `undefined`/falsy on every payload an old
+backend sends — renders byte-identical to pre-C15b. No DB migration, no new
+generation/paid path, no changed request/response shape on any EXISTING
+card or verb. Auto-deploy safe, ff-merge safe.
+
+**Deferred to `tasks/live-verification-queue.md` §C15b:** a real chat
+round-trip — "show me scene 2's boards" → see the images inline → "approve
+scene 2" → confirm the specific scene's assets flip to `approved` in the DB
+and no other scene's/tenant's rows move (no paid key in the sandbox to drive
+a real video through to pictures).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c15b_show_and_approve_scene.py` | 18 tests covering `approve_scene` (registry, scoped UPDATE, tenant isolation, zero-row wording), `_media_proxy_url` (both Drive URL shapes, non-Drive passthrough, None-safety), `_handle_show_op` (scoping, capping, proxy-only URLs, empty-scene quote, approve-verb nudge), and both decision-schema copies carrying the new vocabulary |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/actions.py` | New `approve_scene` verb (`paid=False`, `needs="pictures"`) + `_runner_approve_scene` (tenant+video+scene-scoped `UPDATE assets SET status='approved'`), registered in `RUNNERS` |
+| `storyengine/backend/routes/chat.py` | New `kind="show"` dispatch + `_handle_show_op` + `_media_proxy_url`; fallback classifier prompt and JSON schema gain `show`/`approve_scene` vocabulary |
+| `storyengine/backend/agent_brain.py` | `_decision_schema()` and `run_copilot_brain`'s system prompt gain matching `show`/`approve_scene` vocabulary |
+| `storyengine/frontend/src/lib/api.ts` | New `ChatCardImage` interface; `ChatCard` gains optional `images?: ChatCardImage[]` |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | `MessageThread` renders a new `SceneBoardsGrid` under any card carrying `images`; new `ChatCardImage` type import |
+| `tasks/storyengine-wiring-fix-checklist.md` | C15b line ticked with summary |
+| `tasks/live-verification-queue.md` | New §C15b deferral (live show/approve round-trip recipe) |
+
 **Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
 tests/functional/test_c15a_plan_cost_quote.py -q` — 12 passed. Confirmed
 non-vacuous via `git stash` on `actions.py`/`routes/chat.py` (the new test

@@ -183,9 +183,10 @@ async def _run_tool(name: str, args: dict, tenant_id, video_id, summary) -> str:
 def _decision_schema() -> str:
     # Identical to the legacy classifier's output so downstream code is unchanged.
     return (
-        '{"kind":"read|action|prompt",'
+        '{"kind":"read|action|prompt|show",'
         '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
-        'upload|approve_cast|approve_environments|skip_environments|lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'upload|approve_cast|approve_environments|skip_environments|approve_scene|lock|unlock|drive_push|'
+        'drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
@@ -207,10 +208,11 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
 
     system = (
         "You are the in-app co-pilot AGENT for ONE video. The creator can (a) ASK a question, "
-        "(b) tell you to RUN a production step, or (c) work on a generation PROMPT. You have READ "
+        "(b) tell you to RUN a production step, (c) work on a generation PROMPT, or (d) ask to SEE "
+        "the actual pictures/storyboards for a scene. You have READ "
         "tools — use them to ground yourself in the video's ACTUAL state before deciding; never "
         "guess numbers you could look up. You cannot run anything yourself: paid work always goes "
-        "through a confirm card after you decide.\n\n"
+        "through a confirm card after you decide (approve_scene is free, so it runs immediately).\n\n"
         + summary_line + "\n"
         + (f"They are currently viewing scene {ui_context.get('scene')}"
            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
@@ -221,12 +223,17 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "(never map cast requests to script); storyboards=cheap single-sheet preview; images=the real per-shot "
         "pictures; animate=ONE scene's clips (give the scene); research=fact-find the topic; seo=YouTube "
         "title/description/tags; upload=publish the RENDERED video; approve_cast / approve_environments / "
-        "skip_environments=approvals; lock/unlock=freeze the story; drive_push / drive_sync=script to/from Google "
+        "skip_environments=whole-video approvals; approve_scene=approve/lock ONE scene's pictures ('approve "
+        "scene 2', 'these look good, lock it in' while viewing a scene — give the scene, free, no confirm "
+        "needed); lock/unlock=freeze the story; drive_push / drive_sync=script to/from Google "
         "Drive; advance=skip the CURRENT stage/gate and move on ('skip this step', 'skip research', 'move on') — "
         "and the script verb skips research automatically when they ask for the script early; "
         "build=run the whole pipeline to the next checkpoint ('build it', 'finish it', 'keep going', "
-        "'do it all'). PROMPT work (kind=prompt) when they discuss a prompt itself: set surface, op "
-        "(view|suggest|rewrite), scene/index (use the currently-viewing shot for 'this'), and direction.\n\n"
+        "'do it all'). PROMPT work (kind=prompt) when they discuss the generation PROMPT TEXT itself: set "
+        "surface, op (view|suggest|rewrite), scene/index (use the currently-viewing shot for 'this'), and "
+        "direction. SHOW work (kind=show) when they want to SEE the actual pictures/storyboards for a scene "
+        "('show me scene 2's boards', 'let me see scene 3's pictures') — NOT the prompt text; give the scene "
+        "(use the currently-viewing one for 'this scene' with no number named).\n\n"
         "Each turn, return ONE JSON object and NOTHING else. Either call a tool:\n"
         '  {"tool":"<name>","args":{...}}\n'
         "or decide:\n"

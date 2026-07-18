@@ -700,6 +700,90 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     return f"On it — {doing} now. I'll update you right here."
 
 
+# --- C15b: inline storyboards/keyframes in chat --------------------------------
+#
+# "Show me scene 2's boards" -> a card carrying tenant-authorized media-proxy
+# URLs (never a raw Drive/external link) for that scene's shots, capped so one
+# turn can't dump a wall of images. This is the missing half of revise-by-
+# description (prompt studio -> redraw_asset_image already exists) — the other
+# half was ChatCore never rendering any image at all.
+
+_MAX_SHOW_IMAGES = 6
+
+
+def _media_proxy_url(url: Optional[str]) -> Optional[str]:
+    """Convert a stored Drive link into the backend's authorized proxy URL —
+    same conversion pipeline_executor.py's per-clip `_proxy_url` and
+    routes/characters.py's `_fetch_image_bytes` already do (Drive's public
+    links unpredictably degrade into HTML interstitials; the proxy streams
+    via the authorized Drive API instead). Anything that ISN'T a recognizable
+    Drive link (e.g. the Supabase storage backend's own public URL) passes
+    through unchanged — it was never a Drive link to begin with, matching
+    the existing precedent exactly. Never returns a raw Drive URL."""
+    if not url:
+        return None
+    m = re.search(r"[?&]id=([\w-]+)", url) or re.search(r"/d/([\w-]+)", url)
+    if not m:
+        return url
+    base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
+    return f"{base}/api/media/drive/{m.group(1)}"
+
+
+async def _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply):
+    """kind=show: surface a scene's actual pictures/storyboards inline, capped
+    at _MAX_SHOW_IMAGES, tenant+video+scene scoped (never another tenant's or
+    another scene's assets). No pictures yet for that scene -> a friendly
+    offer to generate them (with a real quote), not an empty/broken card."""
+    scene = data.get("scene")
+    if scene is None:
+        scene = (ui_context or {}).get("scene")
+    if scene is None:
+        return await _reply("Which scene's pictures would you like to see? e.g. \"show me scene 2's boards\".")
+    scene = int(scene)
+
+    rows = await fetch_all(
+        "SELECT id, image_index, image_url, drive_image_url FROM assets "
+        "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+        "AND (image_url IS NOT NULL OR drive_image_url IS NOT NULL) "
+        "ORDER BY image_index LIMIT $4",
+        video_id, tenant_id, scene, _MAX_SHOW_IMAGES,
+    )
+    if not rows:
+        _cost, cost_text = await _estimate_cost(tenant_id, video_id, "images", scene, summary)
+        return await _reply(
+            f"Scene {scene} doesn't have any pictures yet — want me to generate them? ({cost_text})."
+        )
+
+    images = []
+    # Defense-in-depth: cap client-side too, not just via the SQL LIMIT — a
+    # turn can never dump more than _MAX_SHOW_IMAGES regardless of what the
+    # query returns.
+    for r in rows[:_MAX_SHOW_IMAGES]:
+        proxied = _media_proxy_url(r.get("image_url") or r.get("drive_image_url"))
+        if not proxied:
+            continue
+        images.append({
+            "url": proxied,
+            "label": f"Scene {scene} · shot {r.get('image_index')}",
+            "asset_id": str(r["id"]),
+            "scene": scene,
+            "index": r.get("image_index"),
+        })
+    if not images:
+        return await _reply(f"Scene {scene}'s pictures aren't ready to view yet — try again in a moment.")
+
+    card = {
+        "id": "scene_boards", "label": f"Scene {scene} storyboards", "type": "single",
+        "options": [], "images": images,
+    }
+    n = len(images)
+    return await _reply(
+        f"Here's scene {scene} — {n} shot{'s' if n != 1 else ''}. Tell me what to change, or "
+        f"\"approve scene {scene}\" if these are good.",
+        cards=[card],
+    )
+
+
 async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, video_id, background_tasks):
     """The video-scoped co-pilot turn. Classify -> read (answer) or action (run).
     Paid actions ALWAYS confirm first — dock and home alike (Phase 2 closed the
@@ -811,8 +895,8 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
 
     prompt = (
         "You are the in-app co-pilot for ONE video. The creator can (a) ASK a question, (b) tell you to RUN a "
-        "production step, or (c) work on a generation PROMPT (view it, get suggestions, or rewrite/enhance it "
-        "for a specific shot). Decide which.\n\n"
+        "production step, (c) work on a generation PROMPT (view it, get suggestions, or rewrite/enhance it "
+        "for a specific shot), or (d) ask to SEE the actual pictures/storyboards for a scene. Decide which.\n\n"
         + summary_with_assets + "\n"
         + (f"They are currently viewing scene {ui_context.get('scene')}"
            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
@@ -820,7 +904,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         + f'\nThe creator said: "{msg}"\n\n'
         "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, sound, "
         "thumbnail, render, research, seo, upload, approve_cast, approve_environments, skip_environments, "
-        "lock, unlock, drive_push, drive_sync, advance — for RUNNING/redoing a SINGLE step. "
+        "approve_scene, lock, unlock, drive_push, drive_sync, advance — for RUNNING/redoing a SINGLE step. "
         "'advance' = skip the CURRENT stage/gate and move on ('skip this step', 'move on', 'skip research', "
         "'I don't need this'). Note: asking for the script while research hasn't run maps to 'script' — it "
         "skips research automatically. "
@@ -833,23 +917,32 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "'approve_cast' = approve/lock the characters ('approve the cast', 'the characters look good, lock them in'). "
         "'approve_environments' = approve/lock the locations; 'skip_environments' = this video needs no "
         "distinct locations ('skip the locations', 'no locations needed'). "
+        "'approve_scene' = approve/lock in ONE scene's pictures ('approve scene 2', 'scene 3 looks good, lock "
+        "it in', 'these are good, approve them' while viewing a scene) — give the scene number (use the "
+        "'currently viewing' scene if they say 'this scene'/'these' and name none). Different from approve_cast/"
+        "approve_environments, which gate the whole video's cast/locations, not one scene. "
         "'lock' / 'unlock' = freeze or unfreeze the story(boards) before image spend. "
         "'drive_push' = send the script to Google Drive as an editable Doc; 'drive_sync' = pull the creator's "
         "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
         "Use 'build' when they want the whole video built or moved forward — 'build it', 'make the video', "
         "'do it', 'run it all', 'keep going', 'generate it', 'finish it', 'animate everything'. build runs "
         "the pipeline automatically to the next checkpoint, NOT one step.\n"
-        "PROMPT work (kind=prompt) when they talk about the PROMPT itself — 'rewrite/enhance the prompt', "
-        "'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks off, rewrite its "
-        "prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail | script), "
-        "op (view=show current | suggest=ideas only, no change | rewrite=write a new one to apply), the "
-        "scene/index of the shot (use the 'currently viewing' one if they say 'this' and name no shot), and "
-        "the direction.\n"
+        "PROMPT work (kind=prompt) when they talk about the generation PROMPT TEXT itself — 'rewrite/enhance "
+        "the prompt', 'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks "
+        "off, rewrite its prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail "
+        "| script), op (view=show current | suggest=ideas only, no change | rewrite=write a new one to apply), "
+        "the scene/index of the shot (use the 'currently viewing' one if they say 'this' and name no shot), "
+        "and the direction.\n"
+        "SHOW work (kind=show) when they want to SEE the actual pictures/storyboards/keyframes for a scene — "
+        "'show me scene 2's boards', 'let me see scene 3's pictures', 'what does scene 1 look like' — NOT the "
+        "prompt text (that's kind=prompt above). Give the scene (use the 'currently viewing' one for 'this "
+        "scene'/'these' with no number named).\n"
         "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
         "Return ONE JSON object and nothing else:\n"
-        '{"kind":"read|action|prompt",'
+        '{"kind":"read|action|prompt|show",'
         '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
-        'upload|approve_cast|approve_environments|skip_environments|lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'upload|approve_cast|approve_environments|skip_environments|approve_scene|lock|unlock|drive_push|'
+        'drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'
@@ -893,6 +986,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     if kind == "prompt":
         return await _handle_prompt_op(client, copilot_model, tenant_id, video_id,
                                        summary, data, ui_context, state, _reply)
+
+    # --- C15b: show the actual storyboards/keyframes for a scene, inline ---
+    if kind == "show":
+        return await _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply)
 
     # --- read: answer immediately, no spend ---
     if kind == "read" or verb == "none":

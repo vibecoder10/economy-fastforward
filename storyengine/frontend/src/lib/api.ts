@@ -2599,6 +2599,17 @@ export interface ChatCostBreakdown {
   all_premium_total: number | null;
   hero_scenes: { scene: number | null; model_id: string; display_name: string; reason: string }[];
 }
+// Inline storyboards/keyframes card (id "scene_boards", C15b — director review
+// loop part 1, tasks/storyengine-copilot-ux-map.md): every url is already a
+// tenant-authorized media-proxy URL (/api/media/drive/{id}), never a raw Drive
+// or external link — the backend builds these, the frontend only displays them.
+export interface ChatCardImage {
+  url: string;
+  label: string;
+  asset_id: string;
+  scene: number;
+  index: number | null;
+}
 export interface ChatCard {
   id: string;
   label: string;
@@ -2617,6 +2628,10 @@ export interface ChatCard {
   // Confirm-action card only (C15) — see ChatCostBreakdown above. Optional and
   // additive: an older frontend build simply never reads this key.
   breakdown?: ChatCostBreakdown;
+  // Scene-boards card only (C15b). Optional and additive: absent on every
+  // other card and on any pre-C15b payload, so older/newer builds render
+  // exactly as before when it's missing.
+  images?: ChatCardImage[];
 }
 export interface ProductionPlan {
   story_concept?: string;

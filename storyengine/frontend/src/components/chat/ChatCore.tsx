@@ -29,6 +29,7 @@ import {
   listChatConversations,
   getChatConversationById,
   type ChatCard,
+  type ChatCardImage,
   type ChatTurnRequest,
   type ProductionPlan,
   type SuggestedModels,
@@ -680,7 +681,15 @@ export function ChatCore({
 function MessageThread({ messages }: { messages: Msg[] }) {
   return (
     <AnimatePresence initial={false}>
-      {messages.map((m, i) => (
+      {messages.map((m, i) => {
+        // C15b: any card carrying `images` (id "scene_boards" today, but this
+        // guards on the field, not the id, so it fail-safes on both old
+        // frontends — which never read the key — and old backends — which
+        // never send it) renders inline, in EVERY past turn, so the boards
+        // stay visible as you scroll back through the conversation rather
+        // than only on the newest message like the ephemeral confirm cards.
+        const imageCards = m.role === "assistant" ? (m.cards ?? []).filter((c) => (c.images?.length ?? 0) > 0) : [];
+        return (
         <motion.div
           key={i}
           initial={{ opacity: 0, y: 12 }}
@@ -697,10 +706,66 @@ function MessageThread({ messages }: { messages: Msg[] }) {
             }
           >
             {m.role === "user" ? maskSecret(m.text) : renderRich(m.text)}
+            {imageCards.map((c) => (
+              <SceneBoardsGrid key={c.id} images={c.images!} />
+            ))}
           </div>
         </motion.div>
-      ))}
+        );
+      })}
     </AnimatePresence>
+  );
+}
+
+// C15b: thumbnail grid for a scene's storyboards/keyframes, surfaced inline in
+// the chat stream (tasks/storyengine-copilot-ux-map.md director-review loop).
+// Every url already came from the backend's media proxy (tenant-authorized,
+// never a raw Drive/external link) — this component only displays them. Tap
+// opens the full-size image in a new tab (no existing lightbox is shared
+// across chat + the Scenes tab yet, so this is the simple fallback door the
+// checklist allows rather than reaching into ScenesWorkspaceTab's private
+// modal). A failed image swaps to its label instead of a broken-image icon.
+function SceneBoardsGrid({ images }: { images: ChatCardImage[] }) {
+  const [broken, setBroken] = useState<Record<string, boolean>>({});
+  const shown = images.slice(0, 6);
+  if (shown.length === 0) return null;
+  return (
+    <div className="mt-3 grid grid-cols-3 gap-2 max-w-[280px]">
+      {shown.map((img) => (
+        <a
+          key={img.asset_id}
+          href={img.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={img.label}
+          className="relative aspect-video rounded-lg overflow-hidden block"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+        >
+          {broken[img.asset_id] ? (
+            <div className="w-full h-full flex items-center justify-center text-center px-1">
+              <span className="text-[9px] leading-tight" style={{ color: "var(--text-tertiary)" }}>
+                {img.label}
+              </span>
+            </div>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={img.url}
+              alt={img.label}
+              loading="lazy"
+              className="w-full h-full object-cover"
+              onError={() => setBroken((b) => ({ ...b, [img.asset_id]: true }))}
+            />
+          )}
+          <span
+            className="absolute bottom-0 left-0 right-0 px-1 py-0.5 text-[9px] truncate"
+            style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
+          >
+            {img.label}
+          </span>
+        </a>
+      ))}
+    </div>
   );
 }
 
