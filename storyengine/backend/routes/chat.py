@@ -37,7 +37,9 @@ from actions import (
     PICTURE_COST as _PICTURE_COST,
     apply_followup_edit as _apply_followup_edit,
     blocked_reason as _action_blocked,
+    cost_breakdown as _cost_breakdown,
     estimate_cost as _estimate_cost,
+    guardrail_note as _guardrail_note,
     make_action_step as _make_copilot_step,
     make_autobuild_step as _make_autobuild_step,
     video_summary as _copilot_summary,
@@ -630,18 +632,29 @@ def _summary_line(s: dict[str, Any]) -> str:
 
 
 
-def _confirm_card(verb: str, scene: Optional[int], cost_text: str) -> dict[str, Any]:
+def _confirm_card(verb: str, scene: Optional[int], cost_text: str,
+                   breakdown: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Smallest-change confirm: a single-select card the frontend already renders;
-    the dock reads the pick back as selections.confirm_action = yes|no."""
+    the dock reads the pick back as selections.confirm_action = yes|no.
+
+    C15: an optional itemized ``breakdown`` (per-model/tier lines +
+    ``all_premium_total``, from ``actions.cost_breakdown``) rides along when
+    the quote has one to show. Additive only — the key is omitted entirely
+    when there's nothing to itemize, so an old frontend build (or a payload
+    from a verb with no routing to break down) sees the EXACT same card
+    shape as before C15."""
     cfg = COPILOT_ACTIONS[verb]
     what = cfg["label"] + (f" — scene {scene}" if scene is not None else "")
-    return {
+    card: dict[str, Any] = {
         "id": "confirm_action", "label": what, "type": "single",
         "options": [
             {"value": "yes", "label": f"Do it · {cost_text}"},
             {"value": "no", "label": "Cancel"},
         ],
     }
+    if breakdown and breakdown.get("lines"):
+        card["breakdown"] = breakdown
+    return card
 
 
 
@@ -921,14 +934,39 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         pending["target"] = "pictures" if summary["status"] in _BUILD_TO_PICTURES else "finish"
 
     _cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
+    # C15: itemize the SAME quote by model/tier — one resolver
+    # (actions.cost_breakdown groups the exact per-row prices _estimate_cost
+    # already summed), never a second cost path. None for verbs/states with
+    # nothing routed to itemize (e.g. a build quote before any pictures
+    # exist) — cost_text alone carries the confirm text in that case,
+    # unchanged from pre-C15 behavior.
+    breakdown = await _cost_breakdown(tenant_id, video_id, verb, scene, summary)
     state["pending_action"] = pending
     # Deterministic, confirmation-clear message — NOT the model's free-text reply, which
     # tended to say "Generating now…" even though this is gated behind a tap (the money
     # gate). State what will run + the cost + that a tap is needed; no contradiction.
     where = f" for scene {scene}" if scene is not None else ""
-    intro = (f"Ready when you are — I'll {cfg['label'].lower()}{where} ({cost_text}). "
-             "Tap to run it, or tell me to change anything first.")
-    return await _reply(intro, cards=[_confirm_card(verb, scene, cost_text)])
+    detail = ""
+    if breakdown and breakdown["lines"]:
+        parts = [f'{ln["count"]} × {ln["display_name"]} (${ln["subtotal"]:.2f})' for ln in breakdown["lines"]]
+        detail = " — " + "; ".join(parts)
+        if breakdown.get("all_premium_total") and breakdown["all_premium_total"] > breakdown["total"]:
+            detail += f" vs ${breakdown['all_premium_total']:.2f} all-premium"
+        # Only call out hero scenes by name when the plan is actually mixed
+        # (more than one model in play) — a uniform plan has nothing to
+        # single out. routing_reason rides straight from the asset row —
+        # never re-derived here.
+        hero = breakdown.get("hero_scenes") or []
+        if hero and len(breakdown["lines"]) > 1:
+            names = "; ".join(
+                f'scene {h["scene"]} ({h["reason"]})' for h in hero[:3] if h.get("scene") is not None
+            )
+            if names:
+                detail += f". {names}"
+    guard = f" {_guardrail_note(summary.get('render_style'))}" if breakdown and breakdown["lines"] else ""
+    intro = (f"Ready when you are — I'll {cfg['label'].lower()}{where} ({cost_text}{detail}). "
+             f"Tap to run it, or tell me to change anything first.{guard}")
+    return await _reply(intro, cards=[_confirm_card(verb, scene, cost_text, breakdown)])
 
 
 # --- prompt studio (full prompt-edit access) --------------------------------

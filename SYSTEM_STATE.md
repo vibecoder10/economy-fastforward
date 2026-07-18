@@ -2194,3 +2194,142 @@ reads exactly the four asset fields and the one video field this chunk's
 backend changes newly serve, and every backend change is additive so an
 OLD deployed frontend (pre-C14) simply ignores the new fields it doesn't
 know about. Auto-deploy safe, ff-merge safe.
+
+---
+
+## C15 — Copilot Routing Conversation + Itemized Per-Tier Confirm Cards (added 2026-07-18)
+
+The conversational door for C11-C14's per-scene router (checklist §1.2
+`[B]`/`[U]`, `tasks/storyengine-copilot-ux-map.md` §1): the copilot's paid
+`animate`/`build` confirm now itemizes the SAME quote by model/tier instead
+of one blended number — "Scene 12 is your reveal — Veo Quality ($1.25);
+Grok elsewhere. Total $4.20 vs $25 all-premium."
+
+**One resolver, no parallel math (`storyengine/backend/actions.py`):**
+- `_routed_clip_costs` (C13/C14's money-summing query) was refactored into
+  `_routed_clip_rows()` — the SAME query, now also selecting `scene` and
+  `routing_reason` alongside `routed_model`/`model_override` — plus a
+  `_resolved_price(row, video_model)` one-liner wrapping
+  `resolve_clip_model()`'s call. Both the real quote (`_routed_clip_costs`,
+  unchanged behavior) and the new itemization (`cost_breakdown`) call these
+  same two functions — one query, one precedence call, two views of the
+  identical row set.
+- New `cost_breakdown(tenant_id, video_id, verb, scene, summary)`: groups
+  each row's resolved price by `model_id` into `{model_id, display_name,
+  tier, count, subtotal}` lines. `total = round(sum(raw_prices), 2)` —
+  the IDENTICAL formula `estimate_cost`'s animate/build branches already
+  use — so the itemized total always equals what the confirm card's plain
+  `cost_text` already showed. Per-line subtotals go through a new
+  `_reconcile_rounding()` helper: round each group to cents, then nudge the
+  largest group by any leftover penny, so
+  `round(sum(line["subtotal"] for line in lines), 2)` always equals
+  `total` exactly — independent per-group rounding can otherwise drift a
+  cent from rounding the whole sum once.
+- `all_premium_total`: `len(rows) * _premium_reference_price()` (the
+  cheapest per-clip price among wired `tier=="premium"` models — today just
+  `veo-3.1-quality`, $1.25). Explicitly illustrative — never a second real
+  cost path, only "what if every shot used the flagship tier instead."
+- `hero_scenes`: rows whose resolved model's `tier=="premium"`, each
+  carrying its OWN `routing_reason` straight from the asset row —
+  verbatim, never re-derived, per the checklist's "reuse routing_reason —
+  don't re-derive" requirement.
+- Returns `None` with the exact same guards `estimate_cost`'s animate/build
+  branches already use (no shot plan before pictures exist; an empty
+  per-scene quote that falls back to a flat guess; any non-clip verb) —
+  callers fall back to the plain `cost_text` unchanged in those cases.
+- New `guardrail_note(render_style)`: one sentence mirroring
+  `shared.model_router.route_shot_model`'s own C13b guardrail phrasing
+  exactly ("channel is set to Animated, so everything stays on Grok." /
+  "channel is set to Realistic, so shots route across the photoreal
+  lineup." / "no channel look set — using your default model.").
+- `video_summary()` gained `render_style` (additive SELECT column on the
+  existing `videos` query) so the copilot's confirm-building code can read
+  the channel's declared look without a second round-trip.
+
+**Copilot phrasing (`storyengine/backend/routes/chat.py`):**
+- `_handle_copilot`'s paid-confirm branch calls `cost_breakdown` right
+  after `estimate_cost`, then folds three things into the confirm `intro`
+  text when a breakdown exists: the itemized "N × Model ($X.XX)" lines, the
+  all-premium comparison ("vs $X.XX all-premium", only when it's actually
+  higher), and — only for a genuinely MIXED plan (more than one model in
+  the breakdown) — up to 3 hero scenes by number with their real
+  `routing_reason`, plus the guardrail note.
+- `_confirm_card()` gained an optional 4th `breakdown` param: the card dict
+  gains a `"breakdown"` key ONLY when there's something to itemize
+  (`breakdown["lines"]` non-empty) — a call with no breakdown arg (the
+  pre-C15 call shape, still used everywhere else) produces the byte-
+  identical pre-C15 card.
+- `agent_brain.py::_tool_cost`'s "Finishing adds ~$X" tail optionally
+  itemizes the same way (a cheap add, per the checklist's "if it can
+  cheaply include the same breakdown, do it there too") — wrapped in its
+  own try/except so a broken/erroring `cost_breakdown` call never breaks
+  the "how much has this cost?" read (falls back to the plain tail).
+
+**Frontend (additive only):**
+- `ChatCard` (`storyengine/frontend/src/lib/api.ts`) gained an optional
+  `breakdown?: ChatCostBreakdown` (`lines`/`total`/`all_premium_total`/
+  `hero_scenes`, mirroring the backend dict field-for-field).
+- `ConfirmActionCard` (`storyengine/frontend/src/components/chat/
+  ChatCore.tsx`) renders the itemized lines + all-premium comparison line +
+  up to 3 hero-scene call-outs in a small panel between the card's label
+  and its Do-it/Cancel buttons, ONLY when `card.breakdown` is present and
+  non-empty — otherwise renders exactly the pre-C15 card (no visual
+  change for any verb/state with nothing to itemize).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c15_itemized_cost_breakdown.py` | 13 tests: breakdown-sums-to-total, all-premium comparison, routing_reason passthrough, uniform-plan/no-hero case, both `estimate_cost`-matching None-guards, non-clip-verb None, `guardrail_note` wording, `_confirm_card` payload shape |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/actions.py` | `_routed_clip_costs` refactored onto new `_routed_clip_rows`/`_resolved_price`; new `cost_breakdown()`, `guardrail_note()`, `_premium_reference_price()`, `_reconcile_rounding()`; `video_summary()` gains `render_style` |
+| `storyengine/backend/routes/chat.py` | Imports `cost_breakdown`/`guardrail_note`; `_confirm_card()` gains optional `breakdown` param; `_handle_copilot`'s confirm-building block folds itemization/hero-scenes/guardrail into `intro` and the card |
+| `storyengine/backend/agent_brain.py` | `_tool_cost`'s finishing-adds tail optionally itemizes via `cost_breakdown`, fail-soft |
+| `storyengine/backend/tests/functional/test_agent_brain_cost_tool.py` | 2 new tests: itemized tail present when `cost_breakdown` available; fail-soft when it errors |
+| `storyengine/frontend/src/lib/api.ts` | `ChatCard` gains optional `breakdown`; new `ChatCostBreakdown`/`ChatCostBreakdownLine` types |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | `ConfirmActionCard` renders the itemized panel when `card.breakdown` is present |
+| `tasks/storyengine-wiring-fix-checklist.md` | §1.2 C15 line ticked with summary |
+| `tasks/live-verification-queue.md` | New §C15 deferral (live chat round-trip recipe) |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c15_itemized_cost_breakdown.py
+tests/functional/test_c13_clip_model_routing.py
+tests/functional/test_c14_model_override_and_render_style.py
+tests/functional/test_agent_brain_cost_tool.py -q` — 41 passed. Confirmed
+non-vacuous via `git stash` on `actions.py`/`agent_brain.py`/`routes/chat.py`
+(the new test file and the 2 new `test_agent_brain_cost_tool.py` tests are
+untracked/uncommitted, unaffected by the stash): 12 of the 13 new C15-file
+tests fail against the pre-change source (2 are `_confirm_card`-signature/
+payload tests that TypeError or assert against the missing 4th param; the
+other 10 raise/assert against the missing `cost_breakdown`/`guardrail_note`
+functions or their absent effects); the 1 remaining test
+(`test_confirm_card_omits_breakdown_key_entirely_when_absent`) legitimately
+still passes pre-change — it pins the pre-C15-compatible "no breakdown arg"
+call shape, which was never broken. Full backend suite: 839 passed (824
+baseline + 15 new: 13 in the new C15 file + 2 in
+`test_agent_brain_cost_tool.py`) / 16 pre-existing failures (same file list
+as C14) / 1 pre-existing error (`vault.py`'s `test_api_key` collision) —
+zero new failures. `python -m py_compile` clean on all 5 touched/added `.py`
+files. Frontend: `npx tsc --noEmit` clean; `npm run build` clean (required
+`NEXT_PUBLIC_API_URL` set — same pre-existing project requirement as C14).
+
+**Deferred to `tasks/live-verification-queue.md` §C15** (exact recipe
+there): a real chat round-trip — seed a mixed-routing video, type "animate
+scene 3" in the dock, confirm the itemized card/text and the "how much has
+this cost?" tail both show the real numbers, tap Do It, confirm the clips
+that generate match what was itemized. Requires a live LLM call (the
+copilot's classifier/agent-brain) and a live video with real scene assets;
+no no-DB path exists for either in this sandbox.
+
+**Deploy-safety note:** every new field is additive and conditionally
+populated — `breakdown` only ever appears on the confirm card when
+`cost_breakdown` actually has lines to show; `render_style` was already
+read/written by C13b/C14, this chunk only adds it to one more read
+(`video_summary`). An old frontend build (pre-C15) simply never reads the
+new `breakdown` key and renders identically; a new frontend against an old
+backend that never sends `breakdown` also renders identically (the
+component's `hasBreakdown` check is `!!breakdown && breakdown.lines.length
+> 0`, false on `undefined`). No existing field, endpoint, or card shape
+changed — auto-deploy safe, ff-merge safe.

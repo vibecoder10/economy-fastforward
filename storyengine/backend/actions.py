@@ -59,6 +59,7 @@ if str(_PIPELINE_ROOT) not in sys.path:
 from shared.channel_profile import (  # noqa: E402
     CLIP_PRICE_BY_MODEL as CLIP_COST,
     IMAGE_PRICE_BY_MODEL,
+    MODEL_REGISTRY,
     PICTURE_PRICE_DEFAULT as PICTURE_COST,
     THUMBNAIL_PRICE as THUMBNAIL_COST,
     VOICE_PRICE_PER_1K_CHARS,
@@ -187,7 +188,7 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     """Compact, current state of the video for the classifier, the gate, the cost
     estimate, and read answers — all from the video row + scripts + assets."""
     v = await fetch_one(
-        "SELECT video_title, status, video_length_minutes, video_model, script_validation "
+        "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
@@ -228,6 +229,10 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         "cast": int(c["n"] or 0),
         "spent": cost,
         "validation": str(v.get("script_validation") or "").strip()[:600],
+        # C15: the channel-look guardrail state (checklist §1.2/C13b) — additive,
+        # read by cost_breakdown/guardrail_note to explain a mixed or single-model
+        # routing plan in the copilot's confirm text. None on any pre-C13b video.
+        "render_style": v.get("render_style"),
     }
 
 
@@ -247,6 +252,33 @@ def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
     return None
 
 
+async def _routed_clip_rows(tenant_id, video_id, scene: Optional[int], video_model: str) -> list[dict[str, Any]]:
+    """Raw per-row routing data for a video's (or one scene's) not-yet-
+    clipped pictures — scene, routed_model, model_override, routing_reason.
+    The ONE query both ``_routed_clip_costs`` (the money the quote sums) and
+    ``cost_breakdown`` (C15's itemization of that same sum) build on, so
+    there is exactly one place deciding which rows count and one place
+    reading them — no parallel query, no parallel row set.
+
+    Same WHERE clause as the pre-C13 flat count query (image_url IS NOT
+    NULL, scoped to `scene` when given) — unchanged by C15."""
+    where = "video_id=$1 AND tenant_id=$2 AND image_url IS NOT NULL"
+    params = [video_id, tenant_id]
+    if scene is not None:
+        where += " AND scene=$3"
+        params.append(scene)
+    return await fetch_all(
+        f"SELECT scene, routed_model, model_override, routing_reason FROM assets WHERE {where}", *params)
+
+
+def _resolved_model_id(row: dict[str, Any], video_model: str) -> str:
+    """The model_id that will actually generate this row's clip — same
+    precedence ``resolve_clip_model`` documents (override > routed > video-
+    level default). A tiny wrapper so both money (``_routed_clip_costs``)
+    and itemization (``cost_breakdown``) call the identical one-liner."""
+    return resolve_clip_model(row.get("routed_model"), video_model, scene_override=row.get("model_override"))
+
+
 async def _routed_clip_costs(tenant_id, video_id, scene: Optional[int], video_model: str) -> list[float]:
     """Per-row clip prices for a video's (or one scene's) not-yet-clipped
     pictures, resolved through the SAME precedence clip generation actually
@@ -256,24 +288,127 @@ async def _routed_clip_costs(tenant_id, video_id, scene: Optional[int], video_mo
     video_model, scene_override=model_override)]`` — the cheapest wired tier
     for whichever model that row will really run through (a C14 manual
     override winning first, same as generation), not one flat video-level
-    price times a count.
-
-    Same WHERE clause as the pre-C13 flat count query (image_url IS NOT
-    NULL, scoped to `scene` when given) — only the per-row pricing changed,
-    not which rows are counted."""
-    where = "video_id=$1 AND tenant_id=$2 AND image_url IS NOT NULL"
-    params = [video_id, tenant_id]
-    if scene is not None:
-        where += " AND scene=$3"
-        params.append(scene)
-    rows = await fetch_all(f"SELECT routed_model, model_override FROM assets WHERE {where}", *params)
+    price times a count."""
+    rows = await _routed_clip_rows(tenant_id, video_id, scene, video_model)
     return [
-        CLIP_COST.get(
-            resolve_clip_model(r.get("routed_model"), video_model, scene_override=r.get("model_override")),
-            CLIP_COST.get(video_model, 0.10),
-        )
+        CLIP_COST.get(_resolved_model_id(r, video_model), CLIP_COST.get(video_model, 0.10))
         for r in rows
     ]
+
+
+def _premium_reference_price() -> Optional[float]:
+    """Cheapest per-clip price among WIRED premium-tier models — the "all
+    premium" comparison figure's per-clip rate (checklist §1.2/C15, the
+    itemized confirm card's "$4.20 vs $25 all-premium" line). Illustrative
+    only: this NEVER prices a real quote (that stays the routed sum above),
+    it only answers "what if every shot used the flagship tier instead"."""
+    for profile in MODEL_REGISTRY.values():
+        if profile.wired and profile.tier == "premium":
+            return min(profile.cost_per_clip.values())
+    return None
+
+
+def _reconcile_rounding(raw: dict[str, float], total: float) -> dict[str, float]:
+    """Round each group's raw subtotal to cents, then nudge the largest group
+    by any leftover penny so the itemized lines always sum to EXACTLY
+    ``total`` (the same number ``estimate_cost`` returns for this quote) —
+    independently rounding each group can otherwise drift a cent from
+    rounding the whole sum once."""
+    rounded = {k: round(v, 2) for k, v in raw.items()}
+    drift = round(total - round(sum(rounded.values()), 2), 2)
+    if drift and rounded:
+        biggest = max(rounded, key=rounded.get)
+        rounded[biggest] = round(rounded[biggest] + drift, 2)
+    return rounded
+
+
+def guardrail_note(render_style: Optional[str]) -> str:
+    """One sentence naming why the routing plan looks the way it does —
+    mirrors ``shared.model_router.route_shot_model``'s own C13b guardrail
+    (the channel's declared LOOK gates model choice before scene importance
+    does). Reused by the copilot's confirm text (checklist §1.2/C15) so the
+    phrasing never drifts from what the router itself is actually doing."""
+    style = (render_style or "").strip().lower()
+    if style == "animated":
+        return "channel is set to Animated, so everything stays on Grok."
+    if style == "realistic":
+        return "channel is set to Realistic, so shots route across the photoreal lineup."
+    if style:
+        return f"channel is set to {style.title()}."
+    return "no channel look set — using your default model."
+
+
+async def cost_breakdown(tenant_id, video_id, verb: str, scene: Optional[int],
+                          summary: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Per-model/per-tier itemization of an animate/build quote (checklist
+    §1.2/C15 — "Scene 12 is your reveal — Veo Quality ($1.25); Grok
+    elsewhere. Total $4.20 vs $25 all-premium").
+
+    ONE resolver, no parallel math: groups the EXACT per-row prices
+    ``_routed_clip_costs`` already sums for this exact (verb, scene) call —
+    same ``_routed_clip_rows`` query, same ``_resolved_model_id`` precedence —
+    so ``round(sum(line["subtotal"] for line in lines), 2) == the total
+    estimate_cost() returns`` for the identical call, always. Also flags
+    which routed rows landed on the premium ("hero") tier, carrying their
+    own ``routing_reason`` verbatim (never re-derived) so the copilot can
+    name "scene 12, and why" without guessing.
+
+    Returns None when there's nothing real to itemize yet — same guards
+    ``estimate_cost``'s animate/build branches use (no shot plan before
+    pictures exist; an empty per-scene quote that falls back to a flat
+    guess) — callers fall back to the plain cost_text unchanged.
+    """
+    if verb not in ("animate", "build"):
+        return None
+    if verb == "build" and (summary["status"] in BUILD_TO_PICTURES or not summary["pics"]):
+        return None
+
+    model = summary["model"]
+    row_scene = scene if verb == "animate" else None
+    rows = await _routed_clip_rows(tenant_id, video_id, row_scene, model)
+    if not rows:
+        return None  # empty-scene guess branch — nothing routed to itemize
+
+    raw_subtotal: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    hero_scenes: list[dict[str, Any]] = []
+    raw_prices: list[float] = []
+    for r in rows:
+        resolved = _resolved_model_id(r, model)
+        price = CLIP_COST.get(resolved, CLIP_COST.get(model, 0.10))
+        raw_prices.append(price)
+        raw_subtotal[resolved] = raw_subtotal.get(resolved, 0.0) + price
+        counts[resolved] = counts.get(resolved, 0) + 1
+        profile = MODEL_REGISTRY.get(resolved)
+        if profile and profile.tier == "premium":
+            hero_scenes.append({
+                "scene": r.get("scene"),
+                "model_id": resolved,
+                "display_name": profile.display_name,
+                "reason": (r.get("routing_reason") or "").strip() or "routed to the premium tier",
+            })
+
+    total = round(sum(raw_prices), 2)  # identical formula to estimate_cost's animate/build branches
+    subtotals = _reconcile_rounding(raw_subtotal, total)
+    lines = [
+        {
+            "model_id": mid,
+            "display_name": MODEL_REGISTRY[mid].display_name if mid in MODEL_REGISTRY else mid,
+            "tier": MODEL_REGISTRY[mid].tier if mid in MODEL_REGISTRY else "standard",
+            "count": counts[mid],
+            "subtotal": subtotals[mid],
+        }
+        for mid in raw_subtotal
+    ]
+    premium_price = _premium_reference_price()
+    all_premium_total = round(premium_price * len(rows), 2) if premium_price else None
+
+    return {
+        "lines": lines,
+        "total": total,
+        "all_premium_total": all_premium_total,
+        "hero_scenes": hero_scenes,
+    }
 
 
 async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], summary: dict[str, Any]) -> tuple[float, str]:

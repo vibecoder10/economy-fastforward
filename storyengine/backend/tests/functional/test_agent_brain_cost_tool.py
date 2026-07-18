@@ -81,6 +81,62 @@ def test_no_finishing_tail_when_nothing_left_to_spend(monkeypatch):
     assert result == "Actual spend so far $0.00: render $0.00."
 
 
+def test_finishing_tail_itemizes_when_cost_breakdown_available(monkeypatch):
+    """C15: when actions.cost_breakdown can cheaply produce an itemization
+    for the same "build" quote, the finishing-adds tail names it — same
+    numbers as the confirm card, not a re-derived estimate. A real (un-
+    monkeypatched) actions.cost_breakdown call would just raise (no
+    DATABASE_URL in this test env) and get caught fail-soft, so this test
+    monkeypatches it directly to prove the itemization path fires."""
+    rows = [{"stage": "pictures", "actual_cost": 2.40}]
+
+    async def fake_fetch_all(query, *args):
+        return rows
+
+    async def fake_estimate(tenant_id, video_id, verb, scene, summary):
+        return 0.45, "~$0.45"
+
+    async def fake_cost_breakdown(tenant_id, video_id, verb, scene, summary):
+        assert verb == "build" and scene is None
+        return {
+            "lines": [
+                {"model_id": "grok-imagine", "display_name": "Grok Imagine", "tier": "draft",
+                 "count": 3, "subtotal": 0.45},
+            ],
+            "total": 0.45, "all_premium_total": 3.75, "hero_scenes": [],
+        }
+
+    monkeypatch.setattr(agent_brain, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(actions, "estimate_cost", fake_estimate)
+    monkeypatch.setattr(actions, "cost_breakdown", fake_cost_breakdown)
+
+    result = asyncio.run(agent_brain._tool_cost(TENANT, VIDEO, SUMMARY))
+    assert result == (
+        "Actual spend so far $2.40: pictures $2.40. "
+        "Finishing adds ~$0.45 (3×Grok Imagine $0.45)."
+    )
+
+
+def test_finishing_tail_falls_back_soft_when_cost_breakdown_errors(monkeypatch):
+    """A broken/erroring cost_breakdown must never break the read — the
+    plain "Finishing adds ~$X" tail still lands with no itemization."""
+    async def fake_fetch_all(query, *args):
+        return [{"stage": "pictures", "actual_cost": 2.40}]
+
+    async def fake_estimate(tenant_id, video_id, verb, scene, summary):
+        return 0.45, "~$0.45"
+
+    async def fake_cost_breakdown(tenant_id, video_id, verb, scene, summary):
+        raise RuntimeError("simulated DB outage")
+
+    monkeypatch.setattr(agent_brain, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(actions, "estimate_cost", fake_estimate)
+    monkeypatch.setattr(actions, "cost_breakdown", fake_cost_breakdown)
+
+    result = asyncio.run(agent_brain._tool_cost(TENANT, VIDEO, SUMMARY))
+    assert result == "Actual spend so far $2.40: pictures $2.40. Finishing adds ~$0.45."
+
+
 def test_cost_tool_reachable_via_run_tool_dispatch(monkeypatch):
     async def fake_fetch_all(query, *args):
         return []

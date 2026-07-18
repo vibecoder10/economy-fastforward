@@ -132,7 +132,21 @@ async def _tool_cost(tenant_id, video_id, summary) -> str:
     breakdown = ", ".join(
         f"{stage} ${cost:.2f}" for stage, cost in sorted(by_stage.items(), key=lambda kv: -kv[1])
     )
-    tail = f" Finishing adds ~{remaining_text.lstrip('~')}." if _remaining_cost > 0 else ""
+    tail = ""
+    if _remaining_cost > 0:
+        tail = f" Finishing adds ~{remaining_text.lstrip('~')}"
+        # C15: itemize what's left the same way the "finish it" confirm card
+        # does — cheap to add (same estimator, one extra call) and never
+        # worth failing this read over, so any error just drops the
+        # itemization and keeps the plain "Finishing adds ~$X" tail.
+        try:
+            model_breakdown = await actions.cost_breakdown(tenant_id, video_id, "build", None, summary)
+        except Exception:  # noqa: BLE001 — read-only nicety, never break "how much has this cost?"
+            model_breakdown = None
+        if model_breakdown and model_breakdown.get("lines"):
+            parts = [f'{ln["count"]}×{ln["display_name"]} ${ln["subtotal"]:.2f}' for ln in model_breakdown["lines"]]
+            tail += " (" + " + ".join(parts) + ")"
+        tail += "."
     return f"Actual spend so far ${total:.2f}: {breakdown}.{tail}"
 
 

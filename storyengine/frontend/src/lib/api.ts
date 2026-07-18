@@ -2581,6 +2581,24 @@ export interface ChatCardOption {
   label: string;
   hint?: string;
 }
+// Confirm-action card (id "confirm_action") itemized quote (C15, checklist §1.2):
+// one line per model/tier actually resolved for this quote — additive only, the
+// SAME numbers actions.cost_breakdown() grouped from the routed per-row prices
+// (backend/actions.py). Absent entirely on any quote with nothing to itemize
+// (e.g. a build quote before pictures exist) or on any pre-C15 payload.
+export interface ChatCostBreakdownLine {
+  model_id: string;
+  display_name: string;
+  tier: string;
+  count: number;
+  subtotal: number;
+}
+export interface ChatCostBreakdown {
+  lines: ChatCostBreakdownLine[];
+  total: number;
+  all_premium_total: number | null;
+  hero_scenes: { scene: number | null; model_id: string; display_name: string; reason: string }[];
+}
 export interface ChatCard {
   id: string;
   label: string;
@@ -2596,6 +2614,9 @@ export interface ChatCard {
   // Secure key card (id "secure_key"): the input placeholder, so each step names
   // the exact key being asked for (e.g. "Paste your Kie.ai API key…").
   placeholder?: string;
+  // Confirm-action card only (C15) — see ChatCostBreakdown above. Optional and
+  // additive: an older frontend build simply never reads this key.
+  breakdown?: ChatCostBreakdown;
 }
 export interface ProductionPlan {
   story_concept?: string;

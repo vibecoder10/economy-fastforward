@@ -1048,12 +1048,47 @@ function ConfirmActionCard({
 }) {
   const yes = card.options?.find((o) => o.value === "yes");
   const no = card.options?.find((o) => o.value === "no");
+  // C15 (checklist §1.2): itemized per-model/tier quote, present only when the
+  // backend had something to break down (actions.cost_breakdown) — absent on
+  // any older payload or any quote with nothing routed yet, in which case this
+  // renders exactly the pre-C15 card below.
+  const breakdown = card.breakdown;
+  const hasBreakdown = !!breakdown && breakdown.lines.length > 0;
   return (
     <GlassCard className="flex flex-col gap-3" style={{ borderColor: "var(--turquoise-dim)" }}>
       <div className="flex items-start gap-2">
         <AlertTriangle size={16} className="mt-0.5 shrink-0" style={{ color: "var(--gold)" }} />
         <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{card.label}</span>
       </div>
+      {hasBreakdown && (
+        <div
+          className="flex flex-col gap-1.5 rounded-lg px-3 py-2"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+        >
+          {breakdown!.lines.map((ln) => (
+            <div key={ln.model_id} className="flex items-center justify-between text-xs">
+              <span style={{ color: "var(--text-secondary)" }}>
+                {ln.count} × {ln.display_name}
+              </span>
+              <span style={{ color: "var(--text-primary)" }}>${ln.subtotal.toFixed(2)}</span>
+            </div>
+          ))}
+          {breakdown!.all_premium_total != null && breakdown!.all_premium_total > breakdown!.total && (
+            <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              vs ${breakdown!.all_premium_total.toFixed(2)} all-premium
+            </div>
+          )}
+          {breakdown!.hero_scenes.length > 0 && breakdown!.lines.length > 1 && (
+            <div className="text-xs" style={{ color: "var(--gold)" }}>
+              {breakdown!.hero_scenes
+                .slice(0, 3)
+                .filter((h) => h.scene != null)
+                .map((h) => `Scene ${h.scene} — ${h.display_name}`)
+                .join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <button
           onClick={() => yes && onChoose("yes", yes.label)}

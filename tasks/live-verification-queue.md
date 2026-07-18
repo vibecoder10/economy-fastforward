@@ -265,6 +265,53 @@ video with scene assets behind it. The full recipe:
 
 ---
 
+## C15 — copilot routing conversation + itemized confirm cards · live round-trip check
+Checklist §1.2 [B]/[U] (UX map §1's worked example: "Scene 12 is your
+reveal — Veo Quality ($1.25); Grok elsewhere. Total $4.20 vs $25
+all-premium"). `actions.cost_breakdown()` (one resolver over the same
+`_routed_clip_rows`/`_resolved_price` C13/C14 already use), `guardrail_note()`,
+the `_handle_copilot` confirm-text/card wiring, and the `ConfirmActionCard`
+frontend render are all covered at the unit level (15 tests in
+`test_c15_itemized_cost_breakdown.py`, 2 in `test_agent_brain_cost_tool.py`,
+`npx tsc --noEmit` + `npm run build` clean) — no live LLM call, no live DB,
+no paid generation anywhere in that pass. What's NOT provable without a
+live conversation:
+- [ ] **Local E2E boot** (same recipe as C14's entry above): source prod
+      `storyengine/.env`, `DEV_MODE=true DEV_TOKEN=<random>
+      DEV_TENANT_ID=<disposable tenant>`, uvicorn on :8002, `NEXT_PUBLIC_API_URL=
+      http://127.0.0.1:8002 npm run dev -- --port 3002`.
+- [ ] **Seed a mixed-routing video** (reuse C14's seed recipe): one scene's
+      `routed_model='veo-3.1-quality'` + a real `routing_reason`, a second
+      scene's `model_override` set to a different wired model, a third
+      scene's `routed_model` left NULL. Optionally set `videos.render_style`
+      to `'animated'` or `'realistic'` to exercise the guardrail phrasing.
+- [ ] **Open the video's chat dock, type "animate scene 3"** (or "animate
+      it"/"finish it" for the build path): confirm the assistant's reply text
+      itemizes the per-model counts/subtotals, names the hero (premium-tier)
+      scene(s) with their real `routing_reason`, states the all-premium
+      comparison figure, and mentions the channel-look guardrail state
+      matching whatever `render_style` was seeded; confirm the rendered
+      confirm card shows the same itemized lines (not just the blended
+      total).
+- [ ] **Ask "how much has this cost?"** after some real spend exists; confirm
+      the "Finishing adds ~$X" tail also itemizes (agent_brain's optional
+      cheap-add path) and matches the confirm card's own numbers for the
+      same video.
+- [ ] **Tap "Do it"** on an itemized confirm card; confirm the SAME clips
+      generate at the SAME per-row models the card itemized (ties back to
+      C13's live verification — the quote a creator confirms must match
+      what was actually spent).
+- **Cost:** free through the seed/chat-read checks above (no generation
+  until the last bullet). The last bullet costs whatever the seeded models'
+  per-clip prices are (~$0.09 Grok to ~$1.25 Veo Quality per scene).
+- **Safety net:** `cost_breakdown`/`guardrail_note` are pure reads (no writes,
+  no new columns) layered on data C12/C13/C13b/C14 already write; the new
+  `breakdown` card field and `render_style` summary field are both additive
+  and only ever populated when non-empty — a stale frontend build (or a
+  quote with nothing to itemize) renders the exact pre-C15 confirm card.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool
