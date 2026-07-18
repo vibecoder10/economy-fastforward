@@ -253,8 +253,10 @@ async def _routed_clip_costs(tenant_id, video_id, scene: Optional[int], video_mo
     uses (checklist §1.2/C13 money invariant #2 — the quote a creator
     confirms must match what generation will actually spend). Each row's
     price is ``CLIP_PRICE_BY_MODEL[resolve_clip_model(routed_model,
-    video_model)]`` — the cheapest wired tier for whichever model that row
-    will really run through, not one flat video-level price times a count.
+    video_model, scene_override=model_override)]`` — the cheapest wired tier
+    for whichever model that row will really run through (a C14 manual
+    override winning first, same as generation), not one flat video-level
+    price times a count.
 
     Same WHERE clause as the pre-C13 flat count query (image_url IS NOT
     NULL, scoped to `scene` when given) — only the per-row pricing changed,
@@ -264,9 +266,12 @@ async def _routed_clip_costs(tenant_id, video_id, scene: Optional[int], video_mo
     if scene is not None:
         where += " AND scene=$3"
         params.append(scene)
-    rows = await fetch_all(f"SELECT routed_model FROM assets WHERE {where}", *params)
+    rows = await fetch_all(f"SELECT routed_model, model_override FROM assets WHERE {where}", *params)
     return [
-        CLIP_COST.get(resolve_clip_model(r.get("routed_model"), video_model), CLIP_COST.get(video_model, 0.10))
+        CLIP_COST.get(
+            resolve_clip_model(r.get("routed_model"), video_model, scene_override=r.get("model_override")),
+            CLIP_COST.get(video_model, 0.10),
+        )
         for r in rows
     ]
 

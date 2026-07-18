@@ -154,6 +154,27 @@ def test_build_quote_before_pictures_exist_falls_back_to_flat_math(monkeypatch):
     assert cost == round(5 * 6 * GROK_PRICE, 2)
 
 
+def test_animate_quote_scene_override_wins_over_routed_model(monkeypatch):
+    """C14: a manual scene override (assets.model_override) must win the
+    quote's per-row price too, not just routed_model — otherwise the quote
+    a creator confirms after overriding a scene would lie about what
+    generation is about to spend. One row is routed to Grok but manually
+    overridden to Veo Quality; the quote must reflect Veo Quality's price."""
+    rows = [{"routed_model": "grok-imagine", "model_override": "veo-3.1-quality"}]
+
+    async def fake_fetch_all(query, *args):
+        assert "model_override" in query
+        return rows
+
+    monkeypatch.setattr(actions, "fetch_all", fake_fetch_all)
+
+    cost, _ = asyncio.run(actions.estimate_cost(TENANT, VIDEO, "animate", None, _summary()))
+    assert cost == VEO_QUALITY_PRICE, (
+        "the scene override must win the quote over routed_model, matching "
+        "what run_clip_generation will actually spend")
+    assert cost != GROK_PRICE
+
+
 # ---------------------------------------------------------------------------
 # 2. run_clip_generation() — the real generation call resolves per row
 # ---------------------------------------------------------------------------
@@ -206,7 +227,7 @@ class _FakeImageClient:
         return b"fake-clip-bytes"
 
 
-def _asset_row(routed_model, assigned_dialogue=None):
+def _asset_row(routed_model, assigned_dialogue=None, model_override=None):
     return {
         "id": "asset-1", "scene": 1, "image_index": 1,
         "image_url": "https://fake/img1.png", "drive_image_url": None,
@@ -214,6 +235,7 @@ def _asset_row(routed_model, assigned_dialogue=None):
         "video_clip_url": None, "duration_seconds": 4.0,
         "sentence_text": None, "image_prompt": "a factory floor",
         "assigned_dialogue": assigned_dialogue, "routed_model": routed_model,
+        "model_override": model_override,
     }
 
 
@@ -242,12 +264,13 @@ _ASSIGNED_DIALOGUE = 'Tom: "Hello there."'
 
 def _run_clip_generation_for(monkeypatch, routed_model, *, dialogue_mode=None,
                               dialogue_audio="voice_over", assigned_dialogue=None,
-                              extra_patches=None):
-    """Drives run_clip_generation for ONE asset row carrying `routed_model`,
-    with all paid/DB/storage boundaries faked. `extra_patches(monkeypatch,
-    image_client)` lets a caller layer on more monkeypatches (e.g. faking
-    InfiniteTalk's audio pipeline) before the run. Returns (image_client,
-    ledger_calls, model_used_updates, clip_url_updates)."""
+                              model_override=None, extra_patches=None):
+    """Drives run_clip_generation for ONE asset row carrying `routed_model`
+    (and optionally a C14 `model_override`), with all paid/DB/storage
+    boundaries faked. `extra_patches(monkeypatch, image_client)` lets a
+    caller layer on more monkeypatches (e.g. faking InfiniteTalk's audio
+    pipeline) before the run. Returns (image_client, ledger_calls,
+    model_used_updates, clip_url_updates)."""
     ledger_calls = []
     model_used_updates = []
     clip_url_updates = []
@@ -265,7 +288,10 @@ def _run_clip_generation_for(monkeypatch, routed_model, *, dialogue_mode=None,
 
     async def fake_fetch_all(query, *args):
         if "FROM assets WHERE" in query and "routed_model" in query:
-            return [_asset_row(routed_model, assigned_dialogue)]
+            assert "model_override" in query, (
+                "run_clip_generation's asset query must select model_override "
+                "(C14) alongside routed_model, or the override can never resolve")
+            return [_asset_row(routed_model, assigned_dialogue, model_override)]
         if "dialogue_segments FROM scripts" in query:
             return [{"scene": 1, "dialogue_segments": [_DIALOGUE_LINE]}]
         return []
@@ -332,6 +358,37 @@ def test_routed_model_wired_wins_over_video_level_model(monkeypatch):
     assert expected_cost == VEO_QUALITY_PRICE  # veo-3.1-quality has only one duration tier (8s)
 
     assert len(model_used_updates) == 1
+    assert model_used_updates[0] == ("veo-3.1-quality", "asset-1")
+
+
+def test_scene_override_wins_over_routed_model(monkeypatch):
+    """C14: a manual per-scene override (assets.model_override) must win
+    over C12's automatic routed_model recommendation — the whole point of
+    giving a creator a one-tap override is that it actually takes effect.
+    Row is routed to Grok (the video default) but manually overridden to
+    Veo Quality; the clip, ledger, and model_used must all say Veo."""
+    client, ledger_calls, model_used_updates, clip_url_updates = _run_clip_generation_for(
+        monkeypatch, "grok-imagine", model_override="veo-3.1-quality")
+
+    assert client.calls == [("veo", client.VEO_MODEL_QUALITY)], (
+        "expected the override to route through Veo, not the routed_model's "
+        "Grok recommendation — got " + repr(client.calls))
+    assert ledger_calls[0]["model"] == "veo-3.1-quality"
+    assert model_used_updates[0] == ("veo-3.1-quality", "asset-1")
+
+
+def test_unwired_scene_override_falls_back_to_routed_model(monkeypatch):
+    """An override naming a real-but-unwired model (kling-3.0-pro) must not
+    attempt a dead generation path — falls through to routed_model (Veo
+    Quality here), exactly like resolve_clip_model's own documented
+    precedence."""
+    client, ledger_calls, model_used_updates, _ = _run_clip_generation_for(
+        monkeypatch, "veo-3.1-quality", model_override="kling-3.0-pro")
+
+    assert client.calls == [("veo", client.VEO_MODEL_QUALITY)], (
+        "an unwired override must fall through to routed_model, not silently "
+        "no-op the routing entirely — got " + repr(client.calls))
+    assert ledger_calls[0]["model"] == "veo-3.1-quality"
     assert model_used_updates[0] == ("veo-3.1-quality", "asset-1")
 
 

@@ -2046,3 +2046,151 @@ conservative recommendations. For NEW videos with a declared
 `render_style` (none exist yet — no UI sets it, only the narrow
 auto-derivation paths above), routing now respects the channel's look.
 Auto-deploy safe, ff-merge safe.
+
+## C14 — Per-Scene Model Badge + Override Sheet + Channel Look Control (added 2026-07-18)
+
+The `[U]` half of checklist §1.2: makes C12/C13/C13b's per-scene routing
+VISIBLE (badge + "why" tooltip) and OVERRIDABLE (one-tap sheet), and
+surfaces `videos.render_style` (built in C13b, no control existed for it
+until now) as a "Channel look" selector in the Scenes workspace.
+
+**Migration 090** (`storyengine/backend/migrations/090_asset_model_override.sql`,
+applied LIVE via Supabase MCP against project `wrromlupsmyzrrcqlucn`,
+confirmed via `information_schema.columns`): `assets` gains
+`model_override` TEXT, nullable, no default. This is the column
+`shared.model_router.resolve_clip_model()` already reserved as its
+`scene_override` parameter (C13's docstring: "C14 owns that UI") — C13
+wired the precedence logic and called it with `scene_override=None`
+everywhere; this chunk is the first thing that ever writes a non-NULL
+value into it, and the first thing that reads it back into that parameter.
+
+**Backend wiring (the seam C13 left, now closed):**
+- `pipeline_executor.py::run_clip_generation`'s asset SELECT gains
+  `model_override`; the per-row resolve call becomes
+  `resolve_clip_model(r.get("routed_model"), model_id,
+  scene_override=r.get("model_override"))` — an override wins over
+  `routed_model`, an unwired override falls through to `routed_model`
+  exactly like an unwired `routed_model` falls through to the video
+  default (same precedence chain C13 already documented, now actually fed).
+- `actions.py::_routed_clip_costs`'s SELECT and per-row price lookup gained
+  the identical `model_override` read + `scene_override=` pass-through, so
+  the pre-spend quote (`estimate_cost`'s `animate`/`build` verbs) sums the
+  SAME resolved price generation will actually charge — a manually
+  overridden scene no longer under- or over-quotes.
+- `PATCH /api/assets/{id}/model-override` (new, `routes/assets.py`): sets
+  or clears (`null`/`""`) one asset's `model_override`. Tenant-scoped
+  (404 on a miss), validates a non-empty value against
+  `MODEL_REGISTRY[...].wired` (400 otherwise) — the same gate
+  `run_clip_generation` itself enforces, so this can never save a choice
+  that would silently no-op at generation time.
+- `render_style` folded into the EXISTING generic `PATCH /api/videos/{id}`
+  (`routes/videos.py::update_video`'s `allowed_fields`) rather than a new
+  endpoint — validates `{"animated", "realistic", None}`; `None` is a
+  valid write (clears back to "Auto"/undeclared), not a no-op. Also added
+  to `get_video`'s SELECT + `VideoDetail` construction (`render_style` was
+  written by C13b but never read back by the single-video GET) and to
+  `models.py`'s `VideoDetail` Pydantic model.
+- `GET /api/videos/{id}/assets` (`routes/videos.py`) now selects
+  `routed_model, routing_reason, model_used, model_override` alongside the
+  existing columns — none of the four were passed through to the frontend
+  before this chunk (checked; C13b's SYSTEM_STATE note assuming
+  `routes/videos.py` "already touched" this was for `render_style` on
+  `videos`, not these four columns on `assets` — they were still backend-
+  only until now).
+
+**Frontend (`ScenesWorkspaceTab.tsx`):**
+- Per-scene model badge next to each `SegmentCard`'s `SegmentBadge` label:
+  effective model = `model_override > routed_model > video default` before
+  a clip exists, `model_used` once it does; label sourced from `["models"]`
+  (no hardcoded name/price table); "why" tooltip = `routing_reason`, or
+  "Manual override"/"Channel default". A small dot marks a manually
+  overridden scene (matches the copilot-UX-map spec: "override badge gets
+  a dot so routed vs manual is visually distinct"). Gated on `canAnimate`
+  (`videoStageEnabled`) — an images-only plan shows no clip-model badge at
+  all rather than a meaningless one (the wiring checklist's fail-safe rule).
+- Tap the badge → `ModelOverrideSheet` (built on the existing `Modal`
+  primitive): lists every wired model with name + $/clip straight off the
+  same `["models"]` query the Clips dropdown already uses, highlights the
+  currently-effective one, and a "Use recommendation" button (only shown
+  when overridden) that clears back to the router's own pick. Picking a
+  model calls `PATCH .../model-override` then invalidates
+  `["video-assets", video.id]` so the badge and every cost display refresh
+  together.
+- "Channel look" select (Auto/Animated/Realistic) added to the existing
+  model-controls bar next to Clips, backed by `updateVideo(id, {
+  render_style })`; one line of visible helper text appears under the bar
+  when a look is declared ("Animated channels stay on Grok — no premium
+  upgrades." / the realistic equivalent), plus a fuller explanation on
+  hover.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/090_asset_model_override.sql` | `assets.model_override`, idempotent |
+| `storyengine/backend/tests/functional/test_c14_model_override_and_render_style.py` | 8 tests: the two PATCH endpoints (tenant-scoping, validation, clear-to-null) |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/shared/model_router.py` | No change — `resolve_clip_model`'s `scene_override` param already existed (C13); this chunk is callers finally feeding it a real value |
+| `storyengine/backend/pipeline_executor.py` | `run_clip_generation`'s asset SELECT + resolve call read `model_override` as `scene_override` |
+| `storyengine/backend/actions.py` | `_routed_clip_costs`'s SELECT + price lookup read `model_override` as `scene_override` |
+| `storyengine/backend/routes/assets.py` | New `PATCH /{asset_id}/model-override`; `ModelOverrideUpdate` Pydantic model |
+| `storyengine/backend/routes/videos.py` | `render_style` added to `update_video`'s `allowed_fields` + validation; `get_video`'s SELECT/response gains `render_style`; `get_video_assets`'s SELECT gains `routed_model, routing_reason, model_used, model_override` |
+| `storyengine/backend/models.py` | `VideoDetail` gains `render_style` |
+| `storyengine/backend/tests/functional/test_c13_clip_model_routing.py` | 3 new tests for override precedence (quote + generation path); helper fixtures gain a `model_override` param |
+| `storyengine/frontend/src/lib/api.ts` | `Asset` gains `routed_model`/`routing_reason`/`model_used`/`model_override`; `VideoDetail` gains `render_style`; new `updateAssetModelOverride()` |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | Per-scene model badge + `ModelOverrideSheet` (new) + "Channel look" select + helper text |
+| `storyengine/schema.sql` | `assets` table gains `model_override` (documented inline) |
+| `tasks/storyengine-wiring-fix-checklist.md` | §1.2: `[B]`/`[D]`/`[U]` ticked (cumulative C12+C13+C14 work); `[V]` annotated partially-done with the deferral |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c13_clip_model_routing.py
+tests/functional/test_c14_model_override_and_render_style.py -q` — 22
+passed. Confirmed non-vacuous via `git stash` on
+`actions.py`/`pipeline_executor.py`: the 3 new override-precedence tests in
+`test_c13_clip_model_routing.py` fail against the pre-change source (asset
+query missing `model_override`), pass again after `stash pop`; the 8 new
+endpoint tests (untracked file, unaffected by the stash) fail 7-of-8 with
+the routes reverted (the 8th incidentally still 400s for a different
+reason — "no valid fields" instead of "invalid value" — both are correct
+behavior for their respective code states, not a false pass). Full backend
+suite: 824 passed (813 baseline + 11 new: 3 in `test_c13_clip_model_routing.py`
++ 8 in the new file) / 16 pre-existing failures (identical file list to
+C13b) / 1 pre-existing error (`vault.py`'s `test_api_key` collision) — zero
+new failures, confirmed against a `git stash` baseline run showing the
+identical 16/1. `python -m py_compile` clean on all 6 touched/added `.py`
+files. Frontend: `npx tsc --noEmit` clean; `npm run build` clean (required
+`NEXT_PUBLIC_API_URL` set and `npm install` first — neither installed in
+this sandbox by default, both are pre-existing project requirements
+unrelated to this chunk). Live column check: `information_schema.columns`
+on project `wrromlupsmyzrrcqlucn` shows `model_override` — `text`,
+nullable, no default, alongside the existing `routed_model`/
+`routing_reason`/`model_used`.
+
+**Deferred to `tasks/live-verification-queue.md` §C14** (exact recipe
+there): a real Playwright pass — badges rendering with real routing data,
+the override sheet actually changing `assets.model_override`, the Channel
+look control actually changing `videos.render_style` — and the full
+checklist §1.2 `[V]` (real clip generation on an overridden scene,
+confirming `model_used`/the ledger/the badge all agree, and that the quote
+a creator confirmed matches what was actually spent). Both require a live
+video with real scene assets behind it; unlike `GET /api/models` (C03's
+no-DB `DEV_MODE` case, which only reads the in-process `MODEL_REGISTRY`),
+`GET /api/videos/{id}/assets` queries the real `assets` table — there is no
+no-DB path for it in this sandbox.
+
+**Deploy-safety note:** every new/changed column is nullable and additive
+(`model_override` defaults NULL on every existing row); `resolve_clip_model`
+falls through to EXACTLY pre-C14 behavior whenever `model_override` is
+unset (every asset row today); the new endpoints are additive (no existing
+route's behavior changed — `update_video`'s `allowed_fields` gained one
+entry, `get_video`/`get_video_assets` gained SELECT columns that were
+already nullable in the schema); the new UI is additive and gated
+(`canAnimate`/`videoStageEnabled`) so an images-only plan renders nothing
+new. Backend and frontend changes ship together in this one chunk — no
+backend-ahead-of-frontend or frontend-ahead-of-backend gap: the frontend
+reads exactly the four asset fields and the one video field this chunk's
+backend changes newly serve, and every backend change is additive so an
+OLD deployed frontend (pre-C14) simply ignores the new fields it doesn't
+know about. Auto-deploy safe, ff-merge safe.

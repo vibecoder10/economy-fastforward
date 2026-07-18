@@ -194,6 +194,77 @@ end-to-end:
 
 ---
 
+## C14 — per-scene model badge + override sheet + Channel look control · live UI + build check
+Checklist §1.2 [U]. Migration 090 (`assets.model_override`, confirmed live
+via `information_schema.columns`) plus the wiring that makes it real:
+`shared.model_router.resolve_clip_model()`'s `scene_override` param (C13
+reserved it, always called with `None`) is now fed from
+`assets.model_override` at both the quote (`actions._routed_clip_costs`)
+and generation (`pipeline_executor.run_clip_generation`'s `_one` closure)
+call sites — proven non-vacuous via `git stash` (14 tests in
+`test_c13_clip_model_routing.py`, all pass with the fix, 3 of them
+specifically for the override precedence fail without it). Two new/reused
+endpoints: `PATCH /api/assets/{id}/model-override` (new, tenant-scoped,
+gates against `MODEL_REGISTRY[...].wired`) and `render_style` folded into
+the existing generic `PATCH /api/videos/{id}` (`update_video`'s
+`allowed_fields`) — both covered by
+`test_c14_model_override_and_render_style.py` (8 tests, TestClient +
+monkeypatched DB, no live DB). Frontend: `ScenesWorkspaceTab.tsx` gained a
+per-scene model badge (effective model = override > routed > video default,
+`model_used` once a clip exists; "why" tooltip from `routing_reason` /
+"Manual override" / "Channel default"), a tap-to-open override sheet
+(`ModelOverrideSheet`, prices sourced from the existing `["models"]` query —
+no hardcoded prices), and a "Channel look" select (Auto/Animated/Realistic)
+next to the existing Clips model picker. `npx tsc --noEmit` and
+`npm run build` both clean (build required `NEXT_PUBLIC_API_URL` set — an
+existing prod-build requirement, unrelated to this chunk).
+
+**What was NOT run:** a real Playwright pass against booted dev servers.
+Unlike `GET /api/models` (C03's "DEV_MODE with no DB" case — that route only
+reads the in-process `MODEL_REGISTRY`), `GET /api/videos/{id}/assets` and
+`GET /api/videos/{id}` both query the real `videos`/`assets` tables — there
+is no no-DB path for them, so a badge/sheet render genuinely needs a live
+video with scene assets behind it. The full recipe:
+- [ ] **Local E2E boot** (`tasks/lessons.md`'s recipe): source prod
+      `storyengine/.env`, `DEV_MODE=true DEV_TOKEN=<random>
+      DEV_TENANT_ID=<disposable tenant>`, uvicorn on :8002 (CWD = backend
+      dir), `NEXT_PUBLIC_API_URL=http://127.0.0.1:8002 npm run dev -- --port
+      3002`. Disposable tenant needs the same tenants/channel_profiles/
+      tenant_usage rows the lesson describes.
+- [ ] **Seed one video with routed/overridden scenes:** `se db "UPDATE
+      assets SET routed_model='veo-3.1-quality', routing_reason='reveal
+      scene -> hero tier (premium)' WHERE video_id='<test-vid>' AND
+      scene=1" --write`; leave a second scene's `routed_model` NULL to see
+      the video-default fallback badge.
+- [ ] **Playwright:** open the video's Scenes tab, confirm scene 1's card
+      shows a "Veo 3.1 Quality" badge with the routing_reason in its title
+      tooltip, scene 2's card shows the video's own default model; tap scene
+      1's badge, confirm the sheet lists all wired models with $/clip and
+      highlights the active one; pick a different model, confirm the badge
+      updates (with the manual-override dot) and `assets.model_override`
+      is set (`se db "SELECT model_override FROM assets WHERE id='<row>'"`);
+      tap "Use recommendation", confirm it clears back to the routed badge
+      (no dot); set "Channel look" to Animated/Realistic in the model-
+      controls bar, confirm `videos.render_style` updates
+      (`se db "SELECT render_style FROM videos WHERE id='<test-vid>'"`) and
+      the helper line under the controls bar changes text.
+- [ ] **The full checklist §1.2 [V]** (generate real clips on an override,
+      confirm `model_used`/the ledger/the badge all agree post-generation,
+      and that the quote a creator confirmed matches what was actually
+      spent) stays deferred here too — same paid-generation gap C13's entry
+      above already flags, now extended to cover the override path.
+- **Cost:** free through the seed/UI checks above (no generation). The last
+  bullet (real clip generation) costs whatever the picked model's per-clip
+  price is (~$0.09 Grok to ~$1.25 Veo Quality).
+- **Safety net:** every new column is nullable and additive
+  (`model_override`/`render_style` both default NULL), `resolve_clip_model`
+  falls through to pre-C14 behavior whenever `model_override` is unset (the
+  case for every existing asset row), and the badge/sheet are additive UI
+  gated on `videoStageEnabled` — an images-only plan renders no badge at
+  all, so a video with no video stage is unaffected either way.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

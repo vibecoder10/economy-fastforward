@@ -1,0 +1,30 @@
+-- Per-scene clip model OVERRIDE (checklist §1.2, C14 — the UI half of
+-- C12/C13/C13b's per-scene routing: a creator can now look at the "why"
+-- badge and manually pick a different model for THAT scene).
+--
+-- model_override: an explicit per-scene choice, written by the creator via
+--                 the C14 override sheet (PATCH /api/assets/{id}/model-
+--                 override). NULL = no manual override (the default for
+--                 every row) — the router falls through to routed_model
+--                 (C12's automatic recommendation) then the video's own
+--                 video_model, exactly as before this migration.
+--
+-- This is the SAME seam shared.model_router.resolve_clip_model() already
+-- reserved as its `scene_override` parameter (see that function's
+-- docstring, "C14 owns that UI") — C13 wired the precedence logic and
+-- called it with scene_override=None everywhere; this migration adds the
+-- column, and the accompanying code change in pipeline_executor.py /
+-- actions.py passes THIS column's value into that parameter, so nothing
+-- about the resolution order changes, only where the value comes from.
+--
+-- Distinct from videos.image_model_override (a whole-video picture-model
+-- choice, migration-era predates this file) — this is scene-scoped and
+-- video-model-scoped (clips, not pictures).
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS) — applied LIVE via the Supabase
+-- MCP tools rather than the app's own migration runner (same rationale as
+-- migrations 088/089): it won't be recorded in `_migrations` and may be
+-- re-attempted on a future backend restart; IF NOT EXISTS makes that a
+-- no-op instead of an error.
+
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS model_override TEXT;

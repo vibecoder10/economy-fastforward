@@ -47,6 +47,11 @@ class VideoDetail(VideoSummary):
     # NULL = normal (clip stitch / narrator). 'static_docu' = static-image
     # documentary: images held over narration, no animate stage.
     render_mode: Optional[str] = None
+    # Channel-style routing guardrail (migration 089/C13b): 'animated' |
+    # 'realistic' | None (undeclared — the router's money-safe default,
+    # never upgrading tiers until a channel opts in). C14 surfaces this as
+    # the Scenes workspace's "Channel look" control.
+    render_style: Optional[str] = None
     # Per-video pipeline plan: which stages this video runs (None = full
     # pipeline). The UI hides the tabs for stages that are turned off.
     skip_voice: bool = False

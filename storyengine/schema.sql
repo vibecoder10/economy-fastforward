@@ -364,6 +364,10 @@ CREATE TABLE assets (
   routed_model TEXT,
   routing_reason TEXT,
   model_used TEXT,
+  -- Explicit per-scene creator override (migration 090, checklist §1.2/C14):
+  -- NULL = no manual override, so resolve_clip_model() falls through to
+  -- routed_model then the video's own video_model, unchanged from C13.
+  model_override TEXT,
 
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

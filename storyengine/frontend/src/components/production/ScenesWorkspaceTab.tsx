@@ -32,12 +32,13 @@ import {
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
   deleteClip, recropAsset, getEnvironments, getVideoCharacters, updateVideoPrompt, updateImagePrompt, improvePrompt,
-  getModels, getVideoActions,
+  getModels, getVideoActions, updateAssetModelOverride,
 } from "@/lib/api";
 import type { VideoModelInfo } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
+import { Modal } from "@/components/ui/modal";
 import type { VideoDetail, Asset } from "@/lib/api";
 import { toDisplayImageUrl, toDisplayVideoUrl } from "@/lib/utils";
 import { API_URL } from "@/lib/env";
@@ -365,6 +366,19 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }));
   }, [modelsData, priceForModel]);
 
+  // Short display name for a model id, for the C14 per-scene badge — reads
+  // straight off GET /api/models (the same registry wiredVideoModels
+  // derives from), so a name change on the backend never needs a matching
+  // frontend edit. Falls back to the raw id (never blank) for a stale/
+  // unwired id (e.g. an old model_used value the registry has since dropped).
+  const modelDisplayName = useCallback(
+    (id: string | null | undefined) => {
+      if (!id) return "";
+      return (modelsData?.models ?? []).find((m) => m.id === id)?.name ?? id;
+    },
+    [modelsData],
+  );
+
   // Guard every storyboard-generating action: bounce with a clear message
   // (and a pointer to the Environments tab) instead of firing a doomed task.
   const requireEnvironments = useCallback(() => {
@@ -489,6 +503,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const [showMotionPrompt, setShowMotionPrompt] = useState(false);
   const [imageModel, setImageModel] = useState(video.image_model_override || "gpt-image-2");
   const [savingModel, setSavingModel] = useState(false);
+  // C14 per-scene clip-model override sheet — the asset id whose sheet is open.
+  const [overrideAssetId, setOverrideAssetId] = useState<string | null>(null);
+  const [savingOverride, setSavingOverride] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [locking, setLocking] = useState(false);
   // Replace-in-place uploads keep the same URL — bump a cache key per slot
@@ -594,6 +611,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
 
   // ── Derived counts ──
   const allAssets = useMemo(() => scenes.flatMap((s) => s.assets), [scenes]);
+  // C14 override sheet's target asset — looked up live off allAssets so the
+  // sheet's "currently routed to" line stays correct across invalidations.
+  const overrideAsset = overrideAssetId ? allAssets.find((a) => a.id === overrideAssetId) ?? null : null;
   const totalSegments = allAssets.length;
   const extractedCount = allAssets.filter((a) => a.image_url).length;
   const clipCards = useMemo(() => allAssets.filter((a) => a.image_url), [allAssets]);
@@ -941,6 +961,32 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [video.id, queryClient, toast]);
 
+  // C14: set (or clear, with null = "Use recommendation") one scene's manual
+  // clip-model override. Wins over routed_model at both quote and generation
+  // time (shared.model_router.resolve_clip_model's scene_override param) —
+  // invalidate video-assets so the badge/cost refresh immediately.
+  const handleSetModelOverride = useCallback(async (assetId: string, next: string | null) => {
+    setSavingOverride(true);
+    try {
+      await updateAssetModelOverride(assetId, next);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      setOverrideAssetId(null);
+    } catch (err) {
+      toast.error((err as Error).message || "Couldn't save that override.");
+    } finally {
+      setSavingOverride(false);
+    }
+  }, [video.id, queryClient, toast]);
+
+  const handleRenderStyleChange = useCallback(async (next: string) => {
+    try {
+      await updateVideo(video.id, { render_style: next || null });
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }, [video.id, queryClient, toast]);
+
   // ── Clip actions (trust-ladder contract) ──
   const startClipTask = useCallback(async (params: Record<string, string | number>, ids: string[]) => {
     if (running) {
@@ -1212,6 +1258,20 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         )}
         {videoStageEnabled && (
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+            title="Gates which clip models the per-scene router is allowed to recommend. Animated channels stay on Grok — no premium (realistic-only) upgrades. Auto = undeclared, router leaves your current model alone."
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <Sparkles size={13} style={{ color: "var(--text-tertiary)" }} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Channel look</span>
+            <select value={video.render_style || ""} onChange={(e) => handleRenderStyleChange(e.target.value)}
+              className="bg-transparent text-xs cursor-pointer outline-none" style={{ color: "var(--text-primary)" }}>
+              <option value="">Auto</option>
+              <option value="animated">Animated</option>
+              <option value="realistic">Realistic</option>
+            </select>
+          </div>
+        )}
+        {videoStageEnabled && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
             style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
             <Volume2 size={13} style={{ color: "var(--text-tertiary)" }} />
             <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Voice</span>
@@ -1246,6 +1306,13 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           </select>
         </div>
       </div>
+      {videoStageEnabled && video.render_style && (
+        <p className="text-[10px] -mt-2" style={{ color: "var(--text-tertiary)" }}>
+          {video.render_style === "animated"
+            ? "Animated channels stay on Grok — no premium upgrades."
+            : "Realistic channels can route hero/reveal scenes to a premium model when it earns it."}
+        </p>
+      )}
 
       {/* Prominent command bar — progress at a glance + the one big bulk action.
           order-first floats it to the top of the workspace, above the model pickers. */}
@@ -1783,6 +1850,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     isFailed={failedClipIds.has(asset.id)}
                     isPlaying={playingId === asset.id}
                     disabled={running}
+                    videoDefaultModel={model}
+                    modelDisplayName={modelDisplayName}
                     onTap={() => {
                       if (asset.video_clip_url) setPlayingId((p) => (p === asset.id ? null : asset.id));
                       else if (videoStageEnabled) animateOne(asset);
@@ -1792,6 +1861,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     onDeletePicture={() => handleClearExtractedPanel(asset.id)}
                     onRecrop={() => recropOne(asset)}
                     onRedraw={() => redrawOne(asset)}
+                    onOpenModelOverride={() => setOverrideAssetId(asset.id)}
                   />
                 ))}
               </div>
@@ -1807,7 +1877,71 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           onClose={() => setLightbox(null)}
         />
       )}
+      {overrideAsset && (
+        <ModelOverrideSheet
+          asset={overrideAsset}
+          models={wiredVideoModels}
+          videoDefaultModel={model}
+          saving={savingOverride}
+          onPick={(id) => handleSetModelOverride(overrideAsset.id, id)}
+          onUseRecommendation={() => handleSetModelOverride(overrideAsset.id, null)}
+          onClose={() => setOverrideAssetId(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** C14's one-tap override sheet: tapping a scene's model badge opens this —
+ * pick any wired model (name + $/clip, straight off GET /api/models — no
+ * hardcoded prices) to force that scene through it, or "Use recommendation"
+ * to clear back to the automatic router/video default. */
+function ModelOverrideSheet({ asset, models, videoDefaultModel, saving, onPick, onUseRecommendation, onClose }: {
+  asset: Asset;
+  models: { id: string; label: string }[];
+  videoDefaultModel: string;
+  saving: boolean;
+  onPick: (modelId: string) => void;
+  onUseRecommendation: () => void;
+  onClose: () => void;
+}) {
+  const label = `S-${String(asset.scene ?? 0).padStart(2, "0")}.${asset.image_index ?? 0}`;
+  const activeId = asset.model_override || asset.routed_model || videoDefaultModel;
+  const reason = asset.model_override
+    ? "Manually overridden"
+    : asset.routing_reason || "Channel default — no per-scene routing yet";
+  return (
+    <Modal open onClose={onClose} title={`Clip model — ${label}`} size="sm">
+      <p className="text-xs mb-3" style={{ color: "var(--text-tertiary)" }}>{reason}</p>
+      <div className="flex flex-col gap-1.5">
+        {models.map((m) => {
+          const isActive = m.id === activeId;
+          return (
+            <button
+              key={m.id}
+              disabled={saving}
+              onClick={() => onPick(m.id)}
+              className="text-left px-3 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110 disabled:opacity-50"
+              style={{
+                background: isActive ? "rgba(139, 92, 246, 0.16)" : "rgba(255,255,255,0.04)",
+                border: isActive ? "1px solid rgba(139, 92, 246, 0.4)" : "1px solid rgba(255,255,255,0.08)",
+                color: "var(--text-primary)",
+              }}>
+              {m.label}{isActive && asset.model_override ? " · manual" : isActive ? " · current" : ""}
+            </button>
+          );
+        })}
+      </div>
+      {asset.model_override && (
+        <button
+          onClick={onUseRecommendation}
+          disabled={saving}
+          className="mt-3 w-full text-center px-3 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-50"
+          style={{ background: "var(--bg-elevated)", color: "var(--turquoise)", border: "1px solid var(--border-subtle)" }}>
+          {saving ? "Saving…" : "Use recommendation"}
+        </button>
+      )}
+    </Modal>
   );
 }
 
@@ -1878,7 +2012,7 @@ function BoardLightbox({ items, index, onNavigate, onClose }: {
 /** One story segment: shows the clip when it exists (tap = play), else the
  * final picture (tap = animate, ~$0.09). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw }: {
+function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
@@ -1889,16 +2023,33 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
   isFailed: boolean;
   isPlaying: boolean;
   disabled: boolean;
+  /** The video's own resolved clip model — the badge's last-resort fallback
+   * when this scene has no per-scene routing/override/generation data yet. */
+  videoDefaultModel: string;
+  modelDisplayName: (id: string | null | undefined) => string;
   onTap: () => void;
   onRedoClip: () => void;
   onDeleteClip: () => void;
   onDeletePicture: () => void;
   onRecrop: () => void;
   onRedraw: () => void;
+  onOpenModelOverride: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasClip = Boolean(asset.video_clip_url);
   const badCrop = (asset.extraction_flags?.length ?? 0) > 0;
+  // C14 per-scene model badge: override > routed > video default before a
+  // clip exists; model_used (whatever ACTUALLY generated it) once it does —
+  // gated on canAnimate (the clip stage being enabled at all) per the
+  // wiring checklist's fail-safe rule: no meaningful clip-model data on an
+  // images-only plan, so no badge instead of a misleading one.
+  const effectiveModelId = hasClip
+    ? (asset.model_used || videoDefaultModel)
+    : (asset.model_override || asset.routed_model || videoDefaultModel);
+  const modelOverridden = Boolean(asset.model_override);
+  const modelReason = asset.model_override
+    ? "Manual override"
+    : asset.routing_reason || "Channel default";
   const label = `S-${String(asset.scene ?? 0).padStart(2, "0")}.${asset.image_index ?? 0}`;
   // Per-clip motion prompt: edit before animating. Saved to assets.video_prompt,
   // which the clip stage reads — so this override drives the next animate.
@@ -2094,8 +2245,27 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
       </div>
 
       <div className="p-3">
-        <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           <SegmentBadge label={label} />
+          {/* C14 per-scene model badge — tap opens the override sheet. Gated on
+              canAnimate: an images-only plan has no clip model to show. */}
+          {canAnimate && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenModelOverride(); }}
+              title={`${modelDisplayName(effectiveModelId) || effectiveModelId} — ${modelReason}. Tap to change this scene's clip model.`}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all hover:brightness-125"
+              style={{
+                background: modelOverridden ? "rgba(139, 92, 246, 0.16)" : "rgba(255,255,255,0.05)",
+                color: modelOverridden ? "var(--purple)" : "var(--text-tertiary)",
+                border: modelOverridden ? "1px solid rgba(139, 92, 246, 0.35)" : "1px solid rgba(255,255,255,0.08)",
+              }}>
+              <Film size={9} />
+              {modelDisplayName(effectiveModelId) || effectiveModelId}
+              {modelOverridden && (
+                <span className="w-1 h-1 rounded-full shrink-0" style={{ background: "var(--purple)" }} />
+              )}
+            </button>
+          )}
         </div>
         <p className="text-[11px] leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
           {asset.sentence_text || asset.video_prompt || "—"}

@@ -501,6 +501,15 @@ export const updateImagePrompt = (id: string, image_prompt: string) =>
     body: JSON.stringify({ image_prompt }),
   });
 
+/** Set (or clear, with `null`) this scene's manual clip-model override — the
+ * C14 badge's override sheet. Wins over the automatic routed_model at both
+ * quote time and generation time (shared.model_router.resolve_clip_model). */
+export const updateAssetModelOverride = (id: string, model_override: string | null) =>
+  fetchApi<{ status: string; model_override: string | null }>(`/api/assets/${id}/model-override`, {
+    method: "PATCH",
+    body: JSON.stringify({ model_override }),
+  });
+
 export const batchApproveAssets = (assetIds: string[], status: "approved" | "rejected") =>
   fetchApi<{ updated: number }>("/api/assets/batch-approve", {
     method: "POST",
@@ -1603,6 +1612,10 @@ export interface VideoDetail extends VideoSummary {
   // null = normal (clip stitch / narrator). 'static_docu' = static-image
   // documentary: images held over the narration, no animate stage.
   render_mode?: string | null;
+  // Channel-style routing guardrail (C13b/C14): 'animated' | 'realistic' |
+  // null (undeclared — "Auto", the router's money-safe default). Drives
+  // the Scenes workspace's "Channel look" control.
+  render_style?: string | null;
   aspect_ratio?: string | null;
   // Per-video pipeline plan: enabled stages (null = full pipeline). The video
   // page hides the tabs for stages that aren't in this list.
@@ -1704,6 +1717,17 @@ export interface Asset {
    * 'z-image'), independent of the video's current image_model_override — a mismatch
    * means the override wasn't honored when this picture was made, or a fallback fired. */
   image_model?: string | null;
+  /** Per-scene clip-model routing (checklist §1.2/C12-C14). `routed_model` is
+   * shared.model_router's automatic recommendation computed at shot-plan time;
+   * `routing_reason` is the human-readable "why" behind it; `model_used` is
+   * whichever model ACTUALLY generated the clip (may differ from routed_model
+   * if an override or a fallback fired); `model_override` is the creator's own
+   * manual pick from the C14 override sheet, which wins over routed_model. All
+   * null for assets that predate C12, or a fresh scene with no clip yet. */
+  routed_model?: string | null;
+  routing_reason?: string | null;
+  model_used?: string | null;
+  model_override?: string | null;
   created_at: string | null;
 }
 

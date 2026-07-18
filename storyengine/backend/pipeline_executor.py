@@ -11831,7 +11831,7 @@ separate scenes."""
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
                 f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue, "
-                f"routed_model "
+                f"routed_model, model_override "
                 f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
@@ -12053,17 +12053,18 @@ separate scenes."""
                         pass
                     sc, idx = r["scene"], r["image_index"]
                     img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
-                    # Per-scene model routing (checklist §1.2/C13): resolve_clip_model
-                    # precedence is (future scene-level override, unwired here yet) ->
+                    # Per-scene model routing (checklist §1.2/C13, C14): resolve_clip_model
+                    # precedence is assets.model_override (C14 — the creator's own
+                    # one-tap pick in the Scenes workspace, first-precedence) ->
                     # assets.routed_model (C12, ONLY if it names a wired registry
                     # model) -> model_id (the video-level model resolved above,
                     # itself already gated wired). A NULL/unknown/unwired
-                    # routed_model returns model_id unchanged, so any asset with no
-                    # routing (every video before C12, or a row whose shot-plan-time
-                    # routing try/except tripped) resolves to EXACTLY model_id — the
-                    # same value every row got before this chunk, so its profile/
-                    # durations/animator below are byte-identical to pre-C13.
-                    row_model_id = resolve_clip_model(r.get("routed_model"), model_id)
+                    # routed_model/model_override falls through, so any asset with no
+                    # routing or override (every video before C12, or a row whose
+                    # shot-plan-time routing try/except tripped) resolves to EXACTLY
+                    # model_id — the same value every row got before C13.
+                    row_model_id = resolve_clip_model(
+                        r.get("routed_model"), model_id, scene_override=r.get("model_override"))
                     if row_model_id != model_id:
                         row_profile = MODEL_REGISTRY.get(row_model_id) or profile
                         row_durations = sorted(row_profile.durations) or durations

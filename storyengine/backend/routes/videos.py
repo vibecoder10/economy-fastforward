@@ -524,7 +524,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
                   accent_color, visual_style, image_style_override, image_model_override, video_model,
-                  dialogue_audio, render_mode, skip_voice, pipeline_stages, research_skipped,
+                  dialogue_audio, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
                   video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   source_views, source_channel, source_urls,
@@ -630,6 +630,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         story_locked_at=r.get("story_locked_at"),
         dialogue_audio=r.get("dialogue_audio"),
         render_mode=r.get("render_mode"),
+        # Channel-style routing guardrail (migration 089/C13b): surfaced in
+        # C14 as the "Channel look" control (Animated / Realistic / Auto).
+        render_style=r.get("render_style"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )
@@ -645,7 +648,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice", "render_style"}
     # skip_voice records the guided flow's "skip the voiceover" choice — the
     # Scenes gate reads it (advancing status alone left the gate locked).
     if "skip_voice" in body and not isinstance(body["skip_voice"], bool):
@@ -656,6 +659,12 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     # video_resolution is passed to the clip generator — reject anything unexpected.
     if "video_resolution" in body and body["video_resolution"] not in {"480p", "720p"}:
         raise HTTPException(status_code=400, detail="Invalid video_resolution")
+    # render_style (migration 089/C13b): the channel-style routing guardrail's
+    # gate value. None/null explicitly CLEARS it back to "undeclared" (the
+    # money-safe default — shared.model_router treats unset as "don't
+    # upgrade tiers"), so null is a valid write here, not a no-op.
+    if "render_style" in body and body["render_style"] not in {"animated", "realistic", None}:
+        raise HTTPException(status_code=400, detail="Invalid render_style")
     updates = []
     params = []
     idx = 1
@@ -808,6 +817,7 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
                   status, shot_type, hero_shot, sentence_text, video_clip_url,
                   video_prompt, sound_prompt, sound_effect_url, sound_volume,
                   duration_seconds, extraction_flags, image_model,
+                  routed_model, routing_reason, model_used, model_override,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
              AND (generation_method IS NULL OR generation_method <> 'variant_candidate')
