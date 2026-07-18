@@ -471,6 +471,7 @@ class ImageClient:
         prompt: str,
         aspect_ratio: str = "16:9",
         model: str = None,
+        task_id_out: Optional[list] = None,
     ) -> Optional[list[str]]:
         """Generate an image and wait for completion.
 
@@ -478,6 +479,10 @@ class ImageClient:
             prompt: Image generation prompt
             aspect_ratio: Aspect ratio
             model: Model to use (defaults to DEFAULT_MODEL, use PRO_MODEL for thumbnails)
+            task_id_out: optional list the caller passes in to receive the
+                Kie taskId once create_image succeeds (append, don't assign
+                — see generate_video's task_id_out docstring). Used for
+                generation_ledger traceability (checklist C16c).
 
         Returns:
             List of image URLs when complete, or None if failed
@@ -507,6 +512,8 @@ class ImageClient:
             return None
 
         print(f"      🎯 Task created: {task_id} (model: {use_model})")
+        if task_id_out is not None:
+            task_id_out.append(task_id)
 
         # Wait 5 seconds before first poll (Kie API typically returns in ~50-70s for pro model)
         await asyncio.sleep(5)
@@ -633,6 +640,7 @@ class ImageClient:
         self,
         prompt: str,
         aspect_ratio: str = "16:9",
+        task_id_out: Optional[list] = None,
     ) -> Optional[dict]:
         """Generate a scene image using Z Image model.
 
@@ -642,6 +650,12 @@ class ImageClient:
         Args:
             prompt: Image generation prompt
             aspect_ratio: Aspect ratio (16:9, 9:16, 1:1, 4:3, 3:4)
+            task_id_out: optional list the caller passes in to receive the
+                Kie taskId once the create-task call succeeds (append, don't
+                assign — same fresh-box-per-call pattern as generate_video's
+                task_id_out, so a shared empty list is safe under concurrent
+                calls). Used for generation_ledger traceability (checklist
+                C16c / migration 093's dedup index).
 
         Returns:
             Dict with 'url' and 'seed' keys, or None if failed
@@ -686,6 +700,8 @@ class ImageClient:
                     return None
 
                 print(f"      🎯 Z Image task: {task_id}")
+                if task_id_out is not None:
+                    task_id_out.append(task_id)
 
                 # Wait and poll — Z Image uses state-based polling (waiting/success/fail)
                 await asyncio.sleep(5)
@@ -729,6 +745,7 @@ class ImageClient:
         reference_image_url,
         aspect_ratio: str = "16:9",
         resolution: str = "1K",
+        task_id_out: Optional[list] = None,
     ) -> Optional[dict]:
         """Generate an image using a reference for character consistency.
 
@@ -743,6 +760,10 @@ class ImageClient:
                 Storyboard grids pass a higher value so each extracted panel
                 (1/9th of the grid) is sharp enough to drive video generation;
                 the panels are the final frames and there is no upscale pass.
+            task_id_out: optional list the caller passes in to receive the
+                Kie taskId once the create-task call succeeds (append, don't
+                assign — see generate_video's task_id_out docstring). Used
+                for generation_ledger traceability (checklist C16c).
 
         Returns:
             Dict with 'url' key, or None if failed
@@ -795,6 +816,8 @@ class ImageClient:
                 if not task_id:
                     print(f"      ❌ No task ID returned")
                     return None
+                if task_id_out is not None:
+                    task_id_out.append(task_id)
 
                 # Wait and poll — multi-reference generations (character casts)
                 # routinely take 2-4 minutes; the old 120s budget timed out on
@@ -818,12 +841,18 @@ class ImageClient:
         reference_image_url,
         aspect_ratio: str = "16:9",
         resolution: str = "2K",
+        task_id_out: Optional[list] = None,
     ) -> Optional[dict]:
         """Generate a thumbnail with OpenAI GPT Image 2 via kie.ai
         (gpt-image-2-image-to-image). Same shape as generate_with_reference but
         routed to GPT Image 2, which holds character identity from the cast
         sheet markedly better (live A/B on the bird video: nailed Dr. May where
-        nano-banana drifted). References go in `input_urls` (max 16)."""
+        nano-banana drifted). References go in `input_urls` (max 16).
+
+        task_id_out: optional list the caller passes in to receive the Kie
+        taskId once the create-task call succeeds (append, don't assign —
+        see generate_video's task_id_out docstring). Used for
+        generation_ledger traceability (checklist C16c)."""
         prompt = scrub_minor_terms(prompt)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -857,6 +886,8 @@ class ImageClient:
                 if not task_id:
                     print("      ❌ No task ID returned")
                     return None
+                if task_id_out is not None:
+                    task_id_out.append(task_id)
                 await asyncio.sleep(5)
                 result_urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
                 if result_urls:
@@ -874,6 +905,7 @@ class ImageClient:
         aspect_ratio: str = "16:9",
         allow_fallback: bool = True,
         resolution: str = "2K",
+        task_id_out: Optional[list] = None,
     ) -> Optional[dict]:
         """Scene image via GPT Image 2 — holds the cast's character identity far better than
         nano-banana (see generate_thumbnail_gpt2). With a reference it's image-to-image; without
@@ -881,11 +913,17 @@ class ImageClient:
 
         allow_fallback=False disables the nano-banana-2 last resort: accuracy-critical
         callers (static documentary channels) would rather fail the scene for review
-        than ship a lesser model's guess of a specific historical machine."""
+        than ship a lesser model's guess of a specific historical machine.
+
+        task_id_out: optional list the caller passes in to receive the Kie taskId
+        of whichever attempt below succeeds (append, don't assign — see
+        generate_video's task_id_out docstring). Used for generation_ledger
+        traceability (checklist C16c)."""
         prompt = scrub_minor_terms(prompt)
         if reference_image_url:
             return await self.generate_thumbnail_gpt2(
-                prompt, reference_image_url, aspect_ratio, resolution=resolution)
+                prompt, reference_image_url, aspect_ratio, resolution=resolution,
+                task_id_out=task_id_out)
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         async def _run(model: str, extra: dict, label: str):
@@ -906,6 +944,8 @@ class ImageClient:
                     if not task_id:
                         print(f"      ❌ {label}: no task ID returned")
                         return ("fail", None)
+                    if task_id_out is not None:
+                        task_id_out.append(task_id)
                     await asyncio.sleep(5)
                     urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
                     return ("ok", urls[0]) if urls else ("fail", None)

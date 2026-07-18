@@ -32,6 +32,22 @@ on, an image/voice/thumbnail/sound asset) that finished generating has
 already cost real money — losing its ledger row is a bookkeeping miss;
 failing the caller and losing the finished asset would be a disaster. Every
 call site can therefore `await record_ledger_entry(...)` unguarded.
+
+DEDUP BACKSTOP (checklist C16c — S7-5 HIGH, migration 093): this table had
+no uniqueness constraint, so if a double-spend race fired upstream (two
+concurrent workers each finish polling the SAME Kie task and both reach this
+function for it), the plain INSERT recorded the same paid unit twice. The
+INSERT now targets migration 093's partial unique index — `ON CONFLICT
+(video_id, stage, kie_task_id) WHERE kie_task_id IS NOT NULL DO NOTHING` —
+so a genuine duplicate (same video, same stage, same non-NULL kie_task_id)
+is silently refused at the DB layer instead of double-billed. Rows with
+kie_task_id IS NULL are NEVER deduped (NULL never equals NULL for
+uniqueness) — that's intentional for the stages that don't carry a real
+provider id yet (see migration 093's header for the full audit); it is NOT
+a bug, just the honest limit of what a NULL id can protect. The rollup
+UPDATE always runs regardless of whether the INSERT landed a new row or hit
+the conflict — it's a straight `SUM(actual_cost)` recompute, so a skipped
+duplicate insert can't be reflected as a phantom double-charge either way.
 """
 from typing import Optional
 
@@ -57,12 +73,25 @@ async def record_ledger_entry(
     corrected out of band.
     """
     try:
-        await execute(
+        insert_status = await execute(
             """INSERT INTO generation_ledger
                (tenant_id, video_id, stage, model, units, unit_cost, actual_cost, kie_task_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (video_id, stage, kie_task_id) WHERE kie_task_id IS NOT NULL
+               DO NOTHING""",
             tenant_id, video_id, stage, model, units, unit_cost, actual_cost, kie_task_id,
         )
+        # asyncpg's execute() returns a command-status string like
+        # "INSERT 0 1" (one row landed) or "INSERT 0 0" (ON CONFLICT DO
+        # NOTHING fired — ledger already had this exact video/stage/task_id).
+        # A skip here means a double-spend race actually happened upstream —
+        # loud, not silent, since it's the one signal that the backstop is
+        # doing its job.
+        if kie_task_id is not None and isinstance(insert_status, str) and insert_status.endswith(" 0"):
+            print(f"[generation_ledger] DUPLICATE SKIPPED — a ledger row already exists for "
+                  f"(video={video_id} stage={stage} kie_task_id={kie_task_id}); a double-spend "
+                  f"race fired upstream and was refused by the dedup index (migration 093).",
+                  flush=True)
         await execute(
             """UPDATE videos SET total_cost = (
                    SELECT COALESCE(SUM(actual_cost), 0) FROM generation_ledger

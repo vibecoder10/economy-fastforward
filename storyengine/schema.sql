@@ -823,6 +823,14 @@ CREATE INDEX idx_bot_activity_tenant ON bot_activity(tenant_id, created_at DESC)
 CREATE INDEX idx_stage_transitions_video ON stage_transitions(video_id);
 CREATE INDEX idx_generation_ledger_video ON generation_ledger(video_id);
 CREATE INDEX idx_generation_ledger_tenant_created ON generation_ledger(tenant_id, created_at);
+-- Dedup backstop (migration 093 / C16c, S7-5 HIGH): a double-spend race that
+-- fires the same provider task's ledger write twice must be refused, not
+-- recorded twice. Partial — rows with kie_task_id IS NULL (most stages
+-- today) are NEVER deduped by this index; see migration 093's header for
+-- the full per-stage audit of which stages carry a real task id.
+CREATE UNIQUE INDEX generation_ledger_dedup_idx
+  ON generation_ledger (video_id, stage, kie_task_id)
+  WHERE kie_task_id IS NOT NULL;
 CREATE INDEX idx_channel_profiles_tenant ON channel_profiles(tenant_id);
 CREATE INDEX idx_accounts_email ON accounts(email);
 CREATE INDEX idx_projects_account ON projects(account_id);

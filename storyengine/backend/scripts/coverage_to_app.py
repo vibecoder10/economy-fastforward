@@ -1030,8 +1030,13 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
 
     model_override = a.get("image_model_override")
     _p(f"Redrawing S{a['scene']}.{a['image_index']} ({model_override or 'GPT Image 2'})…")
+    # Fresh box per call (checklist C16c) — this is a single-image redraw,
+    # one ledger row per call, so the real Kie task id can thread straight
+    # into record_ledger_entry's dedup key below.
+    task_id_box: list = []
     url, model_used = await generate_scene_image_for_model(
-        ic, model_override, prompt, reference_urls=cast_refs, aspect_ratio=a["aspect"])
+        ic, model_override, prompt, reference_urls=cast_refs, aspect_ratio=a["aspect"],
+        task_id_out=task_id_box)
     if not url:
         return {"status": "failed", "error": "image generation failed"}
     stable = await _stable_url(url, f"{video_id}/coverage/S{a['scene']}_i{a['image_index']}.png", tenant_id)
@@ -1045,11 +1050,16 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # generation_ledger (checklist §0.3b/C08, priced per-model in §0.3c/C09):
     # one row per redrawn picture. model_used is always a single, known
     # model here (no batch ambiguity) — price with its real rate.
+    # kie_task_id (C16c): box[0] is the first task id created across any
+    # retries/fallback attempts inside generate_scene_image_for_model — same
+    # convention the clip path uses (task_id_box[0], pipeline_executor.py
+    # ~L12383) — giving the dedup index (migration 093) real teeth here.
     from actions import picture_price_for
     picture_cost = picture_price_for(model_used)
     await record_ledger_entry(
         tenant_id=tenant_id, video_id=video_id, stage="image", model=model_used,
         units=1, unit_cost=picture_cost, actual_cost=picture_cost,
+        kie_task_id=(task_id_box[0] if task_id_box else None),
     )
     return {"status": "completed", "message": f"Picture S{a['scene']}.{a['image_index']} redrawn"}
 

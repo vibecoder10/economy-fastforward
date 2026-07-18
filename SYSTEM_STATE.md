@@ -3089,3 +3089,120 @@ Frontend untouched — no UI surface, backend-only chunk. Live re-invoke proof
 (run "Generate all pictures" twice on a real video, confirm the second run
 spends $0 and logs skip messages) deferred to `tasks/live-verification-queue.md`
 §C16b — needs a live DB + paid API session, not available in the sandbox.
+
+## C16c — `generation_ledger` Uniqueness Backstop: S7-5 HIGH Fix (added 2026-07-18)
+
+**Problem (audit §S7-5):** `generation_ledger` (migration 087) had NO
+uniqueness constraint, and `record_ledger_entry()` was a plain INSERT — if a
+double-spend race fired upstream (two concurrent workers each finish polling
+the SAME Kie task and both call `record_ledger_entry` for it), the ledger
+recorded the same paid unit twice, inflating `videos.total_cost`. Only the
+clip stage (C07) ever threaded a real `kie_task_id`; images/voice/thumbnail/
+sound (C08) all passed `None`.
+
+**Fix:**
+- **Migration 093** (idempotent, `CREATE UNIQUE INDEX IF NOT EXISTS
+  generation_ledger_dedup_idx ON generation_ledger (video_id, stage,
+  kie_task_id) WHERE kie_task_id IS NOT NULL`) — a PARTIAL unique index.
+  Rows with `kie_task_id IS NULL` are never deduped (Postgres NULL-distinctness),
+  which is the honest, intentional limit for stages that don't carry a real
+  provider id. Applied LIVE via Supabase MCP against `wrromlupsmyzrrcqlucn`.
+  Pre-apply duplicate scan (`GROUP BY video_id, stage, kie_task_id HAVING
+  COUNT(*) > 1 WHERE kie_task_id IS NOT NULL`) found **zero rows** — the table
+  is empty in prod today (0 total rows, 0 with a `kie_task_id`; no paid
+  generation has landed a ledger row yet), so no backfill/cleanup was needed.
+  Confirmed live via `pg_indexes`.
+- `record_ledger_entry()` (`storyengine/backend/generation_ledger.py`) now
+  inserts with `ON CONFLICT (video_id, stage, kie_task_id) WHERE kie_task_id
+  IS NOT NULL DO NOTHING`, and inspects asyncpg's command-status string
+  (`"INSERT 0 0"` = conflict fired) to log a loud `DUPLICATE SKIPPED` line —
+  the one signal that the backstop actually caught a double-spend race. The
+  `videos.total_cost` rollup UPDATE still always runs (a straight
+  `SUM(actual_cost)` recompute), so a skipped duplicate can't be reflected as
+  a phantom charge either way. Fail-soft is fully preserved — same
+  try/except, still never raises.
+- **Provider-id threading (giving the constraint teeth beyond clips):**
+  Added `task_id_out: Optional[list]` to `ImageClient.generate_and_wait`,
+  `generate_scene_image_zimage`, `generate_with_reference`,
+  `generate_thumbnail_gpt2`, and `generate_scene_image_gpt`
+  (`skills/video-pipeline/shared/clients/image_client.py`) — same
+  fresh-box-per-call, append-don't-assign pattern C07 already used for clips
+  (`generate_video`'s `task_id_out`). Threaded through
+  `image_model_router.generate_scene_image_for_model` (every branch: z-image,
+  nano-banana-2 with/without refs, the GPT default/fallback ladder). Wired
+  into the THREE call sites that write exactly ONE ledger row per ONE
+  underlying Kie task:
+  - `coverage_to_app.py::redraw_asset_image` (stage="image")
+  - `pipeline_executor.py::_run_channel_formula_thumbnail` (stage="thumbnail")
+  - `pipeline_executor.py::run_thumbnail`'s "modeled on reference" branch (stage="thumbnail")
+
+  Each passes a fresh `task_id_box: list = []` through the attempt(s) and
+  reads `task_id_box[0] if task_id_box else None` into `record_ledger_entry`
+  — same convention as the clip path.
+- **Left `kie_task_id=None` (documented, not a gap):** `run_image_variants`
+  and `run_images`/`store_scene` all aggregate MANY images (many distinct Kie
+  tasks) into ONE ledger row (`units=N`) — a single task id can't honestly
+  represent a batch, and re-running the batch mints brand-new task ids
+  anyway, so threading one wouldn't add real dedup protection. The
+  "from-scratch" legacy thumbnail path (`run_thumbnail_bot()` →
+  `skills/video-pipeline/thumbnail/run.py`) is a separate older subsystem
+  that doesn't surface a task id back through `result` today. Voice
+  (ElevenLabs) and sound never expose a reusable per-unit task id at all.
+  **Tradeoff spelled out in migration 093's header:** a made-up UNIQUE value
+  (e.g. `uuid4()`) would never collide — zero protection, pure decoration. A
+  made-up CONSTANT value (e.g. the literal `"voice"`) would be worse than
+  nothing: it would wrongly dedup two LEGITIMATE separate spends on the same
+  video (second real voiceover of the same video would silently refuse to
+  record). NULL is the only honest value when the provider call doesn't hand
+  back a real id.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/093_generation_ledger_dedup_index.sql` | The partial unique index + full call-site audit of which stages carry real task ids vs. remain None and why |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/generation_ledger.py` | `ON CONFLICT ... DO NOTHING` + loud duplicate-skip logging; fail-soft preserved |
+| `storyengine/backend/tests/functional/test_generation_ledger.py` | +4 tests: duplicate skipped/first row intact/logged, distinct task ids both insert, NULL never deduped, fail-soft preserved on the new conflict path; fake DB updated to honor the partial-index semantics only when the query text carries `ON CONFLICT` (so `git stash` on the source alone reproduces the pre-fix duplicate-row bug, not just the missing log line) |
+| `skills/video-pipeline/shared/clients/image_client.py` | `task_id_out` param on 5 image-generation methods (append, don't assign) |
+| `skills/video-pipeline/shared/clients/image_model_router.py` | `task_id_out` threaded through every branch of `generate_scene_image_for_model`/`_gpt_default` |
+| `skills/video-pipeline/tests/test_image_model_router.py` | FakeImageClient accepts `task_id_out`; +7 tests pinning the box is threaded to the right branch, accumulates across fallback attempts (box[0] = first attempt), and is None-safe for callers that don't pass it |
+| `storyengine/backend/scripts/coverage_to_app.py` | `redraw_asset_image` threads a fresh `task_id_box` into `record_ledger_entry` |
+| `storyengine/backend/pipeline_executor.py` | The two single-image thumbnail paths thread a fresh `task_id_box`; `run_image_variants`/`run_images`/the legacy thumbnail path get documenting comments for why they stay `None` |
+| `storyengine/schema.sql` | `generation_ledger_dedup_idx` added alongside the table definition |
+
+**Deploy-safety note:** additive index (`IF NOT EXISTS`, confirmed empty table
+pre-apply) + `ON CONFLICT DO NOTHING` insert semantics. Can this change any
+LEGITIMATE flow? No: a real ON CONFLICT can only fire when `(video_id, stage,
+kie_task_id)` is an EXACT repeat of an existing row's non-NULL key — that only
+happens on the double-spend race this chunk exists to close (the same
+provider task recorded twice), never on two genuinely different generations
+(different task ids, or `kie_task_id IS NULL` which is never deduped at all).
+The `total_cost` rollup is unconditional and SUM-based either way. **ff-merge
+candidate** — purely additive (new index, new optional param with `None`
+default throughout, new `ON CONFLICT` clause that only ever changes behavior
+on an exact duplicate key). Does not touch C16a's claim logic or C16b's
+skip-if-done logic.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_generation_ledger.py -q` — 20 passed (16 baseline + 4
+new). Non-vacuous via `git stash push -- storyengine/backend/generation_ledger.py`
+— 1 failure (the log-line assertion) on the first fake-DB pass; after
+tightening the fake to only enforce dedup when the query text itself carries
+`ON CONFLICT`, the same stash reproduces the ORIGINAL bug exactly: the
+duplicate row lands (`len(LEDGER_ROWS) == 2`), proving the test is a real
+regression guard, not vacuous. `cd skills/video-pipeline && <backend venv>
+python -m pytest tests/test_image_model_router.py -q` — 19 passed (12
+baseline + 7 new); non-vacuous via `git stash` on `image_client.py` +
+`image_model_router.py` — 6 of the 7 new tests fail with `TypeError:
+unexpected keyword argument 'task_id_out'`. Full backend suite: 971 passed
+(967 baseline + 4 new) / 16 pre-existing failures (identical file list to
+C15a-d/C16a/C16b) / 1 pre-existing error — zero new failures. `python -m
+py_compile` clean on every touched file. Frontend untouched — no UI surface,
+backend-only chunk. Live duplicate-scan + `pg_indexes` results are pasted
+above (empty table, index confirmed live). Live race-proof (fire two
+concurrent requests at the same provider task and confirm exactly one ledger
+row lands) deferred to `tasks/live-verification-queue.md` §C16c — needs a
+live DB + concurrent paid-API session, not available in the sandbox.

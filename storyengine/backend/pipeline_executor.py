@@ -13792,6 +13792,10 @@ separate scenes."""
             # redraw_asset_image() use for the coverage path (this is the
             # OTHER live image path: targeted re-runs + the "remake visuals"
             # followup-edit flow via FOLLOWUP_STAGES).
+            # kie_task_id intentionally left None (C16c): img_count aggregates
+            # a whole run_image_bot() batch (many images, many Kie tasks) into
+            # ONE ledger row — same reasoning as run_image_variants above, see
+            # migration 093's header.
             img_count = result.get("image_count", 0)
             if img_count > 0:
                 from actions import PICTURE_COST
@@ -13969,6 +13973,16 @@ separate scenes."""
             # reports which of the 3 real image models drew the pixels) —
             # price with THAT model's real rate instead of the flat blended
             # default the other (model-unaware) image call sites still use.
+            # kie_task_id intentionally left None (C16c): this row aggregates
+            # `created` variants from `created` separate generate_scene_image_
+            # for_model() calls (each with its own Kie task) into ONE ledger
+            # row (units=created) — a single task id can't honestly represent
+            # a batch, and a re-run of this loop mints brand-new task ids
+            # anyway, so threading one wouldn't add real dedup protection
+            # (see migration 093's header for the full audit). Contrast with
+            # redraw_asset_image (coverage_to_app.py) and the two single-image
+            # thumbnail paths below, which write one row per one task and DO
+            # thread it.
             from actions import picture_price_for
             picture_cost = picture_price_for(model_used)
             await record_ledger_entry(
@@ -14284,15 +14298,20 @@ separate scenes."""
         # one exists (static docs: the real featured machine in the channel's
         # studio look) so the thumbnail shows our actual subject, not an
         # invented one. Text-to-image is the fallback.
+        # Fresh box per call (checklist C16c) — one thumbnail, one ledger
+        # row below; shared across the seed/fallback attempts so whichever
+        # one succeeds contributes its real Kie task id.
+        task_id_box: list = []
         res = None
         if seed:
             res = await client.generate_thumbnail_gpt2(
                 gen_prompt + "\nUse the machine in the reference image as the "
                 "thumbnail's subject — same vehicle, same configuration, no "
                 "invented markings.",
-                [seed], aspect_ratio=thumb_ar)
+                [seed], aspect_ratio=thumb_ar, task_id_out=task_id_box)
         if not (res or {}).get("url"):
-            res = await client.generate_scene_image_gpt(gen_prompt, None, aspect_ratio=thumb_ar)
+            res = await client.generate_scene_image_gpt(
+                gen_prompt, None, aspect_ratio=thumb_ar, task_id_out=task_id_box)
         url = (res or {}).get("url")
         if not url:
             await self._log_activity(
@@ -14310,11 +14329,15 @@ separate scenes."""
             "Thumbnail modeled from the channel's own formula")
         # generation_ledger (checklist §0.3b / C08): reuses actions.THUMBNAIL_COST,
         # the same flat number the confirm card quotes for the "thumbnail" verb.
+        # kie_task_id (C16c): box[0] is the first task id created across the
+        # seed/fallback attempts above — same convention as the clip path
+        # (task_id_box[0]) — giving migration 093's dedup index real teeth.
         from actions import THUMBNAIL_COST
         await record_ledger_entry(
             tenant_id=self.tenant_id, video_id=video_id, stage="thumbnail",
             model="gpt-image-2", units=1, unit_cost=THUMBNAIL_COST,
             actual_cost=THUMBNAIL_COST,
+            kie_task_id=(task_id_box[0] if task_id_box else None),
         )
         return {"status": "completed", "video_id": video_id,
                 "thumbnail_url": durable}
@@ -14594,20 +14617,24 @@ separate scenes."""
                         video_id, video, ref_yt, has_cast)
                 client = self._pipeline.image_client
                 thumb_ar = video.get("aspect_ratio") or "16:9"
+                # Fresh box per call (checklist C16c) — one thumbnail, one
+                # ledger row below; shared across the cast/fallback attempts
+                # so whichever one succeeds contributes its real Kie task id.
+                task_id_box: list = []
                 if has_cast:
                     # CAST SHEET ONLY — the one authoritative seed image (identities +
                     # the modeled look). GPT Image 2 holds character identity best (live
                     # A/B); nano-banana-pro fallback so Regenerate never dead-ends.
                     res = await client.generate_thumbnail_gpt2(
-                        prompt, [cast_sheet], aspect_ratio=thumb_ar)
+                        prompt, [cast_sheet], aspect_ratio=thumb_ar, task_id_out=task_id_box)
                     if not (res or {}).get("url"):
                         res = await client.generate_with_reference(
-                            prompt, [cast_sheet], aspect_ratio=thumb_ar)
+                            prompt, [cast_sheet], aspect_ratio=thumb_ar, task_id_out=task_id_box)
                 else:
                     # FACELESS — no cast sheet to seed from. Build from text: GPT Image 2
                     # text-to-image. The style signature in the prompt carries the look.
                     res = await client.generate_scene_image_gpt(
-                        prompt, None, aspect_ratio=thumb_ar)
+                        prompt, None, aspect_ratio=thumb_ar, task_id_out=task_id_box)
                 url = (res or {}).get("url")
                 if not url:
                     await self._log_activity(bot_name, video_id, "failed",
@@ -14624,11 +14651,15 @@ separate scenes."""
                                          "Thumbnail modeled from reference")
                 # generation_ledger (checklist §0.3b / C08): same reuse as the
                 # channel-formula path above — actions.THUMBNAIL_COST.
+                # kie_task_id (C16c): box[0] is the first task id created
+                # across the cast/fallback attempts above — same convention
+                # as the clip path (task_id_box[0]).
                 from actions import THUMBNAIL_COST
                 await record_ledger_entry(
                     tenant_id=self.tenant_id, video_id=video_id, stage="thumbnail",
                     model="gpt-image-2", units=1, unit_cost=THUMBNAIL_COST,
                     actual_cost=THUMBNAIL_COST,
+                    kie_task_id=(task_id_box[0] if task_id_box else None),
                 )
                 return {"status": "completed", "video_id": video_id,
                         "thumbnail_url": durable}
@@ -14687,6 +14718,12 @@ separate scenes."""
             # reuse as the modeled/channel-formula paths above (mutually exclusive
             # branches — only one of the three thumbnail paths runs per call, so
             # no double-count risk between them).
+            # kie_task_id intentionally left None (C16c): this is the legacy
+            # "from-scratch" path — `self._pipeline.run_thumbnail_bot()` calls
+            # into the separate skills/video-pipeline `thumbnail.run` bot,
+            # which doesn't surface a Kie task id back through `result` today.
+            # Not threaded here; see migration 093's header for the full
+            # per-stage audit of what's protected vs. still None.
             from actions import THUMBNAIL_COST
             await record_ledger_entry(
                 tenant_id=self.tenant_id, video_id=video_id, stage="thumbnail",

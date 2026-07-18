@@ -1140,6 +1140,69 @@ NOT provable without a running app + browser:
 
 ---
 
+## C16c — generation_ledger uniqueness backstop (S7-5 fix) · live race + threading check
+Checklist entry C16c (audit `docs/reports/2026-07-17-storyengine-agent-audit-
+findings.md` §S7-5 HIGH, sweep C16). Migration 093 added a partial unique
+index (`video_id, stage, kie_task_id` WHERE `kie_task_id IS NOT NULL`) and
+`record_ledger_entry()` now inserts with `ON CONFLICT ... DO NOTHING` +
+loud duplicate-skip logging. Provider task ids are now threaded into 3
+single-image-per-row call sites (`redraw_asset_image`, the 2 single-image
+thumbnail paths). Covered at the unit level (24 new tests across
+`test_generation_ledger.py` + `test_image_model_router.py`, both confirmed
+non-vacuous via `git stash`) with a fully faked DB/ImageClient — no live DB
+row or concurrent race was actually driven through this in the sandbox, so
+the following need a real backend + DB + Kie key:
+- [ ] **Real duplicate-scan re-check before trusting the index long-term.**
+      The pre-apply scan (this chunk) found 0 rows total in
+      `generation_ledger` — re-run periodically as real spend accumulates:
+      `se db "SELECT video_id, stage, kie_task_id, COUNT(*) FROM
+      generation_ledger WHERE kie_task_id IS NOT NULL GROUP BY video_id,
+      stage, kie_task_id HAVING COUNT(*) > 1"` should always return 0 rows
+      (the unique index makes a future duplicate impossible to INSERT, but
+      confirm nothing slipped in via a path that bypasses `record_ledger_
+      entry`, e.g. a manual `se db --write` insert).
+- [ ] **Redraw a picture, confirm a real `kie_task_id` lands.** Use the
+      per-frame "redraw" action on one asset (`redraw_asset_image`). Confirm
+      `se db "SELECT stage, kie_task_id FROM generation_ledger WHERE
+      video_id='<test-vid>' AND stage='image' ORDER BY created_at DESC LIMIT
+      1"` shows a non-NULL `kie_task_id` (a real Kie taskId string, not a
+      placeholder) — proves the `task_id_out` threading actually reaches the
+      ledger row in a live call, not just in the FakeImageClient unit tests.
+- [ ] **Regenerate a thumbnail (channel-formula or modeled-on-reference
+      path), confirm a real `kie_task_id` lands** the same way, `stage =
+      'thumbnail'`.
+- [ ] **Force a real double-spend race and confirm the backstop fires.**
+      Hardest to stage live (needs two concurrent workers finishing the SAME
+      Kie task), but if a natural one is ever caught in the wild (e.g. two
+      requests overlapping during a flaky retry): confirm `se logs backend`
+      shows the `DUPLICATE SKIPPED` line for that video/stage/task_id, and
+      `se db "SELECT COUNT(*) FROM generation_ledger WHERE video_id='<vid>'
+      AND stage='<stage>' AND kie_task_id='<id>'"` returns exactly 1, not 2.
+      Absent a natural occurrence, this is the one check that can't be
+      manufactured safely without directly calling `record_ledger_entry`
+      twice from a script (which would prove the SQL but not a real app-level
+      race) — lower priority than the two threading checks above.
+- [ ] **Batch call sites unaffected.** Generate several image variants
+      (`run_image_variants`) or run a fresh "Generate all pictures" pass.
+      Confirm `generation_ledger` rows for those still land with
+      `kie_task_id IS NULL` (by design — see migration 093's header) and
+      `videos.total_cost` still sums correctly across mixed NULL/non-NULL
+      rows for the same video.
+- **Cost:** the redraw/thumbnail-regenerate checks are normal paid actions
+  a creator would trigger anyway (~$0.05 each) — no new spend surface, just
+  confirming the id lands on the row that already gets written.
+- **Safety net:** the index is additive and partial (`WHERE kie_task_id IS
+  NOT NULL`) — it can only ever refuse an INSERT that is an EXACT repeat of
+  an existing non-NULL key, which is precisely the double-spend case this
+  chunk exists to close; it cannot block or alter any row with a NULL
+  `kie_task_id` (still the vast majority of stages today) or any two rows
+  with genuinely different task ids. Worst case of this chunk being wrong
+  in some untested way is a duplicate slipping through uncaught (same as
+  before this chunk — no regression), never a legitimate spend being
+  refused.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

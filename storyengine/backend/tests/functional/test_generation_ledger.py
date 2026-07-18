@@ -36,6 +36,22 @@ async def _fake_execute(query: str, *args):
         if RAISE_ON_INSERT:
             raise RuntimeError("simulated DB outage on ledger insert")
         tenant_id, video_id, stage, model, units, unit_cost, actual_cost, kie_task_id = args
+        is_dup = kie_task_id is not None and any(
+            r["video_id"] == video_id and r["stage"] == stage and r["kie_task_id"] == kie_task_id
+            for r in LEDGER_ROWS
+        )
+        # Only dedup if THIS query text actually carries the ON CONFLICT
+        # clause (migration 093 + the C16c code change) — mirrors real
+        # Postgres exactly: pre-C16c code had no unique index at all, so a
+        # plain INSERT with no ON CONFLICT clause against today's live
+        # index would raise UniqueViolation (caught by fail-soft, row NOT
+        # inserted) rather than silently landing a duplicate; modeling that
+        # distinction isn't needed here because the pre-fix behavior this
+        # suite must reproduce under `git stash` is the ORIGINAL bug: no
+        # index existed at all, so the duplicate INSERT simply succeeded.
+        if "ON CONFLICT" in query:
+            if is_dup:
+                return "INSERT 0 0"  # ON CONFLICT ... DO NOTHING fired
         LEDGER_ROWS.append({
             "tenant_id": tenant_id, "video_id": video_id, "stage": stage,
             "model": model, "units": units, "unit_cost": unit_cost,
@@ -408,6 +424,104 @@ def test_voice_ledger_row_meters_by_real_character_count():
     print("✅ test_voice_ledger_row_meters_by_real_character_count")
 
 
+# --- C16c (checklist §S7-5 HIGH): dedup backstop via migration 093's partial
+# unique index + ON CONFLICT DO NOTHING. -------------------------------------
+
+def test_duplicate_video_stage_task_id_is_skipped_first_row_intact():
+    """A second record_ledger_entry() call for the exact same (video, stage,
+    kie_task_id) — the double-spend race this chunk exists to close — must
+    NOT create a second row, must NOT change total_cost, must leave the
+    FIRST row exactly as it was, and must log loudly (this is the one signal
+    the backstop actually fired). Captures stdout directly (not the capsys
+    fixture) so this test runs the same under pytest and the manual
+    `main()` runner at the bottom of this file."""
+    import contextlib
+    import io
+
+    _reset()
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="clip",
+        model="grok-imagine", units=1, unit_cost=0.10, actual_cost=0.10,
+        kie_task_id="kie-task-dup",
+    ))
+    first_row = dict(LEDGER_ROWS[0])
+    assert VIDEOS["video-1"]["total_cost"] == 0.10
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        asyncio.run(generation_ledger.record_ledger_entry(
+            tenant_id="tenant-1", video_id="video-1", stage="clip",
+            model="grok-imagine", units=1, unit_cost=0.10, actual_cost=0.10,
+            kie_task_id="kie-task-dup",
+        ))
+    logged = buf.getvalue()
+
+    assert len(LEDGER_ROWS) == 1, "duplicate (video, stage, kie_task_id) must not insert a second row"
+    assert LEDGER_ROWS[0] == first_row, "the first row must be untouched by the skipped duplicate"
+    assert VIDEOS["video-1"]["total_cost"] == 0.10, "total_cost must not double-count the skipped duplicate"
+
+    assert "DUPLICATE SKIPPED" in logged, "a skipped duplicate must be logged loudly, not silently dropped"
+    assert "video-1" in logged and "kie-task-dup" in logged
+    print("✅ test_duplicate_video_stage_task_id_is_skipped_first_row_intact")
+
+
+def test_distinct_task_ids_both_insert():
+    """Two DIFFERENT kie_task_id values for the same video/stage are two
+    genuinely separate spends (e.g. two clips in the same stage) — both must
+    land and both must count toward total_cost."""
+    _reset()
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="clip",
+        model="grok-imagine", units=1, unit_cost=0.10, actual_cost=0.10,
+        kie_task_id="kie-task-A",
+    ))
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="clip",
+        model="grok-imagine", units=1, unit_cost=0.20, actual_cost=0.20,
+        kie_task_id="kie-task-B",
+    ))
+    assert len(LEDGER_ROWS) == 2
+    assert round(VIDEOS["video-1"]["total_cost"], 2) == 0.30
+    print("✅ test_distinct_task_ids_both_insert")
+
+
+def test_null_task_id_is_never_deduped_by_design():
+    """Two rows with kie_task_id=None for the same video/stage BOTH land —
+    NULL is never equal to NULL for uniqueness purposes (Postgres semantics,
+    mirrored by the fake db here), which is the documented, intentional
+    limit for stages (voice/sound/most image/thumbnail paths) that don't
+    carry a real provider id. This is not a gap in this chunk's fix — it's
+    the honest boundary of what a NULL id can protect, spelled out in
+    migration 093's header."""
+    _reset()
+    for _ in range(2):
+        asyncio.run(generation_ledger.record_ledger_entry(
+            tenant_id="tenant-1", video_id="video-1", stage="voice",
+            model="elevenlabs", units=1, unit_cost=0.30, actual_cost=0.30,
+        ))
+    assert len(LEDGER_ROWS) == 2, "NULL kie_task_id rows must never be deduped against each other"
+    assert VIDEOS["video-1"]["total_cost"] == 0.60
+    print("✅ test_null_task_id_is_never_deduped_by_design")
+
+
+def test_fail_soft_preserved_when_dedup_conflict_path_errors():
+    """The dedup change must not weaken the existing fail-soft guarantee — a
+    forced DB outage on the INSERT (now carrying the ON CONFLICT clause)
+    still must not raise, and still leaves no row/rollup behind."""
+    global RAISE_ON_INSERT
+    _reset()
+    RAISE_ON_INSERT = True
+    result = asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="clip",
+        model="grok-imagine", units=1, unit_cost=0.10, actual_cost=0.10,
+        kie_task_id="kie-task-outage",
+    ))
+    assert result is None
+    assert LEDGER_ROWS == []
+    assert "video-1" not in VIDEOS
+    print("✅ test_fail_soft_preserved_when_dedup_conflict_path_errors")
+
+
 TESTS = [
     test_ledger_row_written_with_correct_fields,
     test_total_cost_equals_ledger_sum_after_one_write,
@@ -425,6 +539,10 @@ TESTS = [
     test_picture_price_for_uses_real_per_model_rate,
     test_image_ledger_row_prices_by_actual_model_used,
     test_voice_ledger_row_meters_by_real_character_count,
+    test_duplicate_video_stage_task_id_is_skipped_first_row_intact,
+    test_distinct_task_ids_both_insert,
+    test_null_task_id_is_never_deduped_by_design,
+    test_fail_soft_preserved_when_dedup_conflict_path_errors,
 ]
 
 

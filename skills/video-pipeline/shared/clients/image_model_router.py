@@ -45,15 +45,17 @@ def _url_of(res) -> Optional[str]:
     return res or None
 
 
-async def _gpt_default(image_client, prompt, refs, aspect_ratio, resolution):
+async def _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out=None):
     """The pre-existing default path, byte-for-byte: GPT Image 2 (image-to-image
     via generate_thumbnail_gpt2 when refs exist, else generate_scene_image_gpt's
     own text-to-image + content-policy-aware nano-banana-2 fallback)."""
     if refs:
-        res = await image_client.generate_thumbnail_gpt2(prompt, refs, aspect_ratio, resolution=resolution)
+        res = await image_client.generate_thumbnail_gpt2(
+            prompt, refs, aspect_ratio, resolution=resolution, task_id_out=task_id_out)
         url = _url_of(res)
         return (url, "gpt-image-2") if url else (None, None)
-    res = await image_client.generate_scene_image_gpt(prompt, None, aspect_ratio, resolution=resolution)
+    res = await image_client.generate_scene_image_gpt(
+        prompt, None, aspect_ratio, resolution=resolution, task_id_out=task_id_out)
     url = _url_of(res)
     if not url:
         return None, None
@@ -70,6 +72,7 @@ async def generate_scene_image_for_model(
     reference_urls=None,
     aspect_ratio: str = "16:9",
     resolution: str = "2K",
+    task_id_out: Optional[list] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """Draw ONE image honoring `model_override`. Returns (url, model_used) — the
     model actually reflected in `model_used` is what generated the pixels, which
@@ -85,27 +88,41 @@ async def generate_scene_image_for_model(
       GPT Image 2 on failure.
     - None / '' / 'gpt-image-2' / any unrecognized value: the EXISTING default
       — see _gpt_default. Unchanged from pre-existing behavior.
+
+    task_id_out: optional list the caller passes in to receive the Kie taskId
+    of whichever attempt below succeeds (append, don't assign — same
+    fresh-box-per-call pattern the clip path uses, see generate_video's
+    docstring). Callers that write ONE generation_ledger row per ONE call to
+    this function (redraw_asset_image, run_image_variants) can thread
+    box[0] into record_ledger_entry's kie_task_id for real dedup protection
+    (checklist C16c / migration 093). Batch callers that aggregate many
+    images from many calls into a single ledger row should NOT pass this —
+    a single task id can't honestly represent a batch (see migration 093's
+    header for the full call-site audit).
     """
     refs = _urls(reference_urls)
     model = (model_override or "").strip()
 
     if model == Models.IMAGE_ZIMAGE:
-        res = await image_client.generate_scene_image_zimage(prompt, aspect_ratio=aspect_ratio)
+        res = await image_client.generate_scene_image_zimage(
+            prompt, aspect_ratio=aspect_ratio, task_id_out=task_id_out)
         url = _url_of(res)
         if url:
             return url, Models.IMAGE_ZIMAGE
-        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution)
+        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out)
 
     if model == "nano-banana-2":
         if refs:
-            res = await image_client.generate_with_reference(prompt, refs, aspect_ratio=aspect_ratio)
+            res = await image_client.generate_with_reference(
+                prompt, refs, aspect_ratio=aspect_ratio, task_id_out=task_id_out)
         else:
-            urls = await image_client.generate_and_wait(prompt, aspect_ratio, model=image_client.SCENE_MODEL)
+            urls = await image_client.generate_and_wait(
+                prompt, aspect_ratio, model=image_client.SCENE_MODEL, task_id_out=task_id_out)
             res = {"url": urls[0]} if urls else None
         url = _url_of(res)
         if url:
             return url, "nano-banana-2"
-        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution)
+        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out)
 
     # default / 'gpt-image-2' / unrecognized override
-    return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution)
+    return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out)

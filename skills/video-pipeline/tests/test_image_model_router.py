@@ -36,28 +36,47 @@ class FakeImageClient:
             return val.pop(0) if val else None
         return val
 
-    async def generate_scene_image_zimage(self, prompt, aspect_ratio="16:9"):
+    # C16c: every method below now accepts `task_id_out` (an optional list
+    # the caller appends the provider's Kie taskId into — same fresh-box-
+    # per-call pattern as generate_video's task_id_out, see image_client.py).
+    # FakeImageClient appends a deterministic fake id per method so tests can
+    # assert the box picked up the id from whichever attempt succeeded.
+
+    async def generate_scene_image_zimage(self, prompt, aspect_ratio="16:9", task_id_out=None):
         self.calls.append(("generate_scene_image_zimage", (prompt,), {"aspect_ratio": aspect_ratio}))
+        if task_id_out is not None:
+            task_id_out.append("task-zimage")
         return self._consume("generate_scene_image_zimage")
 
-    async def generate_with_reference(self, prompt, reference_image_url, aspect_ratio="16:9", resolution="1K"):
+    async def generate_with_reference(self, prompt, reference_image_url, aspect_ratio="16:9",
+                                       resolution="1K", task_id_out=None):
         self.calls.append(("generate_with_reference", (prompt, reference_image_url),
                             {"aspect_ratio": aspect_ratio}))
+        if task_id_out is not None:
+            task_id_out.append("task-with-reference")
         return self._consume("generate_with_reference")
 
-    async def generate_and_wait(self, prompt, aspect_ratio="16:9", model=None):
+    async def generate_and_wait(self, prompt, aspect_ratio="16:9", model=None, task_id_out=None):
         self.calls.append(("generate_and_wait", (prompt,), {"aspect_ratio": aspect_ratio, "model": model}))
+        if task_id_out is not None:
+            task_id_out.append("task-and-wait")
         urls = self._consume("generate_and_wait")
         return urls
 
-    async def generate_thumbnail_gpt2(self, prompt, reference_image_url, aspect_ratio="16:9", resolution="2K"):
+    async def generate_thumbnail_gpt2(self, prompt, reference_image_url, aspect_ratio="16:9",
+                                       resolution="2K", task_id_out=None):
         self.calls.append(("generate_thumbnail_gpt2", (prompt, reference_image_url),
                             {"aspect_ratio": aspect_ratio, "resolution": resolution}))
+        if task_id_out is not None:
+            task_id_out.append("task-thumbnail-gpt2")
         return self._consume("generate_thumbnail_gpt2")
 
-    async def generate_scene_image_gpt(self, prompt, reference_image_url, aspect_ratio="16:9", resolution="2K"):
+    async def generate_scene_image_gpt(self, prompt, reference_image_url, aspect_ratio="16:9",
+                                        resolution="2K", task_id_out=None):
         self.calls.append(("generate_scene_image_gpt", (prompt, reference_image_url),
                             {"aspect_ratio": aspect_ratio, "resolution": resolution}))
+        if task_id_out is not None:
+            task_id_out.append("task-scene-image-gpt")
         return self._consume("generate_scene_image_gpt")
 
 
@@ -172,3 +191,74 @@ def test_every_attempt_failing_returns_none_none():
     ic = FakeImageClient({"generate_scene_image_zimage": None, "generate_scene_image_gpt": None})
     url, model = _run(generate_scene_image_for_model(ic, "z-image", "p", aspect_ratio="16:9"))
     assert (url, model) == (None, None)
+
+
+# --- C16c: task_id_out threading (S7-5 HIGH — generation_ledger dedup index
+# needs a real provider task id to have teeth beyond the clip stage). Callers
+# (redraw_asset_image, run_image_variants) pass a fresh box per call and read
+# box[0] into record_ledger_entry's kie_task_id — these tests pin that the
+# router actually threads the box down to whichever branch runs. ------------
+
+def test_task_id_out_reaches_default_gpt_thumbnail_path():
+    ic = FakeImageClient({"generate_thumbnail_gpt2": {"url": "https://img/gpt.png", "model": "gpt-image-2"}})
+    box: list = []
+    _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9", task_id_out=box))
+    assert box == ["task-thumbnail-gpt2"]
+
+
+def test_task_id_out_reaches_default_gpt_text_to_image_path():
+    ic = FakeImageClient({"generate_scene_image_gpt": {"url": "https://img/x.png", "model": "gpt-image-2"}})
+    box: list = []
+    _run(generate_scene_image_for_model(ic, "", "p", aspect_ratio="16:9", task_id_out=box))
+    assert box == ["task-scene-image-gpt"]
+
+
+def test_task_id_out_reaches_zimage_path():
+    ic = FakeImageClient({"generate_scene_image_zimage": {"url": "https://img/z.png"}})
+    box: list = []
+    _run(generate_scene_image_for_model(ic, "z-image", "p", aspect_ratio="16:9", task_id_out=box))
+    assert box == ["task-zimage"]
+
+
+def test_task_id_out_reaches_nano_with_reference_path():
+    ic = FakeImageClient({"generate_with_reference": {"url": "https://img/nano.png"}})
+    box: list = []
+    _run(generate_scene_image_for_model(
+        ic, "nano-banana-2", "p", reference_urls=["ref1"], aspect_ratio="16:9", task_id_out=box))
+    assert box == ["task-with-reference"]
+
+
+def test_task_id_out_reaches_nano_generate_and_wait_path():
+    ic = FakeImageClient({"generate_and_wait": [["https://img/nano2.png"]]})
+    box: list = []
+    _run(generate_scene_image_for_model(ic, "nano-banana-2", "p", aspect_ratio="16:9", task_id_out=box))
+    assert box == ["task-and-wait"]
+
+
+def test_task_id_out_accumulates_across_fallback_but_box0_is_first_attempt():
+    """z-image fails (its own task id still lands in the box — a task WAS
+    created even though the poll/URL extraction failed) then falls back to
+    gpt thumbnail (a second, different task id appends). box[0] — the FIRST
+    attempt's task id — is the convention record_ledger_entry callers read
+    (same as the clip path's task_id_box[0]); this test documents that the
+    box is an append-only trace of every attempt, not just the winner."""
+    ic = FakeImageClient({
+        "generate_scene_image_zimage": None,
+        "generate_thumbnail_gpt2": {"url": "https://img/fallback.png", "model": "gpt-image-2"},
+    })
+    box: list = []
+    url, model = _run(generate_scene_image_for_model(
+        ic, "z-image", "p", reference_urls=["ref1"], aspect_ratio="16:9", task_id_out=box))
+    assert (url, model) == ("https://img/fallback.png", "gpt-image-2")
+    assert box == ["task-zimage", "task-thumbnail-gpt2"]
+    assert box[0] == "task-zimage"  # what a caller reading box[0] would record
+
+
+def test_task_id_out_is_none_safe_when_caller_does_not_pass_it():
+    """Existing callers (coverage_to_app's store_scene batch path, etc.) that
+    never pass task_id_out must be completely unaffected — no TypeError, no
+    behavior change."""
+    ic = FakeImageClient({"generate_scene_image_gpt": {"url": "https://img/x.png", "model": "gpt-image-2"}})
+    url, model = _run(generate_scene_image_for_model(ic, "", "p", aspect_ratio="16:9"))
+    assert (url, model) == ("https://img/x.png", "gpt-image-2")

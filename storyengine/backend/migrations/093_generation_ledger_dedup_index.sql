@@ -1,0 +1,67 @@
+-- GENERATION_LEDGER dedup backstop (checklist C16c — S7-5 HIGH fix, queue/
+-- idempotency sweep, docs/reports/2026-07-17-storyengine-agent-audit-
+-- findings.md §S7). Migration 087 created generation_ledger with NO
+-- uniqueness constraint, and record_ledger_entry() (backend/
+-- generation_ledger.py) was a plain INSERT — if any double-spend race fires
+-- upstream (two concurrent workers each finish polling the SAME Kie task and
+-- both call record_ledger_entry for it), the ledger recorded the same paid
+-- unit twice instead of refusing the duplicate, inflating videos.total_cost.
+--
+-- This is a PARTIAL unique index: only rows that carry a real provider task
+-- id are deduped. Rows with kie_task_id IS NULL are NEVER deduped by this
+-- index (Postgres treats every NULL as distinct for uniqueness purposes,
+-- which is exactly the semantics we want) — see the call-site audit below
+-- for why most stages still write NULL and that's the correct, honest
+-- choice rather than inventing an id.
+--
+-- Live duplicate-scan BEFORE creating this index (required by chunk spec,
+-- run via Supabase MCP against wrromlupsmyzrrcqlucn):
+--   SELECT video_id, stage, kie_task_id, COUNT(*) FROM generation_ledger
+--   WHERE kie_task_id IS NOT NULL GROUP BY video_id, stage, kie_task_id
+--   HAVING COUNT(*) > 1;
+-- Result: zero rows (table is empty in prod today — 0 total rows, 0 with a
+-- kie_task_id — no paid generation has landed a ledger row yet). Safe to
+-- create the index with no backfill/cleanup needed.
+--
+-- Provider-id call-site audit (checklist C16c) — which stages can actually
+-- benefit from this constraint today:
+--   * clip   — ALREADY threads kie_task_id (C07, pipeline_executor.py's
+--     task_id_box pattern, ~L12375). Constraint has teeth here already.
+--   * image  — threaded in THIS chunk for the two call sites that write ONE
+--     ledger row per ONE underlying Kie task: coverage_to_app.py's
+--     redraw_asset_image() and pipeline_executor.py's run_image_variants().
+--     NOT threaded for store_scene() (coverage_to_app.py) or run_images()
+--     (pipeline_executor.py): both write a SINGLE ledger row aggregating a
+--     BATCH of N images (units=N), each drawn by its own distinct Kie task.
+--     Recording just one of those N task ids on the row would be
+--     misleading (it wouldn't represent "the" generation) AND wouldn't add
+--     real dedup protection — a re-run of the batch mints N brand-new task
+--     ids, so the "same" batch never repeats an old kie_task_id anyway.
+--     Left NULL deliberately, not from a missing capability.
+--   * thumbnail — threaded in THIS chunk for the two paths that call the
+--     Kie image client directly for ONE thumbnail image (pipeline_executor.
+--     py's _run_channel_formula_thumbnail and run_thumbnail's "modeled on
+--     reference" branch). The third path ("from-scratch", the legacy
+--     `thumbnail.run` bot under skills/video-pipeline) goes through a
+--     different, older subsystem that does not currently surface a task id
+--     to this call site — left NULL, documented as a follow-up rather than
+--     guessed at.
+--   * voice, sound — NEVER threaded. ElevenLabs (voice) and the sound
+--     client's Kie job (sound) genuinely don't expose a reusable per-unit
+--     task id back to record_ledger_entry's caller today. Left NULL.
+--
+-- Tradeoff spelled out (why NULL, not a synthetic id): a made-up UNIQUE
+-- value (e.g. uuid4() per call) would never collide, so it would add zero
+-- dedup protection — pure decoration. A made-up CONSTANT value (e.g. the
+-- literal string "voice") would be worse than doing nothing: it would
+-- wrongly dedup two LEGITIMATE, separate voice-generation spends on the
+-- same video (the partial index is on (video_id, stage, kie_task_id), so a
+-- constant per stage would make the second real voiceover of the same
+-- video silently refuse to record). NULL is the only honest value when the
+-- underlying provider call doesn't hand back a real per-unit id.
+--
+-- Idempotent (CREATE UNIQUE INDEX IF NOT EXISTS) — safe to re-apply.
+
+CREATE UNIQUE INDEX IF NOT EXISTS generation_ledger_dedup_idx
+  ON generation_ledger (video_id, stage, kie_task_id)
+  WHERE kie_task_id IS NOT NULL;
