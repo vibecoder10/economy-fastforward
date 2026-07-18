@@ -10806,3 +10806,25 @@ leads frontend correctly (new API ships same commit as the page that reads it, p
 convention, since this is one worker chunk — no `--with-frontend`-only skew risk here
 since both ship together). RLS-enabled-no-policies on both new tables, same house pattern
 already proven safe (migration 083 precedent).
+---
+
+## Mega-Orchestrator Skill (added 2026-07-18)
+
+**New files:**
+- `.claude/skills/mega-orchestrator/SKILL.md` — project skill: generic
+  orchestrator + Sonnet-worker chunked work loop (chunk checklist → one
+  Sonnet worker per chunk → skeptical evidence review → merge/tick/handoff).
+  Generalizes the StoryEngine loop that ran C01–C16.
+- `.claude/skills/mega-orchestrator/references/worker-brief-template.md` —
+  generic Sonnet worker brief (evidence contract: stash-proof tests,
+  suite-vs-baseline counts, honest deferrals, safe-to-merge verdict).
+
+**Relationship to existing docs:** the skill is the GENERIC loop;
+`tasks/orchestrator-and-worker-playbook.md` remains the project adapter for
+StoryEngine specifics (deploy-safety, migrations, money paths, se.sh). The
+skill defers to a project playbook when one exists — no parallel conventions.
+Scaffolding files it creates when none exist: `tasks/loop-checklist.md`,
+`tasks/loop-handoff.md`, `tasks/deferred-verification.md`.
+
+**Distinct from** the personal `orchestrator` skill (video-pipeline operator
+manual: Slack commands + Airtable schema) — different job, kept separate.

@@ -69,6 +69,7 @@ have clobbered each other this way. The protocol:
 | **User shares rough notes / brainstorming** | `thinking-partner` then `structured-workflow` | Think first, then structure. |
 | **Bug report / test failure** | `systematic-debugging` | Diagnose before fixing. No guessing. |
 | **About to say "done" or "fixed"** | `verification-before-completion` | Prove it works. Run commands. Show output. |
+| **Large multi-chunk goal / "run the loop" / sustained autonomous build** | `mega-orchestrator` | Chunked checklist + Sonnet workers + skeptical verification + cold-resume handoff |
 | **2+ independent tasks** | `dispatching-parallel-agents` | Parallelize for speed |
 | **Need feature isolation** | `using-git-worktrees` | Safe experimentation |
 | **Next.js code (pages, routes, API, RSC)** | `next-best-practices` | Correct patterns for routing, data fetching, caching |
