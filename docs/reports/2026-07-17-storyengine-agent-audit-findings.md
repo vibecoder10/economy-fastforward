@@ -98,3 +98,54 @@
 6. **NOTE — no missing indexes found for the query patterns C07/C08/C20/C26 are about to add**, because the tables they target (`generation_ledger`, `style_presets`, `agent_tokens`) don't exist yet. Forward-looking guidance for those chunk authors rather than a standalone fix: give `generation_ledger` a composite index on `(video_id)` and `(tenant_id, created_at)` up front (mirrors the existing `idx_assets_video_status` / `idx_bg_tasks_video` pattern) rather than adding it as an afterthought once rollup queries are slow. Also worth noting: `stage_transitions.cost` and `bot_activity.cost` are pre-existing, narrower cost-tracking columns that predate and partially overlap `generation_ledger` — C07's author should explicitly decide whether historical cost data backfills into the ledger or the two systems coexist un-reconciled.
 
 **Verdict:** base is verified clean for the columns/tables the ledger migration touches directly. The three schema-hygiene gaps (missing migration file, untracked ad-hoc tables, stale schema.sql) are real but self-contained — bundled into a new chunk `C01a` below rather than blocking C07/C08.
+
+---
+
+# S7 · Queue/Idempotency sweep (C16, 2026-07-18) — gate findings for C17 draft/finalize
+
+**Verdict: NOT safe to build C17 on today's queue.** Two execution systems exist; only one has
+idempotency. The arq/job_queue.py system (`make_job_id` → arq `_job_id` dedup, `keep_result=86400`)
+is well-built — but the ACTUAL production path (chat → `make_autobuild_step`/`make_action_step` →
+`PipelineExecutor` directly, and `scripts/coverage_to_app.generate_coverage_for_video` for images)
+never touches it: no idempotency key, no cross-call dedup, no concurrency guard. Pre-C17 fixes
+required in order: S7-1, S7-2, S7-5; hardening S7-3/S7-4/S7-6; hygiene S7-7/8/9 may ride along.
+
+- **S7-1 CRITICAL — chat-driven autobuild path has zero concurrency guard.** `routes/chat.py:530/:691/:697-698`
+  schedule `_make_autobuild_step`/`_make_copilot_step` via bare `background_tasks.add_task` with NO
+  `_is_task_active` gate (zero grep hits in chat.py/actions.py; contrast `routes/pipeline.py:1276/:920`).
+  Double-tap or retried chat turn → two concurrent `_run` loops → double paid generation. Fix: claim/gate
+  at `_handle_approve`/`_run_pending_action` dispatch (see S7-6 for the DB-backed form). → chunk C16a
+- **S7-2 CRITICAL — images/coverage has no skip-if-done guard.** `coverage_to_app.py:1401-1520` re-runs
+  paid `run_coverage()` for EVERY scene on every invocation (only the directive TEXT is cached via
+  `coverage_directive_hash`, L1461-1466; `store_scene`'s delete-first is post-spend hygiene, not a guard).
+  Voice (`voice/run.py:87-89`), sound (`sound_bot.py:79`), clips (`supabase_adapter.py:747-769`
+  `video_url IS NULL`) all have guards — images is the one paid stage without. This is the exact stage
+  `finalize` calls; today a re-invoke re-bills every scene. Fix: scene allowlist + skip scenes with
+  completed frames and unchanged hash. → chunk C16b
+- **S7-3 HIGH — thumbnail: no skip-if-done, no idempotency.** Three paths (`pipeline_executor.py:14304-14318/
+  :14620-14630/:14680-14694`) unconditionally regenerate + ledger-bill with kie_task_id=None. → chunk C16d
+- **S7-4 HIGH — arq stages hardcode `attempt=1`** (`routes/pipeline.py:479`); after one completed run the
+  job_id is "exists" for 24h (`keep_result=86400`, arq refuses), and the `job_id is None` branch silently
+  returns 200 with no fallback/signal (`:481-487`). Legit manual re-runs no-op silently for 24h; only
+  `main.py:481` restart-recovery ever bumps attempt. → chunk C16d
+- **S7-5 HIGH — `generation_ledger` has no uniqueness backstop.** No UNIQUE on kie_task_id (087 migration),
+  plain INSERT in `record_ledger_entry` (`generation_ledger.py:59-65`); only clips populate kie_task_id
+  (`pipeline_executor.py:12375`). `total_cost` SUM-recompute is race-safe arithmetically but REPORTS a
+  double-spend rather than preventing it. Fix: unique index (video_id, stage, kie_task_id) WHERE NOT NULL +
+  ON CONFLICT DO NOTHING + thread provider task ids through all stages. → chunk C16c
+- **S7-6 MED — the only existing guard is in-process and restart-fragile.** `_running_tasks`/`_side_lanes`
+  dicts (`routes/pipeline.py:139/:152`); wiped on deploy; never consults `background_tasks` for arq jobs.
+  Precedent for the fix exists: `routes/queue.py` uses `FOR UPDATE SKIP LOCKED` (`main.py:383`). → folded into C16a
+- **S7-7 MED — Redis-down fallback silently strips all dedup** (`routes/pipeline.py:494-495`; matches
+  docs/failure-modes.md:20 but that entry doesn't note idempotency is lost). Surface degraded state. → C16d
+- **S7-8 LOW — `db_persist_task` check-then-insert race**, no unique index on background_tasks.job_id
+  (`task_store.py:46-52`, `schema.sql:930-944`). → C16d
+- **S7-9 LOW — resumability is undocumented per stage:** resumable = voice, sound, clips; full-restart-and-
+  rebill = images/coverage (until C16b), thumbnail (until C16d). Document in failure-modes. → C16d
+
+**C17 design requirements derived (build on C16a-c):** DB-backed claim keyed (video_id, stage, pass) taken
+at chat dispatch; scene-level skip-if-done so "finalize N approved scenes" regenerates exactly N; job key =
+(video_id, stage, pass, scene_set_hash) — a bare (stage, video_id) key would wrongly dedup a legitimate
+second finalize; kie_task_id threaded everywhere + ledger constraint as last-resort backstop; either fix
+attempt-bumping if routing through arq, or skip arq and rely on claim+constraint (consistent with how the
+paid pipeline actually runs).
