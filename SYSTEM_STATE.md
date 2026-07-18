@@ -2995,3 +2995,97 @@ directly against project `wrromlupsmyzrrcqlucn`. Frontend untouched — no
 round-trip (two real overlapping chat turns on one video) deferred to
 `tasks/live-verification-queue.md` §C16a — needs a live LLM+DB session, no
 key in the sandbox.
+
+## C16b — Coverage Skip-If-Done + Scene Allowlist: S7-2 CRITICAL Fix (added 2026-07-18)
+
+**Problem (audit §S7-2):** `scripts/coverage_to_app.py::generate_coverage_for_video`
+is the ONE paid stage with no skip-if-done guard — only the directive TEXT was
+cached (`coverage_directive_hash`); every invocation called the paid
+`run_coverage()` for every scene with script text, even a scene that was already
+fully drawn under an unchanged script. A second click of "Generate all pictures",
+or an autobuild resume that revisits the image phase, re-billed every scene from
+scratch. Clips already skip via `video_url IS NULL`; voice/sound already skip-if-done.
+
+**Fix:**
+- New helper `_expected_coverage_frame_count(directive_text, max_moments, angles_max,
+  max_frames)` — runs the SAME `parse_coverage()` + `enforce_shot_budget()` calls
+  `run_coverage()` itself makes when handed a saved directive, so "how many frames
+  SHOULD exist" is derived from the actual planner math, never guessed.
+- **Completeness rule (exact):** a scene is COMPLETE under the current directive
+  hash iff (a) `scripts.coverage_directive_hash` matches `_scene_text_hash(scene_text)`
+  [pre-existing re-plan gate, unchanged] AND (b) the count of `assets` rows for that
+  scene with `generation_method='coverage'` AND both `image_url` and
+  `drive_image_url` NOT NULL is `>=` `_expected_coverage_frame_count()` computed from
+  that SAME saved directive under today's `_coverage_shape()` params. Can't
+  false-positive-skip a half-drawn scene: `store_scene()` only INSERTs a row per
+  frame that actually drew (its `usable` filter requires a real local file), so a
+  crash or content-policy skip mid-scene leaves the row count under the expected
+  count and correctly reads as incomplete.
+- **Scene allowlist:** new `only_scenes: list[int] | None = None` param — when set,
+  `targets` is narrowed to exactly those scenes AND each one is treated as an
+  explicit "redo this" (skip-if-done bypassed for it); every other scene is never
+  even queried. This is finalize's (C17) future entry point.
+- **Force semantics (caller-by-caller):**
+
+  | Caller | Behavior |
+  |--------|----------|
+  | Scenes-page "Generate all pictures" (`routes/pipeline.py::run_coverage_images`, `scene=None`) | Skip-if-done (default) |
+  | Per-scene "regenerate scene N" (same route, `scene=N`) | **Forced** — existing redo verb still fully redraws |
+  | Chat/autobuild image phase (`actions.py`) | Skip-if-done (default) — the money-safety win: an autobuild resume/retry no longer re-bills already-drawn scenes |
+  | Co-pilot dock (`pipeline_executor.py::run_coverage_images/run_coverage_stage`) | Skip-if-done when `scene=None` (all scenes); forced when a specific `scene` is passed |
+  | Per-frame redraw (`routes/pipeline.py::run_redraw_image` → `redraw_asset_image`) | Untouched — separate function, never calls `generate_coverage_for_video` |
+
+  No `force: bool` param was added — every legitimate "redo" flow is already
+  reachable via the existing `scene=N` param or the new `only_scenes` allowlist,
+  both of which bypass skip-if-done for the scenes they name.
+- **Incidental fix (found while building this, in-scope because it blocks any
+  end-to-end test of this function):** `render_style`/`video_model_id` were
+  referenced at the `run_coverage()` call site inside `generate_coverage_for_video`,
+  but the `v` row's SELECT here never fetched those two columns (only the
+  neighboring `generate_storyboard_sheet_for_scene` did) — **every real
+  "Generate pictures" invocation has raised `NameError` since C13b (commit
+  `8f923f3`)**, the ONE paid image stage silently broken in production. No test
+  caught it because every existing coverage test exercises sub-functions
+  (`parse_coverage`/`generate_coverage_frames`/`plan_camera_moves`), never
+  `generate_coverage_for_video` end-to-end. Fixed by adding `render_style,
+  video_model` to the SELECT and assigning them, mirroring the neighboring
+  function exactly.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c16b_coverage_skip_if_done.py` | 14 tests: complete+matching-hash scene skipped (`run_coverage` not called), incomplete scene regenerates, zero-drawn regenerates, hash-mismatch regenerates regardless of row count, no-saved-directive regenerates, explicit `scene=N` forces a complete scene, `only_scenes` allowlist forces the named scene(s) and leaves others unqueried (single + multi-scene), summary message counts skipped vs processed, `_expected_coverage_frame_count` pure unit tests (incl. angle-trim), and the render_style/video_model_id NameError fix |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/scripts/coverage_to_app.py` | `generate_coverage_for_video` gains `only_scenes` param + skip-if-done guard + force-scene override; new `_expected_coverage_frame_count()` helper; `v`'s SELECT now fetches `render_style`/`video_model` (NameError fix); summary message reports skipped-scene count |
+
+**Deploy-safety note:** the only behavior change for existing flows is that a
+scene whose script hasn't changed AND whose pictures are already fully drawn is
+no longer re-billed on a second "Generate all pictures" click or an autobuild
+resume — this is a pure cost fix, never a loss of function: the per-scene
+"regenerate scene N" button/verb and the per-frame redraw verb
+(`redraw_asset_image`) are both untouched and still force a fresh draw on
+request. The NameError fix is strictly a bug fix — the call path was crashing
+100% of the time it reached a real draw, so there is no working prior behavior
+it could regress. Auto-deploy safe. **ff-merge candidate** — additive param,
+default behavior only skips work that would have produced byte-identical
+prompts/pixels; the orchestrator should specifically verify the skip condition
+can't fire on a scene missing rows and that `only_scenes`-excluded scenes are
+provably never queried (both pinned in the test evidence below).
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c16b_coverage_skip_if_done.py -q` — 14 passed. Confirmed
+non-vacuous via `git stash push -- storyengine/backend/scripts/coverage_to_app.py`
+— collection error against the pre-C16b source (`ImportError: cannot import
+name '_expected_coverage_frame_count'`). Full backend suite: 967 passed (953
+baseline + 14 new) / 16 pre-existing failures (identical file list to
+C15a-d/C16a) / 1 pre-existing error — zero new failures. `skills/video-pipeline`
+coverage suite: `python -m pytest tests/test_coverage.py -q` — 8 passed / 1
+pre-existing failure (`test_drops_moment_with_no_angles`, unrelated to this
+chunk) — matches the pinned baseline exactly. `python -m py_compile` clean.
+Frontend untouched — no UI surface, backend-only chunk. Live re-invoke proof
+(run "Generate all pictures" twice on a real video, confirm the second run
+spends $0 and logs skip messages) deferred to `tasks/live-verification-queue.md`
+§C16b — needs a live DB + paid API session, not available in the sandbox.

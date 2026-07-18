@@ -614,6 +614,58 @@ through this in the sandbox, so the following need a real backend + DB:
 
 ---
 
+## C16b — coverage skip-if-done + scene allowlist (S7-2 fix) · live re-invoke check
+Checklist entry C16b (audit `docs/reports/2026-07-17-storyengine-agent-audit-
+findings.md` §S7-2 CRITICAL, sweep C16). `scripts/coverage_to_app.py::
+generate_coverage_for_video` now skips a scene whose `coverage_directive_hash`
+is unchanged AND whose drawn `assets` row count meets the expected count
+(`_expected_coverage_frame_count`) derived from that same directive. Covered
+at the unit level (14 tests in `test_c16b_coverage_skip_if_done.py`, confirmed
+non-vacuous via `git stash`) with a fully faked DB/run_coverage — no live DB
+or paid API call was driven through this in the sandbox, so the following
+need a real backend + DB + Kie key:
+- [ ] **Re-invoke costs $0.** On a video that already has coverage pictures
+      for every scene (unchanged script since), click "Generate all pictures"
+      again. Confirm: (a) the task completes near-instantly with a message
+      like "Coverage done: 0 frames across 0 scene(s) (N scene(s) already
+      done, skipped)", (b) `se db "SELECT count(*) FROM generation_ledger
+      WHERE video_id='<test-vid>' AND stage='image' AND created_at > now() -
+      interval '2 minutes'"` shows 0 new rows, and (c) no new Kie image-gen
+      calls appear in `se logs backend 200` for that window.
+- [ ] **Edit the script, re-invoke — it regenerates.** Edit one scene's
+      script text (changing `coverage_directive_hash`), click "Generate all
+      pictures" again. Confirm ONLY that scene redraws (progress message
+      shows "script changed since the storyboard — re-planning…" for that
+      scene, nothing for the others) and its `assets` rows get replaced
+      (`store_scene`'s delete-then-insert).
+- [ ] **Per-scene "regenerate scene N" still forces a redraw.** On a video
+      with complete, unchanged pictures, use the existing per-scene button
+      (`scene=N`) on one scene. Confirm it redraws (new `updated_at` on that
+      scene's assets, a new `generation_ledger` row) even though nothing
+      about the script changed — the forced-scene override must not have
+      regressed the existing redo verb.
+- [ ] **Autobuild resume doesn't re-bill.** Start a chat "build" on a video,
+      let it draw pictures for a few scenes, then interrupt (kill the
+      backend process or let the task fail) before all scenes finish.
+      Re-trigger the same autobuild (or click "Generate all pictures").
+      Confirm the already-drawn scenes are skipped (no re-draw, no new
+      ledger rows) and only the incomplete/undrawn scenes proceed — this is
+      the actual money-saving case C16b exists for.
+- **Cost:** the FIRST full run of pictures on a fresh test video is a normal
+  paid generation (unavoidable — need real drawn pictures to test skip
+  against). Every check ABOVE this is designed to spend $0 (that's exactly
+  what's being proven) except the "edit one scene" check, which spends only
+  that one scene's normal per-scene cost.
+- **Safety net:** the completeness check requires BOTH a matching directive
+  hash AND a frame count at least equal to the plan's expected count — an
+  undercount (crash, content-policy skip) always re-triggers a real draw,
+  never silently strands a half-finished scene. Worst case if this chunk is
+  wrong in some untested way: a scene that should have skipped redraws
+  anyway (wasted money, same as before this chunk existed), never a scene
+  that should have redrawn silently staying blank.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

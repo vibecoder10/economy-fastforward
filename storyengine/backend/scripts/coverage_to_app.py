@@ -719,6 +719,22 @@ def _scene_text_hash(text: str) -> str:
     return hashlib.sha1(" ".join((text or "").split()).encode()).hexdigest()
 
 
+def _expected_coverage_frame_count(directive_text: str, max_moments: int, angles_max: int,
+                                   max_frames) -> int:
+    """C16b (S7-2): the frame count THIS SAME saved directive would produce if drawn
+    again right now — parse_coverage() + enforce_shot_budget() are the exact two calls
+    run_coverage() makes when handed a saved directive_text (see run_coverage() below),
+    given today's per-scene shape params (_coverage_shape, deterministic from scene_text
+    + dialogue_audio). Used as the "how many frames SHOULD exist" side of the
+    skip-if-done completeness check — never a guess, the same planner math the paid
+    draw itself uses."""
+    moments = parse_coverage(directive_text or "")
+    if not moments:
+        return 0
+    moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
+    return sum(1 + len(m.get("angles") or []) for m in moments)
+
+
 def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
                         set_line: str = "", axis_line: str = "",
                         setups_line: str = "") -> list[str]:
@@ -1372,14 +1388,30 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     return written
 
 
-async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=None):
+async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=None, only_scenes=None):
     """Backend stage entry point: generate the burger-style COVERAGE for a video's scene(s) and
     store it in the app (frames as assets + the storyboard board), anchored on the LOCKED character
     sheets. THIS is the live path the Scenes-page "Generate all pictures" button and the chat
     auto-build both call (stage 'coverage-images' -> routes/pipeline.py::run_coverage_images, and
     actions.py's autobuild loop). Honors videos.image_model_override end to end via
     shared.clients.image_model_router — GPT Image 2 stays the default and the content-policy/
-    failure fallback. Returns {status, message}. `progress(msg)` streams status to the task poller."""
+    failure fallback. Returns {status, message}. `progress(msg)` streams status to the task poller.
+
+    scene: existing single-scene filter/redo — when set, ALSO forces that one scene to
+    (re)draw regardless of skip-if-done (this is the per-scene "regenerate scene N" button's
+    verb, routes/pipeline.py::run_coverage_images; an explicit ask must still work even if
+    the scene already looks done under an unchanged script).
+
+    only_scenes (C16b, list[int]|None): the scene-allowlist entry point finalize will use
+    ("regenerate ONLY approved scenes") — when set, ONLY these scenes are (re)generated,
+    ALSO forced regardless of skip-if-done (an explicit allowlist means "redo these"), and
+    every other scene is never even considered. `None` = today's all-scenes behavior plus
+    the new skip-if-done guard below.
+
+    Default (scene=None, only_scenes=None — the "Generate all pictures" button and the chat
+    autobuild path): skip-if-done — a scene whose directive hash is unchanged AND whose
+    coverage frames are already fully drawn is left alone, so re-invoking (autobuild resume,
+    a second click) costs $0 instead of re-billing every scene (S7-2)."""
     def _p(msg):
         if progress:
             try:
@@ -1389,7 +1421,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style, image_model_override, "
+        "image_style_override, visual_style, image_model_override, render_style, video_model, "
         "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
@@ -1397,11 +1429,24 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
     model_override = v["image_model_override"]
+    # C13b: threaded through to run_coverage -> plan_camera_moves -> route_shot_model
+    # (mirrors generate_storyboard_sheet_for_scene's identical SELECT+assign above it in
+    # this file). Incidental fix found while building C16b: this call path has raised a
+    # NameError on every real invocation since C13b (8f923f3) — render_style/video_model_id
+    # were referenced at the run_coverage() call below, but `v`'s SELECT never fetched
+    # those two columns, so the ONE paid image stage crashed as soon as it reached the
+    # first scene's draw. No test caught it because every existing test exercises
+    # sub-functions (parse_coverage/generate_coverage_frames/plan_camera_moves), never
+    # this function end-to-end.
+    render_style = v["render_style"]
+    video_model_id = v["video_model"]
 
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
-    targets = [s for s in scenes if scene is None or s["scene"] == scene]
+    targets = [s for s in scenes
+               if (scene is None or s["scene"] == scene)
+               and (only_scenes is None or s["scene"] in only_scenes)]
     if not targets:
         return {"status": "failed", "error": "no scenes with text to cover"}
 
@@ -1448,6 +1493,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     envs = await _approved_envs(vid, tenant)
 
     total = 0
+    skipped = 0
     for s in targets:
         sc = s["scene"]
         outdir = f"{base_dir}/scene{sc}"
@@ -1455,6 +1501,10 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         # _coverage_shape): echo/voice_over paces to runtime with earned
         # angles; grok_native keeps the rich cinematic multi-angle coverage.
         _mm, _amin, _amax, _mframes = _coverage_shape(s["scene_text"] or "", dialogue_audio)
+        # An explicit ask for THIS scene (the per-scene "regenerate scene N"
+        # button, or this scene named in only_scenes) always redraws — an
+        # explicit request means "redo this scene" regardless of skip-if-done.
+        force_this_scene = (scene is not None) or (only_scenes is not None and sc in only_scenes)
         # THE GATE: if the storyboard step planned this scene and the script
         # hasn't changed since, draw THAT exact plan — the sheets the creator
         # reviewed are binding. An edited script invalidates the preview.
@@ -1468,6 +1518,31 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         if saved and (saved.get("coverage_directive") or "").strip():
             if saved.get("coverage_directive_hash") == _scene_text_hash(s["scene_text"] or ""):
                 directive = saved["coverage_directive"]
+                # SKIP-IF-DONE (C16b/S7-2 — the default, unless forced above):
+                # this scene's directive is unchanged; if its coverage frames
+                # are ALREADY fully drawn under this exact plan, re-running
+                # would re-bill the paid draw for pixels that would come out
+                # as the identical prompts. "Complete" is judged against the
+                # frame count parse_coverage()+enforce_shot_budget() would
+                # actually produce from THIS saved directive under today's
+                # shape params (_expected_coverage_frame_count) — not merely
+                # "> 0 rows exist" — so a crash or content-policy skip
+                # mid-scene (store_scene only inserts a row per frame that
+                # actually drew — see its `usable` filter over frames with a
+                # real local file) leaves the row count under the expected
+                # count and correctly reads as incomplete, never a false
+                # "done" that would strand a half-drawn scene.
+                if not force_this_scene:
+                    expected_n = _expected_coverage_frame_count(directive, _mm, _amax, _mframes)
+                    drawn_row = await fetch_one(
+                        "SELECT COUNT(*) AS n FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+                        "AND scene=$3 AND generation_method='coverage' AND image_url IS NOT NULL "
+                        "AND drive_image_url IS NOT NULL", vid, tenant, sc)
+                    drawn_n = (drawn_row or {}).get("n") or 0
+                    if expected_n > 0 and drawn_n >= expected_n:
+                        skipped += 1
+                        _p(f"Scene {sc}: already drawn ({drawn_n} frames, unchanged script) — skipping")
+                        continue
                 # BOARD ANCHOR: these sheets were drawn FROM this exact directive
                 # (the gate stores both together), so each shot can be pinned to
                 # its approved panel — same framing, same character placement.
@@ -1535,7 +1610,11 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     except Exception as e:  # noqa: BLE001
         _p(f"(couldn't fill the Characters tab: {e})")
 
-    return {"status": "completed", "message": f"Coverage done: {total} frames across {len(targets)} scene(s)"}
+    processed = len(targets) - skipped
+    msg = f"Coverage done: {total} frames across {processed} scene(s)"
+    if skipped:
+        msg += f" ({skipped} scene(s) already done, skipped)"
+    return {"status": "completed", "message": msg}
 
 
 async def main():
