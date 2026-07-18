@@ -168,6 +168,28 @@ class ModelProfile:
     # place "wired" is decided (see tasks/storyengine-wiring-fix-checklist.md §0.2).
     wired: bool = False
 
+    # --- Decision-table fields (C11, checklist §1.1) ---
+    # Data-only today — no routing logic reads these yet (that's C12's
+    # per-scene router). Editorial "best for" tags, one fixed vocabulary:
+    #   draft        — cheap iteration / rough takes, not a final shot
+    #   hero          — the flagship/final take worth spending the most on
+    #   broll         — outdoor/atmospheric filler, not character-driven
+    #   multi_shot    — holds up across a multi-shot sequence/film
+    #   character     — character-driven, motion/likeness fidelity matters
+    #   atmospheric   — mood/environment over narrative action
+    # Sourced from docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-
+    # analysis.md's routing table (line ~85: "Grok = cheap drafts/iterations;
+    # Seedance = multi-shot/native-audio feel; Veo Fast = atmospheric/outdoor
+    # b-roll; Veo Quality = hero/final shots") for the 4 wired models. The 3
+    # unwired models have no product guidance yet — tagged by best-effort
+    # analogy to cost_per_clip/capabilities of their nearest wired peer, since
+    # `wired=False` already gates them out of any real routing consequence.
+    best_for: list[str] = field(default_factory=list)
+    # tier is a plain cost band, not the same axis as best_for's "draft" tag
+    # (a model can be tier=standard and still be tagged best_for=["draft"]
+    # if that's its editorial role) — one of: draft | standard | premium.
+    tier: str = "standard"
+
 
 # --- Model Instances ---
 
@@ -199,6 +221,9 @@ GROK_IMAGINE = ModelProfile(
     avg_generation_time_seconds=15,
     max_concurrent=10,
     wired=True,
+    # Gap-analysis routing table: "Grok = cheap drafts/iterations."
+    best_for=["draft", "broll"],
+    tier="draft",
 )
 
 VEO_31_FAST = ModelProfile(
@@ -223,6 +248,9 @@ VEO_31_FAST = ModelProfile(
     avg_generation_time_seconds=60,
     max_concurrent=5,
     wired=True,
+    # Gap-analysis routing table: "Veo Fast = atmospheric/outdoor b-roll."
+    best_for=["atmospheric", "broll"],
+    tier="standard",
 )
 
 VEO_31_QUALITY = ModelProfile(
@@ -245,6 +273,9 @@ VEO_31_QUALITY = ModelProfile(
     avg_generation_time_seconds=120,
     max_concurrent=3,
     wired=True,
+    # Gap-analysis routing table: "Veo Quality = hero/final shots."
+    best_for=["hero"],
+    tier="premium",
 )
 
 KLING_30_PRO = ModelProfile(
@@ -266,6 +297,13 @@ KLING_30_PRO = ModelProfile(
     avg_generation_time_seconds=90,
     max_concurrent=3,
     wired=False,  # no live generation path yet
+    # No gap-analysis routing guidance for this UNWIRED model — tagged by
+    # best-effort analogy: keyframe camera control + premium-band cost
+    # ($0.80-1.50, on par with veo-3.1-quality) reads as character-driven
+    # hero work per Higgsfield's own "character-driven → Kling" framing
+    # (gap-analysis line ~53), not a live routing input since wired=False.
+    best_for=["character", "hero"],
+    tier="premium",
 )
 
 RUNWAY_GEN4_TURBO = ModelProfile(
@@ -287,6 +325,12 @@ RUNWAY_GEN4_TURBO = ModelProfile(
     avg_generation_time_seconds=360,
     max_concurrent=5,
     wired=False,  # no live generation path yet
+    # No gap-analysis routing guidance for this UNWIRED model — tagged by
+    # cost-tier proximity ($0.25-0.50, standard band, cheaper than
+    # veo-3.1-fast) plus its prompt-driven camera control: general-purpose
+    # b-roll/atmospheric filler, not a hero or character-consistency pick.
+    best_for=["broll", "atmospheric"],
+    tier="standard",
 )
 
 HAILUO_23_STANDARD = ModelProfile(
@@ -307,6 +351,12 @@ HAILUO_23_STANDARD = ModelProfile(
     avg_generation_time_seconds=45,
     max_concurrent=5,
     wired=False,  # no live generation path yet
+    # No gap-analysis routing guidance for this UNWIRED model — tagged by
+    # cost-tier proximity ($0.28-0.47, standard band, cheapest of the 3
+    # unwired models) as general-purpose b-roll filler; bracket camera
+    # control doesn't map cleanly onto any other tag in the vocabulary.
+    best_for=["broll"],
+    tier="standard",
 )
 
 SEEDANCE_2_FAST = ModelProfile(
@@ -334,6 +384,9 @@ SEEDANCE_2_FAST = ModelProfile(
     avg_generation_time_seconds=90,
     max_concurrent=3,
     wired=True,
+    # Gap-analysis routing table: "Seedance = multi-shot/native-audio feel."
+    best_for=["multi_shot"],
+    tier="standard",
 )
 
 # --- Model Registry ---

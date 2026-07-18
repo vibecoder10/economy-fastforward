@@ -1539,3 +1539,75 @@ lagging or erroring backend never produces a broken render — worst case the
 drawer shows a retry button. Backend can deploy ahead of frontend with zero
 effect (unused route); frontend cannot meaningfully deploy ahead of backend
 (drawer would 404-error, but that's the handled error state, not a crash).
+
+## C11 — Model Decision Table: `best_for`/`tier` on `/api/models` (added 2026-07-18)
+
+Turns the video-model registry into a data-driven decision table so the
+per-scene router (C12+) can pick a model from data instead of hardcoded
+logic. No routing logic in this chunk — additive fields only.
+
+**`ModelProfile`** (`skills/video-pipeline/shared/channel_profile.py`) gets
+two new fields, documented inline with the tag vocabulary:
+- `best_for: list[str]` — editorial tags from a fixed 6-tag vocabulary:
+  `draft`, `hero`, `broll`, `multi_shot`, `character`, `atmospheric`.
+- `tier: str` — cost band, one of `draft` | `standard` | `premium` (a
+  different axis than `best_for`'s `"draft"` tag — a model can be
+  `tier="standard"` and still carry `best_for=["draft"]`).
+
+All 7 registry entries were set. The 4 wired models are sourced directly
+from `docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md`'s
+routing table (line ~85): Grok Imagine = `tier="draft"`,
+`best_for=["draft", "broll"]`; Seedance 2.0 = `tier="standard"`,
+`best_for=["multi_shot"]`; Veo 3.1 Fast = `tier="standard"`,
+`best_for=["atmospheric", "broll"]`; Veo 3.1 Quality = `tier="premium"`,
+`best_for=["hero"]`. The 3 unwired models (Kling 3.0 Pro, Runway Gen-4
+Turbo, Hailuo 2.3 Standard) have no product routing guidance yet — tagged
+by best-effort analogy to `cost_per_clip` and capabilities (Kling's
+keyframe camera control + premium-band cost → `tier="premium"`,
+`best_for=["character", "hero"]`, echoing Higgsfield's own
+"character-driven → Kling" framing; Runway and Hailuo → `tier="standard"`,
+`best_for=["broll", "atmospheric"]`/`["broll"]` by cost proximity). These 3
+have zero live routing consequence today since `wired=False` already gates
+them out.
+
+**`GET /api/models`** (`storyengine/backend/routes/model_registry.py`):
+`VideoModelResponse` gets `best_for: list[str] = []` and `tier: str =
+"standard"`, populated straight from the same `ModelProfile` entry
+(`profile.best_for` / `profile.tier`) — no second hand-copied table.
+
+### Modified (C11)
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/shared/channel_profile.py` | `ModelProfile` gains `best_for`/`tier` fields (with vocabulary docstring); all 7 model instances set both. |
+| `storyengine/backend/routes/model_registry.py` | `VideoModelResponse` gains `best_for`/`tier`; `list_models()` populates them from the registry entry; module docstring updated (was a forward-reference to "a later chunk C11", now describes the shipped state). |
+| `storyengine/backend/tests/functional/test_model_registry.py` | 2 new tests: `test_every_model_has_tier_and_best_for_from_allowed_vocabulary` (every model has a tier in the allowed set and only-vocabulary `best_for` tags), `test_best_for_and_tier_match_registry_and_gap_analysis_routing` (endpoint matches `MODEL_REGISTRY` 1:1, plus 4 gap-analysis spot-checks). |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_model_registry.py -q` — 6 passed (4 pre-existing +
+2 new). Confirmed non-vacuous via `git stash` on just the two source files
+(`channel_profile.py` + `routes/model_registry.py`, test file left in
+place): both new tests fail with `KeyError: 'tier'` / `KeyError:
+'best_for'` on the pre-change source, pass after `git stash pop`. Full
+backend suite unchanged: 770 passed / 16 pre-existing failures / 1
+pre-existing error, same file list as C10 (YouTube OAuth, SQL-injection
+lock on `routes/youtube_sync.py`, discovery error-surfacing, etc.) — zero
+new failures, zero fixed by accident. `python -m py_compile` clean on both
+touched `.py` files. `npx tsc --noEmit` not run — no frontend files
+touched (by design; C14 does the UI).
+
+**Grep sweep (checklist §1.1 [V]):** no OTHER hardcoded model-capability
+table for video clip models found. Other `best_for`/`tier` hits in the repo
+are unrelated domains — visual-style profiles (`clay_mannequin.py`,
+`cinematic_dossier.py`, `holographic_hud.py`, etc.), script-voice profiles
+(`power_doctrine_v1/v2.py`, `neutral_v1.py`), image-prompt camera-move
+purposes (`camera_moves.py`), thumbnail templates (`thumbnail/templates.py`),
+and unrelated frontend "tier" usages (subscription rate-limit tier,
+evidence source-tier, resolution tier strings) — none of these describe
+video clip models. `ScenesWorkspaceTab.tsx`'s `FALLBACK_WIRED_MODELS` (the
+C09b-flagged offline-only exception) still carries only `id`/`label`, no
+best_for/tier copy — confirmed unchanged.
+
+**Deploy-safety note:** additive only — new fields with safe defaults
+(`best_for: [] `, `tier: "standard"`) on an existing Pydantic response
+model; no existing field renamed/removed, no routing behavior changes (no
+code reads these fields yet). Auto-deploy safe, ff-merge safe.

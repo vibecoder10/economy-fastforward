@@ -87,9 +87,64 @@ def test_cost_per_clip_matches_single_price_source():
             f"{dead_id} is unwired — must not quote a live price")
 
 
+# C11 (checklist §1.1): decision-table fields (best_for/tier) so a later
+# per-scene router (C12) can pick models from data instead of hardcoding
+# capabilities. Fixed vocabulary, mirrors ModelProfile's docstring in
+# shared/channel_profile.py.
+ALLOWED_TIERS = {"draft", "standard", "premium"}
+ALLOWED_BEST_FOR_TAGS = {
+    "draft", "hero", "broll", "multi_shot", "character", "atmospheric",
+}
+
+
+def test_every_model_has_tier_and_best_for_from_allowed_vocabulary():
+    client = _make_client()
+    body = client.get("/api/models").json()
+    for model in body["models"]:
+        assert model["tier"] in ALLOWED_TIERS, (
+            f"{model['id']}: tier {model['tier']!r} not in {ALLOWED_TIERS}")
+        assert model["best_for"], f"{model['id']}: best_for must not be empty"
+        unknown = set(model["best_for"]) - ALLOWED_BEST_FOR_TAGS
+        assert not unknown, (
+            f"{model['id']}: best_for has unknown tags {unknown}, "
+            f"allowed vocabulary is {ALLOWED_BEST_FOR_TAGS}")
+
+
+def test_best_for_and_tier_match_registry_and_gap_analysis_routing():
+    """Spot-checks the 4 WIRED models against the gap-analysis routing table
+    (docs/reports/2026-07-17-higgsfield-vs-storyengine-gap-analysis.md,
+    line ~85): Grok = draft, Seedance = multi_shot, Veo Fast = atmospheric/
+    broll, Veo Quality = hero. Also proves the endpoint reads straight off
+    ModelProfile — not a second hand-copied table — by comparing 1:1."""
+    import shared.channel_profile as channel_profile
+
+    client = _make_client()
+    body = client.get("/api/models").json()
+    by_id = {m["id"]: m for m in body["models"]}
+
+    for model_id, profile in channel_profile.MODEL_REGISTRY.items():
+        assert by_id[model_id]["best_for"] == profile.best_for, (
+            f"{model_id}: endpoint best_for {by_id[model_id]['best_for']} != "
+            f"registry {profile.best_for}")
+        assert by_id[model_id]["tier"] == profile.tier, (
+            f"{model_id}: endpoint tier {by_id[model_id]['tier']!r} != "
+            f"registry {profile.tier!r}")
+
+    assert by_id["grok-imagine"]["tier"] == "draft"
+    assert "draft" in by_id["grok-imagine"]["best_for"]
+    assert by_id["seedance-2-fast"]["tier"] == "standard"
+    assert "multi_shot" in by_id["seedance-2-fast"]["best_for"]
+    assert "atmospheric" in by_id["veo-3.1-fast"]["best_for"] or \
+        "broll" in by_id["veo-3.1-fast"]["best_for"]
+    assert by_id["veo-3.1-quality"]["tier"] == "premium"
+    assert "hero" in by_id["veo-3.1-quality"]["best_for"]
+
+
 if __name__ == "__main__":
     test_models_endpoint_returns_all_registry_entries()
     test_dead_models_are_wired_false()
     test_live_models_are_wired_true()
     test_cost_per_clip_matches_single_price_source()
+    test_every_model_has_tier_and_best_for_from_allowed_vocabulary()
+    test_best_for_and_tier_match_registry_and_gap_analysis_routing()
     print("OK")

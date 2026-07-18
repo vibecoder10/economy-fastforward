@@ -13,8 +13,9 @@ Both now read `ModelProfile.wired` off the SAME registry entry — this route
 is a thin, read-only view of it, nothing more. See
 tasks/storyengine-wiring-fix-checklist.md §0.2.
 
-Keep this endpoint's shape stable-but-extensible: a later chunk (C11/P1.1)
-adds best_for/tier fields, read straight off the same registry entries.
+This endpoint's shape is stable-but-extensible: C11 (checklist §1.1) added
+`best_for`/`tier` fields, read straight off the same registry entries —
+data only, no routing logic (that's C12's per-scene router).
 `cost_per_clip` was pulled forward into C09 (storyengine-wiring-fix-
 checklist.md §0.3c, single-price-source consolidation) — the Scenes tab's
 own model-dropdown price labels need a price straight from THIS query
@@ -51,6 +52,12 @@ class VideoModelResponse(BaseModel):
     # $/clip at the model's cheapest duration tier — None for an unwired
     # model (no live price to quote). Single source: CLIP_PRICE_BY_MODEL.
     cost_per_clip: Optional[float] = None
+    # C11 (checklist §1.1): decision-table fields, read straight off the
+    # same ModelProfile entry — data only, no routing logic here (that's
+    # C12's per-scene router). See ModelProfile.best_for's docstring in
+    # shared/channel_profile.py for the fixed tag vocabulary.
+    best_for: list[str] = []
+    tier: str = "standard"
 
 
 class ModelsResponse(BaseModel):
@@ -70,6 +77,8 @@ async def list_models(tenant_id=Depends(get_tenant_id)):
             kind="video",
             wired=profile.wired,
             cost_per_clip=CLIP_PRICE_BY_MODEL.get(profile.model_id),
+            best_for=profile.best_for,
+            tier=profile.tier,
         )
         for profile in MODEL_REGISTRY.values()
     ]
