@@ -1870,3 +1870,179 @@ this is the intended new behavior, gated entirely by data already written
 by C12 (no feature flag needed; a scene only diverges from the video's
 default if C12's router actually picked something different and that model
 is wired). Auto-deploy safe, ff-merge safe.
+
+## C13b — Channel-Style Routing Guardrail (added 2026-07-18)
+
+Ryan's 2026-07-18 product rule: the video's LOOK gates model choice BEFORE
+scene importance does. Animated channels (e.g. Poco a Poco — ElevenLabs
+voice-over + Grok animation) must stay in the Grok family; Grok is
+genuinely good at animating ONE stylized scene, but has no realistic
+capability, and the realistic palette (Seedance/Veo/Kling/Runway/Hailuo) is
+priced/built for photoreal work. As shipped, C12/C13's router routed
+REVEAL/PAYOFF scenes on EVERY video to `veo-3.1-quality` regardless of the
+channel's look — wrong for an animated channel. This chunk adds the
+guardrail before C14's UI ships model badges.
+
+**`ModelProfile.styles`** (`shared/channel_profile.py`): a THIRD data-only
+axis alongside C11's `best_for`/`tier` — fixed vocabulary `animated` |
+`stylized` | `realistic` | `cinematic` (docstring documents each). Assigned
+to all 7 registry entries from Ryan's rule + docs/cost-awareness.md's
+per-model notes (no other model has documented animated-scene capability):
+Grok Imagine = `["animated", "stylized"]` (explicitly NOT "realistic");
+Seedance 2.0 = `["realistic"]`; Veo 3.1 Fast/Quality = `["realistic",
+"cinematic"]` each; Kling 3.0 Pro = `["realistic", "cinematic"]`; Runway
+Gen-4 Turbo / Hailuo 2.3 = `["realistic"]` each. `GET /api/models`
+(`routes/model_registry.py`) exposes `styles` the same way C11 exposed
+`best_for`/`tier` — data only, read straight off the registry entry.
+
+**Migration 089** (`storyengine/backend/migrations/089_video_render_style.sql`,
+applied LIVE via Supabase MCP against project `wrromlupsmyzrrcqlucn`,
+confirmed via `information_schema.columns`): `videos` gains `render_style`
+TEXT, nullable, no default, no CHECK constraint (matches the sibling
+`render_mode` column's pattern — enforced by the two write sites, not the
+schema). `'animated'` | `'realistic'` | NULL (undeclared — every video
+today). `schema.sql` updated to match.
+
+**Router guardrail** (`shared/model_router.py::route_shot_model`, new
+`render_style`/`video_model_id` params, both default `None`): (1)
+`render_style` falsy (every video today) → returns `video_model_id` (or
+`DEFAULT_VIDEO_MODEL`) **UNCHANGED**, reason `"channel style not set —
+using channel default"` — this DELIBERATELY disables the C12 purpose→tier
+cascade until a channel opts in, the money-safe default (no premium
+upgrade recommendations on a channel that hasn't declared its look). (2)
+`render_style` set → the SAME multi_shot→purpose-tag→draft cascade as
+before, but every lookup is now filtered to wired models whose `styles`
+include the declared value (the "palette") — an animated channel therefore
+NEVER matches veo/seedance even for a REVEAL/PAYOFF ("hero") shot; it falls
+through the cascade to whatever wired model IS in that palette (today, only
+Grok, tagged `draft`/`broll`), producing a reason like `"reveal scene, but
+channel is animated → Grok Imagine"`. (3) No wired model anywhere carries
+the declared style (a value nothing is tagged with) → same video-level
+fallback as (1), reason names the unmatched style. `resolve_clip_model`
+needed NO change — traced and confirmed: when `render_style` is unset the
+router hands back `video_model_id` itself as `routed_model`, which
+`resolve_clip_model` either accepts (if wired) or falls through to
+`video_model_id` anyway (if not) — byte-identical either path.
+
+**Wiring trace — how `render_style` reaches the router**: `storyboard/
+coverage.py::plan_camera_moves(moments, render_style=None,
+video_model_id=None)` (new kwargs, default `None` so every existing caller
+keeps working) threads both straight into `route_shot_model()`. `run_coverage()`
+gained the same two kwargs, passed down to `plan_camera_moves()`.
+`storyengine/backend/scripts/coverage_to_app.py::generate_coverage_for_video`
+— the LIVE production path (`pipeline_executor.run_coverage_images` →
+this function; confirmed the ONLY other `run_coverage()` caller,
+`main()`'s CLI debug tool, is NOT part of the live wiring and was
+deliberately left untouched, out of scope) — now SELECTs `render_style,
+video_model` alongside its existing `image_style_override`/`visual_style`/
+`image_model_override` fetch and passes them through to `run_coverage()`.
+
+**Auto-derivation (investigated, partially implemented — reused existing
+classifiers, invented no new inference)**: `create_video`
+(`routes/videos.py`) stores `visual_style`/`image_style_override` as raw
+text (a preset id like `pixar_3d` OR a freeform label like "Pixar 3D" OR
+fully custom text); the channel-format lock (`channel_format.py`) can also
+fill `visual_style` AFTER insert via `apply_format_defaults`. Two existing
+functions already turn that raw text into one of exactly SIX canonical
+preset ids (or `None` when unmappable) — `routes/videos.py::
+_normalize_style_preset` (used by `GET /videos/style-default`) and
+`channel_format.py::style_preset_for_format` (used by the locked-format
+default). Since `realistic` is literally one of those six presets and the
+other five (`pixar_3d`/`flat_2d`/`anime`/`watercolor`/`comic`) are all
+illustrated/stylized looks, the six-way split maps onto `render_style`
+with NO new ambiguity to invent: new `channel_format.render_style_for_preset(preset)`
+returns `'realistic'` for the `realistic` preset, `'animated'` for the
+other five, `None` only when `preset` itself is `None` (the existing
+functions' own "ambiguous, don't guess" case). Wired into BOTH paths that
+resolve a preset: (1) `apply_format_defaults` — now also sets `render_style
+= COALESCE(render_style, ...)` in the SAME `UPDATE` that sets `visual_style`
+from the locked channel format, using the identical `preset` it already
+resolved (no second guess); (2) `create_video`'s INSERT — derives
+`render_style` from whichever of `image_style_override`/`visual_style` the
+creator explicitly gave AND `_normalize_style_preset` resolves
+unambiguously (checked in that precedence order, matching `_resolve_style`'s
+existing priority), else leaves it `None`. Deliberately NOT derived: the
+"modeled"/clone path (reference-URL videos hold at `idea_logged` with no
+style field set until an out-of-band copy runs later — deriving at INSERT
+time would be premature) and any freeform style text that doesn't match one
+of the six presets' keywords. No UI/copilot control for setting
+`render_style` directly — that rides C14/C15 as specified.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/089_video_render_style.sql` | `videos.render_style`, idempotent |
+| `storyengine/backend/tests/functional/test_render_style_derivation.py` | 5 tests: `render_style_for_preset()` + the two derivation call chains |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/shared/channel_profile.py` | `ModelProfile.styles` field (vocabulary docstring) + populated on all 7 registry entries |
+| `skills/video-pipeline/shared/model_router.py` | `route_shot_model()` gains `render_style`/`video_model_id` params + the style-palette guardrail cascade; docstring rewritten |
+| `skills/video-pipeline/storyboard/coverage.py` | `plan_camera_moves()`/`run_coverage()` gain `render_style`/`video_model_id` kwargs (default `None`), threaded to `route_shot_model()` |
+| `storyengine/backend/scripts/coverage_to_app.py` | `generate_coverage_for_video`'s video SELECT gains `render_style, video_model`; passed through to `run_coverage()` |
+| `storyengine/backend/channel_format.py` | New `render_style_for_preset()`; `apply_format_defaults()` also sets `render_style` from the same resolved preset |
+| `storyengine/backend/routes/videos.py` | `create_video`'s INSERT gains `render_style`, derived from `image_style_override`/`visual_style` via `_normalize_style_preset` + `render_style_for_preset` |
+| `storyengine/backend/routes/model_registry.py` | `VideoModelResponse` gains `styles`; `list_models()` populates it from the registry entry |
+| `storyengine/schema.sql` | `videos` table gains `render_style` (documented inline) |
+| `storyengine/backend/tests/functional/test_scene_model_routing.py` | 6 tests updated to pass an explicit `render_style` (the C12 cascade is now opt-in — see below); 9 new tests for the guardrail itself |
+| `storyengine/backend/tests/functional/test_model_registry.py` | 2 new tests: `styles` vocabulary + registry match |
+| `skills/video-pipeline/tests/test_coverage.py` | `test_plan_camera_moves_stamps_routed_model_on_shots` updated to pass explicit `render_style`/`video_model_id` (else it became vacuous); 1 new test for the no-style default |
+
+**C12/C13 tests changed by the deliberate default-behavior change** (all in
+`test_scene_model_routing.py` unless noted): `test_reveal_purpose_routes_to_hero_tier_model`,
+`test_payoff_purpose_routes_to_hero_tier_model`,
+`test_establish_purpose_routes_to_atmospheric_tier_model`,
+`test_ordinary_static_shot_routes_to_cheap_draft_model` (style switched to
+`"animated"` — it's the only palette with a `draft`-tagged model),
+`test_none_or_unrecognized_purpose_treated_as_static` (same, `"animated"`),
+`test_only_ever_returns_a_wired_model`, `test_multi_shot_hint_routes_to_multi_shot_tier_model`,
+`test_fallback_path_never_raises_and_always_returns_a_reason` — each now
+passes an explicit `render_style` to keep exercising the C12 cascade;
+without it every one would silently hit the new opt-out default instead
+(same numeric answer in most cases since `DEFAULT_VIDEO_MODEL ==
+"grok-imagine"`, but for the WRONG reason). Plus
+`test_coverage.py::test_plan_camera_moves_stamps_routed_model_on_shots`
+(same fix, matching style/video_model_id passed to both sides of its
+cross-check). `resolve_clip_model`'s own tests were NOT touched — that
+function didn't change.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_scene_model_routing.py tests/functional/test_model_registry.py
+tests/functional/test_render_style_derivation.py -q` — 38 passed. `./venv/bin/python
+-m pytest ../../skills/video-pipeline/tests/test_coverage.py -q` — 8 passed,
+1 pre-existing unrelated failure (`test_drops_moment_with_no_angles`,
+confirmed identical with this chunk stashed). Confirmed non-vacuous via
+`git stash` on `model_router.py`/`channel_profile.py`/`coverage.py`: the new
+guardrail tests fail (`TypeError: route_shot_model() got an unexpected
+keyword argument 'render_style'` / wrong model picked) against the
+pre-change source, pass again after `stash pop`. Full backend suite: 813
+passed (797 baseline + 16 new: 9 in `test_scene_model_routing.py` + 2 in
+`test_model_registry.py` + 5 in `test_render_style_derivation.py`) / 16
+pre-existing failures (same file list as C13) / 1 pre-existing error
+(`vault.py`'s `test_api_key` name collision) — zero new failures, confirmed
+against a `git stash` baseline run showing the identical 797/16/1 (plus 1
+extra transient error from the new test file being untracked — expected,
+not a regression). `python -m py_compile` clean on all 9 touched/added
+`.py` files. Live column check: `information_schema.columns` on project
+`wrromlupsmyzrrcqlucn` shows `render_style` — `text`, nullable, no default.
+No frontend files touched (by design; C14/C15 own the UI/copilot).
+
+**Deferred to `tasks/live-verification-queue.md` §C13b**: declaring
+`render_style` on a real video and confirming routing actually respects it
+end-to-end through a live coverage build (no paid Kie/Anthropic key in this
+sandbox).
+
+**Deploy-safety note:** for EXISTING videos (`render_style` NULL on all of
+them), routing behavior CHANGES on purpose — `routed_model` recommendations
+collapse from C12/C13's purpose-based tier-upgrading back to the video's
+own default model (reason now says so explicitly) — but the CLIPS
+THEMSELVES are unaffected: C13's `resolve_clip_model` already fell back
+identically whenever `routed_model` was unwired/unknown, and a
+video-level-model `routed_model` is either wired (accepted, same net
+result) or unwired (falls through to `video_model_id` anyway) — so already-
+running builds see no generation-path change, only quieter/more
+conservative recommendations. For NEW videos with a declared
+`render_style` (none exist yet — no UI sets it, only the narrow
+auto-derivation paths above), routing now respects the channel's look.
+Auto-deploy safe, ff-merge safe.

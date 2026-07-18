@@ -81,9 +81,35 @@ def style_preset_for_format(fmt: dict) -> Optional[str]:
     return None
 
 
+# C13b (checklist §C13b): the six canonical preset ids split cleanly into
+# "realistic" (one preset, photoreal/live-action) and everything else
+# (illustrated/stylized looks) — no third bucket exists in this vocabulary.
+_ANIMATED_PRESETS = {"pixar_3d", "flat_2d", "anime", "watercolor", "comic"}
+
+
+def render_style_for_preset(preset: Optional[str]) -> Optional[str]:
+    """Map one of the six canonical visual-style preset ids (the same ones
+    style_preset_for_format/routes.videos._normalize_style_preset resolve
+    to) onto a videos.render_style value: 'realistic' for the literal
+    'realistic' preset, 'animated' for the other five. None only when
+    ``preset`` itself is None/unrecognized — auto-derivation must never
+    guess past an ambiguous preset (checklist §C13b: "if ambiguous, don't
+    derive — leave NULL")."""
+    if preset == "realistic":
+        return "realistic"
+    if preset in _ANIMATED_PRESETS:
+        return "animated"
+    return None
+
+
 async def apply_format_defaults(tenant_id, video_id: str) -> bool:
     """Default a fresh video's visual_style from the LOCKED channel format when
-    the creator didn't choose one. Fail-soft; never blocks creation."""
+    the creator didn't choose one. Fail-soft; never blocks creation.
+
+    C13b: also auto-derives render_style from the SAME resolved preset —
+    the channel format's style is unambiguous by construction here (style_
+    preset_for_format already returned early if it wasn't), so this is a
+    safe, no-new-inference reuse of that result, not a second guess."""
     try:
         fmt, locked = await get_channel_format(tenant_id)
         if not locked:
@@ -92,10 +118,11 @@ async def apply_format_defaults(tenant_id, video_id: str) -> bool:
         if not preset:
             return False
         await execute(
-            """UPDATE videos SET visual_style = $1, updated_at = now()
-               WHERE id = $2 AND tenant_id = $3
+            """UPDATE videos SET visual_style = $1,
+                   render_style = COALESCE(render_style, $2), updated_at = now()
+               WHERE id = $3 AND tenant_id = $4
                  AND visual_style IS NULL AND image_style_override IS NULL""",
-            preset, video_id, tenant_id,
+            preset, render_style_for_preset(preset), video_id, tenant_id,
         )
         return True
     except Exception as e:  # noqa: BLE001

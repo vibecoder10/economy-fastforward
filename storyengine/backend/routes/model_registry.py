@@ -15,7 +15,9 @@ tasks/storyengine-wiring-fix-checklist.md §0.2.
 
 This endpoint's shape is stable-but-extensible: C11 (checklist §1.1) added
 `best_for`/`tier` fields, read straight off the same registry entries —
-data only, no routing logic (that's C12's per-scene router).
+data only, no routing logic (that's C12's per-scene router). C13b added
+`styles` the same way (data only — the channel-style guardrail lives in
+shared.model_router, not here).
 `cost_per_clip` was pulled forward into C09 (storyengine-wiring-fix-
 checklist.md §0.3c, single-price-source consolidation) — the Scenes tab's
 own model-dropdown price labels need a price straight from THIS query
@@ -58,6 +60,12 @@ class VideoModelResponse(BaseModel):
     # shared/channel_profile.py for the fixed tag vocabulary.
     best_for: list[str] = []
     tier: str = "standard"
+    # C13b (checklist §C13b): style affinity, read straight off the same
+    # ModelProfile entry — data only. See ModelProfile.styles's docstring
+    # in shared/channel_profile.py for the fixed vocabulary (animated |
+    # stylized | realistic | cinematic). Used by shared.model_router's
+    # channel-style guardrail, not by this endpoint itself.
+    styles: list[str] = []
 
 
 class ModelsResponse(BaseModel):
@@ -79,6 +87,7 @@ async def list_models(tenant_id=Depends(get_tenant_id)):
             cost_per_clip=CLIP_PRICE_BY_MODEL.get(profile.model_id),
             best_for=profile.best_for,
             tier=profile.tier,
+            styles=profile.styles,
         )
         for profile in MODEL_REGISTRY.values()
     ]

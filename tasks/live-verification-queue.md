@@ -141,6 +141,57 @@ entry defers:
   wrong or absent on some rows, clip generation behaves exactly as it did
   before this chunk on those rows.
 
+## C13b — channel-style routing guardrail · live style-declared build check
+Checklist §C13b. `shared/model_router.route_shot_model()` gained
+`render_style`/`video_model_id` params: a NULL `videos.render_style` (every
+video today — no UI sets it yet) returns the video's own model unchanged;
+a declared style filters the C12/C13 purpose→tier cascade to wired models
+whose `ModelProfile.styles` include it, so an animated channel never
+matches veo/seedance even for a hero-tagged shot. Proven at unit/trace
+level only (22 new tests — router guardrail cascade, `/api/models` `styles`
+field, `render_style_for_preset()`'s two derivation call chains — all
+confirmed non-vacuous via `git stash`; migration 089 confirmed live via
+`information_schema.columns`). No real video has `render_style` declared
+yet (only two narrow auto-derivation paths exist, neither UI-driven), so
+the guardrail's actual effect on a real coverage build was never exercised
+end-to-end:
+- [ ] **Declare a style on a real video:** `se db "UPDATE videos SET
+      render_style='animated' WHERE id='<test-vid>'" --write` on a test
+      video whose `video_model` is `grok-imagine` (or set it to that first).
+- [ ] **Run coverage on a scene with a reveal/payoff beat** (would earn the
+      "hero" tag pre-C13b, routing to `veo-3.1-quality`) and confirm
+      `assets.routed_model` for that shot is `grok-imagine`, not
+      `veo-3.1-quality` — `se db "SELECT scene, image_index, routed_model,
+      routing_reason FROM assets WHERE video_id='<test-vid>' ORDER BY
+      scene, image_index"`; `routing_reason` should read something like
+      "reveal scene, but channel is animated → Grok Imagine".
+- [ ] **Repeat with `render_style='realistic'`** on a different test video
+      and confirm a reveal/payoff shot DOES route to `veo-3.1-quality`
+      (the guardrail filters by style, it doesn't disable the cascade for a
+      channel that declared a matching style).
+- [ ] **Confirm an undeclared-style video (the common case today) is
+      unaffected:** run coverage on a video with `render_style` still NULL
+      and confirm every shot's `routed_model` equals that video's own
+      `video_model` with `routing_reason='channel style not set — using
+      channel default'` — never a tier-upgraded pick.
+- [ ] **Confirm auto-derivation fired where expected:** create a video via
+      the New Video modal choosing an explicit preset (e.g. "Pixar 3D") and
+      check `se db "SELECT visual_style, render_style FROM videos WHERE
+      id='<new-vid>'"` shows `render_style='animated'`; repeat with
+      "Realistic"/"Cinematic" and confirm `render_style='realistic'`; and
+      with a channel-locked animated format (no explicit style chosen),
+      confirm `apply_format_defaults` populated both `visual_style` AND
+      `render_style` together.
+- **Cost:** cheap — image-only coverage generation, no clip spend needed to
+  prove `routed_model`/`routing_reason` (only the LAST checklist item, if
+  someone chooses to also tap "Animate" to see the clip itself, costs
+  whatever that clip model charges).
+- **Safety net:** the guardrail's NULL-style branch is the default for
+  every video today, and it returns the video's own model verbatim
+  (proven by test) — so even if this live check is never run, no existing
+  video's clip generation changes at all; only the (currently unused)
+  `routed_model` recommendation field goes quieter.
+
 ---
 
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check

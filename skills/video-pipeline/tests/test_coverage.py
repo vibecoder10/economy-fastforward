@@ -162,7 +162,15 @@ def test_plan_camera_moves_stamps_routed_model_on_shots():
     """The actual shot-plan-time integration point: plan_camera_moves()
     (called BEFORE any frame is drawn) must stamp routed_model/
     routing_reason on every shot, matching what shared.model_router.
-    route_shot_model() would return for that shot's resolved purpose."""
+    route_shot_model() would return for that shot's resolved purpose.
+
+    CHANGED for C13b (checklist §C13b): plan_camera_moves() is called with
+    an explicit render_style/video_model_id here — with neither passed
+    (the old call shape), route_shot_model()'s new opt-out default would
+    make every shot's routed_model equal DEFAULT_VIDEO_MODEL regardless of
+    purpose, making the cross-check below vacuous. Passing render_style
+    keeps this test proving what it always proved: coverage.py holds no
+    second, drifting copy of the routing logic."""
     from shared.model_router import route_shot_model
 
     moments = [{
@@ -174,7 +182,7 @@ def test_plan_camera_moves_stamps_routed_model_on_shots():
         "angles": [],
         "speaker": None, "line": None,
     }]
-    planned = plan_camera_moves(moments)
+    planned = plan_camera_moves(moments, render_style="realistic", video_model_id="veo-3.1-fast")
     shot = moments[0]["master"]
     assert "routed_model" in shot, "routing must be stamped at shot-plan time"
     assert "routing_reason" in shot
@@ -183,9 +191,28 @@ def test_plan_camera_moves_stamps_routed_model_on_shots():
     # the router's own decision for that purpose must match exactly — no
     # second, drifting copy of the routing logic lives in coverage.py.
     resolved_purpose = shot["camera_move"].split("|")[1] if shot["camera_move"] != "static" else "STATIC"
-    expected = route_shot_model(resolved_purpose)
+    expected = route_shot_model(resolved_purpose, render_style="realistic", video_model_id="veo-3.1-fast")
     assert shot["routed_model"] == expected.model_id
     assert shot["routing_reason"] == expected.routing_reason
+
+
+def test_plan_camera_moves_no_style_stamps_video_level_model_unchanged():
+    """NEW for C13b: the default call shape (no render_style/video_model_id
+    — every existing caller besides generate_coverage_for_video) must stamp
+    the opt-out reason, never a tier-upgraded pick, on every shot."""
+    moments = [{
+        "summary": "The detective pulls back the curtain to reveal the truth",
+        "master": {
+            "shot_type": "MS",
+            "description": "The detective pulls back the curtain to reveal the truth",
+        },
+        "angles": [],
+        "speaker": None, "line": None,
+    }]
+    planned = plan_camera_moves(moments)
+    shot = moments[0]["master"]
+    assert shot["routed_model"] == "grok-imagine"  # DEFAULT_VIDEO_MODEL floor, no video_model_id given
+    assert shot["routing_reason"] == "channel style not set — using channel default"
 
 
 def test_plan_camera_moves_camera_move_unaffected_when_routing_fails():
@@ -232,5 +259,6 @@ if __name__ == "__main__":
     test_generate_coverage_frames_honors_model_override()
     test_generate_coverage_frames_propagates_routed_model_and_routing_reason()
     test_plan_camera_moves_stamps_routed_model_on_shots()
+    test_plan_camera_moves_no_style_stamps_video_level_model_unchanged()
     test_plan_camera_moves_camera_move_unaffected_when_routing_fails()
     print("ok — coverage parser + cast-builder self-checks passed")

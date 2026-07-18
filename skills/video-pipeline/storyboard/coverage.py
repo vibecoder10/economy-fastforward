@@ -471,12 +471,22 @@ _SHOT_TYPE_COMPOSITION = {
 }
 
 
-def plan_camera_moves(moments: list) -> int:
+def plan_camera_moves(moments: list, render_style: str | None = None,
+                       video_model_id: str | None = None) -> int:
     """Plan a camera move per shot across a scene's coverage moments, in shot
     order (master then angles, moment by moment). Mutates the shot dicts:
     appends the move's image_setup to the drawing description and stamps
     shot["camera_move"]. Returns how many shots earned a move. Best-effort —
-    any failure leaves the scene exactly as it was (static/freeform behavior)."""
+    any failure leaves the scene exactly as it was (static/freeform behavior).
+
+    render_style/video_model_id (C13b, checklist §C13b): the video's declared
+    LOOK ('animated' | 'realistic' | None) and its own video-level model,
+    threaded straight into route_shot_model()'s channel-style guardrail
+    below — see that function's docstring for what each does. Both default
+    to None (the "no channel style declared" money-safe path) so every
+    existing caller keeps working unchanged; a real caller (generate_
+    coverage_for_video in coverage_to_app.py) passes the video's actual
+    values."""
     try:
         from image_prompts.engine.camera_selector import ShotContext, select_camera_move
     except Exception:
@@ -528,7 +538,9 @@ def plan_camera_moves(moments: list) -> int:
                 # already set either way by the time this runs.
                 try:
                     from shared.model_router import route_shot_model
-                    decision = route_shot_model(sel.purpose)
+                    decision = route_shot_model(
+                        sel.purpose, render_style=render_style,
+                        video_model_id=video_model_id)
                     shot["routed_model"] = decision.model_id
                     shot["routing_reason"] = decision.routing_reason
                 except Exception as route_err:  # noqa: BLE001
@@ -696,7 +708,8 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        anthropic_client=None, directive_model=None,
                        max_moments=3, angles_min=2, angles_max=4, max_frames=None,
                        aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
-                       board_urls=None, model_override=None) -> dict:
+                       board_urls=None, model_override=None,
+                       render_style=None, video_model_id=None) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
     bible (or cast_prompt) so coverage always has something to lock characters to.
@@ -706,7 +719,12 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     model_override: videos.image_model_override ('nano-banana-2' | 'gpt-image-2' | 'z-image' |
     None). Threaded down to every frame draw via generate_coverage_frames/_gen_ref (the shared
     shared.clients.image_model_router resolver) AND to the cast-sheet auto-build below — GPT
-    Image 2 stays the default and the content-policy/failure fallback either way."""
+    Image 2 stays the default and the content-policy/failure fallback either way.
+
+    render_style/video_model_id (C13b): videos.render_style ('animated' | 'realistic' | None)
+    and videos.video_model — the IMAGE model_override above never mixes with these, they're
+    the separate CLIP-model routing guardrail, passed straight through to plan_camera_moves()
+    (shot-plan time, before any frame is drawn) -> shared.model_router.route_shot_model()."""
     profile = profile or load_profile({})
     os.makedirs(outdir, exist_ok=True)
     cast_url = await resolve_cast_url(cast_url, image_client, cast_prompt=cast_prompt,
@@ -789,7 +807,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # Camera Movement Engine: decide each shot's move NOW, before drawing, so
     # the stills are composed for their moves (storytelling formats only —
     # this path IS the storytelling pipeline; data formats never reach it).
-    planned = plan_camera_moves(moments)
+    planned = plan_camera_moves(moments, render_style=render_style, video_model_id=video_model_id)
     if planned:
         print(f"  🎥 camera engine: {planned} shots planned with a move", flush=True)
 

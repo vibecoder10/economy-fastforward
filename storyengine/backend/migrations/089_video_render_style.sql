@@ -1,0 +1,27 @@
+-- Channel-style routing guardrail (checklist §C13b): the video's declared
+-- LOOK, so shared.model_router.route_shot_model() can gate its per-shot
+-- model recommendations to models whose ModelProfile.styles actually match
+-- that look (e.g. an animated channel — ElevenLabs voice + Grok animation —
+-- must never get recommended veo-3.1-quality/seedance, both realistic-only).
+--
+-- render_style: 'animated' | 'realistic' | NULL. NULL = undeclared (every
+-- video created before this migration, and any new video whose look wasn't
+-- unambiguously derivable — see channel_format.py/videos.py's style-preset
+-- normalizers). NULL is the money-safe default: the router treats it as
+-- "channel style not set" and returns the video's OWN video_model instead
+-- of ever recommending a tier upgrade — no surprise premium picks on a
+-- channel that hasn't told us its look. No UI sets this yet (that's
+-- C14/C15); today it's set only via auto-derivation off an unambiguous
+-- visual_style/channel-format preset (see channel_format.py).
+--
+-- No CHECK constraint, matching the sibling nullable mode column
+-- (videos.render_mode has none either) — enforced by the two call sites
+-- that write it, not the schema.
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS) — applied LIVE via the Supabase MCP
+-- tools rather than the app's own migration runner, so it won't be recorded
+-- in `_migrations` and may be re-attempted on a future backend restart;
+-- IF NOT EXISTS makes that a no-op instead of an error (same rationale as
+-- migration 088).
+
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS render_style TEXT;

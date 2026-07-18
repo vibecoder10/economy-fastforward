@@ -140,6 +140,49 @@ def test_best_for_and_tier_match_registry_and_gap_analysis_routing():
     assert "hero" in by_id["veo-3.1-quality"]["best_for"]
 
 
+# C13b (checklist §C13b): style affinity — the channel-style routing
+# guardrail's data. Fixed vocabulary, mirrors ModelProfile.styles's
+# docstring in shared/channel_profile.py.
+ALLOWED_STYLE_TAGS = {"animated", "stylized", "realistic", "cinematic"}
+
+
+def test_every_wired_model_has_styles_from_allowed_vocabulary():
+    client = _make_client()
+    body = client.get("/api/models").json()
+    for model in body["models"]:
+        if not model["wired"]:
+            continue
+        assert model["styles"], f"{model['id']}: wired model must declare styles"
+        unknown = set(model["styles"]) - ALLOWED_STYLE_TAGS
+        assert not unknown, (
+            f"{model['id']}: styles has unknown tags {unknown}, "
+            f"allowed vocabulary is {ALLOWED_STYLE_TAGS}")
+
+
+def test_styles_matches_registry_and_ryans_product_rule():
+    """Spot-checks the worked examples from the checklist/Ryan's 2026-07-18
+    product rule: Grok = animated/stylized only (never realistic — the
+    whole point of the C13b guardrail), Seedance = realistic only, Veo
+    (both tiers) = realistic + cinematic. Also proves the endpoint reads
+    straight off ModelProfile — not a second hand-copied table."""
+    import shared.channel_profile as channel_profile
+
+    client = _make_client()
+    body = client.get("/api/models").json()
+    by_id = {m["id"]: m for m in body["models"]}
+
+    for model_id, profile in channel_profile.MODEL_REGISTRY.items():
+        assert by_id[model_id]["styles"] == profile.styles, (
+            f"{model_id}: endpoint styles {by_id[model_id]['styles']} != "
+            f"registry {profile.styles}")
+
+    assert by_id["grok-imagine"]["styles"] == ["animated", "stylized"]
+    assert "realistic" not in by_id["grok-imagine"]["styles"]
+    assert by_id["seedance-2-fast"]["styles"] == ["realistic"]
+    assert "realistic" in by_id["veo-3.1-fast"]["styles"]
+    assert "realistic" in by_id["veo-3.1-quality"]["styles"]
+
+
 if __name__ == "__main__":
     test_models_endpoint_returns_all_registry_entries()
     test_dead_models_are_wired_false()
@@ -147,4 +190,6 @@ if __name__ == "__main__":
     test_cost_per_clip_matches_single_price_source()
     test_every_model_has_tier_and_best_for_from_allowed_vocabulary()
     test_best_for_and_tier_match_registry_and_gap_analysis_routing()
+    test_every_wired_model_has_styles_from_allowed_vocabulary()
+    test_styles_matches_registry_and_ryans_product_rule()
     print("OK")

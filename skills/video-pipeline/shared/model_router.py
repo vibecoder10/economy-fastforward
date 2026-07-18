@@ -1,13 +1,14 @@
-"""Per-shot video-model router (checklist §1.2/C12, tasks/storyengine-wiring-fix-checklist.md).
+"""Per-shot video-model router (checklist §1.2/C12, §C13b, tasks/storyengine-wiring-fix-checklist.md).
 
 Maps a shot's narrative intent — the camera purpose already computed by
 ``image_prompts.engine.camera_selector.select_camera_move()``/``resolve_purpose()``
 (REVEAL / ESTABLISH / PAYOFF / SCALE / ISOLATION / STATIC) — to a video
-generation model, using ONLY the decision-table fields C11 added to
+generation model, using ONLY the decision-table fields C11/C13b added to
 ``shared.channel_profile.MODEL_REGISTRY`` entries (``best_for`` / ``tier`` /
-``wired``). This module holds no second list of model capabilities: it is a
-pure lookup over that registry, so adding/removing/re-tagging a model in
-channel_profile.py is picked up automatically, with no edit needed here.
+``styles`` / ``wired``). This module holds no second list of model
+capabilities: it is a pure lookup over that registry, so adding/removing/
+re-tagging a model in channel_profile.py is picked up automatically, with no
+edit needed here.
 
 Called at SHOT-PLAN time (storyboard/coverage.py's ``plan_camera_moves()``,
 before any frame is drawn) to compute a recommendation that rides the shot
@@ -16,8 +17,21 @@ columns (migration 088). Data + recommendation only — clip generation does
 not read ``routed_model`` yet (that's C13); there is no UI for it yet
 (C14).
 
+C13b (Ryan, 2026-07-18): the video's LOOK gates model choice BEFORE scene
+importance does. An animated channel (ElevenLabs voice-over + Grok
+animation, e.g. Poco a Poco) must never get recommended a realistic-only
+model just because a scene earned the "hero" tag — Grok is genuinely good
+at animating a single stylized scene, but has no realistic capability, and
+the realistic palette (Seedance/Veo/Kling/Runway/Hailuo) is priced and built
+for photoreal work, not stylized animation. See ``videos.render_style``
+(migration 089) and ``ModelProfile.styles``.
+
 Guarantees:
-  - Only ever returns a WIRED model id (``ModelProfile.wired is True``).
+  - Only ever returns a WIRED model id (``ModelProfile.wired is True``) —
+    UNLESS ``render_style`` is unset, in which case it returns the caller's
+    own ``video_model_id`` verbatim (which may itself be unwired if the
+    caller passed a stale/unknown value — this module trusts that input the
+    same way ``resolve_clip_model`` already does downstream).
   - Always returns a ``routing_reason`` a user could read.
   - Never raises for a recognized OR unrecognized purpose string — the
     worst case is the "default" fallback, never an exception. (Callers at
@@ -76,52 +90,114 @@ def _wired_models() -> dict:
     return {mid: p for mid, p in MODEL_REGISTRY.items() if p.wired}
 
 
-def _first_wired_with_tag(tag: str):
+def _first_wired_with_tag(tag: str, style: str | None = None):
+    """First wired registry entry carrying ``tag`` in ``best_for``. When
+    ``style`` is given, ALSO requires that style in the entry's ``styles``
+    list (case-insensitive) — this is the C13b palette filter: "purpose→tag
+    mapping unchanged, but only within the models whose look matches the
+    channel's declared style"."""
     for mid, profile in _wired_models().items():
-        if tag in profile.best_for:
-            return mid, profile
+        if tag not in profile.best_for:
+            continue
+        if style is not None:
+            if style not in [s.lower() for s in profile.styles]:
+                continue
+        return mid, profile
     return None
 
 
-def route_shot_model(purpose: str | None, is_multi_shot: bool = False) -> RoutingDecision:
+def route_shot_model(
+    purpose: str | None,
+    is_multi_shot: bool = False,
+    render_style: str | None = None,
+    video_model_id: str | None = None,
+) -> RoutingDecision:
     """Pick a video model + a human-readable reason for one shot.
 
     ``purpose`` is whatever camera_selector's resolve_purpose()/
     select_camera_move() returned for this shot: REVEAL, ESTABLISH,
     PAYOFF, SCALE, ISOLATION, or STATIC (no camera-move purpose earned).
     Anything falsy/unrecognized is treated like STATIC. ``is_multi_shot``
-    is an optional forward-looking hint (see _MULTI_SHOT_TAG above) — no
-    current caller sets it True.
+    is an optional forward-looking hint (see _MULTI_SHOT_TAG above).
 
-    Only ever returns a wired model_id. Falls back to DEFAULT_VIDEO_MODEL
-    with reason "default" if, somehow, no wired model carries even the
-    "draft" tag (belt-and-braces — today's registry always does).
+    ``render_style`` is the video's declared LOOK (``videos.render_style``:
+    'animated' | 'realistic' | None) and ``video_model_id`` is that video's
+    own ``video_model`` — both new in C13b.
+
+    GUARDRAIL (C13b, Ryan 2026-07-18 — the video's LOOK gates model choice
+    BEFORE scene importance does):
+
+      1. ``render_style`` is falsy (None/'') — the case for EVERY video
+         created before this chunk shipped, and any new video whose look
+         wasn't declared. The router stays fully opt-in: it returns
+         ``video_model_id`` (or DEFAULT_VIDEO_MODEL if that's also empty)
+         UNCHANGED, with a reason that says so. This deliberately turns OFF
+         the purpose-based tier-upgrading below until a channel opts in by
+         declaring its style — the money-safe default, so an animated
+         channel never gets recommended a realistic-only premium model
+         just because nobody told the router it's animated.
+      2. ``render_style`` is set — every recommendation below is FILTERED
+         to wired models whose ``styles`` include it (the "palette"). The
+         same multi_shot → purpose-tag → draft priority cascade as before
+         runs, but only ever picks from that palette. An animated channel
+         therefore NEVER routes to veo/seedance (neither carries
+         "animated"/"stylized") even for a REVEAL/PAYOFF ("hero") shot —
+         it falls through the cascade to whatever IS in the animated
+         palette (today: Grok, tagged "draft"/"broll"), giving a reason
+         like "reveal scene, but channel is animated → Grok Imagine".
+      3. If NO wired model anywhere carries ``render_style`` (not even at
+         the draft tier — e.g. a style value nothing in the registry is
+         tagged with yet) the palette is empty and there is nothing to
+         recommend: falls back to ``video_model_id``/DEFAULT_VIDEO_MODEL,
+         same as case 1, with a reason naming the unmatched style.
+
+    Only ever returns a wired model_id when ``render_style`` is set (cases
+    2/3 both bottom out on a wired pick or the video-level fallback). When
+    ``render_style`` is unset, returns ``video_model_id`` verbatim — trusted
+    input, same contract ``resolve_clip_model`` already relies on.
     """
     purpose = (purpose or "STATIC").upper()
     label = _PURPOSE_LABEL.get(purpose, purpose.lower() or "ordinary")
+    fallback_model = video_model_id or DEFAULT_VIDEO_MODEL
+
+    style = (render_style or "").strip().lower() or None
+    if style is None:
+        return RoutingDecision(
+            fallback_model, "channel style not set — using channel default")
 
     if is_multi_shot:
-        hit = _first_wired_with_tag(_MULTI_SHOT_TAG)
+        hit = _first_wired_with_tag(_MULTI_SHOT_TAG, style=style)
         if hit:
             mid, profile = hit
             return RoutingDecision(
-                mid, f"multi-shot sequence → {_MULTI_SHOT_TAG} tier ({profile.tier})")
+                mid, f"multi-shot sequence, {style} channel → "
+                     f"{_MULTI_SHOT_TAG} tier ({profile.tier})")
 
     tag = _PURPOSE_TAG.get(purpose)
     if tag:
-        hit = _first_wired_with_tag(tag)
+        hit = _first_wired_with_tag(tag, style=style)
         if hit:
             mid, profile = hit
-            return RoutingDecision(mid, f"{label} scene → {tag} tier ({profile.tier})")
+            return RoutingDecision(
+                mid, f"{label} scene, {style} channel → {tag} tier ({profile.tier})")
 
-    # STATIC, unrecognized, or the earned tag has no wired match: the same
-    # cheap-iteration tier the pipeline already defaults to.
-    hit = _first_wired_with_tag("draft")
+    # STATIC, unrecognized, or the earned tag has no match within this
+    # style's palette: the same cheap-iteration tier the pipeline already
+    # defaults to, still restricted to the declared style.
+    hit = _first_wired_with_tag("draft", style=style)
     if hit:
         mid, profile = hit
-        return RoutingDecision(mid, f"{label} scene → draft tier ({profile.tier})")
+        if tag and tag != "draft":
+            # The purpose earned a real tag (e.g. "hero"), but no model in
+            # this style's palette carries it — name that explicitly rather
+            # than silently reading like an ordinary/STATIC shot.
+            return RoutingDecision(
+                mid, f"{label} scene, but channel is {style} → {profile.display_name}")
+        return RoutingDecision(mid, f"{label} scene, {style} channel → draft tier ({profile.tier})")
 
-    return RoutingDecision(DEFAULT_VIDEO_MODEL, "default")
+    # No wired model anywhere carries this style — nothing to recommend.
+    return RoutingDecision(
+        fallback_model, f"no wired model supports '{style}' style — using channel default")
 
 
 def resolve_clip_model(

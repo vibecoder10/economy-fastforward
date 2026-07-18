@@ -190,6 +190,39 @@ class ModelProfile:
     # if that's its editorial role) — one of: draft | standard | premium.
     tier: str = "standard"
 
+    # --- Style affinity (C13b, checklist §C13b) ---
+    # Data-only, same pattern as best_for/tier — no routing logic reads this
+    # except shared.model_router's C13b guardrail. A THIRD axis, orthogonal
+    # to both: best_for/tier are about editorial role and cost; styles is
+    # about the video's LOOK, which Ryan's product rule (2026-07-18) says
+    # must gate model choice BEFORE scene importance does — an animated
+    # channel (ElevenLabs voice-over + Grok animation, e.g. Poco a Poco)
+    # must never get recommended a realistic-only model just because a
+    # scene earned a "hero" tag.
+    #
+    # Fixed vocabulary (a model may carry more than one):
+    #   animated   — genuinely good at a single stylized/illustrated scene
+    #                (2D/3D/cartoon/anime-adjacent), NOT photoreal.
+    #   stylized   — synonym-adjacent to "animated" for this model, called
+    #                out separately because Grok's real strength is ONE
+    #                stylized scene at a time, not multi-shot consistency
+    #                (see best_for's lack of "multi_shot" for Grok).
+    #   realistic  — photoreal/live-action-like output; the premium
+    #                (Seedance/Veo/Kling/Runway/Hailuo) palette.
+    #   cinematic  — realistic PLUS premium visual polish (camera control,
+    #                first/last-frame, 1080p) — reserved for the models that
+    #                also earn best_for=["hero"]/["character"] or carry
+    #                supports_camera_control, i.e. the ones worth spending
+    #                the most on within the realistic palette.
+    # Sourced from Ryan's 2026-07-18 product rule (docs/cost-awareness.md's
+    # per-model notes on what each model actually IS: Grok Imagine = cheap
+    # animated iteration; Seedance/Veo/Kling/Runway/Hailuo = photoreal video
+    # generation, no animated-scene capability documented anywhere for them)
+    # plus the checklist's own worked examples for grok/seedance/veo.
+    # Empty list would mean "not yet audited for this axis" — never true
+    # here, every registry entry below is assigned.
+    styles: list[str] = field(default_factory=list)
+
 
 # --- Model Instances ---
 
@@ -224,6 +257,12 @@ GROK_IMAGINE = ModelProfile(
     # Gap-analysis routing table: "Grok = cheap drafts/iterations."
     best_for=["draft", "broll"],
     tier="draft",
+    # Ryan (2026-07-18): Grok is genuinely good at animating ONE stylized
+    # scene — that's the Poco a Poco channel's whole pipeline (ElevenLabs
+    # voice-over + Grok animation). Explicitly NOT tagged "realistic" — it
+    # must never be recommended for a photoreal channel's shots, and a
+    # realistic channel must never be gated down to it either.
+    styles=["animated", "stylized"],
 )
 
 VEO_31_FAST = ModelProfile(
@@ -251,6 +290,9 @@ VEO_31_FAST = ModelProfile(
     # Gap-analysis routing table: "Veo Fast = atmospheric/outdoor b-roll."
     best_for=["atmospheric", "broll"],
     tier="standard",
+    # Photoreal video generation, no documented animated-scene capability
+    # (docs/cost-awareness.md) — realistic palette only.
+    styles=["realistic", "cinematic"],
 )
 
 VEO_31_QUALITY = ModelProfile(
@@ -276,6 +318,9 @@ VEO_31_QUALITY = ModelProfile(
     # Gap-analysis routing table: "Veo Quality = hero/final shots."
     best_for=["hero"],
     tier="premium",
+    # Photoreal, 1080p, first/last-frame — the realistic palette's premium
+    # tier. Never recommendable on an animated channel (Ryan, 2026-07-18).
+    styles=["realistic", "cinematic"],
 )
 
 KLING_30_PRO = ModelProfile(
@@ -304,6 +349,9 @@ KLING_30_PRO = ModelProfile(
     # (gap-analysis line ~53), not a live routing input since wired=False.
     best_for=["character", "hero"],
     tier="premium",
+    # Photoreal, keyframe camera control — no animated-scene capability
+    # documented; premium realistic tier, same rationale as best_for above.
+    styles=["realistic", "cinematic"],
 )
 
 RUNWAY_GEN4_TURBO = ModelProfile(
@@ -331,6 +379,9 @@ RUNWAY_GEN4_TURBO = ModelProfile(
     # b-roll/atmospheric filler, not a hero or character-consistency pick.
     best_for=["broll", "atmospheric"],
     tier="standard",
+    # Live-action-style generation, prompt-driven camera control — no
+    # animated-scene capability documented; realistic palette only.
+    styles=["realistic"],
 )
 
 HAILUO_23_STANDARD = ModelProfile(
@@ -357,6 +408,9 @@ HAILUO_23_STANDARD = ModelProfile(
     # control doesn't map cleanly onto any other tag in the vocabulary.
     best_for=["broll"],
     tier="standard",
+    # Live-action-style generation — no animated-scene capability
+    # documented; realistic palette only.
+    styles=["realistic"],
 )
 
 SEEDANCE_2_FAST = ModelProfile(
@@ -387,6 +441,11 @@ SEEDANCE_2_FAST = ModelProfile(
     # Gap-analysis routing table: "Seedance = multi-shot/native-audio feel."
     best_for=["multi_shot"],
     tier="standard",
+    # Checklist §C13b's own worked example: "seedance → ['realistic']" —
+    # cinematic-camera-control photoreal, but not tagged premium-hero
+    # ("cinematic") the way Veo Quality/Kling are — its edge is multi-shot
+    # consistency, not single-hero-shot polish.
+    styles=["realistic"],
 )
 
 # --- Model Registry ---

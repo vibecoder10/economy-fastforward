@@ -175,6 +175,13 @@ CREATE TABLE videos (
   storyboard_beat_count INTEGER,
   video_model TEXT,
   dialogue_audio TEXT,  -- 'voice_over' (default) | 'grok_native'
+  -- C13b: the channel's declared LOOK — 'animated' | 'realistic' | NULL
+  -- (undeclared, the default for every video today). Gates shared.
+  -- model_router.route_shot_model()'s per-shot recommendations to models
+  -- whose ModelProfile.styles include this value; NULL turns tier-upgrade
+  -- routing OFF and returns video_model unchanged (money-safe default).
+  -- Migration 089.
+  render_style TEXT,
 
   -- Pipeline state
   scene_file_path TEXT,

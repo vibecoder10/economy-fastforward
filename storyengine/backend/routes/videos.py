@@ -421,15 +421,30 @@ async def create_video(
     source_val = "modeled" if is_modeled else body.source_url
 
     style_override = (body.image_style_override or "").strip() or None
+    # C13b (checklist §C13b): auto-derive render_style ONLY when the
+    # creator's explicit style choice unambiguously maps onto one of the
+    # six canonical presets — reusing _normalize_style_preset, the SAME
+    # classifier GET /style-default already trusts, not a new guess.
+    # image_style_override wins (the higher-priority per-video look, same
+    # precedence _resolve_style uses); ambiguous/freeform text on both
+    # leaves render_style NULL (undeclared), never a wrong guess.
+    from channel_format import render_style_for_preset
+    render_style = None
+    for _raw in (style_override, body.visual_style):
+        if _raw:
+            _preset = _normalize_style_preset(_raw)
+            if _preset:
+                render_style = render_style_for_preset(_preset)
+                break
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode, render_style)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, source_val, _strip_md(body.framework_angle),
         body.video_length_minutes, writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
-        render_mode,
+        render_mode, render_style,
     )
 
     await increment_usage(tenant_id, "videos_created")

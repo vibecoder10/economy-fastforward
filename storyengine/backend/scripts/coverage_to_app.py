@@ -812,7 +812,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style, image_model_override, "
+        "image_style_override, visual_style, image_model_override, render_style, video_model, "
         "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
@@ -820,6 +820,12 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
     model_override = v["image_model_override"]
+    # C13b: the channel-style routing guardrail's two inputs, threaded down
+    # through run_coverage -> plan_camera_moves -> route_shot_model. Distinct
+    # from model_override above (that's the IMAGE model; this is the video's
+    # declared LOOK + its own clip model).
+    render_style = v["render_style"]
+    video_model_id = v["video_model"]
     profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
@@ -1484,7 +1490,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 anthropic_client=claude, directive_model=claude_model, directive_text=directive,
                 max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
                 aspect=aspect, env_url=(env or {}).get("reference_url"),
-                board_urls=board_urls or None, model_override=model_override)
+                board_urls=board_urls or None, model_override=model_override,
+                render_style=render_style, video_model_id=video_model_id)
         except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest
             _p(f"Scene {sc}: errored ({str(e)[:150]}) — moving on to the next scene")
             continue
