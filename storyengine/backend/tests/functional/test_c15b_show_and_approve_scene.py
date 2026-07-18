@@ -325,7 +325,10 @@ def test_show_op_reply_mentions_approve_verb_as_the_next_step(monkeypatch):
 def test_agent_brain_decision_schema_includes_show_and_approve_scene():
     import agent_brain
     schema = agent_brain._decision_schema()
-    assert '"kind":"read|action|prompt|show"' in schema
+    # C15c extended the kind enum with |remember|forget — check the "show"
+    # value is present in the enum rather than an exact-suffix match so this
+    # doesn't break every time a future chunk adds another kind.
+    assert '"kind":"read|action|prompt|show|remember|forget"' in schema
     assert "approve_scene" in schema
 
 
@@ -335,5 +338,5 @@ def test_fallback_classifier_prompt_source_includes_show_and_approve_scene():
     module source since the prompt is built inline inside _handle_copilot."""
     import inspect
     src = inspect.getsource(chat._handle_copilot)
-    assert '"kind":"read|action|prompt|show"' in src
+    assert '"kind":"read|action|prompt|show|remember|forget"' in src
     assert "approve_scene" in src

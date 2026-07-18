@@ -1455,3 +1455,35 @@ CREATE INDEX machine_research_cards_video_order_idx
 ALTER TABLE machine_research_cards ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Tenant isolation" ON machine_research_cards FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
+
+-- ---------------------------------------------------------------------------
+-- DIRECTOR_PREFERENCES (migration 091_director_preferences.sql, checklist
+-- C15c — "Director memory: durable preference store"). A correction said
+-- once ("the kitten is gray", "never use premium models on Poco") becomes a
+-- STANDING preference remembered across future conversations and videos,
+-- instead of only living in that one transcript.
+--
+-- scope: the literal string 'channel' (applies everywhere for this tenant)
+--        or a video_id's text form (applies only inside that one video's
+--        copilot chat).
+-- source: 'user' always for this chunk (explicit corrections only, no
+--        auto-learning) — reserved for a future inferred-preference path.
+-- active: soft-delete only ("forget that" flips this false; never hard-deleted).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS director_preferences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL DEFAULT 'channel',
+  text TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'user',
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_director_preferences_tenant_scope_active
+  ON director_preferences(tenant_id, scope, active, created_at DESC);
+
+ALTER TABLE director_preferences ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

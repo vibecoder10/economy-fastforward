@@ -183,16 +183,18 @@ async def _run_tool(name: str, args: dict, tenant_id, video_id, summary) -> str:
 def _decision_schema() -> str:
     # Identical to the legacy classifier's output so downstream code is unchanged.
     return (
-        '{"kind":"read|action|prompt|show",'
+        '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
         'upload|approve_cast|approve_environments|skip_environments|approve_scene|lock|unlock|drive_push|'
         'drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
-        '"change":"<for action edits: a concrete instruction; else empty>",'
+        '"change":"<for action edits: a concrete instruction; for remember: the instruction VERBATIM; for '
+        'forget: their reference to which one; else empty>",'
         '"direction":"<for prompt rewrite: the enhancement instruction; else empty>",'
         '"length_min":<int or null>,'
+        '"scope":"channel|video (only meaningful for kind=remember; default channel)",'
         '"answer":"<for read: a specific, friendly answer grounded in what you SAW>",'
         '"reply":"<for action: one friendly sentence; for none: a clarifying question>",'
         '"confidence":<0.0-1.0>}'
@@ -233,7 +235,17 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "surface, op (view|suggest|rewrite), scene/index (use the currently-viewing shot for 'this'), and "
         "direction. SHOW work (kind=show) when they want to SEE the actual pictures/storyboards for a scene "
         "('show me scene 2's boards', 'let me see scene 3's pictures') — NOT the prompt text; give the scene "
-        "(use the currently-viewing one for 'this scene' with no number named).\n\n"
+        "(use the currently-viewing one for 'this scene' with no number named).\n"
+        "REMEMBER work (kind=remember) when they give a STANDING instruction meant to stick across future "
+        "conversations and videos, not just answering this one ask — 'always...', 'never...', 'remember "
+        "that...', 'from now on...'. Put their instruction VERBATIM in change (never paraphrase it). Set "
+        "scope='video' only when it's clearly specific to THIS video; default scope='channel' (they said "
+        "always/never/from now on, or it's a general fact about them/their channel).\n"
+        "FORGET work (kind=forget) when they say 'forget that', 'forget #N', or 'forget the one about...'. Put "
+        "their reference (a number, 'that'/'last', or the closest matching text) in change. If they instead "
+        "ASK what you remember ('what do you remember about me/this channel?'), answer that as kind=read from "
+        "any STANDING PREFERENCES you were given above — don't use kind=remember or kind=forget for a plain "
+        "listing question.\n\n"
         "Each turn, return ONE JSON object and NOTHING else. Either call a tool:\n"
         '  {"tool":"<name>","args":{...}}\n'
         "or decide:\n"

@@ -2646,3 +2646,126 @@ unchanged either direction. No existing field, endpoint, or card shape
 changed, and `_handle_approve`'s create+autobuild plumbing is completely
 untouched (only the plan payload the creator sees before tapping "Make it"
 changed) — auto-deploy safe, ff-merge safe.
+
+## C15c — Director Memory: Durable Preference Store (added 2026-07-18)
+
+Ryan's vision: a correction said once ("the kitten is gray", "never use
+premium models on Poco") becomes a STANDING preference the chat remembers
+across conversations and videos — before this chunk, only the transcript
+persisted, so every correction had to be re-said. Scope kept tight per the
+checklist: store + hydrate + recall, explicit instructions only, no
+auto-learning.
+
+**Database (migration `091_director_preferences.sql`, applied LIVE via
+Supabase MCP against `wrromlupsmyzrrcqlucn`, confirmed via
+`information_schema.columns`):** new table `director_preferences` (`id`,
+`tenant_id` FK, `scope` — the literal `'channel'` or a video_id's text form,
+`text` — the creator's words verbatim, `source` — always `'user'` this
+chunk, `active` bool for soft-delete, `created_at`/`updated_at`), index on
+`(tenant_id, scope, active, created_at DESC)`. RLS enabled, no policies
+(playbook §7 pattern — the backend connects as `postgres`, which bypasses
+RLS; proven safe already for `secrets`/`static_reference_cache`/
+`channel_video_retention`, migration 083). A real table was chosen over
+JSONB-on-`channel_profiles` (the existing `creator_brief` pattern) because
+preferences need to be LISTED individually, DELETED individually, and
+scoped per-video as well as per-channel — a JSONB blob keyed by onboarding
+field names has no row identity for any of that.
+
+**Backend (`storyengine/backend/routes/chat.py`), mirrors the existing
+`_save_creator_brief`/`_hydrate_creator_brief` pattern (fail-soft
+everywhere — a memory DB error never breaks a chat turn):**
+- `_save_preference(tenant_id, text, scope)` — INSERT, verbatim text
+  (trimmed, never paraphrased), fail-soft.
+- `_list_preferences(tenant_id, video_id=None)` — active rows for
+  `scope IN ('channel', <video_id if given>)`, tenant-bound, newest first,
+  capped at `_PREF_CAP=20`, fail-soft `-> []`.
+- `_preferences_brief(tenant_id, video_id=None)` — the additive
+  "STANDING PREFERENCES" system-prompt block both chats hydrate every turn;
+  numbers 1..N newest-first, tags video-scoped rows `(this video only)`,
+  length-capped at `_PREF_BLOCK_MAX_CHARS=3000`, fail-soft `-> ""`.
+- `_deactivate_preference(tenant_id, ref, video_id=None)` — "forget #N" /
+  "forget that" / text match, in order: numeric position (matches the same
+  newest-first numbering hydration shows), exact text, substring, then a
+  generic reference ("that"/"it"/"last"/...) falls back to the single
+  most-recent active preference. Soft-delete only (`UPDATE ... SET
+  active=false`, never `DELETE`). Fail-soft `-> (False, "")`.
+- `_handle_remember_op`/`_handle_forget_op` — the in-video co-pilot's
+  `kind=="remember"`/`kind=="forget"` branches; `remember` defaults
+  `scope='channel'` unless the model explicitly says `scope='video'`
+  (mapped to `str(video_id)`).
+- `_apply_profile_ops` gained `"remember"`/`"forget"` ops for the HOME
+  producer chat (always channel-scoped there — home chat has no single
+  "current video" in scope, unlike the in-video co-pilot).
+- Hydration wired into BOTH system-prompt builders: `chat_turn`'s
+  `system_prompt` build (`+ await _preferences_brief(tenant_id)`, channel-
+  wide only) and `_handle_copilot`'s `summary_with_assets`
+  (`+ await _preferences_brief(tenant_id, video_id)`, channel-wide + this
+  video's own) — this is what flows into `agent_brain.run_copilot_brain`'s
+  system prompt too (it receives `summary_with_assets` as `summary_line`),
+  so the tool-using brain sees the same preferences the fallback classifier
+  does with no separate wiring.
+
+**Classification (both decision paths, kept in sync — same class of drift
+C04's `_resolve_producer_client` guard and C15a/C15b's dual-call-site tests
+protect against):**
+- `agent_brain.py`'s `_decision_schema()` and `run_copilot_brain`'s system
+  prompt gained `kind: "remember"|"forget"` + a `scope` field, with guidance
+  to trigger on "always...", "never...", "remember that...", "from now
+  on..." (verbatim capture, never paraphrased) and to treat a plain "what do
+  you remember?" as `kind=read` answered from the hydrated list, not a
+  remember/forget op.
+- `_handle_copilot`'s inline fallback classifier prompt gained the same
+  vocabulary and instructions, and its JSON schema line now reads
+  `"kind":"read|action|prompt|show|remember|forget"` (two C15b tests that
+  exact-matched the old 4-value enum were updated to the new 6-value one —
+  same vocabulary check, not a behavior change).
+- `producer_prompt.py`'s `PRODUCER_SYSTEM_PROMPT` gained matching
+  `remember`/`forget` op documentation (WORD FOR WORD capture) plus
+  instructions to answer "what do you remember" from the "STANDING
+  PREFERENCES" block directly, not via an op.
+
+**Deferred to `tasks/live-verification-queue.md` §C15c:** a real
+conversational round-trip — say a standing instruction, confirm the
+"Got it — I'll remember: ..." reply, start a FRESH conversation, confirm the
+producer/co-pilot still honors it, then "forget that" and confirm it stops
+hydrating (no paid key needed for this, but it does need a live LLM call
+this sandbox can't make).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/091_director_preferences.sql` | New `director_preferences` table + index + RLS-enabled-no-policies |
+| `storyengine/backend/tests/functional/test_c15c_director_memory.py` | 38 tests: save/list/hydrate/forget helpers (verbatim, scoping, cap, fail-soft), the two op handlers, both chat system-prompt call sites (source-locked), both decision schemas' vocabulary, and the home producer's `remember`/`forget` profile_ops |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/schema.sql` | New `director_preferences` table definition, matching the live migration |
+| `storyengine/backend/routes/chat.py` | New `_save_preference`/`_list_preferences`/`_preferences_brief`/`_deactivate_preference`/`_handle_remember_op`/`_handle_forget_op`; `_apply_profile_ops` gained `remember`/`forget`; both system-prompt builders (`chat_turn`, `_handle_copilot`) hydrate the preferences brief; `_handle_copilot` dispatches `kind=="remember"`/`"forget"`; fallback classifier prompt + JSON schema gained the vocabulary |
+| `storyengine/backend/agent_brain.py` | `_decision_schema()` and `run_copilot_brain`'s system prompt gained `remember`/`forget` + `scope` field and classification guidance |
+| `storyengine/backend/producer_prompt.py` | `PRODUCER_SYSTEM_PROMPT` gained `remember`/`forget` op documentation + profile_ops schema entries |
+| `storyengine/backend/tests/functional/test_c15b_show_and_approve_scene.py` | Two exact-match assertions updated from the 4-value `kind` enum to the new 6-value one (vocabulary check only, not a behavior change) |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c15c_director_memory.py -q` — 38 passed. Confirmed
+non-vacuous via `git stash` on the four modified `.py` files (the new test
+file and migration are untracked, unaffected by the stash) — all 38 fail
+against the pre-C15c source (missing functions/attributes and vocabulary).
+Full backend suite: 907 passed (869 baseline + 38 new) / 16 pre-existing
+failures (identical file list to C15a/C15b) / 1 pre-existing error — zero
+new failures. `python -m py_compile` clean on all four touched `.py` files
+plus both test files. Frontend untouched — no `tsc`/`build` run (chat text
+is the UI this chunk; a future Settings page to list/manage preferences is
+noted here as a follow-up, not built).
+
+**Deploy-safety note:** additive only. New table, no existing table/column
+touched. Both system-prompt builders only ever ADD the preferences block
+(empty string when there's nothing to hydrate, or on any DB error) — old
+behavior is exactly preserved for every tenant with zero preferences saved.
+New backend + old frontend: no frontend change exists to be out of sync
+with (chat text only). Old backend + new... n/a, nothing shipped frontend-
+side. `kind=="remember"`/`"forget"` are new decision values the model only
+emits when it recognizes the new vocabulary in its own (also-updated)
+system prompt, so an old-prompt/new-code mismatch can't happen — the prompt
+and the dispatch code ship together in this one chunk. Auto-deploy safe,
+ff-merge safe.

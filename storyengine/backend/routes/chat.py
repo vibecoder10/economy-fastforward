@@ -891,7 +891,11 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # Files the creator has dropped into this video's co-pilot (chat_assets rows
     # bound to this conversation) — folded into the summary so the copilot can
     # reference them ("use the reference I dropped", "that image I attached").
-    summary_with_assets = _summary_line(summary) + await _assets_brief(tenant_id, state)
+    summary_with_assets = (
+        _summary_line(summary)
+        + await _assets_brief(tenant_id, state)
+        + await _preferences_brief(tenant_id, video_id)
+    )
 
     prompt = (
         "You are the in-app co-pilot for ONE video. The creator can (a) ASK a question, (b) tell you to RUN a "
@@ -937,18 +941,29 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "'show me scene 2's boards', 'let me see scene 3's pictures', 'what does scene 1 look like' — NOT the "
         "prompt text (that's kind=prompt above). Give the scene (use the 'currently viewing' one for 'this "
         "scene'/'these' with no number named).\n"
+        "REMEMBER work (kind=remember) when they give a STANDING instruction meant to stick across future "
+        "conversations and videos, not just this one ask — 'always...', 'never...', 'remember that...', 'from "
+        "now on...'. Put their instruction VERBATIM in change (do not paraphrase). Set scope='video' only when "
+        "it's clearly specific to THIS video; default scope='channel' (e.g. they said always/never/from now "
+        "on, or it's a general fact about them/their channel).\n"
+        "FORGET work (kind=forget) when they say 'forget that', 'forget #N', 'forget the one about...', or ask "
+        "'what do you remember (about me/this channel)?'. For an ask-to-list, answer directly from the STANDING "
+        "PREFERENCES list above (if present) as kind=read instead. For an actual forget, put their reference "
+        "(a number, 'that'/'last', or the closest matching text) in change.\n"
         "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
         "Return ONE JSON object and nothing else:\n"
-        '{"kind":"read|action|prompt|show",'
+        '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
         'upload|approve_cast|approve_environments|skip_environments|approve_scene|lock|unlock|drive_push|'
         'drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'
-        '"change":"<for action edits: a concrete instruction; else empty>",'
+        '"change":"<for action edits: a concrete instruction; for remember: the instruction VERBATIM; for '
+        'forget: their reference to which one; else empty>",'
         '"direction":"<for prompt rewrite: the enhancement instruction; else empty>",'
         '"length_min":<int or null>,'
+        '"scope":"channel|video (only meaningful for kind=remember; default channel)",'
         '"answer":"<for read: a friendly, specific 1-2 sentence answer using the numbers>",'
         '"reply":"<for action: one friendly sentence; for none: a clarifying question>",'
         '"confidence":<0.0-1.0>}'
@@ -990,6 +1005,13 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # --- C15b: show the actual storyboards/keyframes for a scene, inline ---
     if kind == "show":
         return await _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply)
+
+    # --- C15c: director memory — a standing instruction becomes a durable
+    # preference; "forget" deactivates one. Free, no confirm needed. ---
+    if kind == "remember":
+        return await _handle_remember_op(tenant_id, video_id, data, _reply)
+    if kind == "forget":
+        return await _handle_forget_op(tenant_id, video_id, data, _reply)
 
     # --- read: answer immediately, no spend ---
     if kind == "read" or verb == "none":
@@ -2057,6 +2079,22 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                 bits = "; ".join(f"{k}: {v}" for k, v in fmt.items() if v)
                 extra = f" New videos default to the {preset} look." if preset else ""
                 results.append(f"Locked your channel format ({bits}).{extra} Every build shapes itself to it.")
+            elif kind == "remember":
+                # value: the standing instruction, verbatim. Home chat has no
+                # single "current video" in scope, so every remember here is
+                # channel-wide (video scoping only happens in the in-video
+                # co-pilot — see _handle_copilot's kind=="remember" branch).
+                if not val:
+                    results.append("What would you like me to remember?")
+                    continue
+                await _save_preference(tenant_id, val, scope=_PREF_SCOPE_CHANNEL)
+                results.append(f"Got it — I'll remember: {val}. Say \"forget that\" any time to undo it.")
+            elif kind == "forget":
+                ok, matched = await _deactivate_preference(tenant_id, val, video_id=None)
+                if ok:
+                    results.append(f"Forgot it — I'll no longer remember: {matched}.")
+                else:
+                    results.append("I couldn't find a matching preference to forget — which one did you mean?")
             elif kind in _PROFILE_FIELD_COLS:
                 if not val:
                     continue
@@ -2159,6 +2197,153 @@ async def _hydrate_creator_brief(tenant_id, state) -> None:
     for k, v in _as_dict((row or {}).get("creator_brief")).items():
         if v and not state.get(k):
             state[k] = v
+
+
+# --- Director memory: durable preference store (C15c) -----------------------
+#
+# A correction said once ("the kitten is gray", "never use premium models on
+# Poco") becomes a STANDING preference remembered across FUTURE conversations
+# and videos, instead of forcing the creator to re-say it every time. Explicit
+# instructions ONLY — written when the producer/copilot detects a standing
+# instruction ("always...", "never...", "remember that...", "from now on...")
+# and emits a remember/forget op; no auto-learning beyond that. See
+# migrations/091_director_preferences.sql. Mirrors the _save_creator_brief /
+# _hydrate_creator_brief pattern above: fail-soft everywhere, never breaks a
+# chat turn on a DB error.
+
+_PREF_SCOPE_CHANNEL = "channel"
+_PREF_CAP = 20              # most-recent preferences hydrated into the prompt
+_PREF_BLOCK_MAX_CHARS = 3000  # hard cap so the prompt can't bloat unboundedly
+_PREF_GENERIC_REFS = {"", "that", "it", "last", "this", "the last one", "the last thing", "that one"}
+
+
+async def _save_preference(tenant_id, text: str, scope: str = _PREF_SCOPE_CHANNEL) -> None:
+    """Persist a standing preference VERBATIM (never paraphrased/summarized —
+    the creator's exact words are the instruction). Fail-soft."""
+    text = (text or "").strip()
+    if not text:
+        return
+    try:
+        await execute(
+            "INSERT INTO director_preferences (tenant_id, scope, text, source) "
+            "VALUES ($1, $2, $3, 'user')",
+            tenant_id, (scope or _PREF_SCOPE_CHANNEL), text,
+        )
+    except Exception as e:  # noqa: BLE001 — memory is best-effort, never block a turn
+        logger.warning("chat: save preference failed: %s", e)
+
+
+async def _list_preferences(tenant_id, video_id=None) -> list[dict]:
+    """Active preferences for this tenant: channel-wide always, plus this
+    video's own when video_id is given (never another tenant's, never
+    another video's). Newest first, capped at _PREF_CAP. Fail-soft -> []."""
+    scopes = [_PREF_SCOPE_CHANNEL]
+    if video_id:
+        scopes.append(str(video_id))
+    try:
+        rows = await fetch_all(
+            "SELECT id, scope, text, created_at FROM director_preferences "
+            "WHERE tenant_id = $1 AND active = true AND scope = ANY($2::text[]) "
+            "ORDER BY created_at DESC LIMIT $3",
+            tenant_id, scopes, _PREF_CAP,
+        )
+        return rows or []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: list preferences failed: %s", e)
+        return []
+
+
+async def _preferences_brief(tenant_id, video_id=None) -> str:
+    """The additive system-prompt block BOTH chats hydrate every turn (the
+    home producer gets the channel-wide list; the in-video co-pilot gets
+    channel-wide + this video's own). Capped + length-limited so it can't
+    bloat the prompt unboundedly. Fail-soft -> '' (never breaks a chat turn)."""
+    rows = await _list_preferences(tenant_id, video_id)
+    if not rows:
+        return ""
+    lines = []
+    for i, r in enumerate(rows, 1):
+        tag = " (this video only)" if video_id and r.get("scope") == str(video_id) else ""
+        lines.append(f"{i}. {r['text']}{tag}")
+    block = "\n".join(lines)
+    if len(block) > _PREF_BLOCK_MAX_CHARS:
+        block = block[:_PREF_BLOCK_MAX_CHARS].rsplit("\n", 1)[0]
+    return (
+        "\n\nSTANDING PREFERENCES (obey unless the creator overrides this turn; "
+        "these came from explicit corrections/instructions, not a guess):\n" + block
+    )
+
+
+async def _deactivate_preference(tenant_id, ref: str, video_id=None) -> tuple[bool, str]:
+    """'forget that' / 'forget #N' / 'forget <text>' -> deactivate ONE matching
+    active preference (soft-delete: active=false, never a hard DELETE). Scoped
+    to the same channel+video group hydration uses. Matching, in order:
+      1. "#N" / a bare number -> position N in the same newest-first order
+         hydration numbers them in (matches what the creator was just shown).
+      2. exact case-insensitive text match.
+      3. case-insensitive substring match (either direction).
+      4. empty or a generic reference ("that"/"it"/"last"/...) -> the single
+         most-recently-created active preference.
+    Returns (True, the deactivated text) or (False, "") if nothing matched."""
+    rows = await _list_preferences(tenant_id, video_id)
+    if not rows:
+        return False, ""
+    ref_norm = (ref or "").strip().lower()
+    ref_num = ref_norm.lstrip("#").strip()
+    match = None
+    if ref_num.isdigit():
+        idx = int(ref_num) - 1
+        if 0 <= idx < len(rows):
+            match = rows[idx]
+    if match is None and ref_norm and ref_norm not in _PREF_GENERIC_REFS:
+        for r in rows:
+            if r["text"].strip().lower() == ref_norm:
+                match = r
+                break
+        if match is None:
+            for r in rows:
+                low = r["text"].strip().lower()
+                if ref_norm in low or low in ref_norm:
+                    match = r
+                    break
+    if match is None and (not ref_norm or ref_norm in _PREF_GENERIC_REFS):
+        match = rows[0]  # newest first
+    if match is None:
+        return False, ""
+    try:
+        await execute(
+            "UPDATE director_preferences SET active = false, updated_at = now() "
+            "WHERE id = $1 AND tenant_id = $2",
+            match["id"], tenant_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: forget preference failed: %s", e)
+        return False, ""
+    return True, match["text"]
+
+
+async def _handle_remember_op(tenant_id, video_id, data, _reply):
+    """The in-video co-pilot's kind=="remember" branch: save the creator's
+    standing instruction verbatim, scoped channel-wide unless they clearly
+    meant just this video."""
+    text = (data.get("change") or "").strip()
+    if not text:
+        return await _reply("What would you like me to remember?")
+    scope_choice = (data.get("scope") or "channel").strip().lower()
+    scope = str(video_id) if scope_choice == "video" else _PREF_SCOPE_CHANNEL
+    await _save_preference(tenant_id, text, scope=scope)
+    where = "for this video" if scope != _PREF_SCOPE_CHANNEL else "channel-wide"
+    return await _reply(f"Got it — I'll remember ({where}): {text}. Say \"forget that\" any time to undo it.")
+
+
+async def _handle_forget_op(tenant_id, video_id, data, _reply):
+    """The in-video co-pilot's kind=="forget" branch: deactivate one matching
+    preference (channel-wide or this video's own), soft-delete only."""
+    ref = (data.get("change") or "").strip()
+    ok, matched = await _deactivate_preference(tenant_id, ref, video_id=video_id)
+    if ok:
+        return await _reply(f"Forgot it — I'll no longer remember: {matched}.")
+    return await _reply("I couldn't find a matching preference to forget — which one did you mean?")
 
 
 # --- Channel intelligence brief (Phase 2) ----------------------------------
@@ -3484,6 +3669,7 @@ async def chat_turn(
         + await _format_brief(tenant_id)
         + await _script_template_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
+        + await _preferences_brief(tenant_id)
     )
     data = call_producer(transcript, system_prompt, client=client)
     await _stamp_length_default(data, tenant_id)

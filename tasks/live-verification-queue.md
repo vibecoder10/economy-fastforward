@@ -434,6 +434,72 @@ video with real pictures:
 
 ---
 
+## C15c — director memory: durable preference store · live conversational round-trip check
+Checklist §Phase 1 (Ryan's "a correction said once becomes standing"
+vision, 2026-07-18). New `director_preferences` table (migration
+`091_director_preferences.sql`, applied live via Supabase MCP, confirmed via
+`information_schema.columns`), new `remember`/`forget` vocabulary in both
+decision schemas (`agent_brain.py`'s tool-loop brain + `routes/chat.py`'s
+fallback classifier for the in-video co-pilot, `producer_prompt.py`'s
+`profile_ops` for the home producer), and a new "STANDING PREFERENCES"
+hydration block in both chats' system prompts. All covered at the unit
+level (38 tests in `test_c15c_director_memory.py`, confirmed non-vacuous
+via `git stash`) — no live LLM call classified a real standing instruction
+in that pass (no paid Anthropic/Kie key in this sandbox). What's NOT
+provable without a real conversation:
+- [ ] **Local E2E boot** (same recipe as C14/C15/C15a/C15b's entries above):
+      source prod `storyengine/.env`, `DEV_MODE=true DEV_TOKEN=<random>
+      DEV_TENANT_ID=<disposable tenant>`, uvicorn on :8002,
+      `NEXT_PUBLIC_API_URL=http://127.0.0.1:8002 npm run dev -- --port 3002`.
+- [ ] **Home producer chat:** say something with clear standing-instruction
+      phrasing — e.g. "never use premium models on Poco" or "from now on,
+      always suggest the watercolor look first." Confirm the reply reads
+      like "Got it — I'll remember: ... Say 'forget that' any time to undo
+      it," then verify directly in the DB (`se db "SELECT scope, text,
+      active FROM director_preferences WHERE tenant_id='<id>' ORDER BY
+      created_at DESC LIMIT 5"`) that a row landed with `scope='channel'`
+      and `text` matching the creator's words VERBATIM (not paraphrased).
+- [ ] **Fresh conversation, same tenant:** start a brand-new home chat
+      conversation (not a continuation) and ask something the remembered
+      preference would affect (e.g. ask for a Poco video and see if it
+      avoids premium models, or ask a general question and see if the
+      watercolor look gets suggested first). Confirm the preference is
+      honored WITHOUT re-stating it — this is the actual "said once,
+      remembered forever" proof, not just the DB row existing.
+- [ ] **"What do you remember?"** in that fresh conversation: confirm the
+      reply lists the preference(s) in plain English (numbered), sourced
+      from the live table, not a hallucinated answer.
+- [ ] **In-video co-pilot, video-scoped:** open a specific video's co-pilot
+      and say something clearly about THIS video only (e.g. "the kitten in
+      this video is gray, not orange"). Confirm the confirmation reply says
+      "for this video" (not "channel-wide"), then verify the DB row's
+      `scope` column holds that video's UUID, not `'channel'`. Open a
+      DIFFERENT video's co-pilot and confirm that preference is NOT
+      mentioned/honored there (proves the scoping actually isolates).
+- [ ] **"Forget that":** in the same conversation, say "forget that" (or
+      "forget #1" if multiple were listed). Confirm the reply names what
+      was removed, then verify in the DB that the row's `active` flipped to
+      `false` — NOT deleted (`SELECT active FROM director_preferences WHERE
+      id='<id>'` should still return the row). Ask "what do you remember?"
+      again and confirm that preference no longer appears.
+- [ ] **Agent-brain path:** repeat the remember/forget turns above with a
+      real Anthropic/Kie key configured so `run_copilot_brain` actually
+      runs (in-video co-pilot) instead of falling back to the one-shot
+      classifier — confirm `kind="remember"`/`kind="forget"` are reachable
+      through THAT path too, not just the fallback classifier the unit
+      tests exercise directly.
+- **Cost:** free — remember/forget/list are all free, no-confirm-card paths;
+  this chunk introduces zero new paid work.
+- **Safety net:** `_save_preference`/`_deactivate_preference` are the only
+  writes, both already unit-tested for exact query shape and bound params
+  (`_deactivate_preference` soft-deletes only, never `DELETE`). The
+  hydration block and `remember`/`forget` vocabulary are additive — a stale
+  frontend needs no changes (chat text is the UI), and a tenant with zero
+  saved preferences sees byte-identical prompts to pre-C15c (`_preferences_
+  brief` returns `""` when there's nothing to hydrate).
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool
