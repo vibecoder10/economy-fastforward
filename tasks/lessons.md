@@ -503,3 +503,15 @@ _After each session, add a one-line summary of what was done and any new lessons
 ### Subagent model tiers: premium for brains, Sonnet for hands (2026-07-17)
 - Fan-out subagents (codebase exploration, search sweeps, web research, mechanical edits) inherit the SESSION model when no override is passed — a premium-model session silently makes every fan-out premium. A 4-agent repo exploration + 28-agent research workflow all ran on the top tier when Sonnet would have produced the same file-reading output.
 - Standing policy (now in CLAUDE.md → Subagent Strategy): premium model for the main loop only (orchestration, architecture, verification, final synthesis); pass `model: "sonnet"` on every Agent call and `{model: 'sonnet'}` in workflow `agent()` opts for all hands-work. Escalate a subagent to premium only when the subtask itself needs deep reasoning, and say so.
+
+## 2026-07-18 — Stub-driven tests can mask missing SELECT columns (caught in C16b)
+C13b added `render_style`/`video_model_id` references at `generate_coverage_for_video`'s
+`run_coverage()` call site but never added the columns to `v`'s SELECT — a NameError on every
+real invocation. All tests stayed green because they exercised sub-functions with stubbed rows
+carrying extra keys; nothing drove the real function end-to-end. The per-scene try/except then
+turned the crash into silent "Scene N: errored — moving on" (fail-before-spend, so no billing,
+but the paid image stage produced nothing). RULE for orchestrator briefs: when a chunk adds a
+new column reference to any function that reads DB rows, the worker must (a) quote the updated
+SELECT list in its report and (b) add at least one test that drives the REAL function with a row
+shaped exactly by that SELECT (no extra stub keys). Orchestrator review should grep the SELECT
+whenever a report says "threaded a new field through."
