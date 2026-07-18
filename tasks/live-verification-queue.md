@@ -65,6 +65,73 @@ NOT provable without a live paid clip:
 
 ---
 
+## C08 — ledger writes on images/voice/thumbnail/sound · live per-stage spend check
+Checklist §0.3b. Extends C07's `generation_ledger`/`record_ledger_entry()`
+(unchanged) to the 4 remaining paid stages, 9 call sites total: `store_scene`/
+`redraw_asset_image`/`run_images`/`run_image_variants` (stage="image",
+`actions.PICTURE_COST`=0.08/unit); `run_voice` (stage="voice",
+`actions.VOICE_COST_ESTIMATE`=0.30 flat per run); `run_thumbnail`'s 3
+completion paths + `_run_channel_formula_thumbnail` (stage="thumbnail",
+`actions.THUMBNAIL_COST`=0.10 flat); `run_sound_effects` (stage="sound",
+`SoundClient.ESTIMATED_COST_PER_GENERATION`=0.05/unit — the real per-
+generation number `sound_bot.py` already computes, reused as-is). Proven
+in-sandbox: 6 new unit tests (12 total with C07's) against the same
+in-memory fake `database.execute` — one per stage confirming it writes with
+the right `stage` tag and imports the REAL price constant (not a re-typed
+literal, so drift in `actions.py`/`SoundClient` breaks the test too); one
+proving all 5 stages (clip + the 4 new) sum into `total_cost` without
+double-counting; one confirming C07's fail-soft guarantee holds identically
+for every new stage — `tests/functional/test_generation_ledger.py`. No paid
+Kie/ElevenLabs key in the build sandbox, so no real generation → ledger row
+round trip was run for any of the 4 stages. What's NOT provable without live
+paid generation:
+- [ ] **Images — bulk coverage:** on a test video with a scripted scene,
+      tap "Generate the pictures" (coverage path). Confirm one
+      `generation_ledger` row per scene appears: `se db "SELECT stage,
+      model, units, unit_cost, actual_cost FROM generation_ledger WHERE
+      video_id='<test-vid>' AND stage='image' ORDER BY created_at DESC"` →
+      `units` should equal that scene's frame count, `unit_cost=0.08`,
+      `actual_cost = units * 0.08`.
+- [ ] **Images — single redraw:** tap "Redraw" on one picture. Confirm a
+      second `stage='image'` row with `units=1`, `actual_cost=0.08`.
+- [ ] **Images — variant regen** (if reachable from the current UI):
+      generate 3 variants for one shot; confirm `units=3`,
+      `actual_cost=0.24`.
+- [ ] **Voice:** tap "Generate the voiceover". Confirm one `stage='voice'`
+      row, `unit_cost=actual_cost=0.30`, regardless of scene count (known
+      flat-estimate limitation — see SYSTEM_STATE.md §C08 price-sourcing
+      note; C09 may replace this with a real per-char ElevenLabs figure).
+- [ ] **Thumbnail:** tap "Redo the thumbnail" (whichever of the 3 paths
+      fires — modeled/channel-formula/from-scratch, check the activity feed
+      message to know which). Confirm one `stage='thumbnail'` row,
+      `unit_cost=actual_cost=0.10`.
+- [ ] **Sound:** run "Add sound" through to sound effects. Confirm one
+      `stage='sound'` row, `unit_cost=0.05`, `units` = the number of sound
+      effects actually generated (check against the activity-feed message
+      "Generated N sound effects").
+- [ ] **`videos.total_cost` sums across ALL stages on one video:** after
+      running clip (C07) + image + voice + thumbnail + sound on the same
+      test video, `se db "SELECT total_cost FROM videos WHERE
+      id='<test-vid>'"` should equal the straight sum of every
+      `generation_ledger` row's `actual_cost` for that video, across all 5
+      distinct `stage` values — `se db "SELECT stage, SUM(actual_cost) FROM
+      generation_ledger WHERE video_id='<test-vid>' GROUP BY stage"` to
+      check per-stage subtotals against the total.
+- [ ] **Backend log check (fail-soft, best-effort):** confirm no
+      `[generation_ledger] write/rollup failed` lines for any of the 4
+      stages during this run.
+- **Cost:** ~$0.30-1.00 total for a small test video across all 4 stages
+  (coverage for 1-2 scenes, one voice run, one thumbnail, a few sound
+  effects). Get a cost quote + explicit yes before triggering, per
+  storyengine/CLAUDE.md.
+- **Safety net:** every write goes through C07's existing
+  `record_ledger_entry()` try/except (fail-soft, unchanged by C08) — a
+  ledger failure on any of these 4 stages cannot fail or roll back the
+  generation itself; worst case is a completed asset that didn't get billed
+  to the ledger.
+
+---
+
 ## C06 — Research-skipped transparency chip · live tap-test
 Checklist §0.5. `actions.make_autobuild_step` records `videos.research_skipped
 = TRUE` when the default autobuild skips research for a non-`static_docu`

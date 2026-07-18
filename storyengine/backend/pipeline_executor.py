@@ -11564,6 +11564,26 @@ separate scenes."""
             await self._install_cancel_support(video_id)
             result = await self._pipeline.run_voice_bot()
 
+            # generation_ledger (checklist §0.3b / C08): one row per run_voice()
+            # call that actually synthesized something, whether it finished or
+            # was stopped mid-way — audio already generated already cost money.
+            # unit_cost/actual_cost reuse actions.VOICE_COST_ESTIMATE (the SAME
+            # flat number the confirm card already quotes for the "voice" verb)
+            # rather than inventing a per-scene/per-char rate — ElevenLabs has
+            # no per-call cost figure surfaced here to derive one from; full
+            # metered pricing is C09's job. record_ledger_entry() is fail-soft.
+            if result.get("voice_count", 0) > 0:
+                from actions import VOICE_COST_ESTIMATE
+                await record_ledger_entry(
+                    tenant_id=self.tenant_id,
+                    video_id=video_id,
+                    stage="voice",
+                    model="elevenlabs",
+                    units=1,
+                    unit_cost=VOICE_COST_ESTIMATE,
+                    actual_cost=VOICE_COST_ESTIMATE,
+                )
+
             if result.get("cancelled"):
                 kept = result.get("voice_count", 0)
                 msg = f"Stopped — kept {kept} completed voice track(s). Run Voice again to resume."
@@ -13649,6 +13669,23 @@ separate scenes."""
             self._pipeline.scene_filter = None
             self._pipeline.image_filter = None
 
+            # generation_ledger (checklist §0.3b / C08): whatever generated
+            # already cost money, whether the run finished, was stopped mid-way
+            # (cancelled), or errored partway through — written before those
+            # branches so no completed image's spend is lost. Reuses
+            # actions.PICTURE_COST, the same constant store_scene()/
+            # redraw_asset_image() use for the coverage path (this is the
+            # OTHER live image path: targeted re-runs + the "remake visuals"
+            # followup-edit flow via FOLLOWUP_STAGES).
+            img_count = result.get("image_count", 0)
+            if img_count > 0:
+                from actions import PICTURE_COST
+                await record_ledger_entry(
+                    tenant_id=self.tenant_id, video_id=video_id, stage="image",
+                    model=None, units=img_count, unit_cost=PICTURE_COST,
+                    actual_cost=round(img_count * PICTURE_COST, 2),
+                )
+
             if result.get("cancelled"):
                 kept = result.get("image_count", 0)
                 await self._persist_asset_urls(video_id)
@@ -13812,6 +13849,14 @@ separate scenes."""
                 "completed",
                 f"Generated {created} variant(s) for scene {scene} image {index}",
             )
+            # generation_ledger (checklist §0.3b / C08): same actions.PICTURE_COST
+            # reuse as the other image-stage call sites.
+            from actions import PICTURE_COST
+            await record_ledger_entry(
+                tenant_id=self.tenant_id, video_id=video_id, stage="image",
+                model=model_used, units=created, unit_cost=PICTURE_COST,
+                actual_cost=round(created * PICTURE_COST, 2),
+            )
             return {"status": video.get("status"), "video_id": video_id, "variants_created": created}
 
         except Exception as e:
@@ -13874,6 +13919,29 @@ separate scenes."""
             self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_sound_bot()
+
+            # generation_ledger (checklist §0.3b / C08): one row per run, sized
+            # to what actually generated. Reuses SoundClient's OWN existing
+            # per-generation price (shared/clients/sound_client.py
+            # ESTIMATED_COST_PER_GENERATION) rather than actions.py's separate
+            # flat SOUND_COST_ESTIMATE — sound_bot.py already multiplies it out
+            # into result["estimated_cost"] for the Slack notification above,
+            # so this is the SAME number, not a new one. Fail-soft internally.
+            total_generated = result.get("total_generated", 0)
+            if total_generated > 0:
+                from shared.clients.sound_client import SoundClient
+                await record_ledger_entry(
+                    tenant_id=self.tenant_id,
+                    video_id=video_id,
+                    stage="sound",
+                    model=SoundClient.MODEL,
+                    units=total_generated,
+                    unit_cost=SoundClient.ESTIMATED_COST_PER_GENERATION,
+                    actual_cost=result.get(
+                        "estimated_cost",
+                        round(total_generated * SoundClient.ESTIMATED_COST_PER_GENERATION, 2),
+                    ),
+                )
 
             if result.get("error"):
                 raise Exception(result["error"])
@@ -14121,6 +14189,14 @@ separate scenes."""
         await self._log_activity(
             bot_name, video_id, "completed",
             "Thumbnail modeled from the channel's own formula")
+        # generation_ledger (checklist §0.3b / C08): reuses actions.THUMBNAIL_COST,
+        # the same flat number the confirm card quotes for the "thumbnail" verb.
+        from actions import THUMBNAIL_COST
+        await record_ledger_entry(
+            tenant_id=self.tenant_id, video_id=video_id, stage="thumbnail",
+            model="gpt-image-2", units=1, unit_cost=THUMBNAIL_COST,
+            actual_cost=THUMBNAIL_COST,
+        )
         return {"status": "completed", "video_id": video_id,
                 "thumbnail_url": durable}
 
@@ -14427,6 +14503,14 @@ separate scenes."""
                 )
                 await self._log_activity(bot_name, video_id, "completed",
                                          "Thumbnail modeled from reference")
+                # generation_ledger (checklist §0.3b / C08): same reuse as the
+                # channel-formula path above — actions.THUMBNAIL_COST.
+                from actions import THUMBNAIL_COST
+                await record_ledger_entry(
+                    tenant_id=self.tenant_id, video_id=video_id, stage="thumbnail",
+                    model="gpt-image-2", units=1, unit_cost=THUMBNAIL_COST,
+                    actual_cost=THUMBNAIL_COST,
+                )
                 return {"status": "completed", "video_id": video_id,
                         "thumbnail_url": durable}
 
@@ -14480,6 +14564,16 @@ separate scenes."""
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
             await self._log_activity(bot_name, video_id, "completed", "Thumbnail generated")
+            # generation_ledger (checklist §0.3b / C08): same actions.THUMBNAIL_COST
+            # reuse as the modeled/channel-formula paths above (mutually exclusive
+            # branches — only one of the three thumbnail paths runs per call, so
+            # no double-count risk between them).
+            from actions import THUMBNAIL_COST
+            await record_ledger_entry(
+                tenant_id=self.tenant_id, video_id=video_id, stage="thumbnail",
+                model=None, units=1, unit_cost=THUMBNAIL_COST,
+                actual_cost=THUMBNAIL_COST,
+            )
 
             return {"status": to_supabase(new_status), "video_id": video_id}
 

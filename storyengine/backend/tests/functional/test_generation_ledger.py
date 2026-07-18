@@ -18,7 +18,9 @@ import sys
 import types
 
 _BACKEND = os.path.join(os.path.dirname(__file__), "..", "..")
+_PIPELINE_PATH = os.path.join(_BACKEND, "..", "..", "skills", "video-pipeline")
 sys.path.insert(0, _BACKEND)
+sys.path.insert(0, _PIPELINE_PATH)  # shared.clients.sound_client (C08 price source)
 
 
 # --- in-memory fake `database` module (generation_ledger.py imports
@@ -57,9 +59,24 @@ def _stub(name, **attrs):
     sys.modules[name] = mod
 
 
-_stub("database", execute=_fake_execute)
+async def _fake_fetch_one(query: str, *args):
+    return None
+
+
+# `fetch_one` isn't used by generation_ledger.py itself, but actions.py (the
+# C08 price-constant source below) does `from database import execute,
+# fetch_one` at module load — must be present on the fake or that import
+# 500s before it reaches anything this file cares about.
+_stub("database", execute=_fake_execute, fetch_one=_fake_fetch_one)
 
 import generation_ledger  # noqa: E402
+
+# C08 (checklist §0.3b): the four remaining paid-generation call sites
+# (images, voice, thumbnail, sound) each reuse an EXISTING price constant
+# rather than a new hardcoded number — import the real ones so a drift in
+# actions.py/SoundClient is caught here too, not just re-typed as a literal.
+from actions import PICTURE_COST, VOICE_COST_ESTIMATE, THUMBNAIL_COST  # noqa: E402
+from shared.clients.sound_client import SoundClient  # noqa: E402
 
 
 def _reset():
@@ -187,6 +204,127 @@ def test_kie_task_id_defaults_to_none_when_not_captured():
     print("✅ test_kie_task_id_defaults_to_none_when_not_captured")
 
 
+# --- C08 (checklist §0.3b): the other four paid-generation stages ----------
+# generation_ledger.record_ledger_entry() itself doesn't branch on `stage` —
+# the tests above already lock its write/rollup/fail-soft behavior generically.
+# What's new in C08 is the four call sites (images, voice, thumbnail, sound)
+# each write with the RIGHT stage tag and the RIGHT existing price constant
+# (not a new invented number) — these tests pin that.
+
+def test_image_stage_row_uses_picture_cost_from_actions():
+    """store_scene()/redraw_asset_image()/run_images()/run_image_variants()
+    (scripts/coverage_to_app.py, pipeline_executor.py) all price with
+    actions.PICTURE_COST — the SAME constant actions.estimate_cost() already
+    quotes for the 'images' verb, not a second copy."""
+    _reset()
+    n = 4  # e.g. a 4-frame store_scene() batch
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="image",
+        model="gpt-image-2", units=n, unit_cost=PICTURE_COST,
+        actual_cost=round(n * PICTURE_COST, 2),
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["stage"] == "image"
+    assert row["unit_cost"] == PICTURE_COST == 0.08
+    assert row["actual_cost"] == round(n * PICTURE_COST, 2)
+    assert VIDEOS["video-1"]["total_cost"] == round(n * PICTURE_COST, 2)
+    print("✅ test_image_stage_row_uses_picture_cost_from_actions")
+
+
+def test_voice_stage_row_uses_voice_cost_estimate_from_actions():
+    """run_voice() prices with actions.VOICE_COST_ESTIMATE — the same flat
+    number the confirm card already quotes for the 'voice' verb."""
+    _reset()
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="voice",
+        model="elevenlabs", units=1, unit_cost=VOICE_COST_ESTIMATE,
+        actual_cost=VOICE_COST_ESTIMATE,
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["stage"] == "voice"
+    assert row["unit_cost"] == VOICE_COST_ESTIMATE == 0.30
+    assert VIDEOS["video-1"]["total_cost"] == VOICE_COST_ESTIMATE
+    print("✅ test_voice_stage_row_uses_voice_cost_estimate_from_actions")
+
+
+def test_thumbnail_stage_row_uses_thumbnail_cost_from_actions():
+    """run_thumbnail() (all 3 completion paths — modeled/channel-formula/
+    from-scratch) prices with actions.THUMBNAIL_COST."""
+    _reset()
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="thumbnail",
+        model="gpt-image-2", units=1, unit_cost=THUMBNAIL_COST,
+        actual_cost=THUMBNAIL_COST,
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["stage"] == "thumbnail"
+    assert row["unit_cost"] == THUMBNAIL_COST == 0.10
+    print("✅ test_thumbnail_stage_row_uses_thumbnail_cost_from_actions")
+
+
+def test_sound_stage_row_uses_sound_client_generation_price():
+    """run_sound_effects() prices with SoundClient.ESTIMATED_COST_PER_GENERATION
+    (the real per-generation figure sound_bot.py already computes into
+    result['estimated_cost']) — NOT actions.SOUND_COST_ESTIMATE (that flat
+    number prices the whole 'sound' verb's confirm-card quote, a coarser
+    estimate than the per-clip figure the bot itself already tracks)."""
+    _reset()
+    total_generated = 6
+    unit_cost = SoundClient.ESTIMATED_COST_PER_GENERATION
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="sound",
+        model=SoundClient.MODEL, units=total_generated, unit_cost=unit_cost,
+        actual_cost=round(total_generated * unit_cost, 2),
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["stage"] == "sound"
+    assert unit_cost == 0.05
+    assert row["actual_cost"] == round(total_generated * unit_cost, 2) == 0.30
+    print("✅ test_sound_stage_row_uses_sound_client_generation_price")
+
+
+def test_all_five_stages_sum_without_double_counting():
+    """The point of the whole ledger (C07+C08 together): a video that spent
+    on clip (C07) + image/voice/thumbnail/sound (C08) gets total_cost = the
+    straight sum of every stage's row — distinct `stage` values on each row
+    mean no stage's write can double-count or clobber another's."""
+    _reset()
+    entries = [
+        ("clip", 0.10), ("image", 0.32), ("voice", 0.30),
+        ("thumbnail", 0.10), ("sound", 0.30),
+    ]
+    for stage, cost in entries:
+        asyncio.run(generation_ledger.record_ledger_entry(
+            tenant_id="tenant-1", video_id="video-1", stage=stage,
+            model=None, units=1, unit_cost=cost, actual_cost=cost,
+        ))
+    assert len(LEDGER_ROWS) == 5
+    assert {r["stage"] for r in LEDGER_ROWS} == {"clip", "image", "voice", "thumbnail", "sound"}
+    expected = round(sum(c for _, c in entries), 2)
+    actual = round(VIDEOS["video-1"]["total_cost"], 2)
+    assert actual == expected, f"expected {expected}, got {actual}"
+    print("✅ test_all_five_stages_sum_without_double_counting")
+
+
+def test_c08_fail_soft_identical_to_c07_for_every_new_stage():
+    """record_ledger_entry() doesn't branch on `stage` — confirm the SAME
+    fail-soft guarantee C07 locked for 'clip' holds for each C08 stage too
+    (a forced DB outage on an image/voice/thumbnail/sound write must not
+    raise, since the caller's paid generation already succeeded)."""
+    global RAISE_ON_INSERT
+    for stage in ("image", "voice", "thumbnail", "sound"):
+        _reset()
+        RAISE_ON_INSERT = True
+        result = asyncio.run(generation_ledger.record_ledger_entry(
+            tenant_id="tenant-1", video_id="video-1", stage=stage,
+            model=None, units=1, unit_cost=0.10, actual_cost=0.10,
+        ))
+        assert result is None, f"stage={stage} must not raise/return non-None"
+        assert LEDGER_ROWS == [], f"stage={stage}: failed insert must leave no row"
+        assert "video-1" not in VIDEOS, f"stage={stage}: failed insert must not roll up"
+    print("✅ test_c08_fail_soft_identical_to_c07_for_every_new_stage")
+
+
 TESTS = [
     test_ledger_row_written_with_correct_fields,
     test_total_cost_equals_ledger_sum_after_one_write,
@@ -194,6 +332,12 @@ TESTS = [
     test_other_videos_are_not_touched_by_a_videos_write,
     test_fail_soft_never_raises_and_never_partially_applies,
     test_kie_task_id_defaults_to_none_when_not_captured,
+    test_image_stage_row_uses_picture_cost_from_actions,
+    test_voice_stage_row_uses_voice_cost_estimate_from_actions,
+    test_thumbnail_stage_row_uses_thumbnail_cost_from_actions,
+    test_sound_stage_row_uses_sound_client_generation_price,
+    test_all_five_stages_sum_without_double_counting,
+    test_c08_fail_soft_identical_to_c07_for_every_new_stage,
 ]
 
 

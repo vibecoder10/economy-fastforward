@@ -1099,3 +1099,94 @@ video_model>` (e.g. `grok-imagine`) since that's what the checklist's "the
 resolved clip model" field means, not the internal fallback animator used
 for lip-sync — worth a closer look in C08/C09 if InfiniteTalk spend needs
 its own line item.
+
+## C08 — Ledger Writes on Images/Voice/Thumbnail/Sound (added 2026-07-18)
+
+Checklist §0.3b (`tasks/storyengine-wiring-fix-checklist.md`): extends C07's
+`generation_ledger`/`record_ledger_entry()` (unchanged — no schema/logic
+edit) to every remaining paid-generation call site, so `videos.total_cost`
+now reflects FULL per-video spend, not just clips. **Units decision:
+per-call/per-batch**, not per-image — one row per completed generation call
+(a whole `store_scene()` batch, one redraw, one voice run, one thumbnail,
+one sound-effects run), matching C07's per-clip precedent and avoiding
+120-rows-per-video. Every write is fail-soft via C07's existing
+`record_ledger_entry()` try/except — no new failure mode.
+
+**Price sourcing (no new hardcoded numbers — extracted 3 existing inline
+literals into named constants so ledger + the UI's confirm-card estimate can
+never drift apart silently; full single-sourcing into `MODEL_REGISTRY`/
+`/api/models` is still C09):**
+- `actions.py` gained `VOICE_COST_ESTIMATE = 0.30`, `SOUND_COST_ESTIMATE =
+  0.20`, `THUMBNAIL_COST = 0.10` — these were bare literals inside
+  `estimate_cost()`'s `voice`/`sound`/`thumbnail` branches before C08; now
+  named constants that branch AND the new ledger call sites both read.
+  `PICTURE_COST` (0.08, pre-existing since C07) is unchanged, reused as-is.
+- **image** stage → `actions.PICTURE_COST` (0.08) at all 4 image-gen call
+  sites (see table below).
+- **voice** stage → `actions.VOICE_COST_ESTIMATE` (0.30), one row per
+  `run_voice()` call that voiced ≥1 scene. Flat, not per-scene/per-char —
+  this is the SAME rough number the confirm card already quotes for the
+  whole "voice" verb regardless of scene count (ElevenLabs has no per-call
+  actual-spend figure surfaced anywhere in this codebase to derive a metered
+  rate from); noted as a known accuracy gap for C09, not invented here.
+- **thumbnail** stage → `actions.THUMBNAIL_COST` (0.10), one row at each of
+  `run_thumbnail`'s 3 mutually-exclusive completion paths (modeled-on-
+  reference / channel's-own-formula / from-scratch legacy bot) — only one
+  fires per call, so no double-count risk between them.
+- **sound** stage → `SoundClient.ESTIMATED_COST_PER_GENERATION` (0.05,
+  `skills/video-pipeline/shared/clients/sound_client.py`) — a MORE precise
+  existing number than `actions.SOUND_COST_ESTIMATE`, since `sound_bot.py`
+  already multiplies it out per real generation into
+  `result["estimated_cost"]` (used for the Slack completion notification);
+  the ledger write reuses that exact computed value, not the flatter verb
+  estimate.
+
+### Call sites hooked
+| Stage | File : Function | Completion hook | Units this call | Price constant |
+|-------|------------------|------------------|------------------|-----------------|
+| image | `scripts/coverage_to_app.py` : `store_scene()` | after all frames of one scene's coverage batch are inserted | `n` frames stored | `actions.PICTURE_COST` |
+| image | `scripts/coverage_to_app.py` : `redraw_asset_image()` | after the redrawn `assets.image_url` UPDATE | 1 | `actions.PICTURE_COST` |
+| image | `pipeline_executor.py` : `run_images()` | right after `self._pipeline.run_image_bot()` returns (covers the completed/cancelled/errored-partway branches alike — placed before they diverge, since any images it made already cost money) | `result["image_count"]` | `actions.PICTURE_COST` |
+| image | `pipeline_executor.py` : `run_image_variants()` | after the variant-generation loop, before return | `created` variants | `actions.PICTURE_COST` |
+| voice | `pipeline_executor.py` : `run_voice()` | right after `self._pipeline.run_voice_bot()` returns (covers completed + cancelled-but-kept-some branches) | 1 (flat per run, see price note above) | `actions.VOICE_COST_ESTIMATE` |
+| thumbnail | `pipeline_executor.py` : `run_thumbnail()` (modeled-on-reference branch) | after `thumbnail_url` UPDATE, before return | 1 | `actions.THUMBNAIL_COST` |
+| thumbnail | `pipeline_executor.py` : `_run_channel_formula_thumbnail()` | after `thumbnail_url` UPDATE, before return | 1 | `actions.THUMBNAIL_COST` |
+| thumbnail | `pipeline_executor.py` : `run_thumbnail()` (from-scratch legacy-bot branch) | after `_log_activity(..., "completed", ...)`, before return | 1 | `actions.THUMBNAIL_COST` |
+| sound | `pipeline_executor.py` : `run_sound_effects()` | right after `self._pipeline.run_sound_bot()` returns, before the error/status branches | `result["total_generated"]` | `SoundClient.ESTIMATED_COST_PER_GENERATION` |
+
+**Not hooked, on purpose:** `scripts/coverage_to_app.py`'s `redo_characters()`
+(4-view character-sheet regeneration) — spec named it, but it's reachable
+ONLY from that file's CLI `main()` (`--character` flag), never from any
+route or `pipeline_executor.py` method; hooking dead code would fabricate
+coverage without a live path to verify against. `run_characters()` (the
+LIVE character-design verb, `pipeline_executor.py`) generates portraits via
+`routes.characters._generate_portrait` on its own retry loop with no
+existing named price constant anywhere (`estimate_cost()`'s "characters"
+verb uses an inline `0.03` never extracted) — left for C09 (single-sourcing)
+rather than inventing a fourth constant here; `characters` was not one of
+the 4 stages this chunk's task named.
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/actions.py` | Named `VOICE_COST_ESTIMATE`, `SOUND_COST_ESTIMATE`, `THUMBNAIL_COST` constants (extracted from `estimate_cost()`'s inline literals); `estimate_cost()` now reads them. |
+| `storyengine/backend/pipeline_executor.py` | `run_voice`, `run_images`, `run_image_variants`, `run_sound_effects`, `run_thumbnail`, `_run_channel_formula_thumbnail` each gained a `record_ledger_entry(...)` call at their completion point(s) (see table above). No changes to `run_clip_generation` (C07, untouched). |
+| `storyengine/backend/scripts/coverage_to_app.py` | New top-level import `from generation_ledger import record_ledger_entry`. `store_scene()` now tracks `models_used` per frame and writes one ledger row after the batch; `redraw_asset_image()` writes one row after its UPDATE. |
+| `storyengine/backend/tests/functional/test_generation_ledger.py` | +6 tests: one per new stage's price-constant reuse (image/voice/thumbnail/sound), one proving all 5 stages (clip + the 4 new ones) sum into `total_cost` without double-counting, one confirming C07's fail-soft guarantee holds identically for every new stage. Imports the REAL constants (`actions.PICTURE_COST` etc., `SoundClient.ESTIMATED_COST_PER_GENERATION`) rather than re-typing literals, so drift in the source constants breaks this test too. |
+
+`python -m py_compile` clean on every touched file. `./venv/bin/python -m
+pytest tests/functional/test_generation_ledger.py -q` — 12 passed (6 C07 +
+6 new C08). Full suite: same 16 pre-existing failures + 1 pre-existing error
+before and after (confirmed via `git stash`; 748 passed baseline → 754
+passed with the 6 new tests added, zero new failures). The live check
+("generate a real image/voice/thumbnail/sound-effect batch, confirm each
+stage's ledger row lands and `total_cost` sums across all 5 stages") needs
+paid API calls and is deferred — see `tasks/live-verification-queue.md` §C08.
+
+**Deploy-safety note:** every new write goes through C07's existing
+`record_ledger_entry()`, whose try/except already never re-raises — none of
+C08's call sites can newly break generation. Backend-only (no frontend/DB
+schema touched). No double-count risk against C07's clip rows: every row
+carries a distinct `stage` value (`clip` vs `image`/`voice`/`thumbnail`/
+`sound`), and `total_cost` is a straight `SUM(actual_cost)` recompute, so
+adding more stages only adds more addends to that sum.

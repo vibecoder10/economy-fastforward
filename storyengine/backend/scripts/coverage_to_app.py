@@ -48,6 +48,7 @@ except Exception:
 os.environ.setdefault("STORAGE_BACKEND", "supabase")
 
 from database import fetch_one, fetch_all, execute            # noqa: E402  (asyncpg helpers)
+from generation_ledger import record_ledger_entry             # noqa: E402
 from storage import upload_bytes                              # noqa: E402
 from vault import get_secret                                  # noqa: E402
 from kie_unified import get_text_client_for_tenant            # noqa: E402
@@ -199,6 +200,7 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
         "OR (image_url IS NULL AND video_clip_url IS NULL))", vid, tenant, scene)
     from clip_dialogue import split_line_to_cap, MAX_SPOKEN_WORDS_PER_CLIP
     idx = COVERAGE_INDEX_BASE
+    models_used: set[str] = set()
     for summary, frames, speaker, line in frames_by_moment:
         # THE CLIP-LENGTH RULE: a line longer than the clip model can speak in
         # its top duration tier gets split at sentence ends and spread across
@@ -237,8 +239,25 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 fr.get("camera_move"),  # camera engine plan: "move_id|PURPOSE" or "static"
                 fr.get("image_model"),  # WHICH model actually drew this frame (image_model_router)
             )
+            if fr.get("image_model"):
+                models_used.add(fr["image_model"])
             idx += 1
-    return idx - COVERAGE_INDEX_BASE
+    n = idx - COVERAGE_INDEX_BASE
+    if n > 0:
+        # generation_ledger (checklist §0.3b / C08): one row per store_scene()
+        # call — the natural per-batch unit (one scene's coverage frames land
+        # in a single call), not one row per frame. Reuses actions.PICTURE_COST
+        # (0.08), the SAME constant actions.py's estimate_cost() already quotes
+        # for the "images" verb (which is what triggers this exact path via
+        # generate_coverage_for_video) — not a new number.
+        from actions import PICTURE_COST
+        model_label = (sorted(models_used)[0] if len(models_used) == 1
+                       else (", ".join(sorted(models_used)) if models_used else None))
+        await record_ledger_entry(
+            tenant_id=tenant, video_id=vid, stage="image", model=model_label,
+            units=n, unit_cost=PICTURE_COST, actual_cost=round(n * PICTURE_COST, 2),
+        )
+    return n
 
 
 def load_existing(outdir):
@@ -994,6 +1013,13 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         "UPDATE assets SET image_url=$1, drive_image_url=$1, video_clip_url=NULL, "
         "video_status=NULL, image_model=$2, updated_at=now() WHERE id=$3 AND tenant_id=$4",
         stable, model_used, asset_id, tenant_id)
+    # generation_ledger (checklist §0.3b / C08): one row per redrawn picture —
+    # same actions.PICTURE_COST reuse as store_scene() above.
+    from actions import PICTURE_COST
+    await record_ledger_entry(
+        tenant_id=tenant_id, video_id=video_id, stage="image", model=model_used,
+        units=1, unit_cost=PICTURE_COST, actual_cost=PICTURE_COST,
+    )
     return {"status": "completed", "message": f"Picture S{a['scene']}.{a['image_index']} redrawn"}
 
 

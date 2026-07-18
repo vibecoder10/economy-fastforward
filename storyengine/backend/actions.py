@@ -30,6 +30,14 @@ logger = logging.getLogger(__name__)
 # co-pilot's "~$X" matches the page's Est. Cost. Pictures are $0.08 each.
 CLIP_COST = {"grok-imagine": 0.10, "veo-3.1-fast": 0.30, "veo-3.1-quality": 1.25, "seedance-2-fast": 0.30}
 PICTURE_COST = 0.08
+# Flat per-run estimates for the other paid stages — named here (C08,
+# checklist §0.3b) so generation_ledger writes in pipeline_executor.py reuse
+# the SAME number the confirm card already quotes, instead of a second copy.
+# These were inline literals in estimate_cost() below before C08; still rough
+# (not per-scene/per-character-metered) — full single-sourcing is C09.
+VOICE_COST_ESTIMATE = 0.30
+SOUND_COST_ESTIMATE = 0.20
+THUMBNAIL_COST = 0.10
 
 # verb -> how to run it. `calls` = ordered (executor method, passes a scene= kwarg).
 # `paid` => hold behind a confirm card in the dock. `needs` = the prerequisite that
@@ -230,11 +238,11 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     elif verb == "storyboards":
         cost = (1 if scene is not None else max(1, summary["scenes"])) * PICTURE_COST
     elif verb == "voice":
-        cost = 0.30
+        cost = VOICE_COST_ESTIMATE
     elif verb == "sound":
-        cost = 0.20
+        cost = SOUND_COST_ESTIMATE
     elif verb == "thumbnail":
-        cost = 0.10
+        cost = THUMBNAIL_COST
     elif verb == "script":
         cost = 0.02
     elif verb == "research":
