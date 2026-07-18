@@ -1,5 +1,9 @@
 # Task Tracking
 
+> **New session?** Read `tasks/orchestrator-and-worker-playbook.md` FIRST — it's the
+> orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
+> PROGRESS handoff below is your resume point.
+
 ## ⟳ LOOP PROGRESS (read this first — resume point)
 - **Last done:** C09b · Frontend price-copy accuracy — `ScenesWorkspaceTab.tsx`'s ~8 stale hardcoded price strings now read live prices. Added a `getVideoActions(video.id)` query using the SAME `["video-actions", video.id]` key `page.tsx` already uses (shares cache, no extra request), exposing `picturePrice = videoActions?.prices?.picture ?? 0.05`; picture-price toasts/tooltips/button label interpolate it (redo-scene confirm, bulk-gen confirm, redraw toast, redraw button — the last also newly plumbed as a `picturePrice` prop into `SegmentCard`); clip-price toast/tooltip (recrop toast, bad-crop tooltip) interpolate the existing `perClip` (already sourced from `modelsData`). Two spots couldn't be live-sourced: the module-scope `FALLBACK_WIRED_MODELS` offline-only safety net and 2 doc comments — corrected $0.10→$0.09 literal + `// TODO: source from API` on the fallback. `npx tsc --noEmit` clean; grep confirms no stale literals remain. Frontend-only, no backend endpoint touched, no SYSTEM_STATE.md entry. Full trace: `tasks/storyengine-wiring-fix-checklist.md` §C09b.
 - **Next chunk:** C11 · P1.1 decision table — extend `/api/models` with `best_for`/`tier` fields (see checklist Phase 1 — router, line ~228).
