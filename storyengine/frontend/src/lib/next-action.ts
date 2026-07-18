@@ -56,17 +56,26 @@ export interface NextActionInputs {
   scenesWithPictures?: number;
 }
 
-/** Real per-clip price by model — the single source for every cost label.
- * (The old tab hardcoded $0.30×86=$25.80 — Veo pricing shown for Grok runs.) */
-export const CLIP_COST_PER_MODEL: Record<string, number> = {
-  "grok-imagine": 0.10,
-  "veo-3.1-fast": 0.30,
-  "veo-3.1-quality": 1.25,
-  "seedance-2-fast": 0.30,
-};
+/** Per-clip price by model. NOT hardcoded — the single source of truth is
+ * the backend (shared.channel_profile.CLIP_PRICE_BY_MODEL), reached two
+ * ways: GET /api/models' `cost_per_clip` field (ScenesWorkspaceTab syncs
+ * this on load) and GET /api/pipeline/actions/{id}'s `prices.clip` (the
+ * video page syncs this). Both write into this same runtime cache — see
+ * storyengine-wiring-fix-checklist.md §0.3c: the old version of this file
+ * hardcoded the same 4 numbers by hand, which could silently drift from
+ * the backend's actual registry prices. Starts empty; CLIP_COST_FALLBACK
+ * covers the brief gap before either sync has run once. */
+export const CLIP_COST_PER_MODEL: Record<string, number> = {};
+
+// Shown for a beat before the backend price loads — deliberately the
+// priciest CURRENTLY wired model (Veo 3.1 Fast / Seedance 2.0), so a
+// cost label never underquotes during that gap. Real prices always win
+// once either sync above has run.
+const CLIP_COST_FALLBACK = 0.30;
 
 export function clipCost(model: string | null | undefined, count: number): number {
-  return (CLIP_COST_PER_MODEL[model || "grok-imagine"] ?? 0.10) * count;
+  const price = CLIP_COST_PER_MODEL[model || "grok-imagine"];
+  return (price ?? CLIP_COST_FALLBACK) * count;
 }
 
 export function getNextAction(i: NextActionInputs): NextAction {

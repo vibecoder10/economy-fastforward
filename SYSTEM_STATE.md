@@ -1190,3 +1190,154 @@ schema touched). No double-count risk against C07's clip rows: every row
 carries a distinct `stage` value (`clip` vs `image`/`voice`/`thumbnail`/
 `sound`), and `total_cost` is a straight `SUM(actual_cost)` recompute, so
 adding more stages only adds more addends to that sum.
+
+## C09 — Single Price Source + Real Model-Aware Pricing (added 2026-07-18)
+
+Checklist §0.3c: C07/C08 left prices scattered — `actions.py`'s
+`CLIP_COST`/`PICTURE_COST`/etc. hand-mirrored `MODEL_REGISTRY` and the
+frontend's `next-action.ts` hand-mirrored `actions.CLIP_COST` on top of
+that. Two hand-copies of the same 4 clip prices, kept in sync by nothing
+but discipline.
+
+**STEP 1 finding (the important one): Kie.ai does NOT return a real
+per-generation cost.** Read every field the two Kie-polling clients ever
+touch (`shared/clients/image_client.py`'s `poll_for_completion`/
+`_poll_veo_completion`, `storyengine/backend/kie_unified.py`) — the
+`recordInfo`/`veo/record-info` job-status response only ever carries
+`taskId`/`state`/`status`/`successFlag`/`resultJson`/`resultUrls`/
+`failMsg`/`failCode`, no matter which model ran. Kie DOES expose `GET
+/api/v1/chat/credit` (confirmed via docs.kie.ai) — an **account-wide
+remaining balance**, not a per-task charge, and with several
+clips/images generating concurrently (`ModelProfile.max_concurrent`) a
+balance snapshot can't be attributed to one generation without a race.
+Conclusion: registry prices remain the source of truth; live dashboard
+reconciliation is queued (`tasks/live-verification-queue.md` §C09), not
+built here — no fabricated cost field.
+
+**STEP 2 — single source:** every generation price now lives in
+`skills/video-pipeline/shared/channel_profile.py`, next to
+`MODEL_REGISTRY`:
+- `CLIP_PRICE_BY_MODEL` — derived FROM `ModelProfile.cost_per_clip`
+  (cheapest tier per wired model), not hand-typed.
+- `IMAGE_PRICE_BY_MODEL` / `picture_price_for(model_id)` — **new**:
+  per-model image price (gpt-image-2 0.08 UNCONFIRMED, nano-banana-2
+  0.025, z-image 0.004) instead of one flat `PICTURE_COST` regardless of
+  which of the 3 real image models drew the pixels.
+- `THUMBNAIL_PRICE` — corrected **0.10 → 0.075** to match the real Nano
+  Banana Pro rate (`docs/cost-awareness.md`).
+- `VOICE_PRICE_PER_1K_CHARS` (0.30) — voice is now metered per real
+  character count, not a flat `$0.30`/run.
+- `SOUND_PRICE_ESTIMATE` — unchanged value, kept for `actions.py`'s
+  pre-generation quote only (the ledger write still uses
+  `SoundClient.ESTIMATED_COST_PER_GENERATION` directly, per C08).
+
+`storyengine/backend/actions.py` re-exports these under its pre-existing
+names (`CLIP_COST`, `PICTURE_COST`, `THUMBNAIL_COST`, `VOICE_COST_ESTIMATE`,
+`SOUND_COST_ESTIMATE`) so no existing `from actions import ...` call site
+needed touching — `estimate_cost()` and every `record_ledger_entry()`
+caller now provably read the SAME object (locked by
+`test_actions_prices_are_the_same_object_as_channel_profile`).
+
+**Accuracy upgrades wired at the call sites that know enough to use them:**
+- `pipeline_executor.run_image_variants`, `coverage_to_app.store_scene`,
+  `coverage_to_app.redraw_asset_image` — now price with
+  `picture_price_for(model_used)` (the REAL model that drew the pixels,
+  already tracked in the `model` column) instead of always the flat
+  0.08 default. A mixed-model batch or unknown model still falls back to
+  the default (never a KeyError, never a guess at which model dominated).
+- `voice/run.py`'s `run()` now returns `total_chars` (the exact narration
+  character count sent to ElevenLabs this call); `pipeline_executor.run_voice`
+  meters `actual_cost = total_chars/1000 * VOICE_PRICE_PER_1K_CHARS` when
+  available, falling back to the flat `VOICE_COST_ESTIMATE` only if
+  `total_chars` is missing/zero. A 6000-char video now ledgers ~20x a
+  300-char one instead of both landing on the same flat `$0.30`.
+- `actions.estimate_cost()`'s "voice" verb quote now queries
+  `SUM(length(scene_text))` from `scripts` for a real pre-generation
+  estimate instead of the flat guess (falls back to the flat estimate
+  when no script exists yet).
+- `GET /api/models` (`routes/model_registry.py`) gained a `cost_per_clip`
+  field (pulled forward from the planned C11 chunk, since C09 needed it)
+  — the Scenes tab's own model-dropdown prices itself straight off this
+  query's own data now, not a side-channel mutation from a sibling
+  component.
+
+**Frontend duplicate deleted:** `next-action.ts`'s hardcoded
+`CLIP_COST_PER_MODEL` literal (`{"grok-imagine": 0.10, ...}`) is now an
+empty runtime cache populated ONLY from the backend, two ways: `GET
+/api/models`'s `cost_per_clip` (`ScenesWorkspaceTab.tsx`, synced via a
+`priceByModel` memo read on the SAME render `modelsData` arrives — not
+the mutable-cache side channel, which populates one render too late) and
+`GET /api/pipeline/actions/{id}`'s `prices.clip` (the video page,
+unchanged pattern). A single `CLIP_COST_FALLBACK = 0.30` (the priciest
+wired model) covers the brief gap before either sync has run — not a
+second price table, one conservative scalar. `page.tsx`'s hardcoded
+picture-cost fallback (`pictures * 0.08`) now reads
+`videoActions.prices.picture` instead.
+
+**Flagged for Ryan — NOT silently changed:**
+- `IMAGE_PRICE_BY_MODEL["gpt-image-2"] = 0.08` — StoryEngine's DEFAULT
+  image engine (`storyengine/CLAUDE.md` "Image gen policy"). Kie doesn't
+  publish one flat rate for it (quality/resolution-tiered — OpenAI's own
+  published range is roughly $0.006–$0.21/image). `docs/cost-awareness.md`'s
+  old $0.025 figure is nano-banana-2's real rate (a DIFFERENT model,
+  explicit-override only) mislabeled "Seed Dream 4.5" (that model name
+  doesn't appear anywhere in the current codebase — doc was stale).
+  0.08 is kept as the existing estimate, not replaced with the
+  unrelated 0.025, but it is UNCONFIRMED — needs a Kie dashboard read.
+- `THUMBNAIL_PRICE` 0.10 → 0.075 WAS changed (not just flagged) — Nano
+  Banana Pro is a flat-rate Kie model and the number already matched
+  `docs/cost-awareness.md`, unlike the GPT Image 2 case above.
+
+### Modified
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/shared/channel_profile.py` | New price section below `MODEL_REGISTRY`: `IMAGE_PRICE_BY_MODEL`, `picture_price_for()`, `PICTURE_PRICE_DEFAULT`, `THUMBNAIL_PRICE`, `VOICE_PRICE_PER_1K_CHARS`, `VOICE_PRICE_FLAT_ESTIMATE`, `SOUND_PRICE_ESTIMATE`, `clip_price_for()`, `CLIP_PRICE_BY_MODEL`. |
+| `skills/video-pipeline/voice/run.py` | `run()` tracks and returns `total_chars` on all 3 return paths (cancelled/targeted/final). |
+| `storyengine/backend/actions.py` | Price constants are now a re-export block from `shared.channel_profile` (with a `.resolve()`'d sys.path insert — see below); `estimate_cost()`'s "voice" branch queries real character count. |
+| `storyengine/backend/pipeline_executor.py` | `run_voice` meters per-character; `run_image_variants` prices with `picture_price_for(model_used)`. |
+| `storyengine/backend/scripts/coverage_to_app.py` | `store_scene()`/`redraw_asset_image()` price with `picture_price_for()`. |
+| `storyengine/backend/routes/model_registry.py` | `VideoModelResponse` gained `cost_per_clip`. |
+| `docs/cost-awareness.md` | Fixed stale "Seed Dream 4.5" label → nano-banana-2; added the GPT Image 2 unconfirmed-price note and single-source pointer. |
+| `storyengine/frontend/src/lib/next-action.ts` | `CLIP_COST_PER_MODEL` literal deleted → empty runtime cache + `CLIP_COST_FALLBACK`. |
+| `storyengine/frontend/src/lib/api.ts` | `VideoModelInfo` gained `cost_per_clip`. |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | `modelsData`/`priceByModel`/`priceForModel` moved to the top of the component; `perClip`/`remainingCost`/`sceneCost`/the model-dropdown labels all read `priceForModel`/`cost_per_clip` directly instead of the mutable cache. |
+| `storyengine/frontend/src/app/pipeline/[videoId]/page.tsx` | Picture-cost fallback reads `videoActions.prices.picture` instead of a hardcoded `0.08`. |
+| `storyengine/backend/tests/functional/test_generation_ledger.py` | +4 tests: single-source identity, `picture_price_for()` per-model rates, an image ledger row priced by actual model, a voice ledger row metered by real char count. `THUMBNAIL_COST` assertion updated 0.10 → 0.075. |
+| `storyengine/backend/tests/functional/test_model_registry.py` | +1 test: `/api/models`' `cost_per_clip` matches the registry exactly, `null` for unwired models. |
+
+**A latent bug caught mid-chunk:** `actions.py`'s new `shared.channel_profile`
+import used the same unresolved `Path(__file__).parent.parent.parent`
+pattern as `pipeline_executor.py`/`routes/model_registry.py` — but 3
+lightweight test files (`test_autobuild_explicit_research_plan.py`,
+`test_producer_kie_fallback.py`, `test_research_skipped_chip.py`) import
+`actions.py` after their OWN unresolved `os.path.join(dirname(__file__),
+"..", "..")` sys.path insert, so `actions`'s `__file__` carried
+un-collapsed `..` segments and 3× `.parent` landed on a nonexistent
+directory instead of the repo root. Fixed with `.resolve()` before taking
+`.parent` — the other two files' identical pattern is pre-existing and
+untouched (nothing currently imports them the same fragile way), noted
+here rather than fixed, since fixing code you didn't break is scope creep.
+
+`python -m py_compile` clean on every touched backend file; `.resolve()`'d
+sys.path insert lets `import shared.channel_profile` work standalone.
+`npx tsc --noEmit` clean. `./venv/bin/python -m pytest
+tests/functional/test_generation_ledger.py tests/functional/test_model_registry.py
+-q` — 20 passed. Full suite (`git stash` compare): 759 passed / 16 failed /
+1 error both before and after — same 16 pre-existing failures (YouTube
+OAuth, SQL-injection lock, discovery error-surfacing, etc., all unrelated
+to pricing), zero new failures, +5 passed (the new tests).
+
+**Deploy-safety note:** consolidating prices changes 2 user-visible
+numbers: thumbnail quotes/ledger rows go from $0.10 → $0.075 (a
+correction toward `docs/cost-awareness.md`'s existing figure, not a new
+guess), and per-model image ledger rows for nano-banana-2/z-image drop
+from the flat $0.08 to their real $0.025/$0.004 (GPT Image 2 — the
+default engine most videos actually use — is unchanged at $0.08).
+Neither changes what a creator is CHARGED (StoryEngine doesn't bill
+per-generation yet); both only change what the cost dashboard/ledger
+*reports* was spent, and only in the direction of being cheaper/more
+accurate. Frontend still compiles and shows costs with no local
+duplicate constant — confirmed via `tsc --noEmit` and by tracing
+`priceForModel`/`videoActions.prices` reads by hand (no live browser
+session in this sandbox). Live Kie-dashboard price confirmation (esp.
+GPT Image 2 $0.08) queued — see `tasks/live-verification-queue.md` §C09.

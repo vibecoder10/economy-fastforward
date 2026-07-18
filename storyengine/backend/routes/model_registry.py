@@ -14,11 +14,18 @@ is a thin, read-only view of it, nothing more. See
 tasks/storyengine-wiring-fix-checklist.md §0.2.
 
 Keep this endpoint's shape stable-but-extensible: a later chunk (C11/P1.1)
-adds best_for/tier/cost_per_clip fields, read straight off the same
-registry entries. Don't build that out here.
+adds best_for/tier fields, read straight off the same registry entries.
+`cost_per_clip` was pulled forward into C09 (storyengine-wiring-fix-
+checklist.md §0.3c, single-price-source consolidation) — the Scenes tab's
+own model-dropdown price labels need a price straight from THIS query
+instead of depending on a sibling component (the video page) having
+already synced a shared mutable price cache from a DIFFERENT, video-scoped
+endpoint first. See shared.channel_profile.CLIP_PRICE_BY_MODEL for where
+the number itself lives.
 """
 import sys
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -31,7 +38,7 @@ _pipeline_root = Path(__file__).parent.parent.parent.parent / "skills" / "video-
 if str(_pipeline_root) not in sys.path:
     sys.path.insert(0, str(_pipeline_root))
 
-from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL  # noqa: E402
+from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL, CLIP_PRICE_BY_MODEL  # noqa: E402
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -41,6 +48,9 @@ class VideoModelResponse(BaseModel):
     name: str
     kind: str = "video"  # only video models exist in MODEL_REGISTRY today
     wired: bool
+    # $/clip at the model's cheapest duration tier — None for an unwired
+    # model (no live price to quote). Single source: CLIP_PRICE_BY_MODEL.
+    cost_per_clip: Optional[float] = None
 
 
 class ModelsResponse(BaseModel):
@@ -59,6 +69,7 @@ async def list_models(tenant_id=Depends(get_tenant_id)):
             name=profile.display_name,
             kind="video",
             wired=profile.wired,
+            cost_per_clip=CLIP_PRICE_BY_MODEL.get(profile.model_id),
         )
         for profile in MODEL_REGISTRY.values()
     ]

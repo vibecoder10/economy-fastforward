@@ -307,6 +307,105 @@ MODEL_REGISTRY: dict[str, ModelProfile] = {
     "hailuo-2.3-standard": HAILUO_23_STANDARD,
 }
 
+
+# =============================================================================
+# Generation prices — single source (storyengine-wiring-fix-checklist §0.3c
+# / C09). Clip prices live on ModelProfile.cost_per_clip above; every OTHER
+# paid stage's price is defined ONCE here. storyengine/backend/actions.py
+# re-exports these under its pre-existing names (CLIP_COST, PICTURE_COST,
+# THUMBNAIL_COST, VOICE_COST_ESTIMATE, SOUND_COST_ESTIMATE) so existing
+# callers across pipeline_executor.py / coverage_to_app.py / chat.py don't
+# need touching — but the NUMBERS live here, not in actions.py, and nowhere
+# else (the frontend's hand-copied CLIP_COST_PER_MODEL literal was deleted
+# in C09; the page now reads prices off the backend).
+#
+# Kie.ai's job-status response (recordInfo / veo/record-info) never carries
+# a cost or credits-charged field for a completed task — confirmed by
+# reading every field the two clients that poll it ever touch
+# (shared/clients/image_client.py, storyengine/backend/kie_unified.py):
+# only taskId/state/successFlag/resultUrls/failMsg/failCode ever appear, no
+# matter which model ran. Kie does expose GET /api/v1/chat/credit (an
+# account-wide REMAINING BALANCE, not a per-task charge), but with several
+# clips/images generating concurrently (see ModelProfile.max_concurrent
+# above) a balance snapshot can't be attributed to one generation without a
+# race. There is no cleaner "actual" than these registry prices today — see
+# tasks/live-verification-queue.md §C09 for the manual dashboard-reconciliation
+# this leaves as a follow-up, and the report for which numbers below are
+# still unconfirmed guesses vs. numbers backed by a real source.
+# =============================================================================
+
+# Per-model image price ($/image). The 3 selectable scene-image models
+# (shared.clients.image_model_router.VALID_IMAGE_MODELS) price very
+# differently — collapsing them into one flat number (the pre-C09 behavior)
+# blurs a 20x spread. nano-banana-2 and z-image both carry their real price
+# in the model-picker's own label text (see _valid_scene_models_from_profile
+# below: "$0.025/img", "$0.004/img"), which also matches
+# docs/cost-awareness.md's Seed Dream figure. GPT Image 2 is the default
+# engine (storyengine/CLAUDE.md "Image gen policy") and quality/resolution-
+# tiered — OpenAI's own published per-image cost for gpt-image-2 ranges
+# roughly $0.006-$0.21 depending on quality tier — Kie doesn't publish one
+# flat rate for it, so 0.08 is an ESTIMATE, UNCONFIRMED against the Kie
+# dashboard. Flagged in the C09 report.
+IMAGE_PRICE_BY_MODEL: dict[str, float] = {
+    "gpt-image-2": 0.08,      # UNCONFIRMED — see note above; verify on Kie dashboard
+    "nano-banana-2": 0.025,   # matches the model-picker's own label + docs/cost-awareness.md
+    "z-image": 0.004,         # matches the model-picker's own label
+}
+# Default/blended picture price — used pre-generation (no model chosen yet;
+# GPT Image 2 is the default engine) and whenever a batch mixes models.
+PICTURE_PRICE_DEFAULT = IMAGE_PRICE_BY_MODEL["gpt-image-2"]
+
+
+def picture_price_for(model_id: Optional[str]) -> float:
+    """Real per-model image price when the model is known and unambiguous
+    (e.g. 'nano-banana-2'), else the default/blended price. A caller passing
+    a comma-joined multi-model label (a mixed batch) falls through to the
+    default on purpose — safer than guessing which model dominated."""
+    if model_id and model_id in IMAGE_PRICE_BY_MODEL:
+        return IMAGE_PRICE_BY_MODEL[model_id]
+    return PICTURE_PRICE_DEFAULT
+
+
+THUMBNAIL_PRICE = 0.075  # Nano Banana Pro flat rate — docs/cost-awareness.md
+                          # (corrected from 0.10 in C09; see report)
+
+# ElevenLabs is billed per character, not per run (docs/cost-awareness.md:
+# ~$0.30/1000 chars) — a video with a long narration and one with a single
+# line cost very differently even though both used to ledger the same flat
+# $0.30. VOICE_PRICE_FLAT_ESTIMATE stays as the fallback for a caller that
+# genuinely has no character count to meter (or the pre-generation "voice"
+# verb quote, before scripts necessarily exist).
+VOICE_PRICE_PER_1K_CHARS = 0.30
+VOICE_PRICE_FLAT_ESTIMATE = 0.30
+
+# Matches shared.clients.sound_client.SoundClient.ESTIMATED_COST_PER_GENERATION
+# (the real per-generation figure the sound bot already tracks and the
+# ledger's sound-stage write already reuses). Not re-sourced from here — kept
+# as a same-value constant only so actions.py's pre-generation "sound" verb
+# quote has a number without importing SoundClient's heavier module for an
+# estimate.
+SOUND_PRICE_ESTIMATE = 0.05
+
+
+def clip_price_for(model_id: Optional[str]) -> float:
+    """Cheapest wired price for a clip model, read straight off
+    ModelProfile.cost_per_clip — the single source CLIP_PRICE_BY_MODEL below
+    is built from."""
+    profile = MODEL_REGISTRY.get(model_id or DEFAULT_VIDEO_MODEL)
+    if not profile or not profile.cost_per_clip:
+        return 0.10
+    return profile.cost_per_clip[min(profile.cost_per_clip)]
+
+
+# Every wired model's cheapest-tier price, keyed by model_id. This dict IS
+# the single source actions.CLIP_COST re-exports and the frontend's (now-
+# deleted) hand-copied CLIP_COST_PER_MODEL used to shadow by hand.
+CLIP_PRICE_BY_MODEL: dict[str, float] = {
+    model_id: clip_price_for(model_id)
+    for model_id, profile in MODEL_REGISTRY.items()
+    if profile.wired
+}
+
 DEFAULT_VIDEO_MODEL = "grok-imagine"
 
 

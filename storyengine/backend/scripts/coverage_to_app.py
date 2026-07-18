@@ -244,18 +244,20 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
             idx += 1
     n = idx - COVERAGE_INDEX_BASE
     if n > 0:
-        # generation_ledger (checklist §0.3b / C08): one row per store_scene()
-        # call — the natural per-batch unit (one scene's coverage frames land
-        # in a single call), not one row per frame. Reuses actions.PICTURE_COST
-        # (0.08), the SAME constant actions.py's estimate_cost() already quotes
-        # for the "images" verb (which is what triggers this exact path via
-        # generate_coverage_for_video) — not a new number.
-        from actions import PICTURE_COST
+        # generation_ledger (checklist §0.3b/C08, priced per-model in
+        # §0.3c/C09): one row per store_scene() call — the natural per-batch
+        # unit (one scene's coverage frames land in a single call), not one
+        # row per frame. model_label is the single real model when every
+        # frame in the batch used the same one — price with that model's
+        # real rate; a mixed/unknown batch falls back to the blended
+        # default inside picture_price_for().
+        from actions import picture_price_for
         model_label = (sorted(models_used)[0] if len(models_used) == 1
                        else (", ".join(sorted(models_used)) if models_used else None))
+        picture_cost = picture_price_for(model_label)
         await record_ledger_entry(
             tenant_id=tenant, video_id=vid, stage="image", model=model_label,
-            units=n, unit_cost=PICTURE_COST, actual_cost=round(n * PICTURE_COST, 2),
+            units=n, unit_cost=picture_cost, actual_cost=round(n * picture_cost, 2),
         )
     return n
 
@@ -1013,12 +1015,14 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         "UPDATE assets SET image_url=$1, drive_image_url=$1, video_clip_url=NULL, "
         "video_status=NULL, image_model=$2, updated_at=now() WHERE id=$3 AND tenant_id=$4",
         stable, model_used, asset_id, tenant_id)
-    # generation_ledger (checklist §0.3b / C08): one row per redrawn picture —
-    # same actions.PICTURE_COST reuse as store_scene() above.
-    from actions import PICTURE_COST
+    # generation_ledger (checklist §0.3b/C08, priced per-model in §0.3c/C09):
+    # one row per redrawn picture. model_used is always a single, known
+    # model here (no batch ambiguity) — price with its real rate.
+    from actions import picture_price_for
+    picture_cost = picture_price_for(model_used)
     await record_ledger_entry(
         tenant_id=tenant_id, video_id=video_id, stage="image", model=model_used,
-        units=1, unit_cost=PICTURE_COST, actual_cost=PICTURE_COST,
+        units=1, unit_cost=picture_cost, actual_cost=picture_cost,
     )
     return {"status": "completed", "message": f"Picture S{a['scene']}.{a['image_index']} redrawn"}
 

@@ -35,7 +35,7 @@ import {
   getModels,
 } from "@/lib/api";
 import type { VideoModelInfo } from "@/lib/api";
-import { clipCost } from "@/lib/next-action";
+import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useTaskWatcher } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, Asset } from "@/lib/api";
@@ -254,7 +254,34 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const queryClient = useQueryClient();
   const toast = useToast();
   const model = video.video_model || "grok-imagine";
-  const perClip = clipCost(model, 1);
+  // Clip-model registry (GET /api/models) — queried early so every per-clip
+  // price computed below can read it directly on the SAME render it arrives,
+  // instead of going through the mutable CLIP_COST_PER_MODEL cache (which a
+  // later effect populates one render too late — see priceForModel below).
+  const { data: modelsData } = useQuery({
+    queryKey: ["models"],
+    queryFn: getModels,
+    staleTime: 5 * 60_000,
+  });
+  const priceByModel = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const mm of modelsData?.models ?? []) {
+      if (mm.cost_per_clip != null) m[mm.id] = mm.cost_per_clip;
+    }
+    return m;
+  }, [modelsData]);
+  // Sync the shared clip-price cache too, for clipCost() callers elsewhere
+  // (this file's own model-picker labels, and other components).
+  useEffect(() => {
+    for (const [id, price] of Object.entries(priceByModel)) CLIP_COST_PER_MODEL[id] = price;
+  }, [priceByModel]);
+  /** Real per-clip price for a model, reactive on THIS render (not the
+   * mutable-cache side channel) — checklist §0.3c/C09. */
+  const priceForModel = useCallback(
+    (id: string | null | undefined) => priceByModel[id || "grok-imagine"] ?? clipCost(id, 1),
+    [priceByModel],
+  );
+  const perClip = priceForModel(model);
 
   // The "video" (animation) stage can be switched OFF at creation (an images-
   // only plan). When it is, keep the picture workspace but hide every animate/
@@ -303,15 +330,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const castDrafted = (charactersData?.characters?.length ?? 0) > 0;
   const castReady = !castDrafted || !!charactersData?.approved_at;
 
-  // Clip-model options: derived from the backend registry (GET /api/models),
-  // never hand-copied — see storyengine-wiring-fix-checklist.md §0.2. Not
-  // per-video (queryKey has no video.id) since the registry is global; a long
-  // staleTime keeps it from refetching on every tab switch.
-  const { data: modelsData } = useQuery({
-    queryKey: ["models"],
-    queryFn: getModels,
-    staleTime: 5 * 60_000,
-  });
+  // Clip-model options: derived from the backend registry (GET /api/models,
+  // queried above as `modelsData`) — never hand-copied, see
+  // storyengine-wiring-fix-checklist.md §0.2.
   const wiredVideoModels = useMemo((): { id: string; label: string }[] => {
     const wired = (modelsData?.models ?? []).filter((m) => m.kind === "video" && m.wired);
     if (!wired.length) {
@@ -322,9 +343,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
     return wired.map((m: VideoModelInfo) => ({
       id: m.id,
-      label: `${m.name} — $${clipCost(m.id, 1).toFixed(2)}/clip`,
+      // Read cost_per_clip straight off THIS row (priceByModel derives from
+      // the exact same modelsData) — real on the first render it arrives.
+      label: `${m.name} — $${(m.cost_per_clip ?? priceForModel(m.id)).toFixed(2)}/clip`,
     }));
-  }, [modelsData]);
+  }, [modelsData, priceForModel]);
 
   // Guard every storyboard-generating action: bounce with a clear message
   // (and a pointer to the Environments tab) instead of firing a doomed task.
@@ -566,7 +589,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const needsUpscale = extractedCount > 0 && extractedCount - upscaledCount > 2;
   const boardsDone = scenes.reduce((n, s) => n + s.storyboardGridCount, 0);
   const boardsTotal = scenes.reduce((n, s) => n + (s.storyboardBeatCount || 1), 0);
-  const remainingCost = clipCost(model, clipsPending);
+  const remainingCost = priceForModel(model) * clipsPending;
   // ONE stage-aware bulk action: run the step the most scenes need next. Driven by
   // the SAME lists the button acts on, so it can never show-but-no-op (the old bug).
   const needStoryboard = scenes.filter((s) => s.storyboardGridCount === 0);
@@ -1397,7 +1420,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         const sceneCards = scene.assets.filter((a) => a.image_url);
         const scenePending = sceneCards.filter((a) => !a.video_clip_url);
         const sceneMissing = scene.assets.length - sceneCards.length;
-        const sceneCost = clipCost(model, scenePending.length);
+        const sceneCost = priceForModel(model) * scenePending.length;
         const sceneKey = `scene-${scene.sceneNumber}`;
         return (
           <GlassCard key={scene.sceneNumber} id={sceneKey} className="p-5">

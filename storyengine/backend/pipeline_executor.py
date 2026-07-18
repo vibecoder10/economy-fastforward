@@ -11564,24 +11564,37 @@ separate scenes."""
             await self._install_cancel_support(video_id)
             result = await self._pipeline.run_voice_bot()
 
-            # generation_ledger (checklist §0.3b / C08): one row per run_voice()
-            # call that actually synthesized something, whether it finished or
-            # was stopped mid-way — audio already generated already cost money.
-            # unit_cost/actual_cost reuse actions.VOICE_COST_ESTIMATE (the SAME
-            # flat number the confirm card already quotes for the "voice" verb)
-            # rather than inventing a per-scene/per-char rate — ElevenLabs has
-            # no per-call cost figure surfaced here to derive one from; full
-            # metered pricing is C09's job. record_ledger_entry() is fail-soft.
+            # generation_ledger (checklist §0.3b/C08, metered in §0.3c/C09):
+            # one row per run_voice() call that actually synthesized
+            # something, whether it finished or was stopped mid-way — audio
+            # already generated already cost money. ElevenLabs bills per
+            # character, not per run (docs/cost-awareness.md), and
+            # voice/run.py now reports exactly how many narration characters
+            # it sent this call (total_chars) — meter on THAT instead of the
+            # flat actions.VOICE_COST_ESTIMATE guess whenever it's available;
+            # fall back to the flat estimate only if it's missing/zero (an
+            # older bot module, or nothing actually got synthesized this
+            # call despite voice_count>0, which shouldn't happen but must
+            # never crash the ledger write). record_ledger_entry() is
+            # fail-soft.
             if result.get("voice_count", 0) > 0:
-                from actions import VOICE_COST_ESTIMATE
+                from actions import VOICE_COST_ESTIMATE, VOICE_PRICE_PER_1K_CHARS
+                total_chars = int(result.get("total_chars") or 0)
+                if total_chars > 0:
+                    per_char = VOICE_PRICE_PER_1K_CHARS / 1000
+                    voice_units, voice_unit_cost, voice_actual = (
+                        total_chars, round(per_char, 6), round(total_chars * per_char, 2))
+                else:
+                    voice_units, voice_unit_cost, voice_actual = (
+                        1, VOICE_COST_ESTIMATE, VOICE_COST_ESTIMATE)
                 await record_ledger_entry(
                     tenant_id=self.tenant_id,
                     video_id=video_id,
                     stage="voice",
                     model="elevenlabs",
-                    units=1,
-                    unit_cost=VOICE_COST_ESTIMATE,
-                    actual_cost=VOICE_COST_ESTIMATE,
+                    units=voice_units,
+                    unit_cost=voice_unit_cost,
+                    actual_cost=voice_actual,
                 )
 
             if result.get("cancelled"):
@@ -13849,13 +13862,17 @@ separate scenes."""
                 "completed",
                 f"Generated {created} variant(s) for scene {scene} image {index}",
             )
-            # generation_ledger (checklist §0.3b / C08): same actions.PICTURE_COST
-            # reuse as the other image-stage call sites.
-            from actions import PICTURE_COST
+            # generation_ledger (checklist §0.3b/C08, priced per-model in
+            # §0.3c/C09): model_used is known here (image_model_router
+            # reports which of the 3 real image models drew the pixels) —
+            # price with THAT model's real rate instead of the flat blended
+            # default the other (model-unaware) image call sites still use.
+            from actions import picture_price_for
+            picture_cost = picture_price_for(model_used)
             await record_ledger_entry(
                 tenant_id=self.tenant_id, video_id=video_id, stage="image",
-                model=model_used, units=created, unit_cost=PICTURE_COST,
-                actual_cost=round(created * PICTURE_COST, 2),
+                model=model_used, units=created, unit_cost=picture_cost,
+                actual_cost=round(created * picture_cost, 2),
             )
             return {"status": video.get("status"), "video_id": video_id, "variants_created": created}
 

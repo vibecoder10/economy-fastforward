@@ -78,6 +78,15 @@ import generation_ledger  # noqa: E402
 from actions import PICTURE_COST, VOICE_COST_ESTIMATE, THUMBNAIL_COST  # noqa: E402
 from shared.clients.sound_client import SoundClient  # noqa: E402
 
+# C09 (checklist §0.3c): single price source — actions.py's constants above
+# must be the SAME objects/values shared.channel_profile exposes, not a
+# second hand-copied set. Import both sides so a future edit to one without
+# the other fails here instead of silently drifting again.
+import shared.channel_profile as channel_profile  # noqa: E402
+from actions import (  # noqa: E402
+    CLIP_COST, IMAGE_PRICE_BY_MODEL, VOICE_PRICE_PER_1K_CHARS, picture_price_for,
+)
+
 
 def _reset():
     global RAISE_ON_INSERT
@@ -249,7 +258,9 @@ def test_voice_stage_row_uses_voice_cost_estimate_from_actions():
 
 def test_thumbnail_stage_row_uses_thumbnail_cost_from_actions():
     """run_thumbnail() (all 3 completion paths — modeled/channel-formula/
-    from-scratch) prices with actions.THUMBNAIL_COST."""
+    from-scratch) prices with actions.THUMBNAIL_COST. Value corrected
+    0.10 -> 0.075 in C09 to match the real Nano Banana Pro rate
+    (docs/cost-awareness.md) — see channel_profile.THUMBNAIL_PRICE."""
     _reset()
     asyncio.run(generation_ledger.record_ledger_entry(
         tenant_id="tenant-1", video_id="video-1", stage="thumbnail",
@@ -258,7 +269,7 @@ def test_thumbnail_stage_row_uses_thumbnail_cost_from_actions():
     ))
     row = LEDGER_ROWS[0]
     assert row["stage"] == "thumbnail"
-    assert row["unit_cost"] == THUMBNAIL_COST == 0.10
+    assert row["unit_cost"] == THUMBNAIL_COST == 0.075
     print("✅ test_thumbnail_stage_row_uses_thumbnail_cost_from_actions")
 
 
@@ -325,6 +336,71 @@ def test_c08_fail_soft_identical_to_c07_for_every_new_stage():
     print("✅ test_c08_fail_soft_identical_to_c07_for_every_new_stage")
 
 
+def test_actions_prices_are_the_same_object_as_channel_profile():
+    """C09: actions.py must not hold a second hand-copied number for any
+    price — it re-exports shared.channel_profile's constants directly. Pin
+    identity (not just equality) for the dict so a future edit that swaps
+    the re-export for a fresh literal dict (equal today, drifts tomorrow)
+    fails this test immediately."""
+    assert CLIP_COST is channel_profile.CLIP_PRICE_BY_MODEL
+    assert IMAGE_PRICE_BY_MODEL is channel_profile.IMAGE_PRICE_BY_MODEL
+    assert PICTURE_COST == channel_profile.PICTURE_PRICE_DEFAULT
+    assert THUMBNAIL_COST == channel_profile.THUMBNAIL_PRICE
+    assert VOICE_PRICE_PER_1K_CHARS == channel_profile.VOICE_PRICE_PER_1K_CHARS
+    print("✅ test_actions_prices_are_the_same_object_as_channel_profile")
+
+
+def test_picture_price_for_uses_real_per_model_rate():
+    """C09: a known, unambiguous image model prices at its OWN rate (the
+    accuracy upgrade — was previously always the flat PICTURE_COST default
+    regardless of which of the 3 models actually drew the pixels)."""
+    assert picture_price_for("nano-banana-2") == 0.025
+    assert picture_price_for("z-image") == 0.004
+    assert picture_price_for("gpt-image-2") == PICTURE_COST == 0.08
+    # Unknown / mixed-batch / None all fall back to the default — never a
+    # KeyError, never a silently wrong guess at which model dominated.
+    assert picture_price_for(None) == PICTURE_COST
+    assert picture_price_for("gpt-image-2, nano-banana-2") == PICTURE_COST
+    print("✅ test_picture_price_for_uses_real_per_model_rate")
+
+
+def test_image_ledger_row_prices_by_actual_model_used():
+    """The per-model price actually reaches the ledger row, not just the
+    helper function — locks the shape pipeline_executor.run_image_variants
+    / coverage_to_app.redraw_asset_image now write."""
+    _reset()
+    model_used = "nano-banana-2"
+    cost = picture_price_for(model_used)
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="image",
+        model=model_used, units=1, unit_cost=cost, actual_cost=cost,
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["model"] == "nano-banana-2"
+    assert row["unit_cost"] == 0.025, "nano-banana-2 must NOT be priced at the flat 0.08 default"
+    print("✅ test_image_ledger_row_prices_by_actual_model_used")
+
+
+def test_voice_ledger_row_meters_by_real_character_count():
+    """C09: voice/run.py now reports total_chars; the ledger write must use
+    the REAL per-character price (docs/cost-awareness.md ~$0.30/1000 chars)
+    instead of a flat per-run guess — a 6000-char narration must cost 20x a
+    300-char one, which a flat VOICE_COST_ESTIMATE could never reflect."""
+    _reset()
+    total_chars = 6000
+    per_char = VOICE_PRICE_PER_1K_CHARS / 1000
+    actual = round(total_chars * per_char, 2)
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="voice", model="elevenlabs",
+        units=total_chars, unit_cost=round(per_char, 6), actual_cost=actual,
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["actual_cost"] == 1.8, f"6000 chars @ $0.30/1000 should be $1.80, got {row['actual_cost']}"
+    assert row["actual_cost"] != VOICE_COST_ESTIMATE, (
+        "a 6000-char video must NOT collapse to the flat 0.30 estimate")
+    print("✅ test_voice_ledger_row_meters_by_real_character_count")
+
+
 TESTS = [
     test_ledger_row_written_with_correct_fields,
     test_total_cost_equals_ledger_sum_after_one_write,
@@ -338,6 +414,10 @@ TESTS = [
     test_sound_stage_row_uses_sound_client_generation_price,
     test_all_five_stages_sum_without_double_counting,
     test_c08_fail_soft_identical_to_c07_for_every_new_stage,
+    test_actions_prices_are_the_same_object_as_channel_profile,
+    test_picture_price_for_uses_real_per_model_rate,
+    test_image_ledger_row_prices_by_actual_model_used,
+    test_voice_ledger_row_meters_by_real_character_count,
 ]
 
 

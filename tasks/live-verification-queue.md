@@ -132,6 +132,62 @@ paid generation:
 
 ---
 
+## C09 — single price source + real per-model/per-char pricing · live Kie-charge observation
+Checklist §0.3c. Consolidated every generation price into
+`shared/channel_profile.py` (read by `actions.py` and the frontend, see
+SYSTEM_STATE.md §C09) and made pricing model-aware where the call site
+knows enough (`picture_price_for(model_used)` for images, real character
+count for voice). STEP 1 confirmed Kie's job-status response never carries
+a cost/credit field, and `GET /api/v1/chat/credit` is an account-wide
+balance, not a per-task charge — so there is no way to get a REAL
+per-generation number without observing the Kie dashboard directly as the
+account drains. That observation is what this section queues; it's the
+product owner's explicitly requested follow-up, not a nice-to-have.
+- [ ] **Read the Kie dashboard's per-task credit consumption**
+      (`kie.ai/logs` — each task row shows model, input params, and credit
+      consumption per the Kie docs) for one recent generation of EACH type
+      below, and back out the true $/unit (credits ÷ the account's $/credit
+      rate). Compare against the registry price and update
+      `shared/channel_profile.py` if it's off:
+  - [ ] **gpt-image-2** (the default image engine) — current price
+        `IMAGE_PRICE_BY_MODEL["gpt-image-2"] = 0.08`, UNCONFIRMED (flagged
+        in the C09 report — GPT Image 2 is quality/resolution-tiered, Kie
+        doesn't publish one flat rate). **This is the price most likely to
+        be wrong** since most StoryEngine images use this model.
+  - [ ] **nano-banana-2** — current price `0.025` (matches the model-picker's
+        own label text + `docs/cost-awareness.md`, but never checked
+        against a live Kie task).
+  - [ ] **z-image** — current price `0.004` (same caveat as nano-banana-2).
+  - [ ] **grok-imagine clip** (6s tier) — current price `0.10`
+        (`MODEL_REGISTRY["grok-imagine"].cost_per_clip[6]`) — lower
+        confidence needed since this is the DEFAULT clip model and the
+        highest-volume paid call in the pipeline (20-40 clips/video).
+  - [ ] **nano-banana-pro thumbnail** — current price `0.075` (corrected
+        from `0.10` in C09 to match `docs/cost-awareness.md` — confirm the
+        correction landed on the right number, not just a different guess).
+  - [ ] **ElevenLabs voice** — current price `$0.30/1000 chars`
+        (`docs/cost-awareness.md`) — confirm against a real synthesis call's
+        billed character count (ElevenLabs' own dashboard/invoice, not
+        Kie's — voice doesn't route through Kie).
+- [ ] **After confirming/correcting any price above**, update the SAME
+      constant in `shared/channel_profile.py` (never re-add a hand-copied
+      number anywhere else — `actions.py` and the frontend both re-export
+      from there) and re-run
+      `tests/functional/test_generation_ledger.py::test_actions_prices_are_the_same_object_as_channel_profile`
+      to confirm nothing drifted apart during the edit.
+- **Cost:** $0 to READ the dashboard/logs (no new generation needed — this
+  reconciles against generations that already happened for other reasons).
+  If a fresh generation of each type is needed instead (dashboard doesn't
+  show old-enough history), budget ~$0.20-0.40 total for one tiny example of
+  each type — get a cost quote + explicit yes first, per storyengine/CLAUDE.md.
+- **Safety net:** this is a read-then-maybe-edit-a-constant task — no code
+  path depends on the observation succeeding; a stale/unconfirmed price
+  just means the cost dashboard under- or over-reports slightly until this
+  is done, never a broken generation or a wrong CHARGE to a creator
+  (StoryEngine doesn't bill per-generation yet).
+
+---
+
 ## C06 — Research-skipped transparency chip · live tap-test
 Checklist §0.5. `actions.make_autobuild_step` records `videos.research_skipped
 = TRUE` when the default autobuild skips research for a non-`static_docu`

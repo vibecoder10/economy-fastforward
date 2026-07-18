@@ -184,20 +184,24 @@ export default function VideoDetailPage() {
     queryFn: () => getVideoActions(videoId),
     refetchInterval: () => (status && !TERMINAL_STATUSES.has(status) ? 10000 : false),
   });
-  // Keep the local price table in lockstep with the server's (it's only the
-  // offline fallback — the server is the source of truth).
+  // Sync the shared clip-price cache from the server's real prices (it's
+  // only the offline/loading-gap fallback — the server is the source of
+  // truth; see lib/next-action.ts, checklist §0.3c/C09).
   useEffect(() => {
     if (videoActions?.prices?.clip) Object.assign(CLIP_COST_PER_MODEL, videoActions.prices.clip);
   }, [videoActions?.prices?.clip]);
   const estimatedCost = useMemo(() => {
     // Prefer the server's spend figure (same formula chat quotes); fall back to
-    // the local artifact count while the actions query is in flight.
+    // the local artifact count while the actions query is in flight. The
+    // picture price also comes from the server (prices.picture) — no
+    // hardcoded number duplicating actions.PICTURE_COST here (checklist §0.3c).
     if (videoActions?.summary?.spent != null) return videoActions.summary.spent;
     const a = costAssets ?? [];
     const pictures = a.filter((x) => x.image_url).length;
     const clips = a.filter((x) => x.video_clip_url).length;
-    return pictures * 0.08 + clipCost(video?.video_model, clips);
-  }, [videoActions?.summary?.spent, costAssets, video?.video_model]);
+    const picturePrice = videoActions?.prices?.picture ?? 0.08; // loading-gap fallback only
+    return pictures * picturePrice + clipCost(video?.video_model, clips);
+  }, [videoActions?.summary?.spent, videoActions?.prices?.picture, costAssets, video?.video_model]);
 
   // Per-video plan: hide the tabs for steps the creator switched off. No plan
   // (full pipeline / every existing video) → all tabs show, unchanged.

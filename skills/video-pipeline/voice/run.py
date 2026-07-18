@@ -70,6 +70,11 @@ async def run(pipeline) -> dict:
             return False
 
     voice_count = 0
+    # Real spend is per-character (ElevenLabs bills that way, not per run —
+    # docs/cost-awareness.md ~$0.30/1000 chars). Track exactly what got sent
+    # to the synth call for THIS run so the caller can ledger the actual
+    # character count instead of a flat per-run guess (checklist §0.3c/C09).
+    total_chars = 0
     cancelled = False
     for script in scripts:
         if await _cancelled():
@@ -113,15 +118,18 @@ async def run(pipeline) -> dict:
             # Update Supabase with persistent Drive URL
             pipeline.airtable.mark_script_finished(script["id"], persistent_url)
             voice_count += 1
+            total_chars += len(scene_text)
 
     # UPDATE STATUS (skip if targeted run)
     if cancelled:
         print(f"  🛑 Stopped by user — kept {voice_count} completed voice track(s)")
-        return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count, "cancelled": True}
+        return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count,
+                "total_chars": total_chars, "cancelled": True}
 
     if pipeline._is_targeted_run:
         print(f"  🎯 Targeted run — status NOT advanced")
-        return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count, "targeted": True}
+        return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count,
+                "total_chars": total_chars, "targeted": True}
 
     # Sound design runs AFTER images exist (needs Image Prompt + Sentence Text)
     pipeline._update_status(Statuses.READY_IMAGE_PROMPTS)
@@ -133,5 +141,6 @@ async def run(pipeline) -> dict:
         "bot": "Voice Bot",
         "video_title": pipeline.video_title,
         "voice_count": voice_count,
+        "total_chars": total_chars,
         "new_status": Statuses.READY_IMAGE_PROMPTS,
     }

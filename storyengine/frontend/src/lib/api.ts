@@ -2712,6 +2712,9 @@ export interface VideoModelInfo {
   name: string;
   kind: string; // "video" today — the registry may grow other kinds later
   wired: boolean;
+  /** $/clip at the model's cheapest tier, or null if unwired. Single price
+   * source: backend shared.channel_profile.CLIP_PRICE_BY_MODEL. */
+  cost_per_clip: number | null;
 }
 export interface ModelsResponse {
   models: VideoModelInfo[];

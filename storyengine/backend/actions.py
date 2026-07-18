@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -24,20 +26,39 @@ from fastapi import HTTPException
 from database import execute, fetch_one
 from status_map import is_at_or_past_stage
 
-logger = logging.getLogger(__name__)
+# shared.channel_profile lives in the pipeline package, not the SaaS backend
+# (same sys.path pattern as routes/model_registry.py / pipeline_executor.py).
+# .resolve() matters here (unlike those two): several lightweight test files
+# import actions.py after doing their OWN unresolved
+# `os.path.join(os.path.dirname(__file__), "..", "..")` sys.path insert —
+# when Python then finds actions.py through THAT sys.path entry, its
+# __file__ carries the same un-collapsed ".." segments, and
+# Path(__file__).parent×3 on a path like ".../tests/functional/../../actions.py"
+# lexically strips segments instead of canceling the ".."s, landing on a
+# nonexistent directory instead of the repo root (caught live: C09 broke
+# test_autobuild_explicit_research_plan.py / test_producer_kie_fallback.py /
+# test_research_skipped_chip.py this way before .resolve() was added).
+_PIPELINE_ROOT = Path(__file__).resolve().parent.parent.parent / "skills" / "video-pipeline"
+if str(_PIPELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PIPELINE_ROOT))
 
-# Per-clip prices mirror the frontend's CLIP_COST_PER_MODEL (next-action.ts) so the
-# co-pilot's "~$X" matches the page's Est. Cost. Pictures are $0.08 each.
-CLIP_COST = {"grok-imagine": 0.10, "veo-3.1-fast": 0.30, "veo-3.1-quality": 1.25, "seedance-2-fast": 0.30}
-PICTURE_COST = 0.08
-# Flat per-run estimates for the other paid stages — named here (C08,
-# checklist §0.3b) so generation_ledger writes in pipeline_executor.py reuse
-# the SAME number the confirm card already quotes, instead of a second copy.
-# These were inline literals in estimate_cost() below before C08; still rough
-# (not per-scene/per-character-metered) — full single-sourcing is C09.
-VOICE_COST_ESTIMATE = 0.30
-SOUND_COST_ESTIMATE = 0.20
-THUMBNAIL_COST = 0.10
+# Single price source (checklist §0.3c / C09): every constant below is a
+# straight re-export of shared.channel_profile — the numbers themselves live
+# there (next to MODEL_REGISTRY), not here. Kept under these SAME names so
+# every existing `from actions import PICTURE_COST` etc. call site (chat.py,
+# pipeline_executor.py, scripts/coverage_to_app.py) needs no changes.
+from shared.channel_profile import (  # noqa: E402
+    CLIP_PRICE_BY_MODEL as CLIP_COST,
+    IMAGE_PRICE_BY_MODEL,
+    PICTURE_PRICE_DEFAULT as PICTURE_COST,
+    THUMBNAIL_PRICE as THUMBNAIL_COST,
+    VOICE_PRICE_PER_1K_CHARS,
+    VOICE_PRICE_FLAT_ESTIMATE as VOICE_COST_ESTIMATE,
+    SOUND_PRICE_ESTIMATE as SOUND_COST_ESTIMATE,
+    picture_price_for,
+)
+
+logger = logging.getLogger(__name__)
 
 # verb -> how to run it. `calls` = ordered (executor method, passes a scene= kwarg).
 # `paid` => hold behind a confirm card in the dock. `needs` = the prerequisite that
@@ -238,7 +259,19 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     elif verb == "storyboards":
         cost = (1 if scene is not None else max(1, summary["scenes"])) * PICTURE_COST
     elif verb == "voice":
-        cost = VOICE_COST_ESTIMATE
+        # Real per-character estimate (ElevenLabs bills per character, not
+        # per run — docs/cost-awareness.md) when the script already exists;
+        # flat fallback otherwise (e.g. a quote requested before "Write the
+        # script" has run). Counts raw scene_text length, not the narrator-
+        # only text voice/run.py actually sends (which drops character
+        # dialogue lines on a dialogue video) — a defensible slight
+        # overestimate for a pre-generation quote, never an underestimate.
+        row = await fetch_one(
+            "SELECT COALESCE(SUM(length(scene_text)), 0) AS chars FROM scripts "
+            "WHERE video_id=$1 AND tenant_id=$2 AND scene_text IS NOT NULL",
+            video_id, tenant_id)
+        chars = int((row or {}).get("chars") or 0)
+        cost = round(chars / 1000 * VOICE_PRICE_PER_1K_CHARS, 2) if chars else VOICE_COST_ESTIMATE
     elif verb == "sound":
         cost = SOUND_COST_ESTIMATE
     elif verb == "thumbnail":
