@@ -37,6 +37,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
         sys.path.append(bot_path)
 
 from database import fetch_one, fetch_all, execute
+from generation_ledger import record_ledger_entry
 from error_utils import humanize_error, user_facing
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage, resolve_planned_status
 from vault import get_secret
@@ -11840,19 +11841,21 @@ separate scenes."""
             _vaspect = (video.get("aspect_ratio") or "16:9")
             _vres = (video.get("video_resolution") or "720p")
             if model_id.startswith("seedance"):
-                def animate(img, prompt, duration=6, extra_image_urls=None):
+                def animate(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
                     return client.generate_video_seedance(
                         img, prompt, duration=duration,
-                        extra_image_urls=extra_image_urls, aspect_ratio=_vaspect)
+                        extra_image_urls=extra_image_urls, aspect_ratio=_vaspect,
+                        task_id_out=task_id_out)
             else:
                 # Pass the video's aspect + resolution to Grok — without aspect it
                 # crops every clip to vertical (16:9 came out 9:16); resolution is
                 # the quality selector (480p / 720p).
-                def animate(img, prompt, duration=6, extra_image_urls=None):
+                def animate(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
                     return client.generate_video(
                         img, prompt, duration=duration,
                         extra_image_urls=extra_image_urls,
-                        aspect_ratio=_vaspect, resolution=_vres)
+                        aspect_ratio=_vaspect, resolution=_vres,
+                        task_id_out=task_id_out)
 
             # Grok takes up to 7 reference images (@image1, @image2... in the
             # prompt): @image1 = the panel, @image2 = the labeled cast sheet.
@@ -11945,14 +11948,14 @@ separate scenes."""
             async def _gen(coro):
                 return await asyncio.wait_for(coro, CLIP_DEADLINE)
 
-            async def _animate_recover(r, image_url, full_prompt, clip_dur):
+            async def _animate_recover(r, image_url, full_prompt, clip_dur, task_id_out=None):
                 """Generate the clip; if Grok's content filter (failCode 430) flags
                 the frame, redraw the shot with a safer wholesome framing and retry
                 ONCE. Returns (clip_url_or_None, image_url_actually_used)."""
                 extra = [_proxy_url(sheet)] if sheet else None
                 try:
                     return (await _gen(animate(image_url, full_prompt, duration=clip_dur,
-                                               extra_image_urls=extra)), image_url)
+                                               extra_image_urls=extra, task_id_out=task_id_out)), image_url)
                 except Exception as e:
                     if CONTENT_POLICY_MARKER not in str(e):
                         raise  # not a content block — let _safe_one count it failed
@@ -11973,7 +11976,7 @@ separate scenes."""
                                          or (nr or {}).get("image_url") or image_url)
                     try:
                         return (await _gen(animate(new_img, full_prompt, duration=clip_dur,
-                                                   extra_image_urls=extra)), new_img)
+                                                   extra_image_urls=extra, task_id_out=task_id_out)), new_img)
                     except Exception as e2:
                         if CONTENT_POLICY_MARKER in str(e2):
                             print(f"[clips] S{sc}.{idx} still flagged after safe redraw — giving up",
@@ -11994,6 +11997,10 @@ separate scenes."""
                         pass
                     sc, idx = r["scene"], r["image_index"]
                     img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
+                    # Fresh per-clip box (not a shared attribute on `client`) so
+                    # concurrent clips never clobber each other's Kie taskId —
+                    # generation_ledger traceability (checklist §0.3a / C07).
+                    task_id_box: list = []
                     # In grok_native mode the coverage motion-writer is the SINGLE
                     # source of truth for what a shot says — it embeds the exact
                     # line in video_prompt and Grok voices it. Don't let the older
@@ -12058,7 +12065,8 @@ separate scenes."""
                                             img + ".png" if "/api/media/drive/" in img else img,
                                             _proxy_url(pad_url) + ".mp3",
                                             prompt=talk_prompt,
-                                            resolution=_vres),
+                                            resolution=_vres,
+                                            task_id_out=task_id_box),
                                         timeout=int(os.getenv("TALKING_CLIP_DEADLINE", "1200")))
                                     if clip_url:
                                         talked = True
@@ -12096,7 +12104,8 @@ separate scenes."""
                                 need = (sum(float(l.get("duration") or 2.0) for l in lines)
                                         + DIALOGUE_VOICE_LEAD_SECONDS)
                             clip_dur = pick_clip_duration(need, durations)
-                            clip_url, img = await _animate_recover(r, img, prompt, clip_dur)
+                            clip_url, img = await _animate_recover(
+                                r, img, prompt, clip_dur, task_id_out=task_id_box)
                             clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
@@ -12127,10 +12136,12 @@ separate scenes."""
                         clip_dur = pick_clip_duration(max(spoken_secs, seg_dur), durations)
                         if model_id.startswith("veo-3.1"):
                             veo_model = client.VEO_MODEL_QUALITY if model_id.endswith("quality") else client.VEO_MODEL_FAST
-                            clip_url = await _gen(client.generate_video_veo(prompt, image_url=img, model=veo_model))
+                            clip_url = await _gen(client.generate_video_veo(
+                                prompt, image_url=img, model=veo_model, task_id_out=task_id_box))
                             clip_dur = profile.durations[0]
                         else:
-                            clip_url, img = await _animate_recover(r, img, _decorate(prompt), clip_dur)
+                            clip_url, img = await _animate_recover(
+                                r, img, _decorate(prompt), clip_dur, task_id_out=task_id_box)
                         clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
 
                     if not clip_url:
@@ -12217,6 +12228,25 @@ separate scenes."""
                     )
                     done += 1
                     cost += clip_cost
+                    # generation_ledger: one row per completed clip, single source
+                    # of truth for videos.total_cost (checklist §0.3a / C07).
+                    # unit_cost/actual_cost both resolve to clip_cost — the SAME
+                    # value already computed above from profile.cost_per_clip
+                    # (MODEL_REGISTRY, not hardcoded); Kie never returns an
+                    # actual-spend figure in the task-status payload, so there's
+                    # no better "actual" than the registry price for now.
+                    # record_ledger_entry() is fail-soft internally — never
+                    # raises — so the clip result above is never at risk.
+                    await record_ledger_entry(
+                        tenant_id=self.tenant_id,
+                        video_id=video_id,
+                        stage="clip",
+                        model=model_id,
+                        units=1,
+                        unit_cost=clip_cost,
+                        actual_cost=clip_cost,
+                        kie_task_id=(task_id_box[0] if task_id_box else None),
+                    )
                     await _report(f"Animated S{sc}.{idx} ({done}/{total} done)")
 
             async def _safe_one(r):

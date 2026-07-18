@@ -8,6 +8,63 @@
 
 ---
 
+## C07 — `generation_ledger` clip-path write + `total_cost` rollup · live paid-clip check
+Checklist §0.3a. `pipeline_executor.run_clip_generation` now calls
+`generation_ledger.record_ledger_entry(stage="clip", model=<resolved
+video_model>, units=1, unit_cost=actual_cost=clip_cost, kie_task_id=...)`
+right after each clip's `assets.video_clip_url` write succeeds; the helper
+INSERTs one `generation_ledger` row then recomputes `videos.total_cost =
+SUM(actual_cost)` for that video. Proven in-sandbox: 6 unit tests against an
+in-memory fake `database.execute` lock the row shape, the SUM-recompute
+behavior (including that it REPLACES a stale non-ledger `total_cost`, not
+increments it), per-video scoping, and fail-soft (a forced INSERT exception
+never propagates and leaves neither table touched) —
+`tests/functional/test_generation_ledger.py`. Migration `087_generation_ledger.sql`
+applied live to `wrromlupsmyzrrcqlucn`; table, both columns' shape, both
+indexes, and RLS-enabled all confirmed via `information_schema`/`pg_indexes`/
+`pg_class`. No paid Kie key in the build sandbox, so the actual clip → ledger
+row → total_cost round trip against a real Kie response was NOT run. What's
+NOT provable without a live paid clip:
+- [ ] **Generate one clip** on a test video (Scenes tab, tap "Animate" on
+      one card, or `Animate this scene` on a scene with exactly one shot to
+      keep it cheap) using the default `grok-imagine` model (~$0.10-0.15 for
+      the shortest duration tier).
+- [ ] **Confirm a `generation_ledger` row appeared:** `se db "SELECT stage,
+      model, units, unit_cost, actual_cost, kie_task_id, created_at FROM
+      generation_ledger WHERE video_id='<test-vid>' ORDER BY created_at
+      DESC LIMIT 3"` → expect one new row, `stage='clip'`, `model='grok-imagine'`
+      (or whichever model the test video is set to), `unit_cost = actual_cost`
+      matching `MODEL_REGISTRY['grok-imagine'].cost_per_clip[<duration>]`,
+      and `kie_task_id` NOT NULL (proves the `task_id_out` threading through
+      `ImageClient.generate_video` actually captured a real Kie taskId, not
+      just the fake-clip-result unit test's assumption).
+- [ ] **Confirm `videos.total_cost` incremented by exactly that row's
+      `actual_cost`:** `se db "SELECT total_cost FROM videos WHERE
+      id='<test-vid>'"` before and after the clip. If the video had prior
+      clips, `total_cost` should equal the full `SUM(actual_cost)` across
+      all its `generation_ledger` rows, not just the delta.
+- [ ] **Generate a second clip on the same video** and confirm `total_cost`
+      accumulates correctly (sum of both rows) rather than resetting or
+      double-counting — the concurrency note in SYSTEM_STATE.md §C07 (fresh
+      `task_id_box` per clip, recompute-not-increment rollup) is the thing
+      actually being checked here.
+- [ ] **Backend log check (fail-soft, best-effort):** confirm no
+      `[generation_ledger] write/rollup failed` line appears in the backend
+      log for a clip that otherwise completed successfully — that would mean
+      the bookkeeping silently missed a real charge (still not a bug in the
+      clip itself, per the fail-soft design, but worth catching).
+- **Cost:** ~$0.10-0.15 (one Grok Imagine clip, shortest duration tier).
+  Per storyengine/CLAUDE.md, get a cost quote + explicit yes before
+  triggering any paid generation, even for this check.
+- **Safety net:** the ledger write is wrapped in
+  `generation_ledger.record_ledger_entry`'s own try/except (fail-soft) — a
+  failure here cannot fail or roll back the clip generation itself; worst
+  case is a clip that generated correctly but didn't get billed to the
+  ledger (silent under-count, never an error surfaced to the creator, never
+  a lost asset).
+
+---
+
 ## C06 — Research-skipped transparency chip · live tap-test
 Checklist §0.5. `actions.make_autobuild_step` records `videos.research_skipped
 = TRUE` when the default autobuild skips research for a non-`static_docu`

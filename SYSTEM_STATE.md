@@ -1015,3 +1015,87 @@ pre-existing error before and after (confirmed via `git stash`), unrelated to
 this change. The live step ("create a default video, see the chip, tap it,
 confirm research runs and the chip clears") needs a running app + browser and
 is deferred — see `tasks/live-verification-queue.md` §C06.
+
+## C07 — `generation_ledger` Table + Clip-Path Ledger Write + `total_cost` Rollup (added 2026-07-18)
+
+Checklist §0.3 (`tasks/storyengine-wiring-fix-checklist.md`): the cost
+counter was wrong — price estimates were duplicated in 3 places and
+`videos.total_cost` was never rolled up from real spend (confirmed live: no
+INSERT/UPDATE anywhere in the codebase ever wrote a non-zero value into it
+before this change; it just sat at its `DEFAULT 0`). New **`generation_ledger`**
+table is now the single source of truth for `videos.total_cost`, wired for
+the FIRST paid-generation call site (clips, `pipeline_executor.run_clip_generation`).
+C08 (next) adds images/voice/thumbnail/sound; C09 single-sources price
+constants (`actions.py` estimates, deletes the `next-action.ts` duplicate);
+C10 adds the UI ("Est → Actual" chip + ledger drawer).
+
+New `storyengine/backend/generation_ledger.py::record_ledger_entry()` does
+two things per call, both wrapped in one try/except that never re-raises
+(fail-soft — a completed clip already cost real money; losing its ledger
+row is a bookkeeping miss, failing the caller would be a disaster):
+1. `INSERT INTO generation_ledger (tenant_id, video_id, stage, model, units, unit_cost, actual_cost, kie_task_id) VALUES (...)`
+2. `UPDATE videos SET total_cost = (SELECT COALESCE(SUM(actual_cost),0) FROM generation_ledger WHERE video_id=$1) WHERE id=$1`
+
+Step 2 is a **recompute**, not an increment — every call is idempotent-safe
+and self-healing regardless of call order or retries.
+
+`run_clip_generation`'s `_one(r)` closure (one async task per clip, run
+concurrently under a semaphore) calls `record_ledger_entry(stage="clip",
+model=<the video's resolved video_model>, units=1, unit_cost=actual_cost=
+clip_cost, kie_task_id=...)` right after each clip's `assets.video_clip_url`
+write succeeds — `clip_cost` is the SAME value already computed from
+`MODEL_REGISTRY[model_id].cost_per_clip` (via `clip_cost_for()`), never a
+new hardcoded number. `kie_task_id` is captured via a new optional
+`task_id_out: Optional[list]` parameter threaded through
+`ImageClient.generate_video` / `generate_video_seedance` /
+`generate_video_veo` / `generate_talking_video` (skills/video-pipeline) — a
+FRESH empty list per clip (`task_id_box`, declared inside `_one(r)`), not a
+shared attribute on the client instance, so concurrent clip generations on
+the same shared `ImageClient` never clobber each other's Kie taskId.
+
+Existing `stage_transitions.cost` / `bot_activity.cost` columns are
+**unchanged and not double-counted against** — they're informational
+activity-feed numbers (`_log_activity(..., cost=cost)` /
+`_log_transition(..., cost=...)`) summed ad hoc by `/api/activity` and
+`/api/dashboard` per request; nothing ever wrote them back into
+`videos.total_cost`, so there was nothing to reconcile. Flagged as a
+possible deprecation candidate once every stage's spend flows through
+`generation_ledger` (C08+), not removed here.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/087_generation_ledger.sql` | Creates `generation_ledger` (tenant_id, video_id, stage, model, units, unit_cost, actual_cost, kie_task_id, created_at), its two indexes (`video_id`; `tenant_id, created_at`), and enables RLS with no policies (mirrors migration 083's `secrets`/`static_reference_cache`/`channel_video_retention` pattern — backend connects as `postgres`, BYPASSRLS). Applied live to project `wrromlupsmyzrrcqlucn` via Supabase MCP `apply_migration`; table, both columns and both indexes, and `relrowsecurity=true` all confirmed via `information_schema`/`pg_indexes`/`pg_class`. |
+| `storyengine/backend/generation_ledger.py` | `record_ledger_entry()` — the single write path into `generation_ledger` + `videos.total_cost`. Fail-soft by design (see above). |
+| `storyengine/backend/tests/functional/test_generation_ledger.py` | 6 tests against an in-memory fake `database.execute`: row written with correct fields; `total_cost` == `SUM(actual_cost)` after one write; a second write accumulates via recompute (proven by seeding a stale non-ledger `total_cost=999` and confirming it's REPLACED, not incremented, by the first real write); a write for one video never touches another video's `total_cost`; a forced exception on the INSERT never propagates and leaves neither table changed; `kie_task_id` defaults to `NULL` when not captured. |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/schema.sql` | New `generation_ledger` table (placed next to `stage_transitions`/`bot_activity`), its two indexes, and its RLS-enable line (no policy), matching migration 087. |
+| `storyengine/backend/pipeline_executor.py` | `run_clip_generation`: `animate()` closures (Grok/Seedance) and `_animate_recover()` now accept/forward `task_id_out`; the InfiniteTalk, Grok-speaking, and silent/Veo branches each pass a fresh per-clip `task_id_box`; right after a clip's `assets.video_clip_url` write, calls `record_ledger_entry(...)`. New top-level import `from generation_ledger import record_ledger_entry`. |
+| `skills/video-pipeline/shared/clients/image_client.py` | `generate_video`, `generate_video_seedance`, `generate_video_veo`, `generate_talking_video` each gained an optional `task_id_out: Optional[list] = None` param — when passed, the Kie taskId is appended right after `createTask` succeeds. Backward compatible (defaults to `None`; the one other caller, `skills/video-pipeline/video_motion/run_generate.py`, is unaffected). |
+
+`python -m py_compile` clean on every touched backend/pipeline file (no
+frontend touched in C07 — `tsc` N/A). `./venv/bin/python -m pytest
+tests/functional/test_generation_ledger.py tests/functional/test_schema_sql_migrations_drift.py
+-q` — 10 passed. Full suite: same 16 pre-existing failures + 1 pre-existing
+error before and after (confirmed via `git stash -u`), unrelated to this
+change (742 passed baseline → 748 passed with the 6 new ledger tests added,
+zero new failures). The live check ("generate one real clip, confirm a
+`generation_ledger` row appears and `videos.total_cost` increments by the
+matching amount") needs a paid Kie call and is deferred — see
+`tasks/live-verification-queue.md` §C07.
+
+**Known gaps intentionally left for later chunks:** `unit_cost`/`actual_cost`
+are currently the same value (Kie's task-status payload never returns an
+actual-spend figure, only URLs) — C09's "single price source" work is the
+natural place to revisit if Kie ever adds one. The InfiniteTalk
+audio-driven speaking-clip sub-path prices itself off `INFINITALK_USD_PER_SEC`
+(env var), not `MODEL_REGISTRY.cost_per_clip` — pre-existing design (
+InfiniteTalk isn't a selectable `video_model`), unchanged by C07; the ledger
+row for that sub-path still records `model=<the video's resolved
+video_model>` (e.g. `grok-imagine`) since that's what the checklist's "the
+resolved clip model" field means, not the internal fallback animator used
+for lip-sync — worth a closer look in C08/C09 if InfiniteTalk spend needs
+its own line item.

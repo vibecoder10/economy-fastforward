@@ -746,6 +746,31 @@ CREATE TABLE bot_activity (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Actual-spend receipt table backing videos.total_cost (migration 087,
+-- checklist §0.3/C07). One row per completed paid-generation unit (clips
+-- first; images/voice/thumbnail/sound land in C08). total_cost is always a
+-- recompute of SUM(actual_cost) for the video — see
+-- backend/generation_ledger.py::record_ledger_entry(). RLS enabled with no
+-- policies (backend connects as postgres, bypasses RLS) — same pattern as
+-- migration 083.
+CREATE TABLE generation_ledger (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) NOT NULL,
+  video_id UUID REFERENCES videos(id) ON DELETE CASCADE NOT NULL,
+  stage TEXT NOT NULL,
+  model TEXT,
+  units NUMERIC NOT NULL DEFAULT 1,
+  unit_cost NUMERIC NOT NULL DEFAULT 0,
+  actual_cost NUMERIC NOT NULL DEFAULT 0,
+  kie_task_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE generation_ledger ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST) — same reasoning as
+-- `secrets` above: the backend connects as postgres (BYPASSRLS), so app
+-- access is unaffected; this only closes the direct-PostgREST/browser path.
+
 -- =============================================
 -- INDEXES
 -- =============================================
@@ -775,6 +800,8 @@ CREATE INDEX idx_discovery_ideas_tenant ON discovery_ideas(tenant_id);
 CREATE INDEX idx_discovery_ideas_status ON discovery_ideas(tenant_id, status, batch_date DESC);
 CREATE INDEX idx_bot_activity_tenant ON bot_activity(tenant_id, created_at DESC);
 CREATE INDEX idx_stage_transitions_video ON stage_transitions(video_id);
+CREATE INDEX idx_generation_ledger_video ON generation_ledger(video_id);
+CREATE INDEX idx_generation_ledger_tenant_created ON generation_ledger(tenant_id, created_at);
 CREATE INDEX idx_channel_profiles_tenant ON channel_profiles(tenant_id);
 CREATE INDEX idx_accounts_email ON accounts(email);
 CREATE INDEX idx_projects_account ON projects(account_id);

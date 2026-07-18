@@ -944,6 +944,7 @@ class ImageClient:
         audio_url: str,
         prompt: str,
         resolution: str = "480p",
+        task_id_out: Optional[list] = None,
     ) -> Optional[str]:
         """Audio-driven speaking clip via InfiniteTalk (Kie).
 
@@ -977,6 +978,8 @@ class ImageClient:
                 if not task_id:
                     print(f"      ❌ InfiniteTalk createTask failed: {str(task_data.get('msg'))[:150]}")
                     return None
+                if task_id_out is not None:
+                    task_id_out.append(task_id)
             await asyncio.sleep(30)
             result_urls = await self.poll_for_completion(task_id, max_attempts=90, poll_interval=10.0)
             return result_urls[0] if result_urls else None
@@ -999,6 +1002,7 @@ class ImageClient:
         extra_image_urls: Optional[list] = None,
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
+        task_id_out: Optional[list] = None,
     ) -> Optional[str]:
         """Generate a video from an image using Grok Imagine via Kie.ai.
 
@@ -1009,6 +1013,12 @@ class ImageClient:
         aspect_ratio: '16:9' / '9:16' / etc. REQUIRED to get a landscape clip —
         Grok crops to vertical by default, so omitting it ruined 16:9 videos.
         resolution: '480p' / '720p' — the quality selector.
+        task_id_out: optional list the caller passes in to receive the Kie
+        taskId once the create-task call succeeds (append, don't assign —
+        keeps this safe to share a fresh empty list per concurrent call
+        instead of a shared mutable attribute on self, which would race
+        under concurrent clip generation). Used for generation_ledger
+        traceability (storyengine-wiring-fix-checklist.md §0.3a).
         """
 
         # Grok-imagine (Kie) accepts any duration 6–30s as a string. Clamp to
@@ -1082,7 +1092,9 @@ class ImageClient:
                         print(f"❌ Failed to get video task ID: {task_data}")
                         await asyncio.sleep(4 * (attempt + 1))
                         continue # Retry
-                        
+
+                    if task_id_out is not None:
+                        task_id_out.append(task_id)
                     print(f"    🎬 Video task started: {task_id}")
                     
                     # 2. Wait and Poll
@@ -1115,6 +1127,7 @@ class ImageClient:
         duration: int = 6,
         extra_image_urls: Optional[list] = None,
         aspect_ratio: str = "16:9",
+        task_id_out: Optional[list] = None,
     ) -> Optional[str]:
         """Animate one keyframe with Seedance 2.0 Fast — the pricier, smoother tier.
         Same call shape as generate_video so the executor can swap them. image_url is
@@ -1151,6 +1164,8 @@ class ImageClient:
                           f"{str(task_data.get('msg'))[:150]}")
                     await asyncio.sleep(4 * (attempt + 1))
                     continue
+                if task_id_out is not None:
+                    task_id_out.append(task_id)
                 print(f"    🎬 Seedance task started: {task_id}")
                 await asyncio.sleep(10)
                 result_urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
@@ -1188,6 +1203,7 @@ class ImageClient:
         model: str = None,
         aspect_ratio: str = "16:9",
         seed: int = None,
+        task_id_out: Optional[list] = None,
     ) -> Optional[str]:
         """Generate a video using Veo 3.1.
 
@@ -1261,6 +1277,8 @@ class ImageClient:
                         print(f"      ❌ No task ID returned: {task_data}")
                         continue
 
+                    if task_id_out is not None:
+                        task_id_out.append(task_id)
                     print(f"      🎬 Veo task started: {task_id}")
 
                     # Poll for completion (Veo has different polling endpoint)
