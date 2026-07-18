@@ -17,6 +17,62 @@
 
 ---
 
+## C12 — per-scene model router + `routed_model`/`routing_reason` at shot-plan time · live build check
+Checklist §1.2 (P1.2a slice). New `shared/model_router.py` (data-driven
+lookup over C11's `MODEL_REGISTRY.best_for`/`tier`/`wired`) is called from
+`storyboard/coverage.py`'s `plan_camera_moves()` — BEFORE frames are drawn
+— and the recommendation rides the shot dict through
+`generate_coverage_frames()` into `coverage_to_app.py`'s `store_scene()`,
+which persists `routed_model`/`routing_reason` onto the `assets` row
+(migration 088, confirmed live via `information_schema.columns` on project
+`wrromlupsmyzrrcqlucn` — all 3 new columns exist, nullable TEXT, no
+default). `model_used` (C13's column) is deliberately never written by this
+path. Proven in-sandbox at test + trace level only (router unit tests +
+`store_scene()` persistence tests with a stubbed DB —
+`tests/functional/test_scene_model_routing.py`, 10 tests; shot-plan
+integration tests — `skills/video-pipeline/tests/test_coverage.py`, 3 new
+tests proving `plan_camera_moves()` itself stamps the fields and that a
+routing failure doesn't touch the camera-move plan; all confirmed
+non-vacuous via `git stash`). No paid Kie/Anthropic key in the build
+sandbox, so a REAL coverage build was never run — that's the gap this
+entry defers:
+- [ ] **Run a real coverage build** on a test video (any scene with
+      "Generate coverage" / the storytelling coverage path —
+      `python3 scripts/coverage_to_app.py --video <id> --scene <N>` on the
+      VPS, or trigger it from the app) with a scene whose narration reads
+      as a clear reveal/payoff beat (so the router doesn't just default to
+      draft on every shot).
+- [ ] **Confirm routing landed on real rows:**
+      `se db "SELECT scene, image_index, camera_movement, routed_model,
+      routing_reason, model_used FROM assets WHERE video_id='<test-vid>'
+      AND scene=<N> ORDER BY image_index"` — expect `routed_model`/
+      `routing_reason` populated wherever `camera_movement` isn't NULL/
+      `'static'`-only, `model_used` NULL on every row (C13 hasn't wired it
+      yet), and `routed_model` always one of the 4 wired ids (never
+      `kling-3.0-pro`/`runway-gen4-turbo`/`hailuo-2.3-standard`).
+- [ ] **Spot-check the reveal/payoff beat specifically:** that shot's
+      `routed_model` should read `veo-3.1-quality` and `routing_reason`
+      should mention "hero" — confirms the purpose→tag mapping fired on
+      real (not synthetic) camera-selector output, not just the unit
+      tests' hand-built `ShotContext`.
+- [ ] **Confirm fail-soft in production conditions too:** temporarily break
+      the import (or watch a real log) and confirm a routing hiccup logs
+      `"model routing failed (shot ships without a recommendation)"` but
+      the scene's coverage frames/camera moves still generate normally —
+      no aborted build.
+- **Cost:** whatever a normal coverage build already costs (image
+  generation only — no clip generation is triggered by routing itself,
+  since C13 hasn't wired clip generation to read `routed_model` yet). No
+  NEW paid step beyond a build you'd run anyway.
+- **Safety net:** routing is wrapped in its own try/except separate from
+  camera-move assignment (proven by test, see above) — even a total router
+  failure degrades to `routed_model`/`routing_reason` staying NULL on
+  those shots, never a failed/aborted shot plan. Nothing downstream reads
+  these columns yet (C13/C14 not built), so a live surprise here has zero
+  blast radius on production behavior today.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

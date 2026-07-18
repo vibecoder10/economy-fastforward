@@ -517,6 +517,23 @@ def plan_camera_moves(moments: list) -> int:
                 else:
                     shot["camera_move"] = "static"
                     prev_keys.append("static")
+
+                # Model routing (checklist §1.2/C12): recommend a video
+                # model for this shot from the SAME purpose the camera
+                # engine just resolved (sel.purpose is always set, whether
+                # or not a move was found). Data + recommendation only —
+                # clip generation doesn't read this yet (C13). Fail-soft
+                # and isolated from camera planning above: a routing
+                # failure must never affect the camera-move plan, which is
+                # already set either way by the time this runs.
+                try:
+                    from shared.model_router import route_shot_model
+                    decision = route_shot_model(sel.purpose)
+                    shot["routed_model"] = decision.model_id
+                    shot["routing_reason"] = decision.routing_reason
+                except Exception as route_err:  # noqa: BLE001
+                    print(f"  model routing failed (shot ships without a "
+                          f"recommendation): {str(route_err)[:120]}", flush=True)
     except Exception as e:  # noqa: BLE001 — camera planning must never kill coverage
         print(f"  camera planning failed (shots stay freeform): {str(e)[:120]}", flush=True)
     return planned
@@ -559,7 +576,9 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
     if not master_url:
         return None
     frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"],
-               "camera_move": m.get("camera_move"), "url": master_url, "image_model": master_model}]
+               "camera_move": m.get("camera_move"), "routed_model": m.get("routed_model"),
+               "routing_reason": m.get("routing_reason"), "url": master_url,
+               "image_model": master_model}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
@@ -568,7 +587,9 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
               + _SAME_SUBJECT + _STYLE_LOCK + a_anchor)
         url, model_used = await _gen(ap, angle_base + a_ref)
         return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"],
-                "camera_move": a.get("camera_move"), "url": url, "image_model": model_used} if url else None
+                "camera_move": a.get("camera_move"), "routed_model": a.get("routed_model"),
+                "routing_reason": a.get("routing_reason"), "url": url,
+                "image_model": model_used} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.

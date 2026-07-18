@@ -348,6 +348,16 @@ CREATE TABLE assets (
   -- videos.image_model_override when a content-policy/failure fallback fired.
   image_model TEXT,
 
+  -- Per-scene/shot video-model routing (migration 088, checklist §1.2/C12):
+  -- routed_model + routing_reason are computed at shot-plan time (storyboard/
+  -- coverage.py's plan_camera_moves(), via shared.model_router) and persisted
+  -- by store_scene(). model_used stays NULL until C13 wires clip generation
+  -- to record which model actually ran. All nullable — pre-migration rows
+  -- and any write path other than store_scene() simply leave them NULL.
+  routed_model TEXT,
+  routing_reason TEXT,
+  model_used TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

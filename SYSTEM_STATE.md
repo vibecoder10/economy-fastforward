@@ -1595,6 +1595,87 @@ new failures, zero fixed by accident. `python -m py_compile` clean on both
 touched `.py` files. `npx tsc --noEmit` not run — no frontend files
 touched (by design; C14 does the UI).
 
+## C12 — Per-Scene Model Router + `routed_model`/`routing_reason`/`model_used` Columns (added 2026-07-18)
+
+Router module + migration only — clip generation does not read `routed_model`
+yet (that's C13), no UI (C14). Data + recommendation, computed and persisted
+at shot-plan time.
+
+**New module `skills/video-pipeline/shared/model_router.py`**:
+`route_shot_model(purpose, is_multi_shot=False) -> RoutingDecision(model_id,
+routing_reason)`. Pure lookup over C11's `MODEL_REGISTRY.best_for`/`tier`/
+`wired` fields — no second hardcoded capability table. Purpose → tag
+priority: `REVEAL`/`PAYOFF` → `hero` tag (→ `veo-3.1-quality`); `ESTABLISH`
+→ `atmospheric` (→ `veo-3.1-fast`); `SCALE`/`ISOLATION` → `broll` (→
+`veo-3.1-fast`); anything else (including `STATIC` — no camera-move purpose
+earned) → `draft` (→ `grok-imagine`, same as `DEFAULT_VIDEO_MODEL`).
+`is_multi_shot=True` (no current caller sets this — forward-looking hint)
+→ `multi_shot` tag (→ `seedance-2-fast`). Only ever matches against
+`wired=True` registry entries; falls back to `DEFAULT_VIDEO_MODEL` with
+reason `"default"` if a tag has no wired match (belt-and-braces — today's
+registry always has one).
+
+**Migration 088** (`storyengine/backend/migrations/088_scene_model_routing.sql`,
+applied LIVE via Supabase MCP against project `wrromlupsmyzrrcqlucn`,
+confirmed via `information_schema.columns`): `assets` gains 3 nullable TEXT
+columns, no defaults — `routed_model`, `routing_reason` (this chunk writes
+both), `model_used` (stays NULL — C13's column). `assets` is the live
+per-scene/shot row table (confirmed by tracing `store_scene()` and every
+other `INSERT INTO assets` site in `pipeline_executor.py`/`static_docu.py`/
+`supabase_adapter.py`/`routes/model_video.py` — none of the others run the
+camera engine, so `assets` + the coverage path is the one shot-plan write
+path that has a "purpose" to route from). `schema.sql` updated to match
+(canonical source, mirrors the migration-084 `image_model` pattern).
+
+**Routing written at shot-plan time**: `storyboard/coverage.py`'s
+`plan_camera_moves()` (runs BEFORE any frame is drawn) now computes a
+routing decision right after each shot's camera-move `Selection` is
+resolved, using the SAME `sel.purpose` the camera engine just computed —
+stamps `shot["routed_model"]`/`shot["routing_reason"]`. Wrapped in its own
+try/except, separate from (and after) the camera-move assignment, so a
+routing failure never touches the camera-move plan — only that shot's
+routing fields stay unset. `generate_coverage_frames()` carries both fields
+through to the frame dict exactly like it already does for `camera_move`;
+`coverage_to_app.py`'s `store_scene()` persists them onto the `assets`
+INSERT (2 new placeholders, `model_used` omitted entirely from the INSERT
+so it's NULL).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `skills/video-pipeline/shared/model_router.py` | Data-driven purpose → model router over `MODEL_REGISTRY` |
+| `storyengine/backend/migrations/088_scene_model_routing.sql` | `routed_model`/`routing_reason`/`model_used` on `assets`, idempotent |
+| `storyengine/backend/tests/functional/test_scene_model_routing.py` | 10 tests: router unit tests + `store_scene()` write-path persistence |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/storyboard/coverage.py` | `plan_camera_moves()` stamps `routed_model`/`routing_reason` per shot (fail-soft, isolated try/except); `generate_coverage_frames()` propagates both into master/angle frame dicts |
+| `storyengine/backend/scripts/coverage_to_app.py` | `store_scene()` INSERT gains `routed_model`, `routing_reason` columns/params; `model_used` deliberately not included |
+| `storyengine/schema.sql` | `assets` table gains the 3 new columns (documented inline) |
+| `skills/video-pipeline/tests/test_coverage.py` | sys.path gains the `image_prompts` bot subdir (needed for `camera_selector.resolve_purpose()`'s bare `import animation_prompt_engine` to resolve standalone); 3 new tests: frame-propagation, `plan_camera_moves` stamps routing matching the router directly, fail-soft isolation from camera-move assignment |
+
+**Verify:** Router + write-path: `cd storyengine/backend && ./venv/bin/python
+-m pytest tests/functional/test_scene_model_routing.py -q` — 10 passed.
+Shot-plan integration: `./venv/bin/python -m pytest
+../../skills/video-pipeline/tests/test_coverage.py -q` — 7 passed, 1
+pre-existing unrelated failure (`test_drops_moment_with_no_angles`,
+confirmed failing identically with C12 stashed — a parser edge case
+untouched by this chunk). Confirmed non-vacuous via `git stash` on
+`coverage.py`/`coverage_to_app.py` + moving `model_router.py` aside: all
+new tests fail (`KeyError: 'routed_model'`, `ModuleNotFoundError: No module
+named 'shared.model_router'`), pass again after restoring. Full backend
+suite: 780 passed (770 baseline + 10 new) / 16 pre-existing failures (same
+file list as C11) / 1 pre-existing error — zero new failures. `python -m
+py_compile` clean on all 5 touched/added `.py` files. Live column check:
+`information_schema.columns` on project `wrromlupsmyzrrcqlucn` shows
+`routed_model`, `routing_reason`, `model_used` — all `text`, nullable, no
+default. **Deferred to `tasks/live-verification-queue.md` §C12**: an actual
+video build showing `routed_model`/`routing_reason` land on real `assets`
+rows (needs a live Kie/Anthropic key run through the coverage pipeline —
+no paid generation in this sandbox). `npx tsc --noEmit` not run — no
+frontend files touched (by design; C14 does the UI).
+
 **Grep sweep (checklist §1.1 [V]):** no OTHER hardcoded model-capability
 table for video clip models found. Other `best_for`/`tier` hits in the repo
 are unrelated domains — visual-style profiles (`clay_mannequin.py`,

@@ -6,10 +6,20 @@ import asyncio
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "storyboard"))
+_PIPELINE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _PIPELINE_ROOT)
+sys.path.insert(0, os.path.join(_PIPELINE_ROOT, "storyboard"))
+# plan_camera_moves() -> camera_selector.resolve_purpose() does a bare
+# `import animation_prompt_engine` (image_prompts/animation_prompt_engine.py) —
+# in production this resolves because pipeline_executor.py has already added
+# every bot subdir (including image_prompts) to sys.path by the time
+# coverage.py runs in-process. A standalone test needs the same subdir added.
+sys.path.append(os.path.join(_PIPELINE_ROOT, "image_prompts"))
 
-from storyboard.coverage import parse_coverage, cast_prompt_from_story_bible, generate_coverage_frames
+from storyboard.coverage import (  # noqa: E402
+    parse_coverage, cast_prompt_from_story_bible, generate_coverage_frames,
+    plan_camera_moves,
+)
 
 SAMPLE = """\
 Here is the coverage plan.
@@ -115,10 +125,112 @@ def test_generate_coverage_frames_honors_model_override():
     assert [c[0] for c in ic.calls] == ["generate_scene_image_zimage", "generate_scene_image_zimage"]
 
 
+def test_generate_coverage_frames_propagates_routed_model_and_routing_reason():
+    """C12 (checklist §1.2): plan_camera_moves() stamps routed_model/
+    routing_reason onto the shot dict alongside camera_move; this proves
+    generate_coverage_frames carries BOTH through to the output frame dict
+    exactly like it already does for camera_move — the same path
+    store_scene() later reads to persist them onto the assets row."""
+    moment = {
+        "moment_number": 1,
+        "master": {
+            "shot_type": "WS", "description": "wide shot of the rider at dawn",
+            "camera_move": "arc_in|REVEAL",
+            "routed_model": "veo-3.1-quality",
+            "routing_reason": "reveal scene → hero tier (premium)",
+        },
+        "angles": [{
+            "shot_type": "MCU", "description": "close on the rider's face",
+            "camera_move": "static",
+            "routed_model": "grok-imagine",
+            "routing_reason": "ordinary scene → draft tier (draft)",
+        }],
+    }
+    ic = _FakeImageClientForFrames()
+    frames = asyncio.run(generate_coverage_frames(
+        moment, "https://cast.png", ic, None, aspect="16:9", resolution="1K",
+        model_override="z-image"))
+    assert frames is not None and len(frames) == 2
+    master, angle = frames
+    assert master["routed_model"] == "veo-3.1-quality"
+    assert master["routing_reason"] == "reveal scene → hero tier (premium)"
+    assert angle["routed_model"] == "grok-imagine"
+    assert angle["routing_reason"] == "ordinary scene → draft tier (draft)"
+
+
+def test_plan_camera_moves_stamps_routed_model_on_shots():
+    """The actual shot-plan-time integration point: plan_camera_moves()
+    (called BEFORE any frame is drawn) must stamp routed_model/
+    routing_reason on every shot, matching what shared.model_router.
+    route_shot_model() would return for that shot's resolved purpose."""
+    from shared.model_router import route_shot_model
+
+    moments = [{
+        "summary": "The detective pulls back the curtain to reveal the truth",
+        "master": {
+            "shot_type": "MS",
+            "description": "The detective pulls back the curtain to reveal the truth",
+        },
+        "angles": [],
+        "speaker": None, "line": None,
+    }]
+    planned = plan_camera_moves(moments)
+    shot = moments[0]["master"]
+    assert "routed_model" in shot, "routing must be stamped at shot-plan time"
+    assert "routing_reason" in shot
+    assert shot["routed_model"] in ("veo-3.1-quality", "veo-3.1-fast", "grok-imagine", "seedance-2-fast")
+    # Whatever purpose the camera engine actually resolved for this shot,
+    # the router's own decision for that purpose must match exactly — no
+    # second, drifting copy of the routing logic lives in coverage.py.
+    resolved_purpose = shot["camera_move"].split("|")[1] if shot["camera_move"] != "static" else "STATIC"
+    expected = route_shot_model(resolved_purpose)
+    assert shot["routed_model"] == expected.model_id
+    assert shot["routing_reason"] == expected.routing_reason
+
+
+def test_plan_camera_moves_camera_move_unaffected_when_routing_fails():
+    """Fail-soft guarantee (checklist §1.2/C12): if route_shot_model() throws,
+    the shot plan must still succeed EXACTLY as before this feature existed —
+    camera_move still gets assigned normally, only routed_model/routing_reason
+    stay unset for that shot."""
+    import shared.model_router as model_router
+
+    moments = [{
+        "summary": "The detective pulls back the curtain to reveal the truth",
+        "master": {
+            "shot_type": "MS",
+            "description": "The detective pulls back the curtain to reveal the truth",
+        },
+        "angles": [],
+        "speaker": None, "line": None,
+    }]
+
+    original = model_router.route_shot_model
+
+    def _boom(*a, **k):
+        raise RuntimeError("simulated router failure")
+
+    model_router.route_shot_model = _boom
+    try:
+        planned = plan_camera_moves(moments)
+    finally:
+        model_router.route_shot_model = original
+
+    shot = moments[0]["master"]
+    # Camera plan unaffected: still gets a real move (or "static"), same as
+    # it would with no routing feature at all.
+    assert shot.get("camera_move"), "camera_move must still be set when routing fails"
+    assert "routed_model" not in shot
+    assert "routing_reason" not in shot
+
+
 if __name__ == "__main__":
     test_parses_two_moments()
     test_parses_no_bracket_and_multiword_shot_types()
     test_drops_moment_with_no_angles()
     test_cast_prompt_from_bible()
     test_generate_coverage_frames_honors_model_override()
+    test_generate_coverage_frames_propagates_routed_model_and_routing_reason()
+    test_plan_camera_moves_stamps_routed_model_on_shots()
+    test_plan_camera_moves_camera_move_unaffected_when_routing_fails()
     print("ok — coverage parser + cast-builder self-checks passed")

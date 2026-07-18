@@ -231,13 +231,18 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
                 "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
-                "location_id, camera_movement, image_model) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',$15,$16,$17,$18)",
+                "location_id, camera_movement, image_model, routed_model, routing_reason) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',"
+                "$15,$16,$17,$18,$19,$20)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
                 title, aspect, url, url, is_master, assigned, location_id,
                 fr.get("camera_move"),  # camera engine plan: "move_id|PURPOSE" or "static"
                 fr.get("image_model"),  # WHICH model actually drew this frame (image_model_router)
+                fr.get("routed_model"),  # C12 (checklist §1.2): recommended video model, plan-time
+                fr.get("routing_reason"),  # human-readable "why" for the pick above
+                # model_used (C13) stays NULL here — no INSERT column for it — until
+                # clip generation records which model actually ran this shot.
             )
             if fr.get("image_model"):
                 models_used.add(fr["image_model"])
