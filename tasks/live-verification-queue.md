@@ -500,6 +500,63 @@ provable without a real conversation:
 
 ---
 
+## C15d — one director voice + data reach · live voice-feel + data-question check
+Checklist entry (audit-found gap, 2026-07-18): the in-video copilot's tool
+loop (`agent_brain.run_copilot_brain`) now opens its system prompt with
+`producer_prompt.DIRECTOR_VOICE` — the SAME personality core the home
+producer speaks in — and gained a read-only `channel_data` tool that reaches
+the same competitor/performance/learnings briefs the home producer's "what
+should I make next" already uses. Covered at the unit level (15 tests in
+`test_c15d_voice_and_data_reach.py`, confirmed non-vacuous via `git stash`,
+including a fake-client run that captures the ACTUAL system prompt sent to
+the model) — no live LLM call was made in that pass (no paid Anthropic/Kie
+key in this sandbox), so the following are unverified against a real model:
+- [ ] **Local E2E boot** (same recipe as C15/C15a/b/c's entries above):
+      source prod `storyengine/.env`, `DEV_MODE=true DEV_TOKEN=<random>
+      DEV_TENANT_ID=<disposable tenant>`, uvicorn on :8002,
+      `NEXT_PUBLIC_API_URL=http://127.0.0.1:8002 npm run dev -- --port 3002`.
+- [ ] **Voice feels the same, not just prompt-text-identical:** open the
+      home producer chat and ask a strategic question ("what should I make
+      next?"); separately open an existing video's in-video co-pilot and
+      ask the SAME question. A real model (not the unit tests' fake client)
+      should read as ONE director in both places — same warmth, same
+      willingness to push back/give an opinion, never saying "pipeline" /
+      "stage" / "render" / "storyboard" in either transcript.
+- [ ] **In-video "what should I make next?":** with a tenant that has
+      synced `competitor_videos` rows, ask the in-video co-pilot this
+      question. Confirm the reply names a specific scored pick (not a
+      generic answer) — proves `channel_data` actually fired and its output
+      reached the model's final answer, not just that the tool dispatches
+      in isolation.
+- [ ] **In-video "how are my videos doing?":** with a tenant that has
+      `last_analytics_sync` rows on `videos`, ask the in-video co-pilot.
+      Confirm the reply cites real view/CTR/retention numbers matching what
+      the home producer's own "how's the channel" answer would cite for the
+      SAME tenant — proves both surfaces read the identical data, not two
+      different numbers.
+- [ ] **No data yet, tenant with nothing synced:** ask the in-video
+      co-pilot the same questions on a fresh/empty tenant. Confirm it says
+      plainly there's no data yet (the `channel_data` tool's fail-soft
+      string) rather than inventing a stat or crashing the turn.
+- [ ] **Regression spot-check:** run a few of the copilot's existing
+      this-video actions (e.g. "redo the thumbnail", "show me scene 2's
+      boards", "approve scene 1") through a live model call and confirm the
+      op/verb classification and confirm-card behavior are unchanged from
+      before this chunk — the voice/tool additions must not have shifted
+      the model's classification precision.
+- **Cost:** free — `channel_data` (like all six agent_brain tools) is a
+  read-only SELECT-and-format call; this chunk introduces zero new paid
+  work and touches no confirm-card/spend path.
+- **Safety net:** the voice change is prompt-text-only (no code branch
+  depends on it); the `channel_data` tool is reachable only through the
+  model's own tool-call loop, same trust boundary as the five tools already
+  there, and its three underlying brief functions were already exercised
+  fail-soft in production via the home producer's `_loop_brief` before this
+  chunk moved them — this chunk only added a second caller, not new query
+  logic.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

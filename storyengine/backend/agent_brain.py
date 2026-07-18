@@ -13,6 +13,15 @@ each model turn returns ONE object — {"tool": name, "args": {...}} to look at
 something, or {"final": {...classifier dict...}} to decide. On ANY failure the
 caller falls back to the legacy one-shot classifier, so the brain can only ever
 make the copilot smarter, not break it.
+
+C15d (one director voice + data reach): this loop's system prompt now
+prepends producer_prompt.DIRECTOR_VOICE — the SAME personality core the home
+producer speaks in — so the in-video copilot sounds like one director, not a
+second, thinner voice. It also gets a channel_data read tool (backed by
+channel_briefs.py, the same brief builders the home producer's "what should
+I make next" uses) so it can answer channel-level questions from inside a
+video, not just this-video questions. Its op/verb classification, confidence
+gating, and JSON decision schema are unchanged.
 """
 
 from __future__ import annotations
@@ -110,6 +119,26 @@ async def _tool_history(tenant_id, video_id) -> str:
         for r in rows)
 
 
+async def _tool_channel_data(tenant_id) -> str:
+    """The SAME data-backed briefs the home producer uses for "what should I
+    make next" / "how's my channel doing" (C15d: one director voice + data
+    reach) — the strongest UNMODELED competitor winners (scored), this
+    creator's own published-video analytics, and proven patterns the channel
+    has learned. One shared implementation (channel_briefs.py) so the home
+    chat and this in-video copilot can never disagree. Tenant-scoped, and
+    each section is already fail-soft (a DB error there returns '' — see
+    channel_briefs.py) so this never breaks the turn; if every section is
+    empty (no data synced yet), say so plainly rather than returning ''."""
+    from channel_briefs import _learnings_brief, _next_to_make_brief, _own_performance_brief
+    parts = [
+        await _next_to_make_brief(tenant_id),
+        await _own_performance_brief(tenant_id),
+        await _learnings_brief(tenant_id),
+    ]
+    text = "".join(p for p in parts if p).strip()
+    return text or "No channel performance or competitor data available yet."
+
+
 async def _tool_cost(tenant_id, video_id, summary) -> str:
     """Real ledgered spend so far, grouped by stage (checklist §0.3d / C10
     conversational door) — grounds "how much has this cost?" in the SAME
@@ -158,6 +187,9 @@ TOOL_DOC = (
     '- {"tool":"prompt","args":{"surface":"image|motion|thumbnail","scene":<int|null>,"index":<int|null>}} — read a generation prompt\n'
     '- {"tool":"history"} — recent stage transitions (what ran, what failed, when)\n'
     '- {"tool":"cost"} — REAL ledgered spend so far, broken down by stage (use this for "how much has this cost?", not the "actions" cost estimates)\n'
+    '- {"tool":"channel_data"} — this CHANNEL\'s data (not just this video): scored unmodeled competitor '
+    'winners ("what should I make next?"), this creator\'s own published-video analytics ("how are my videos '
+    'doing?"), and proven patterns the channel has learned ("what works for us?")\n'
 )
 
 
@@ -175,6 +207,8 @@ async def _run_tool(name: str, args: dict, tenant_id, video_id, summary) -> str:
         return await _tool_history(tenant_id, video_id)
     if name == "cost":
         return await _tool_cost(tenant_id, video_id, summary)
+    if name == "channel_data":
+        return await _tool_channel_data(tenant_id)
     return f"Unknown tool '{name}'."
 
 
@@ -206,10 +240,13 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
                             summary_line: str) -> Optional[dict]:
     """Multi-step look-then-decide. Returns the classifier-shaped decision dict,
     or None so the caller falls back to the one-shot classifier."""
-    from producer_prompt import _extract_json
+    from producer_prompt import DIRECTOR_VOICE, _extract_json
 
     system = (
-        "You are the in-app co-pilot AGENT for ONE video. The creator can (a) ASK a question, "
+        "You are the in-app co-pilot AGENT for ONE video — the SAME director as the studio's home "
+        "producer, not a different voice.\n\n"
+        + DIRECTOR_VOICE + "\n\n"
+        "The creator can (a) ASK a question, "
         "(b) tell you to RUN a production step, (c) work on a generation PROMPT, or (d) ask to SEE "
         "the actual pictures/storyboards for a scene. You have READ "
         "tools — use them to ground yourself in the video's ACTUAL state before deciding; never "
@@ -245,7 +282,11 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "their reference (a number, 'that'/'last', or the closest matching text) in change. If they instead "
         "ASK what you remember ('what do you remember about me/this channel?'), answer that as kind=read from "
         "any STANDING PREFERENCES you were given above — don't use kind=remember or kind=forget for a plain "
-        "listing question.\n\n"
+        "listing question.\n"
+        "CHANNEL-LEVEL questions (kind=read) that reach beyond THIS video — 'what should I make next?', "
+        "'how are my videos doing?'/'how's the channel?', 'what works for us?' — call the channel_data tool "
+        "before answering; never guess or invent a stat. If it comes back with 'No channel performance or "
+        "competitor data available yet', say that plainly instead of making something up.\n\n"
         "Each turn, return ONE JSON object and NOTHING else. Either call a tool:\n"
         '  {"tool":"<name>","args":{...}}\n'
         "or decide:\n"

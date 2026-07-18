@@ -2769,3 +2769,91 @@ emits when it recognizes the new vocabulary in its own (also-updated)
 system prompt, so an old-prompt/new-code mismatch can't happen — the prompt
 and the dispatch code ship together in this one chunk. Auto-deploy safe,
 ff-merge safe.
+
+## C15d — One Director Voice + Data Reach (added 2026-07-18)
+
+The audit found two chat surfaces that should be ONE director drifting
+apart: the home producer spoke in `producer_prompt.PRODUCER_SYSTEM_PROMPT`'s
+full creative-producer personality, while the in-video copilot's tool loop
+(`agent_brain.run_copilot_brain`) ran on a thin task-classifier prompt with
+none of that tone. Separately, the "what should I make next" / "how's my
+channel doing" data briefs were wired into the HOME chat's prompt only —
+the copilot's tool loop had no way to reach competitor/performance/learnings
+data from inside a video. Both fixed prompt-only + read-tools, zero new paid
+paths, zero verb/schema changes.
+
+**A. Shared director voice — `producer_prompt.DIRECTOR_VOICE`:** the tone
+core (warm/sharp-producer address, "co-thinking partner" — push back, real
+opinions, not a yes-machine — "DIAGNOSE BEFORE YOU ACT", and the "NEVER
+mention internal machinery" pipeline/stage/render ban) extracted out of the
+middle of `PRODUCER_SYSTEM_PROMPT` into its own module-level constant.
+`PRODUCER_SYSTEM_PROMPT` now composes it (`intro + DIRECTOR_VOICE + planning
+rubric`) instead of inlining it — same final string content as before, just
+no longer duplicated when a second consumer needs the same tone.
+`agent_brain.run_copilot_brain`'s system prompt now opens with
+`DIRECTOR_VOICE` too (imported from `producer_prompt`), explicitly framing
+itself as "the SAME director as the studio's home producer, not a different
+voice" — but its state-grounded action discipline, op/verb instructions,
+confidence gating, and JSON decision schema (`_decision_schema()`) are
+untouched; the voice is prepended, the classification contract is not
+touched.
+
+**B. Data reach — `channel_briefs.py` (new module):**
+`_next_to_make_brief`/`_own_performance_brief`/`_learnings_brief` (scored
+unmodeled competitor winners, the creator's own synced YouTube analytics,
+and proven learned patterns — each tenant-scoped, each already fail-soft
+`-> ""` on a DB error) moved out of `routes/chat.py` into their own module
+with no dependency on `chat.py` or `agent_brain.py`, so both can import the
+identical implementation with zero circular-import risk.
+`routes/chat.py`'s `_loop_brief` (used by both home-producer prompt call
+sites) now imports these three from `channel_briefs` instead of defining
+its own copies — same names, same call sites, no behavior change there.
+`agent_brain.py` gained a new read-only `channel_data` tool
+(`_tool_channel_data`, dispatched via `_run_tool`, documented in
+`TOOL_DOC`) that calls the SAME three functions and concatenates their
+output; if every section comes back empty (nothing synced/scraped yet) it
+returns a plain "No channel performance or competitor data available yet."
+rather than an empty string, so the model never has to guess. The system
+prompt teaches the model to call it for channel-level questions ("what
+should I make next?", "how are my videos doing?", "what works for us?")
+before answering.
+
+**Regression pins (verified, not just asserted):** the copilot's decision
+schema's full verb/op vocabulary is unchanged; C15c's STANDING PREFERENCES
+hydration is still present in both `chat.chat_turn` and
+`chat._handle_copilot` (source-inspected); `routes.chat._next_to_make_brief`
+etc. are literally the same function objects as `channel_briefs`'s (identity
+check, not just "no error") proving one source, not a fork.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/channel_briefs.py` | Shared, tenant-scoped, fail-soft data briefs (`_next_to_make_brief`, `_own_performance_brief`, `_learnings_brief`) — moved out of `routes/chat.py` so `agent_brain.py` can import the same implementation with no circular import |
+| `storyengine/backend/tests/functional/test_c15d_voice_and_data_reach.py` | 15 tests: `DIRECTOR_VOICE` content + composition into both prompts (including a live-run proof against `agent_brain.run_copilot_brain` via a fake client, not just source inspection), decision-schema/verb-vocabulary regression pin, C15c preference-hydration regression pin, shared-brief identity check, `channel_data` tool doc/dispatch/fail-soft/ranking behavior, and tenant-scoping + fail-soft re-proof for all three moved brief functions |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/producer_prompt.py` | New `DIRECTOR_VOICE` constant; `PRODUCER_SYSTEM_PROMPT` restructured to compose it (duplicate sentences removed from their old inline spots) — same effective prompt content |
+| `storyengine/backend/agent_brain.py` | `run_copilot_brain`'s system prompt now opens with `DIRECTOR_VOICE`; new `_tool_channel_data`, `TOOL_DOC` entry, and `_run_tool` dispatch for `channel_data` |
+| `storyengine/backend/routes/chat.py` | `_next_to_make_brief`/`_own_performance_brief`/`_learnings_brief` removed (now imported from `channel_briefs`); `_loop_brief` and both producer prompt call sites unchanged otherwise |
+
+**Deploy-safety note:** prompt-only + read-only tool, no schema/table
+changes, no verb/op changes, no paid path touched. Worst case if the tone
+composition were somehow wrong is a copilot reply that sounds a bit off —
+never a broken action, never an extra dollar spent. `channel_data` is a pure
+SELECT-and-format read reachable only through the model's own tool-call
+loop, same trust boundary as the five tools already there. Auto-deploy
+safe, ff-merge safe — the orchestrator issues the final verdict.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c15d_voice_and_data_reach.py -q` — 15 passed.
+Confirmed non-vacuous via `git stash` on the three modified `.py` files
+(`channel_briefs.py` moved aside for the same run, since it's untracked and
+survives a plain stash) — the test module fails to even collect against the
+pre-C15d source (`ModuleNotFoundError: No module named 'channel_briefs'`).
+Full backend suite: 922 passed (907 baseline + 15 new) / 16 pre-existing
+failures (identical file list to C15a/b/c) / 1 pre-existing error — zero
+new failures. `python -m py_compile` clean on all four touched/added `.py`
+files. Frontend untouched — no `tsc`/`build` run (this chunk is chat-prompt
+and backend-tool only, no frontend surface changed).
