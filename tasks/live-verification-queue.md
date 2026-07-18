@@ -56,6 +56,61 @@ on save). What's NOT provable without a running app + browser:
 
 ---
 
+## C06a — autobuild honors explicit research request in plan · live confirmation
+Follow-up fix to the bug C06 flagged but explicitly didn't touch (see
+SYSTEM_STATE.md §C06 "Found but explicitly NOT fixed" / §C06a).
+`actions.make_autobuild_step`'s skip branch (idea_logged/approved,
+non-`static_docu`) now checks the video's `pipeline_stages` plan before
+skipping: `parse_stage_plan(video.get("pipeline_stages"))` — if the plan is
+`None` (the ordinary default, unrestricted pipeline), it still skips exactly
+as before (byte-identical, no behavior change for any existing/default
+video). If the plan is a real list that NAMES `"research"` (e.g.
+`workflow:"research"` -> `pipeline_stages=["research"]`, or a custom plan
+like `["research", "script"]`), it now calls `PipelineExecutor.run_research`
+instead of skipping, mirroring the `static_docu` branch's pattern (advance on
+success, hard-stop with a failure message on research failure rather than
+silently writing a script from thin air).
+
+Proven in-sandbox: 5 new unit tests
+(`tests/functional/test_autobuild_explicit_research_plan.py`) lock (a) the
+default no-plan case still skips and never calls `run_research`, (b) an
+explicit `["research"]` plan calls `run_research` and never records
+`research_skipped`, (c) a custom plan naming research alongside other stages
+also runs it, (d) a restricted plan that does NOT name research still skips,
+and (e) `static_docu` with research in its plan researches exactly once (no
+double-run — the new check is structurally unreachable for `static_docu`).
+Confirmed non-vacuous via `git stash` (the two explicit-plan tests fail
+without the fix; the default/no-plan/`static_docu` tests pass either way,
+proving the default path is untouched). Full backend suite: same 16
+pre-existing failures + 1 pre-existing error before and after (`git stash`
+compared), unrelated to this change. `py_compile` clean.
+
+What's NOT provable without a running app + a real Claude API key:
+- [ ] **Create a video via the chat producer with workflow `"research"`**
+      (ask it to "just research the topic" / pick the "research" workflow
+      card) or any custom plan that includes research alongside other
+      stages, then trigger the build ("Build the video" / the build button /
+      autobuild). Expected: the activity feed / `stage_transitions` shows a
+      real `research` stage running (not skipped), `videos.research_payload`
+      gets populated, and `videos.research_skipped` stays `false` for that
+      video throughout.
+- [ ] **Create a video the normal way** (default "full" workflow, no
+      restricted plan) and build it. Expected: unchanged — research is
+      skipped, `videos.research_skipped` flips to `true`, no `research` stage
+      appears in the activity feed. This is the regression check that the
+      DEFAULT path truly didn't change.
+- **Cost:** research is a paid Claude/agent call (~$0.05-0.20 per
+  `docs/cost-awareness.md`'s "Claude API" line) — same order of cost as the
+  C06 chip's live check, one call per test video.
+- **Safety net:** the default (no-plan) autobuild path is provably unchanged
+  by the non-vacuous test above — a live failure here can only affect videos
+  that explicitly requested research in their plan, which previously got
+  silently and incorrectly skipped anyway; worst case this live check
+  surfaces a research-call failure that the code already handles by stopping
+  the build with a failure message instead of routing to `done`.
+
+---
+
 ## C01a — RLS enablement (migration 083) · post-deploy smoke check
 Migration `083_enable_rls_ad_hoc_tables.sql` flips Row Level Security ON for `secrets`, `static_reference_cache`, `channel_video_retention`. Proven safe in-sandbox (the backend role bypasses RLS — `secrets` already runs RLS-on/0-policies live and works). Auto-deploys on the next `git pull` + backend restart.
 - [ ] After 083 has auto-deployed, confirm the backend still functions normally — specifically anything that reads/writes **`static_reference_cache`** (static-docu feature) and **`channel_video_retention`** (analytics/retention). Expected: no change in behavior (backend bypasses RLS). If either suddenly errors on read, 083 is the suspect — the fix is to add a permissive policy or confirm the connecting role.

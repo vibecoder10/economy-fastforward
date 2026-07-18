@@ -418,6 +418,28 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                          r.get("error") or "Research failed — can't verify facts for this format.",
                                          tenant_id=tenant_id)
                         return
+                    # C06a: an EXPLICIT research request (workflow:"research", or any
+                    # custom plan that names "research") must not be silently skipped
+                    # by the default-skip below. parse_stage_plan returns None for
+                    # "no plan" (the ordinary full pipeline) — that default case keeps
+                    # skipping, byte-identical to before. Only a plan that actually
+                    # NAMES "research" counts as explicit; a None plan is unrestricted,
+                    # not "requested".
+                    research_plan = parse_stage_plan(video.get("pipeline_stages"))
+                    if research_plan is not None and "research" in research_plan:
+                        _set_task_status(video_id, "running",
+                                         "Researching the topic (real web search)…",
+                                         tenant_id=tenant_id)
+                        r = await ex.run_research(video_id) or {}
+                        if r.get("status") == "ready_for_scripting":
+                            continue
+                        # The creator explicitly asked for research — don't fall
+                        # through to a from-thin-air script on failure; that would
+                        # silently drop the exact thing they asked for.
+                        _set_task_status(video_id, "failed",
+                                         r.get("error") or "Research failed.",
+                                         tenant_id=tenant_id)
+                        return
                     # Record the skip so the UI can be honest about it (P0.5 —
                     # users previously had no way to know their video wasn't
                     # researched). Cleared back to FALSE the moment research

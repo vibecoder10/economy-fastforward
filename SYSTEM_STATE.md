@@ -950,7 +950,7 @@ writes straight from the topic with no separate research pass (and that one
 can be run afterward from the video's page) — this part isn't unit-testable
 without a live LLM call.
 
-**Found but explicitly NOT fixed (flagged for a future chunk):**
+**Found but explicitly NOT fixed in C06 (flagged for a future chunk):**
 `make_autobuild_step`'s skip branch doesn't consult the plan before skipping —
 so a video whose plan EXPLICITLY includes research (`workflow: "research"` or
 a custom plan with `"research"` in it) still gets silently skipped by the
@@ -961,6 +961,30 @@ untouched), and P0.5 explicitly scoped this chunk to "record the fact, don't
 change when research runs." The transparency chip's one-tap fix (calling
 `/research/{id}` directly, bypassing the autobuild chain) works correctly
 regardless of this bug.
+
+**C06a (fixed):** the bug above was confirmed real and fixed as its own
+chunk. `make_autobuild_step`'s idea_logged/approved, non-`static_docu` skip
+branch now does `research_plan = parse_stage_plan(video.get("pipeline_stages"))`
+and, when `research_plan is not None and "research" in research_plan`, calls
+`ex.run_research(video_id)` (advancing on `status == "ready_for_scripting"`,
+hard-stopping the build with a failure message on research failure) instead
+of writing `research_skipped = TRUE` and skipping straight to
+`ready_for_scripting`. A `None` plan (the ordinary default/full pipeline —
+every existing and default video) is untouched: `research_plan is None` is
+false for the `and` check, so the default path still skips exactly as
+before, confirmed byte-identical by a `git stash`-verified non-vacuous test.
+`static_docu` is structurally unreachable from the new check (its own `if`
+branch above always `continue`s or `return`s first), so it can't double-run
+research. New tests:
+`storyengine/backend/tests/functional/test_autobuild_explicit_research_plan.py`
+(5 tests: default-skips-unchanged, explicit `["research"]`-only plan runs
+research, custom plan naming research alongside other stages runs research,
+a restricted plan NOT naming research still skips, `static_docu` with
+research also in its plan researches exactly once). Full backend suite: same
+16 pre-existing failures + 1 pre-existing error before/after (confirmed via
+`git stash`). Live "a real `workflow:"research"` autobuild actually runs
+research and writes a script" needs a running app + Claude API key —
+deferred to `tasks/live-verification-queue.md` §C06a.
 
 ### New Files
 | Path | Purpose |
