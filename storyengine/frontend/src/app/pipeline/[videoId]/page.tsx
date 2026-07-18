@@ -29,6 +29,7 @@ import { RenderTab } from "@/components/production/RenderTab";
 import { UploadTab } from "@/components/production/UploadTab";
 import { PerformanceTab } from "@/components/production/PerformanceTab";
 import { SoundTab } from "@/components/production/SoundTab";
+import { CostLedgerChip } from "@/components/video-detail/cost-ledger-chip";
 
 const container = {
   hidden: { opacity: 0 },
@@ -487,14 +488,7 @@ export default function VideoDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-right">
-            <p className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
-              Est. Cost
-            </p>
-            <p className="text-lg font-mono font-semibold" style={{ color: "var(--gold)" }}>
-              ${Math.max(video.total_cost || 0, estimatedCost).toFixed(2)}
-            </p>
-          </div>
+          <CostLedgerChip videoId={videoId} estimatedCost={estimatedCost} actualCost={video.total_cost || 0} />
 
           {/* Build button — the autobuild chainer chat's "build it" uses,
               now one tap from the page (PARITY-PLAN Phase 3). Cost + target

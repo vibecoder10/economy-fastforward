@@ -854,6 +854,30 @@ export interface VideoActions {
 export const getVideoActions = (videoId: string) =>
   fetchApi<VideoActions>(`/api/pipeline/actions/${videoId}`);
 
+// Cost ledger (checklist §0.3d / C10) — the receipts behind videos.total_cost.
+// `total_cost` here is the SAME rollup VideoDetail.total_cost carries (both
+// read the videos row); `by_stage` and `rows` are the drawer's breakdown.
+// No local price table — every dollar figure here came from the server.
+export interface LedgerRow {
+  stage: string;
+  model: string | null;
+  units: number;
+  unit_cost: number;
+  actual_cost: number;
+  kie_task_id: string | null;
+  created_at: string | null;
+}
+
+export interface VideoLedger {
+  video_id: string;
+  total_cost: number;
+  by_stage: Record<string, number>;
+  rows: LedgerRow[];
+}
+
+export const getVideoLedger = (videoId: string) =>
+  fetchApi<VideoLedger>(`/api/videos/${videoId}/ledger`);
+
 export const runBuild = (videoId: string, target: "pictures" | "finish") =>
   fetchApi<PipelineResponse>(`/api/pipeline/build/${videoId}`, {
     method: "POST",

@@ -11,7 +11,7 @@ from auth import get_tenant_id
 from models import (
     VideoSummary, VideoDetail, STAGE_ORDER, PIPELINE_STAGES,
     SceneTextUpdate, SceneToneUpdate, SegmentUpdate, StoryboardModeUpdate,
-    CreateVideoRequest,
+    CreateVideoRequest, VideoLedgerResponse, LedgerRow,
 )
 from database import fetch_all, fetch_one, execute, safe_column
 from error_utils import humanize_error
@@ -821,6 +821,55 @@ async def get_video_asset_variants(
         video_id, tenant_id, scene, index,
     )
     return rows
+
+
+@router.get("/{video_id}/ledger", response_model=VideoLedgerResponse)
+async def get_video_ledger(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Actual-spend receipts for this video (checklist §0.3d / C10) — backs the
+    cost chip's drawer and the copilot's "how much has this cost?" answer.
+    Tenant-scoped read over generation_ledger, the ONLY write path into
+    videos.total_cost (see generation_ledger.py). `total_cost` here is read
+    straight off the videos row (already the SUM(actual_cost) rollup —
+    generation_ledger.record_ledger_entry recomputes it on every write) so
+    the chip and the drawer can never disagree on the headline number, even
+    if a row were ever added/corrected out of band."""
+    video = await fetch_one(
+        "SELECT id, total_cost FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    rows = await fetch_all(
+        """SELECT stage, model, units, unit_cost, actual_cost, kie_task_id, created_at::text
+           FROM generation_ledger
+           WHERE video_id = $1 AND tenant_id = $2
+           ORDER BY created_at""",
+        video_id, tenant_id,
+    )
+
+    by_stage: dict[str, float] = {}
+    for r in rows:
+        stage = r.get("stage") or "other"
+        by_stage[stage] = round(by_stage.get(stage, 0.0) + float(r.get("actual_cost") or 0), 2)
+
+    return VideoLedgerResponse(
+        video_id=video_id,
+        total_cost=float(video.get("total_cost") or 0),
+        by_stage=by_stage,
+        rows=[
+            LedgerRow(
+                stage=r.get("stage") or "other",
+                model=r.get("model"),
+                units=float(r.get("units") or 0),
+                unit_cost=float(r.get("unit_cost") or 0),
+                actual_cost=float(r.get("actual_cost") or 0),
+                kie_task_id=r.get("kie_task_id"),
+                created_at=r.get("created_at"),
+            )
+            for r in rows
+        ],
+    )
 
 
 @router.get("/{video_id}/script")

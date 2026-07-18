@@ -110,6 +110,32 @@ async def _tool_history(tenant_id, video_id) -> str:
         for r in rows)
 
 
+async def _tool_cost(tenant_id, video_id, summary) -> str:
+    """Real ledgered spend so far, grouped by stage (checklist §0.3d / C10
+    conversational door) — grounds "how much has this cost?" in the SAME
+    generation_ledger table the cost chip's drawer reads
+    (routes/videos.py::get_video_ledger), so the chat answer and the UI can
+    never disagree. Also quotes what finishing adds, via the same estimator
+    the "build" confirm card uses."""
+    rows = await fetch_all(
+        "SELECT stage, actual_cost FROM generation_ledger WHERE video_id=$1 AND tenant_id=$2",
+        video_id, tenant_id)
+    _remaining_cost, remaining_text = await actions.estimate_cost(
+        tenant_id, video_id, "build", None, summary)
+    if not rows:
+        return f"No spend recorded yet — nothing paid has run. Next step: {remaining_text}."
+    by_stage: dict[str, float] = {}
+    for r in rows:
+        stage = r.get("stage") or "other"
+        by_stage[stage] = round(by_stage.get(stage, 0.0) + float(r.get("actual_cost") or 0), 2)
+    total = round(sum(by_stage.values()), 2)
+    breakdown = ", ".join(
+        f"{stage} ${cost:.2f}" for stage, cost in sorted(by_stage.items(), key=lambda kv: -kv[1])
+    )
+    tail = f" Finishing adds ~{remaining_text.lstrip('~')}." if _remaining_cost > 0 else ""
+    return f"Actual spend so far ${total:.2f}: {breakdown}.{tail}"
+
+
 TOOL_DOC = (
     "TOOLS you can call (one per turn) to LOOK at the video before deciding:\n"
     '- {"tool":"actions"} — every runnable verb with its real cost and what\'s blocked (and why)\n'
@@ -117,6 +143,7 @@ TOOL_DOC = (
     '- {"tool":"shots","args":{"scene":<int or null>}} — every shot: has picture? has clip? flagged?\n'
     '- {"tool":"prompt","args":{"surface":"image|motion|thumbnail","scene":<int|null>,"index":<int|null>}} — read a generation prompt\n'
     '- {"tool":"history"} — recent stage transitions (what ran, what failed, when)\n'
+    '- {"tool":"cost"} — REAL ledgered spend so far, broken down by stage (use this for "how much has this cost?", not the "actions" cost estimates)\n'
 )
 
 
@@ -132,6 +159,8 @@ async def _run_tool(name: str, args: dict, tenant_id, video_id, summary) -> str:
                                   args.get("scene"), args.get("index"))
     if name == "history":
         return await _tool_history(tenant_id, video_id)
+    if name == "cost":
+        return await _tool_cost(tenant_id, video_id, summary)
     return f"Unknown tool '{name}'."
 
 

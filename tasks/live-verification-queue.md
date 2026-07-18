@@ -8,6 +8,50 @@
 
 ---
 
+## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
+Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
+component (chip + drawer) on the video-detail page header, and a `cost` tool
+in `agent_brain.py` for the copilot's "how much has this cost?" answer — all
+three read the SAME `generation_ledger` table / `videos.total_cost` rollup
+C07–C09a already wire and write to. No paid Kie key or running app in the
+build sandbox, so this is proven at test + trace level only
+(`tests/functional/test_video_ledger_endpoint.py` — 5 tests against the route
+function with a fake DB; `tests/functional/test_agent_brain_cost_tool.py` — 4
+tests locking the exact phrasing; `npx tsc --noEmit` clean). What's NOT
+provable without a live paid generation + browser:
+- [ ] **Generate one scene's pictures** on a test video (cheapest paid step —
+      "Generate the pictures" on a single scene, ~$0.05-0.30 depending on shot
+      count) and watch the video-detail page header.
+- [ ] **Confirm a `generation_ledger` row appeared and `total_cost`
+      incremented:** `se db "SELECT stage, model, units, unit_cost,
+      actual_cost, created_at FROM generation_ledger WHERE
+      video_id='<test-vid>' ORDER BY created_at DESC LIMIT 5"` and `se db
+      "SELECT total_cost FROM videos WHERE id='<test-vid>'"` — the video row's
+      `total_cost` must equal `SUM(actual_cost)` over that video's ledger rows.
+- [ ] **Chip shows the update:** the header chip's "Actual" side (right of the
+      arrow) matches the DB's `total_cost` after the page refetches (poll or
+      manual reload) — no stale $0.00.
+- [ ] **Drawer matches the ledger:** click the chip, confirm the drawer opens
+      (loading spinner briefly, then rows), the per-stage breakdown sums to
+      the same `total_cost`, and the stage label(s) shown match what actually
+      ran (e.g. "Pictures $X.XX").
+- [ ] **Empty state on a fresh video:** open a video with zero ledger rows —
+      chip shows `Actual $0.00`, drawer (if opened) shows the "No spend
+      recorded yet" copy, not a blank panel or a console error.
+- [ ] **Copilot conversational door:** in that video's co-pilot dock, ask
+      "how much has this cost so far?" — confirm the reply cites the same
+      dollar figure and per-stage breakdown as the drawer (it's reading the
+      same table via the new `cost` tool in `agent_brain.py`), not a vague or
+      hallucinated number.
+- **Cost:** one cheap picture-generation step (~$0.05-0.30) — the only paid
+  step needed; everything else above is read-only.
+- **Safety net:** the endpoint is additive (new route, no existing route
+  changed) and the frontend fails soft — chip renders off data the page
+  already fetches, drawer shows its own error/empty state rather than a
+  broken render if the ledger endpoint 404s or 500s.
+
+---
+
 ## C07 — `generation_ledger` clip-path write + `total_cost` rollup · live paid-clip check
 Checklist §0.3a. `pipeline_executor.run_clip_generation` now calls
 `generation_ledger.record_ledger_entry(stage="clip", model=<resolved

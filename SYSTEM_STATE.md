@@ -1432,3 +1432,110 @@ creator gets charged differently. The change makes reported spend MORE
 accurate, in both directions (thumbnail/gpt-image-2 costs report lower;
 nano-banana-2 and Seedance costs report higher, Seedance materially so —
 ~2x). Frontend still compiles with no local price duplicate to drift.
+
+---
+
+## C10 — UI "Est → Actual" Cost Chip + Ledger Drawer (added 2026-07-18)
+
+The user-facing payoff of C07–C09a's ledger: the video page's cost chip now
+shows the pre-generation-style estimate NEXT TO the real ledgered spend
+(`"Est. $X → Actual $Y"`), with a click-to-open drawer breaking the actual
+down by stage (`pictures $2.40, clips $3.90, voice $0.55…`). Also wires the
+same read into the in-video copilot as a new `cost` tool, so "how much has
+this cost?" is grounded in `generation_ledger` instead of guessed.
+
+**New backend read endpoint:** `GET /api/videos/{id}/ledger` (in
+`routes/videos.py`, reuses the existing `videos` router — no new
+`include_router` needed). Tenant-scoped: 404s if the video doesn't exist for
+the caller's tenant. Returns `{video_id, total_cost, by_stage, rows}` —
+`total_cost` is read straight off the `videos` row (the same
+`SUM(actual_cost)` rollup `generation_ledger.py::record_ledger_entry`
+recomputes on every write — never re-summed here, so the chip and the
+drawer can't disagree), `by_stage` groups `generation_ledger.actual_cost` by
+`stage` (unknown/NULL stage falls back to `"other"`), `rows` is every ledger
+row for the video (stage, model, units, unit_cost, actual_cost, kie_task_id,
+created_at) in insertion order. New Pydantic models `LedgerRow` /
+`VideoLedgerResponse` in `models.py`. `videos.total_cost` was ALREADY
+returned by `GET /api/videos/{id}` (VideoDetail extends VideoSummary,
+`total_cost: float = 0`) — confirmed pre-existing from C07, no change
+needed there.
+
+**Frontend:** new `CostLedgerChip` component
+(`storyengine/frontend/src/components/video-detail/cost-ledger-chip.tsx`)
+replaces the old single-value "Est. Cost" chip in the video-detail page
+header (`storyengine/frontend/src/app/pipeline/[videoId]/page.tsx`). Shows
+`Est. $X → Actual $Y` (Est. = the page's existing `estimatedCost`, computed
+from `videoActions.summary.spent`/asset counts, unchanged; Actual =
+`video.total_cost`); click opens a drawer that lazy-fetches
+`GET /api/videos/{id}/ledger` (`enabled: open`, so a closed chip costs zero
+extra requests) and lists the stage breakdown. States: loading spinner,
+error with a retry button, and an explicit empty state ("No spend recorded
+yet — actual cost is $0.00…") for a video with no ledger rows — none of
+these render broken. New API client fn `getVideoLedger()` +
+`VideoLedger`/`LedgerRow` types in `lib/api.ts`. **No local price constant
+reintroduced** — every dollar figure the chip/drawer show came from the
+server (`videoActions.prices`/`summary.spent`/the new ledger endpoint), per
+the C09 rule.
+
+**Conversational door:** `agent_brain.py` gets a new `cost` tool
+(`_tool_cost`) alongside the existing `actions`/`script`/`shots`/`prompt`/
+`history` tools — reads `generation_ledger` directly (same table the drawer
+reads), groups by stage largest-first, and appends what finishing adds via
+`actions.estimate_cost("build", ...)` (the SAME estimator the build confirm
+card uses — no second price table). Wired into `TOOL_DOC` and `_run_tool`'s
+dispatch so the copilot can call it mid-conversation; the system prompt
+already tells the model to use it instead of the `actions` cost estimates
+for "how much has this cost?"-shaped questions.
+
+### Modified / added (C10)
+| Path | Change |
+|------|--------|
+| `storyengine/backend/models.py` | New `LedgerRow` + `VideoLedgerResponse` Pydantic models. |
+| `storyengine/backend/routes/videos.py` | New `GET /{video_id}/ledger` route (`get_video_ledger`); imports the two new models. |
+| `storyengine/backend/agent_brain.py` | New `_tool_cost()`; `cost` added to `TOOL_DOC` and `_run_tool()` dispatch. |
+| `storyengine/backend/tests/functional/test_video_ledger_endpoint.py` | New — 5 tests against the route function directly (fake `fetch_one`/`fetch_all`): 404 on missing video, empty-ledger $0 response (no 500), `total_cost` sourced from the videos row (not re-summed even when it would differ from the visible rows' sum), stage grouping/summing, NULL-stage → `"other"` fallback. |
+| `storyengine/backend/tests/functional/test_agent_brain_cost_tool.py` | New — 4 tests for `_tool_cost`: no-spend phrasing, grouped-with-finishing-tail phrasing (locks the exact "Actual spend so far $X: a $, b $. Finishing adds ~$Y." format), no tail when nothing's left to spend, reachable via `_run_tool` dispatch. |
+| `storyengine/frontend/src/lib/api.ts` | New `getVideoLedger()`, `VideoLedger`/`LedgerRow` types, next to `getVideoActions`. |
+| `storyengine/frontend/src/components/video-detail/cost-ledger-chip.tsx` | New `CostLedgerChip` component (chip + click-open drawer, loading/error/empty states). |
+| `storyengine/frontend/src/app/pipeline/[videoId]/page.tsx` | Header's old single-value "Est. Cost" block replaced with `<CostLedgerChip .../>`; new import. |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_video_ledger_endpoint.py
+tests/functional/test_agent_brain_cost_tool.py
+tests/functional/test_generation_ledger.py -q` — 25 passed. Full backend
+suite (`git stash` compare, new test files left untracked so the "before"
+run proves they fail without their code — which they did, +9 failures on
+top of baseline): 25 failed/759 passed/1 error before (16 pre-existing +
+the 9 new tests in this chunk failing without their code), 16 failed/768
+passed/1 error after (759 + 9 new: 5 ledger-endpoint + 4 agent-brain-cost,
+all now passing) — the SAME 16 pre-existing failures both times, identical
+file list (YouTube OAuth, SQL-injection lock on an unrelated file
+`routes/youtube_sync.py`, discovery error-surfacing, etc.), zero new
+failures introduced, zero fixed by accident. `python -m py_compile` clean on `models.py`, `routes/videos.py`,
+`agent_brain.py`. `cd storyengine/frontend && npx tsc --noEmit` — clean
+(exit 0).
+
+**Trace (ledger row → chip):** `generation_ledger.record_ledger_entry()`
+(C07/C08 call sites) → `INSERT INTO generation_ledger` +
+`UPDATE videos SET total_cost = SUM(...)` → `GET /api/videos/{id}` returns
+`total_cost` (VideoDetail, unchanged since C07) → page.tsx's
+`videoForTabs`/header reads `video.total_cost` → `<CostLedgerChip
+actualCost={video.total_cost}>` renders "Actual". Drawer: click → `GET
+/api/videos/{id}/ledger` → `VideoLedgerResponse.by_stage` → drawer's
+per-stage rows.
+
+**Not provable without a running app + browser** (queued in
+`tasks/live-verification-queue.md` §C10): generate one real scene, confirm
+a `generation_ledger` row appears, `total_cost` increments, and the chip's
+"Actual" + the drawer's per-stage sum both match it live.
+
+**Deploy-safety note:** backend change is additive only (new route, new
+Pydantic models, new tool in a fallback-safe agent loop — `agent_brain`
+already falls back to the legacy classifier on any unexpected shape).
+Frontend fails safe: `estimatedCost`/`actualCost` default to `0` before the
+chip ever queries the new endpoint (chip renders immediately off data the
+page already has), and the drawer's own loading/error/empty states mean a
+lagging or erroring backend never produces a broken render — worst case the
+drawer shows a retry button. Backend can deploy ahead of frontend with zero
+effect (unused route); frontend cannot meaningfully deploy ahead of backend
+(drawer would 404-error, but that's the handled error state, not a crash).

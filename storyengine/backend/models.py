@@ -128,6 +128,29 @@ class VideoReject(BaseModel):
     reason: Optional[str] = None
 
 
+# --- Cost ledger (checklist §0.3d / C10) ---
+# Read-only receipts backing videos.total_cost — see generation_ledger.py for
+# the single write path. This is the ONLY read shape the ledger drawer and
+# the copilot's "how much has this cost?" answer use; never hand-roll a
+# second SUM(actual_cost) query elsewhere.
+
+class LedgerRow(BaseModel):
+    stage: str
+    model: Optional[str] = None
+    units: float = 0
+    unit_cost: float = 0
+    actual_cost: float = 0
+    kie_task_id: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class VideoLedgerResponse(BaseModel):
+    video_id: str
+    total_cost: float = 0
+    by_stage: dict[str, float] = {}
+    rows: List[LedgerRow] = []
+
+
 # --- Assets ---
 
 class AssetSummary(BaseModel):
