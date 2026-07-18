@@ -28,6 +28,13 @@ from database import execute, fetch_all, fetch_one
 from models import CreateVideoRequest
 from producer_prompt import build_system_prompt, call_producer
 from vault import get_secret
+import generation_claims
+
+# C16a (S7-1 CRITICAL): every chat-driven paid dispatch replies with this
+# exact line when its generation_claims.acquire() is denied — the video's
+# claimed lane is already in flight (another chat turn, or a manual
+# routes/pipeline.py click) — instead of scheduling a second concurrent run.
+_ALREADY_WORKING_REPLY = "I'm already working on that — I'll let you know when it's done."
 
 from actions import (
     ACTIONS as COPILOT_ACTIONS,
@@ -525,12 +532,24 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
         "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
     will_research = (video_row or {}).get("render_mode") == "static_docu"
     build_desc = "research, script, then the pictures" if will_research else "the script, then the pictures"
+    # C16a (S7-1): claim the "main" lane BEFORE scheduling the autobuild chain
+    # — this video was just created above so a same-turn conflict is not the
+    # realistic case, but a retried/duplicated turn reaching this same
+    # video_id (or a manual main-lane click racing it) must still be refused
+    # rather than double-dispatch. Do NOT schedule on denial.
+    title = spec.get("title") or "your video"
+    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by="chat:approve"):
+        transcript.append(_assistant_turn({"assistant_text": _ALREADY_WORKING_REPLY, "phase": "created"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=_ALREADY_WORKING_REPLY,
+            video_id=video_id, phase="created",
+        )
     # Auto-build the whole thing up to the pictures (research -> script -> pictures
     # when applicable), then it pauses for review — not a single step.
     background_tasks.add_task(_make_autobuild_step(
         tenant_id, video_id, target="pictures",
         start_msg=f"Building “{spec.get('title') or 'your video'}” — {build_desc}…"))
-    title = spec.get("title") or "your video"
     if will_research:
         assistant_text = (
             f"Love it. I'm building “{title}” now — I'll research it, write the script, and generate the "
@@ -688,14 +707,30 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
                    "stop so you can review them.")
         else:
             msg = "On it — finishing your video (animating the clips and rendering). I'll update you here."
+        # C16a (S7-1 CRITICAL): claim the "main" lane before scheduling — a
+        # double-tap of the confirm card (or a retried turn) must not start
+        # a second concurrent autobuild chain on the same video. Refuse and
+        # DO NOT schedule when the lane is already claimed.
+        if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by=f"chat:build:{target}"):
+            return _ALREADY_WORKING_REPLY
         background_tasks.add_task(_make_autobuild_step(tenant_id, video_id, target=target, start_msg=msg))
         return msg
     # Runner verbs (approvals, lock, Drive sync, SEO…) reuse the same route
     # handlers the UI buttons call and speak the result back directly.
     if cfg.get("runner"):
         return await _ACTION_RUNNERS[cfg["runner"]](tenant_id, video_id, background_tasks, pending)
+    # C16a (S7-1 CRITICAL): same claim/refuse discipline for single-stage
+    # copilot verbs. Granularity: a verb with its own independent lane in the
+    # existing in-process system (voice/characters/thumbnail) claims that
+    # lane's name; every other verb claims "main" — see
+    # generation_claims.stage_for_verb for the full rationale (it mirrors
+    # routes/pipeline.py's existing lane vocabulary exactly, so a manual
+    # click and a chat verb on the same lane genuinely conflict).
+    claim_stage = generation_claims.stage_for_verb(verb)
+    if not await generation_claims.acquire(tenant_id, video_id, claim_stage, claimed_by=f"chat:{verb}"):
+        return _ALREADY_WORKING_REPLY
     background_tasks.add_task(
-        _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…")
+        _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…", stage=claim_stage)
     )
     return f"On it — {doing} now. I'll update you right here."
 

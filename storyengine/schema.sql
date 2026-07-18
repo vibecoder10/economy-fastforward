@@ -1487,3 +1487,36 @@ CREATE INDEX IF NOT EXISTS idx_director_preferences_tenant_scope_active
 ALTER TABLE director_preferences ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+-- ---------------------------------------------------------------------------
+-- GENERATION_CLAIMS (migration 092_generation_claims.sql, checklist C16a —
+-- S7-1 CRITICAL + S7-6 MED fix). DB-backed concurrency lock: both the
+-- chat-driven autobuild/copilot dispatch (routes/chat.py) and the manual
+-- routes/pipeline.py (+ videos.py/environments.py/characters.py) endpoints
+-- acquire a row here before dispatching paid generation, and release it in
+-- a finally block when the run ends — so a double-tap/retry can't run two
+-- concurrent paid generation loops on the same video, and a claim survives
+-- a backend restart (unlike the in-process _running_tasks/_side_lanes
+-- dicts it now backstops). See backend/generation_claims.py.
+--
+-- stage: "main" (the exclusive full-pipeline lane) or one of the
+--   independent side lanes (voice/characters/environments/thumbnail) —
+--   mirrors routes/pipeline.py's existing lane vocabulary exactly.
+-- claimed_at: a claim older than 2 hours is stale and gets swept + retaken
+--   (a crashed run must never wedge a video for good).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS generation_claims (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  stage TEXT NOT NULL,
+  claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  claimed_by TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS generation_claims_unique
+  ON generation_claims (tenant_id, video_id, stage);
+
+ALTER TABLE generation_claims ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

@@ -557,6 +557,63 @@ key in this sandbox), so the following are unverified against a real model:
 
 ---
 
+## C16a — DB-backed generation claim (S7-1 + S7-6 fix) · live double-tap check
+Checklist entry C16a (audit `docs/reports/2026-07-17-storyengine-agent-audit-
+findings.md` §S7-1 CRITICAL + §S7-6 MED, sweep C16). New `generation_claims`
+table (migration 092, live via Supabase MCP) + `generation_claims.py` module
+now gate every chat-driven paid dispatch (`_handle_approve`'s autobuild
+kickoff, `_run_pending_action`'s "build" verb, and its single-stage copilot
+verb) and are consulted by the manual `routes/pipeline.py` routes too
+(`_is_task_active` now checks `generation_claims.is_blocked` when the
+in-process dict is clear). Covered at the unit level (31 tests across
+`test_c16a_generation_claims.py` + `queue_recovery/
+test_c16a_manual_routes_claim_check.py`, confirmed non-vacuous via `git
+stash -u`) with a hand-rolled fake Postgres connection standing in for the
+real `pg_advisory_xact_lock` + transaction — no live DB session was driven
+through this in the sandbox, so the following need a real backend + DB:
+- [ ] **Double-tap the "Make it" button** (home producer, ProductionPlanCard)
+      twice in quick succession on the same plan. Confirm only ONE video +
+      ONE autobuild run happens — `se db "SELECT count(*) FROM videos WHERE
+      video_title='<test title>' AND created_at > now() - interval '2
+      minutes'"` should show 1, not 2, and the second tap's UI should show
+      the busy reply (or simply no visible second run) rather than a second
+      "Building..." card.
+- [ ] **Double-send a copilot action** (in-video co-pilot, e.g. type "redo
+      the thumbnail" twice back-to-back before the first confirm-card
+      resolves, or confirm the SAME pending action twice). Confirm the
+      second attempt gets "I'm already working on that — I'll let you know
+      when it's done." and `generation_ledger`/`assets` show only ONE new
+      thumbnail row, not two.
+- [ ] **Cross-surface conflict:** kick off a chat "build" (autobuild) on a
+      video, then — while it's still running — click the manual "Generate
+      Script" (or any main-lane) button for the SAME video in the UI.
+      Confirm the manual click gets refused (409 / "Task already running")
+      rather than racing the chat run — this is the actual S7-6 unification
+      proof (chat's DB claim blocking a manual UI click).
+- [ ] **Claim table sanity:** while a build is mid-run, `se db "SELECT
+      tenant_id, video_id, stage, claimed_at FROM generation_claims"` should
+      show exactly one row for that video/stage; after it finishes (success
+      or failure), the row should be gone within a few seconds (release
+      fires in the task's finally block, not on a timer).
+- [ ] **Stale-claim self-heal (optional, slower):** if a claim is ever
+      manually left behind (e.g. `se db --write "UPDATE generation_claims
+      SET claimed_at = now() - interval '3 hours' WHERE ..."` on a test
+      row), confirm the NEXT acquire attempt on that video/stage succeeds
+      (the row is swept, not permanently wedged) — proves the 2h stale
+      sweep works against a real Postgres transaction, not just the fake.
+- **Cost:** near-zero — this is a concurrency/locking check, not a new
+  generation path; any picture/voice/etc. spend triggered is the SAME spend
+  that action always cost, just proven to happen exactly once instead of
+  potentially twice.
+- **Safety net:** fail-closed on DB error (a claims-table outage refuses
+  dispatch rather than risking a double-spend) and self-healing on a leaked
+  claim (2h stale sweep, matching the existing `STALE_TASK_THRESHOLD_MIN`
+  reaper pattern already in `routes/pipeline.py`) — worst case of this
+  chunk being wrong in some untested way is an over-cautious "busy" refusal
+  or a temporary (≤2h) lock, never an unblocked double-spend.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

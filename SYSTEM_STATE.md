@@ -2857,3 +2857,141 @@ failures (identical file list to C15a/b/c) / 1 pre-existing error — zero
 new failures. `python -m py_compile` clean on all four touched/added `.py`
 files. Frontend untouched — no `tsc`/`build` run (this chunk is chat-prompt
 and backend-tool only, no frontend surface changed).
+
+## C16a — DB-Backed Generation Claim: S7-1 CRITICAL + S7-6 MED Fix (added 2026-07-18)
+
+The S7 queue/idempotency sweep (C16, §S7 in
+`docs/reports/2026-07-17-storyengine-agent-audit-findings.md`) found the
+chat-driven autobuild/copilot dispatch (`routes/chat.py`'s
+`_handle_approve`/`_run_pending_action` -> `actions.py`'s
+`make_autobuild_step`/`make_action_step`) scheduled paid background work via
+a bare `background_tasks.add_task(...)` with **zero concurrency guard** —
+zero grep hits for the existing guard anywhere in chat.py/actions.py. A
+double-tap or a retried chat turn ran two concurrent `_run` loops on the
+same video -> double paid generation (S7-1 CRITICAL). The only existing
+guard, `routes/pipeline.py`'s `_running_tasks`/`_side_lanes` in-process
+dicts, is restart-fragile and chat never consulted it at all (S7-6 MED,
+folded into this chunk). This chunk closes both: a new DB table both chat
+AND the manual routes now consult before dispatching paid work.
+
+**A. `generation_claims` table (migration 092, live via Supabase MCP) +
+`generation_claims.py` module:** `(tenant_id, video_id, stage)` UNIQUE, plus
+`claimed_at`/`claimed_by` (debug label, not access control). `acquire()` is
+TOCTOU-free via a per-VIDEO Postgres advisory transaction lock
+(`pg_advisory_xact_lock(hashtext(tenant:video)::bigint)`) that serializes
+the whole stale-sweep -> cross-stage-check -> `INSERT ... ON CONFLICT DO
+NOTHING RETURNING stage` sequence inside one transaction — critically, the
+lock is keyed on the VIDEO, not the stage, so it also closes the race a
+plain per-row `ON CONFLICT` could never see: an acquire for `stage="main"`
+racing an acquire for `stage="voice"` on the SAME video. A claim older than
+2 hours is swept and retaken (a crashed run must never wedge a video for
+good). `release()` is a plain `DELETE`. Fail-soft vs fail-closed is an
+explicit split: `acquire()`/`is_blocked()` **DENY** (fail-closed) on any DB
+error — a DB outage must never open the double-spend window; `release()` is
+best-effort only (logs, never raises) — a failed release just leaves the
+row for the next `acquire()`'s stale sweep to clear, degrading to "locked
+for up to 2h", never a permanent wedge.
+
+**Lane granularity (justified, not arbitrary):** reuses
+`routes/pipeline.py`'s EXISTING lane vocabulary instead of inventing a
+parallel one. `"main"` is the one exclusive lane every full-pipeline stage
+(script/storyboards/images/render/...) already runs in; voice/characters/
+thumbnail are independent side lanes that block "main" and are blocked by
+it, but never by each other. Chat's whole-video autobuild chain claims
+`stage="main"` — not a separate `"autobuild"` label — because it walks the
+identical stages a manual main-lane click would; a single-stage copilot verb
+claims its own lane name when one exists (`voice`/`characters`/`thumbnail`
+via `generation_claims.stage_for_verb`), else `"main"` (script, storyboards,
+images, animate, sound, render, research, upload, build). This is what makes
+the unification real: a manual "Generate Voice" click and a chat "voice"
+verb claim the IDENTICAL stage name, so they genuinely conflict — a
+made-up `"autobuild"` label would not have composed with the existing dict
+at all without a cross-reference table.
+
+**B. Chat gated at all three paid dispatch sites** (`routes/chat.py`):
+`_handle_approve`'s post-create autobuild kickoff, `_run_pending_action`'s
+`"build"` verb, and `_run_pending_action`'s single-stage copilot verb each
+now call `generation_claims.acquire(tenant_id, video_id, stage, claimed_by=...)`
+BEFORE scheduling; on denial they return the same friendly line
+(`chat._ALREADY_WORKING_REPLY` = "I'm already working on that — I'll let
+you know when it's done.") and do **not** call `background_tasks.add_task`.
+Runner verbs (approve_cast/lock/drive_sync/seo/...) are explicitly
+untouched — S7-1 names only the autobuild/copilot dispatch, and runners
+already reuse existing route handlers.
+
+**C. Release wired into the actual task body** (`actions.py`):
+`make_action_step` gained a `stage` kwarg (the caller's already-acquired
+lane); `make_autobuild_step` always releases `"main"`. Both release the
+claim in the SAME `finally` block that already runs on every exit path
+(success, the first-error `break`, an early `return`, and any raised
+exception) — traced, not assumed: the release call sits ahead of the
+existing `asyncio.sleep(20/30)` + `_clear_task_status` cleanup in that one
+`finally`, so it fires exactly once per run regardless of how the run
+ended.
+
+**D. Manual routes unified onto the same table** (`routes/pipeline.py` +
+`videos.py`/`environments.py`/`characters.py`): `_is_task_active` is now
+`async def`. Its existing in-process dict/lane check is the unchanged FAST
+PATH (short-circuits immediately when already busy, no DB round-trip); when
+the dict says clear, it now additionally calls
+`generation_claims.is_blocked(tenant_id, video_id, lane)` and returns that —
+so a claim held by chat (gated as of this same chunk) blocks a manual click
+too, and survives a restart the in-process dict would have forgotten. All
+~35 call sites across the 4 route files were updated to `await` it
+(mechanical — each was already inside an `async def` handler).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/generation_claims.py` | The claim module: `acquire`/`release`/`is_blocked`/`stage_for_verb` — TOCTOU-free atomic acquire via `pg_advisory_xact_lock`, fail-closed on DB error |
+| `storyengine/backend/migrations/092_generation_claims.sql` | `generation_claims` table + unique index, applied live via Supabase MCP |
+| `storyengine/backend/tests/functional/test_c16a_generation_claims.py` | 25 tests: module acquire/deny/release/stale-retake/lane-blocking/fail-closed-vs-fail-soft, `stage_for_verb` mapping, chat's 3 dispatch sites (denied -> no `add_task` + busy reply; granted -> correct stage + scheduled), runner-verb bypass, and `make_action_step`/`make_autobuild_step` release-on-success/release-on-exception |
+| `storyengine/backend/tests/functional/queue_recovery/test_c16a_manual_routes_claim_check.py` | 6 tests: static lock (no unawaited `_is_task_active(` call sites remain), `_is_task_active` is async, DB consulted when the in-process dict is clear (both busy and free), in-process-busy short-circuits without touching the DB |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/actions.py` | `make_action_step` gained `stage` kwarg + releases it in `_run`'s finally; `make_autobuild_step` releases `"main"` in its finally |
+| `storyengine/backend/routes/chat.py` | `import generation_claims`; `_ALREADY_WORKING_REPLY` constant; all 3 paid dispatch sites (`_handle_approve`, `_run_pending_action`'s "build" and single-verb branches) now acquire-then-schedule |
+| `storyengine/backend/routes/pipeline.py` | `import generation_claims`; `_is_task_active` is now `async def` and consults `generation_claims.is_blocked` when the in-process dict is clear; 27 call sites updated to `await` |
+| `storyengine/backend/routes/videos.py`, `environments.py`, `characters.py` | 8 combined `_is_task_active` call sites updated to `await` |
+| `storyengine/schema.sql` | `generation_claims` table added (mirrors migration 092) |
+
+**Deploy-safety note:** what changes for existing flows — a genuine
+double-tap/retry on the same video now gets a friendly refusal instead of
+double-billing; a single legitimate click/turn is completely unaffected
+(the claim is acquired and released within that one request/task's
+lifetime, invisible to the user). The one new failure mode this
+introduces: a claim that's acquired but never released (e.g. a hard process
+kill between `acquire()` and the `finally` block, or a `release()` that
+itself hits a DB error) would make a video look "busy" to every future
+click/chat turn on that lane — but this self-heals: `acquire()`'s stale
+sweep retakes any claim older than 2 hours automatically, so the worst case
+is a **2-hour wait**, never a permanent wedge, matching the existing
+`STALE_TASK_THRESHOLD_MIN`/reaper design already in `routes/pipeline.py`
+for the exact same class of problem. Auto-deploy safe. **ff-merge
+candidate** — ONLY the double-dispatch path is refused; every existing
+single-action flow (manual button, chat turn, one-tap confirm) runs
+byte-identically to before. The orchestrator issues the final verdict; it
+should specifically verify the claim actually gates the 3 chat dispatch
+sites and that release-on-completion/failure can't leak a stuck claim (both
+proven in the test evidence above, not just asserted).
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c16a_generation_claims.py
+tests/functional/queue_recovery/test_c16a_manual_routes_claim_check.py -q`
+— 31 passed. Confirmed non-vacuous via `git stash -u` on every touched/new
+source file (test files excluded from the stash) — 6 failures + 1 collection
+error against the pre-C16a source (`ModuleNotFoundError: No module named
+'generation_claims'`). Full backend suite: 953 passed (922 baseline + 31
+new) / 16 pre-existing failures (identical file list to C15a/b/c/d) / 1
+pre-existing error — zero new failures. `python -m py_compile` clean on all
+7 touched/added `.py` files. Migration 092 confirmed live via
+`information_schema.columns` (6 columns: id/tenant_id/video_id/stage/
+claimed_at/claimed_by), unique index `generation_claims_unique` on
+`(tenant_id, video_id, stage)`, and `relrowsecurity=true` — all queried
+directly against project `wrromlupsmyzrrcqlucn`. Frontend untouched — no
+`tsc`/`build` run (backend-only chunk, no UI surface). Live double-tap
+round-trip (two real overlapping chat turns on one video) deferred to
+`tasks/live-verification-queue.md` §C16a — needs a live LLM+DB session, no
+key in the sandbox.

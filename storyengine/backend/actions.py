@@ -583,12 +583,23 @@ async def ensure_scriptable(tenant_id, video_id) -> None:
 
 
 def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[int] = None,
-                     start_msg: str = "On it…"):
+                     start_msg: str = "On it…", stage: str = "main"):
     """Run an action's executor methods in order, passing scene= to the ones that
     accept it. Same task-status channel as the rest so the page's trackers light
-    up. Stops on the first error."""
+    up. Stops on the first error.
+
+    C16a: `stage` is the generation_claims lane this run's caller already
+    acquired (routes/chat.py's _run_pending_action calls
+    generation_claims.acquire(tenant_id, video_id, stage_for_verb(verb)) BEFORE
+    scheduling this factory's _run — see that call site for the acquire).
+    This factory owns the matching release: it happens here, in the SAME
+    finally block that already runs on every exit path (success, the
+    first-error break, and any raised exception), so the claim can never
+    outlive the task body it was taken for.
+    """
     from pipeline_executor import PipelineExecutor
     from routes.pipeline import _clear_task_status, _set_task_status
+    import generation_claims
 
     async def _run():
         _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
@@ -614,6 +625,7 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
         except Exception as e:  # noqa: BLE001
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
+            await generation_claims.release(tenant_id, video_id, stage)
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
@@ -631,6 +643,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
     from pipeline_executor import PipelineExecutor
     from routes.pipeline import _clear_task_status, _set_task_status
     from status_map import get_next_status_supabase, parse_stage_plan, resolve_planned_status
+    import generation_claims
 
     async def _advance(to_status: str):
         # Honor the video's reduced stage plan: a raw natural-next status here
@@ -846,6 +859,14 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
         except Exception as e:  # noqa: BLE001
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
+            # C16a: the caller (routes/chat.py's _handle_approve /
+            # _run_pending_action) acquires the "main" claim BEFORE
+            # scheduling this factory's _run — release it here, in the same
+            # finally block that already runs on every exit path (the
+            # target='pictures'/'finish' early returns, the no-progress
+            # stop, and any raised exception), so the claim can never
+            # outlive the multi-stage chain it was taken for.
+            await generation_claims.release(tenant_id, video_id, "main")
             await asyncio.sleep(20)
             _clear_task_status(video_id, tenant_id)
 

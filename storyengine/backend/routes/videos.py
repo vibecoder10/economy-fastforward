@@ -1740,7 +1740,7 @@ async def recrop_asset(
     from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status, _is_task_active
     from pipeline_executor import PipelineExecutor
 
-    if _is_task_active(video_id, tenant_id):
+    if await _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
     _set_task_status(video_id, "running", "Re-cropping this picture's storyboard beat…",
                      tenant_id=tenant_id)
@@ -1776,7 +1776,7 @@ async def fix_text_card(
     from routes.pipeline import _set_task_status, _get_task_status, _clear_task_status, _is_task_active
     from pipeline_executor import PipelineExecutor
 
-    if _is_task_active(video_id, tenant_id):
+    if await _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
     _set_task_status(video_id, "running", "Fixing the card's text with GPT Image 2…",
                      tenant_id=tenant_id)

@@ -240,7 +240,7 @@ async def design_characters(
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
-    if _is_task_active(video_id, tenant_id, lane="characters"):
+    if await _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "characters")
 
@@ -340,7 +340,7 @@ async def regenerate_character(
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
-    if _is_task_active(video_id, tenant_id, lane="characters"):
+    if await _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "characters")
 
@@ -586,7 +586,7 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
         )
 
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
-    if _is_task_active(video_id, tenant_id, lane="characters"):
+    if await _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "characters")
 

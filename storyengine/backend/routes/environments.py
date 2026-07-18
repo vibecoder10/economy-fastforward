@@ -223,7 +223,7 @@ async def design_environments(
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
-    if _is_task_active(video_id, tenant_id, lane="environments"):
+    if await _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "environments")
 
@@ -331,7 +331,7 @@ async def regenerate_environment(
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
-    if _is_task_active(video_id, tenant_id, lane="environments"):
+    if await _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "environments")
 
@@ -507,7 +507,7 @@ async def approve_environments(video_id: str, background_tasks: BackgroundTasks,
         )
 
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
-    if _is_task_active(video_id, tenant_id, lane="environments"):
+    if await _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "environments")
 
