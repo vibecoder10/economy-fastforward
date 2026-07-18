@@ -73,6 +73,76 @@ entry defers:
 
 ---
 
+## C13 — clip generation reads per-scene routed model; records `model_used` · live mixed-routing build check
+Checklist §1.2 (P1.2b slice). `shared/model_router.resolve_clip_model()`
+(precedence: scene override seam → C12's `assets.routed_model` when wired →
+video-level model) is now called per row inside
+`pipeline_executor.py::run_clip_generation`; `model_used` is written
+fail-soft on completion, priced by a new `effective_model_id` (the engine
+that ACTUALLY ran — NOT always `row_model_id`, the routed target: the
+speaking/dialogue branch has no Veo case at all, so a Veo-routed speaking
+row is forced down to Grok before pricing, and a successful InfiniteTalk
+clip records `"infinitalk"` instead of whatever model routing picked);
+`generation_ledger` rows and `actions.estimate_cost` quotes both price by
+the ACTUALLY-resolved per-row model. Proven in-sandbox at test + trace
+level only (17 tests: 6 `resolve_clip_model` unit tests, 5 quote-summation
+tests, 6 real `run_clip_generation` wiring tests via `PipelineExecutor.__new__`
++ a fully monkeypatched DB/storage/image-client — 4 routing tests + 2
+orchestrator-review speaking-branch tests —
+`tests/functional/test_scene_model_routing.py` +
+`tests/functional/test_c13_clip_model_routing.py`; all confirmed
+non-vacuous via `git stash`). No paid Kie key in the build sandbox, so a
+REAL mixed-routing clip run — Grok's animate call shape, Veo's, InfiniteTalk's,
+and a real Kie charge — was never exercised end-to-end. That's the gap this
+entry defers:
+- [ ] **Build a coverage video through to clips** on a test video with at
+      least one reveal/payoff scene (routes to `veo-3.1-quality`) and one
+      ordinary/establishing scene (routes to `grok-imagine` or
+      `veo-3.1-fast`) — confirm C12's routing landed first (§C12 above),
+      then tap "Animate" (whole video or per-scene).
+- [ ] **Confirm clips actually differ per scene:** watch the backend logs
+      for the `"Animating ... ({model_id})"` line and (for Veo shots) that
+      `client.generate_video_veo` actually fires — not every clip silently
+      running through Grok regardless of `routed_model`.
+- [ ] **Confirm `model_used` landed on real rows:**
+      `se db "SELECT scene, image_index, routed_model, model_used FROM
+      assets WHERE video_id='<test-vid>' ORDER BY scene, image_index"` —
+      `model_used` should equal `routed_model` on every SILENT (non-speaking)
+      row that had a wired routed_model, and should equal the video's own
+      `video_model` on any row whose `routed_model` was NULL/unwired. On a
+      video with `dialogue_mode='character_dialogue'`, a SPEAKING row
+      routed to a Veo model is the interesting case: `model_used` must read
+      `"infinitalk"` (if InfiniteTalk generated it) or `"grok-imagine"`
+      (if it fell back to Grok) — NEVER `"veo-3.1-fast"`/`"veo-3.1-quality"`,
+      since Veo cannot actually animate a speaking/dialogue shot today
+      (orchestrator review, no live coverage to prove this outside tests).
+- [ ] **Confirm the ledger priced each clip by its ACTUAL model:**
+      `se db "SELECT model, unit_cost, actual_cost FROM generation_ledger
+      WHERE video_id='<test-vid>' AND stage='clip' ORDER BY created_at"` —
+      a Veo Quality row should show `unit_cost=1.25` (or whatever §C09's
+      Veo price-confirmation task above landed on), a Grok row `~0.09-0.225`
+      depending on duration tier — never a single flat number across every
+      row on a mixed-routing video.
+- [ ] **Confirm the pre-spend quote matched what actually got spent:** note
+      the "Animate" confirm card's quoted $ before tapping, then compare to
+      `videos.total_cost` (or the ledger sum for stage='clip') after the run
+      — they should match (mixed-routing quote summation, checklist §1.2/C13
+      money invariant #2).
+- **Cost:** whatever real clips already cost (see `docs/cost-awareness.md`
+  — a Veo Quality clip is the priciest single line item, ~$1.25/clip at the
+  currently-registered price). Use the smallest test video that has both a
+  reveal/payoff beat and an ordinary beat — no need for a full 20-scene
+  video to prove per-scene divergence.
+- **Safety net:** the `model_used` write is in its own try/except AFTER the
+  clip's real `video_clip_url` write — a forced failure there (proven by
+  test) cannot lose a paid clip. A NULL/unwired `routed_model` falls back to
+  the video's own model byte-identically (proven by test with real object
+  identity, not just equal values) — so even if C12's routing turns out
+  wrong or absent on some rows, clip generation behaves exactly as it did
+  before this chunk on those rows.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

@@ -26,8 +26,8 @@ _PIPELINE_PATH = os.path.join(_BACKEND, "..", "..", "skills", "video-pipeline")
 sys.path.insert(0, os.path.abspath(_BACKEND))
 sys.path.insert(0, os.path.abspath(_PIPELINE_PATH))
 
-from shared.model_router import route_shot_model, RoutingDecision  # noqa: E402
-from shared.channel_profile import MODEL_REGISTRY  # noqa: E402
+from shared.model_router import route_shot_model, RoutingDecision, resolve_clip_model  # noqa: E402
+from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +106,60 @@ def test_fallback_path_never_raises_and_always_returns_a_reason():
     finally:
         model_router._PURPOSE_TAG.clear()
         model_router._PURPOSE_TAG.update(original)
+
+
+# ---------------------------------------------------------------------------
+# 1b. resolve_clip_model() — the C13 READ side of C12's write-only column.
+# Pure, no DB — the precedence a real clip-generation call makes per row.
+# ---------------------------------------------------------------------------
+
+def test_resolve_clip_model_prefers_wired_routed_model_over_video_level():
+    """A wired routed_model wins over the video-level model — a scene
+    routed to Veo Quality animates via Veo even on a Grok-default video."""
+    picked = resolve_clip_model("veo-3.1-quality", "grok-imagine")
+    assert picked == "veo-3.1-quality"
+
+
+def test_resolve_clip_model_null_routed_falls_back_to_video_level_unchanged():
+    """The core C13 money invariant: a NULL routed_model (every asset row
+    that predates C12, or any row whose shot-plan-time routing try/except
+    tripped) must return the video-level model UNCHANGED — byte-identical
+    to what clip generation did before this function existed."""
+    assert resolve_clip_model(None, "grok-imagine") == "grok-imagine"
+    assert resolve_clip_model(None, "veo-3.1-fast") == "veo-3.1-fast"
+
+
+def test_resolve_clip_model_unknown_or_unwired_routed_falls_back():
+    """An unrecognized model id, or a REGISTRY entry that exists but is
+    wired=False (kling-3.0-pro has no live generation path), must fall
+    back exactly like NULL — never attempt a dead generation path."""
+    assert MODEL_REGISTRY["kling-3.0-pro"].wired is False  # pin the fixture's premise
+    assert resolve_clip_model("kling-3.0-pro", "grok-imagine") == "grok-imagine"
+    assert resolve_clip_model("some-made-up-model-id", "grok-imagine") == "grok-imagine"
+
+
+def test_resolve_clip_model_scene_override_wins_over_routed_model():
+    """The C14 seam: an explicit per-scene override (no column writes it
+    yet, but the parameter exists) outranks routed_model when both are
+    wired."""
+    picked = resolve_clip_model("veo-3.1-fast", "grok-imagine", scene_override="veo-3.1-quality")
+    assert picked == "veo-3.1-quality"
+
+
+def test_resolve_clip_model_unwired_scene_override_falls_through_to_routed():
+    """An override that names an unwired/unknown model must not win just
+    because it's an override — it falls through to the next candidate
+    exactly like an unwired routed_model would."""
+    picked = resolve_clip_model("veo-3.1-fast", "grok-imagine", scene_override="kling-3.0-pro")
+    assert picked == "veo-3.1-fast"
+
+
+def test_resolve_clip_model_falls_back_to_default_when_video_level_empty():
+    """Belt-and-braces floor: an empty/falsy video_model_id (shouldn't
+    happen — callers already resolve DEFAULT_VIDEO_MODEL upstream — but
+    resolve_clip_model must not hand back an empty string)."""
+    assert resolve_clip_model(None, "") == DEFAULT_VIDEO_MODEL
+    assert resolve_clip_model(None, None) == DEFAULT_VIDEO_MODEL  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

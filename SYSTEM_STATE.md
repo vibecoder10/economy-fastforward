@@ -1692,3 +1692,181 @@ best_for/tier copy — confirmed unchanged.
 (`best_for: [] `, `tier: "standard"`) on an existing Pydantic response
 model; no existing field renamed/removed, no routing behavior changes (no
 code reads these fields yet). Auto-deploy safe, ff-merge safe.
+
+## C13 — Clip Generation Reads Per-Scene Routed Model; Records `model_used` (added 2026-07-18)
+
+The FIRST behavior change on the paid clip path: `run_clip_generation`
+(`storyengine/backend/pipeline_executor.py`) now resolves a model PER ROW
+instead of once for the whole run, and the pre-spend quote
+(`actions.estimate_cost`) sums per-scene resolved prices instead of one
+flat video-level price times a count.
+
+**New resolver `shared/model_router.resolve_clip_model(routed_model,
+video_model_id, scene_override=None)`**: precedence is (1) `scene_override`
+— a seam for C14's future per-scene-override column, always `None` today,
+no column exists yet; (2) `routed_model` (C12's `assets.routed_model`) —
+ONLY if it names a `MODEL_REGISTRY` entry with `wired=True`; (3)
+`video_model_id` — the video-level model the caller already resolved
+(itself already gated wired upstream, and itself falls back to
+`DEFAULT_VIDEO_MODEL` if the video has no model set). A NULL, unknown, or
+un-wired `routed_model` falls through step 2 and returns `video_model_id`
+UNCHANGED — byte-identical to what every video did before this chunk.
+Locked by 6 pure unit tests in `test_scene_model_routing.py`.
+
+**`run_clip_generation` per-row wiring** (`pipeline_executor.py`): the
+initial assets SELECT now also fetches `routed_model`. Inside the per-row
+`_one(r)` closure, right after `sc, idx = r["scene"], r["image_index"]`,
+`row_model_id = resolve_clip_model(r.get("routed_model"), model_id)` is
+computed; when it differs from the outer video-level `model_id`, a fresh
+`row_profile`/`row_durations`/`row_animate` are resolved
+(`MODEL_REGISTRY.get(row_model_id)`, its `durations`, and a NEW
+`_animate_for(mid)` factory — the same seedance-vs-grok branch the
+video-level `animate` closure used to pick once, now callable per row).
+When it's unchanged, `row_profile, row_durations, row_animate = profile,
+durations, animate` — the EXACT pre-C13 objects, so the fallback path is
+provably byte-identical, not just numerically close. Every place the old
+code read `profile`/`durations`/`animate`/`model_id` inside `_one` (the
+speaking-line duration/cost calc, the silent-shot duration/veo-branch/cost
+calc, `_animate_recover`'s two call sites, the `strip_audio` check) now
+reads the row-scoped variants; `_animate_recover` gained an `animate_fn`
+parameter (defaults to the outer `animate` for any caller that doesn't
+pass one).
+
+**`model_used` write** (migration 088's 3rd column, unused until now): a
+SEPARATE `UPDATE assets SET model_used = $1 WHERE id = $2` right after the
+existing `video_clip_url` write, in its OWN try/except — a forced failure
+on this write cannot fail the clip result (the money-earning write already
+committed by the time it runs).
+
+**Ledger pricing by actual model** (money invariant #1): the
+`record_ledger_entry(..., model=...)` call at clip completion now passes
+`effective_model_id` (the model that ACTUALLY ran this clip — see the
+orchestrator-review fix below; NOT always `row_model_id`, the routed
+target) instead of the video-level `model_id` — a mixed-routing video's
+ledger prices each row by its own engine.
+
+**Orchestrator-review fix, same chunk, before merge — the SPEAKING branch
+has no Veo case**: pre-review, the code assumed `row_model_id`/`row_profile`
+always described what actually ran. Not true for the `if lines:` (speaking/
+dialogue) branch: `_animate_for()` only ever returns a Seedance or Grok
+closure there — there is no Veo case (Veo only animates in the SILENT
+`else` branch, via a dedicated `client.generate_video_veo` call). A row
+purpose-routed to Veo (REVEAL/PAYOFF/ESTABLISH/SCALE/ISOLATION) that ALSO
+carries a matched dialogue line (reachable whenever `dialogue_mode ==
+"character_dialogue"` AND `dialogue_audio != "grok_native"` — i.e.
+`native_voices` False — AND `match_lines`/`match_assigned` finds a scripted
+line with `audio_url` set) would silently animate through Grok's closure
+while `clip_cost`/the ledger/`model_used` all still claimed Veo at its
+$1.25 price — a false cost record for real spend of ~$0.09–0.22. This is
+NOT a new bug C13 invented outright — the SAME mismatch existed pre-C13 at
+the (narrower) video level, if a whole video's own default model was set to
+Veo and it had ANY speaking coverage row — but C13's per-scene routing
+massively widens the reachable surface (a shot earns Veo by CAMERA PURPOSE
+alone now, no video-level Veo choice needed). Fixed in the same commit,
+before merge:
+- A new `effective_model_id` variable (initialized to `row_model_id`,
+  refined as the branch resolves) is now the ONLY value written to
+  `model_used`/the ledger's `model` field — never `row_model_id` directly.
+- In the speaking branch's Grok/Seedance-fallback leg (`if not clip_url:`,
+  after an InfiniteTalk attempt/skip): if `row_model_id` isn't Seedance and
+  isn't `DEFAULT_VIDEO_MODEL` (i.e. it's a Veo id, or any future id
+  `_animate_for` doesn't special-case), `row_model_id`/`row_profile`/
+  `row_durations`/`row_animate` are forced DOWN to `DEFAULT_VIDEO_MODEL`
+  ("grok-imagine") BEFORE duration/cost are computed — this also
+  incidentally fixes the pre-existing narrower video-level-Veo+speaking
+  gap, not just C13's new one. `effective_model_id` is set to the
+  (possibly-forced) `row_model_id` right after.
+- When InfiniteTalk itself succeeds (`talked = True`), `effective_model_id`
+  is set to `talking_model` (env `TALKING_CLIP_MODEL`, default
+  `"infinitalk"`) — InfiniteTalk ran, not whatever model routing picked;
+  `model_used`/the ledger now say `"infinitalk"` (a free-text label, same
+  convention as C08's non-registry ledger model strings like
+  `"elevenlabs"`/`"gpt-image-2"`), never a clip-model id that never ran.
+- The non-speaking (silent) `else` branch is unaffected — it already has a
+  real Veo case, so `row_model_id` there always names the true engine;
+  `effective_model_id = row_model_id` at its tail just keeps the two
+  branches' contracts identical for the shared downstream code.
+2 new tests pin this (`test_speaking_branch_veo_routed_row_falls_back_to_grok_not_veo`,
+`test_speaking_branch_infinitalk_success_records_infinitalk_not_routed_model`
+in `test_c13_clip_model_routing.py`), confirmed non-vacuous via `git stash`
+on `pipeline_executor.py` alone (both fail against the pre-fix source, the
+other 9 file tests unaffected). Full suite after the fix: 797 passed (795 +
+2) / 16 pre-existing failures / 1 pre-existing error — zero new failures.
+
+**Quote path** (`actions.estimate_cost`, money invariant #2): new
+`_routed_clip_costs(tenant_id, video_id, scene, video_model)` helper fetches
+each not-yet-clipped row's `routed_model` and prices it via
+`CLIP_COST[resolve_clip_model(routed_model, video_model)]` (cheapest wired
+tier — same simplification the old flat quote already made). Wired into
+both the `"animate"` verb (scene-scoped and whole-video) and the `"build"`
+verb's finish-phase branch — but ONLY when pictures already exist (money
+invariant #3: before a shot plan exists there is no per-scene routing to
+sum, so `"build"` with zero pictures still falls back to the pre-C13 flat
+`scenes * 6 * clip` guess, and a per-scene animate quote on an EMPTY scene
+still falls back to the pre-C13 "guess 4 clips" fallback — both confirmed
+unchanged by dedicated tests). `actions.py`'s `from database import
+execute, fetch_one` import stays as-is (a `try/except ImportError` around a
+separate `from database import fetch_all` falls back to `fetch_all = None`)
+so the several test files that stub a bare-bones `database` module
+(`execute`/`fetch_one` only) keep importing `actions.py` unchanged — this
+was caught live by the full-suite run (3 tests errored on first pass,
+fixed before this chunk shipped).
+
+**Other clip-generation call sites traced**: `run_fix_text_card` and
+`run_recrop_panel` (`pipeline_executor.py`) both delegate to
+`run_clip_generation(asset_id=...)` — covered automatically, no separate
+resolution logic. `routes/chat.py` and `routes/pipeline.py` call the same
+`run_clip_generation` method — also covered. The legacy Airtable-based
+`orchestrator/pipeline.py::run_video_gen_bot()` (reached via
+`PipelineExecutor.run_video_generation`, a DIFFERENT, older pipeline that
+never touches the StoryEngine `assets` table or its `routed_model` column)
+is untouched — out of scope, C12 never wrote routing data for it either.
+`routes/model_video.py`/`scripts/static_docu.py`/`scripts/supabase_adapter.py`
+confirmed (grep) to do no clip generation at all.
+
+### Modified
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/shared/model_router.py` | New `resolve_clip_model()` — precedence resolver over C12's registry lookup |
+| `storyengine/backend/pipeline_executor.py` | `run_clip_generation`: SELECT gains `routed_model`; per-row `resolve_clip_model()` + `_animate_for()` factory; `model_used`/ledger price by a new `effective_model_id` (not always `row_model_id` — see orchestrator-review fix above); speaking branch forces non-Seedance/non-`DEFAULT_VIDEO_MODEL` rows down to Grok before cost/duration; InfiniteTalk success reports `talking_model` |
+| `storyengine/backend/actions.py` | `estimate_cost`'s `"animate"`/`"build"` verbs sum per-row routed prices via new `_routed_clip_costs()`; `fetch_all` import made optional (try/except) |
+| `storyengine/backend/tests/functional/test_scene_model_routing.py` | +6 tests: `resolve_clip_model()` precedence/fallback/override unit tests |
+| `storyengine/backend/tests/functional/test_c13_clip_model_routing.py` | New — 11 tests: quote summation (5) + real `run_clip_generation` wiring (6, via `PipelineExecutor.__new__` + monkeypatched DB/storage/image-client, same technique as `test_prompt_override_wiring.py` — 4 routing tests + 2 orchestrator-review speaking-branch tests) |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_scene_model_routing.py
+tests/functional/test_c13_clip_model_routing.py -q` — 27 passed. Confirmed
+non-vacuous via `git stash`: the initial 15 tests all fail against pre-C13
+source (9 in the new file, 6 `ImportError`-collected in the extended file);
+the 2 orchestrator-review tests fail against the C13 source BEFORE that
+fix, with the other 9 file tests unaffected (stashing just
+`pipeline_executor.py` alone) — both stash passes confirmed, pass again
+after `stash pop`. Full backend suite: 797 passed (780 baseline + 17 new)
+/ 16 pre-existing failures (same file list as C12) / 1 pre-existing error
+(`vault.py`'s `test_api_key` function name/pytest collision, unrelated) —
+zero new failures, zero fixed by accident. `python -m py_compile` clean on
+all 5 touched/added `.py` files. No frontend files touched (by design;
+C14/C15 own the UI and copilot copy).
+
+**Deferred to `tasks/live-verification-queue.md` §C13**: an actual mixed-
+routing video build (some scenes routed to Veo, some to Grok) with real Kie
+keys, confirming clips actually differ per scene, `model_used` lands on
+real `assets` rows, the ledger prices each row correctly, and the UI's
+pre-spend quote for that video matches the real spend — no paid Kie key in
+this sandbox.
+
+**Deploy-safety note:** for EXISTING videos (every asset row inserted
+before C12 shipped routing, and any row whose shot-plan-time routing
+try/except fired), `routed_model` is NULL on every row —
+`resolve_clip_model(None, model_id)` returns `model_id` unchanged, so
+`row_profile/row_durations/row_animate` are literally the SAME objects the
+pre-C13 code used (not just equal — `is` the same profile/closure), the
+`model_used` write is a new no-risk side-effect, and the ledger simply
+records the SAME model it always did — behavior is byte-identical. For NEW
+videos whose scenes DO carry a wired `routed_model` (every coverage build
+since C12 landed), clips can now animate through a DIFFERENT model per
+scene, cost differently per scene, and get a `model_used` value recorded —
+this is the intended new behavior, gated entirely by data already written
+by C12 (no feature flag needed; a scene only diverges from the video's
+default if C12's router actually picked something different and that model
+is wired). Auto-deploy safe, ff-merge safe.

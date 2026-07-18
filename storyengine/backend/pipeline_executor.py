@@ -11808,6 +11808,7 @@ separate scenes."""
                 return {"status": "failed", "error": "Video not found"}
 
             from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL
+            from shared.model_router import resolve_clip_model
             model_id = (video.get("video_model") or "").strip() or DEFAULT_VIDEO_MODEL
             profile = MODEL_REGISTRY.get(model_id)
             # Only models with a live generation path are selectable — the
@@ -11829,7 +11830,8 @@ separate scenes."""
                 params.append(scene)
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
-                f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue "
+                f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue, "
+                f"routed_model "
                 f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
@@ -11873,22 +11875,37 @@ separate scenes."""
             # (img, prompt, duration, extra_image_urls). Veo keeps its own branch below.
             _vaspect = (video.get("aspect_ratio") or "16:9")
             _vres = (video.get("video_resolution") or "720p")
-            if model_id.startswith("seedance"):
-                def animate(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
-                    return client.generate_video_seedance(
-                        img, prompt, duration=duration,
-                        extra_image_urls=extra_image_urls, aspect_ratio=_vaspect,
-                        task_id_out=task_id_out)
-            else:
+
+            def _animate_for(mid: str):
+                """Per-scene animator picker (checklist §1.2/C13). Same
+                seedance-vs-grok branch the video-level `model_id` used to
+                pick ONCE for the whole run, now callable per resolved
+                per-row model so a scene routed to a different wired model
+                (resolve_clip_model()) animates through ITS OWN engine
+                instead of whichever one happens to be the video's."""
+                if mid.startswith("seedance"):
+                    def _fn(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
+                        return client.generate_video_seedance(
+                            img, prompt, duration=duration,
+                            extra_image_urls=extra_image_urls, aspect_ratio=_vaspect,
+                            task_id_out=task_id_out)
+                    return _fn
                 # Pass the video's aspect + resolution to Grok — without aspect it
                 # crops every clip to vertical (16:9 came out 9:16); resolution is
                 # the quality selector (480p / 720p).
-                def animate(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
+                def _fn(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
                     return client.generate_video(
                         img, prompt, duration=duration,
                         extra_image_urls=extra_image_urls,
                         aspect_ratio=_vaspect, resolution=_vres,
                         task_id_out=task_id_out)
+                return _fn
+
+            # Byte-identical default: the video-level model's animator,
+            # exactly as it was before C13 (used whenever a row's resolved
+            # model equals the video-level one — including every video
+            # whose assets carry no routing at all).
+            animate = _animate_for(model_id)
 
             # Grok takes up to 7 reference images (@image1, @image2... in the
             # prompt): @image1 = the panel, @image2 = the labeled cast sheet.
@@ -11981,13 +11998,19 @@ separate scenes."""
             async def _gen(coro):
                 return await asyncio.wait_for(coro, CLIP_DEADLINE)
 
-            async def _animate_recover(r, image_url, full_prompt, clip_dur, task_id_out=None):
+            async def _animate_recover(r, image_url, full_prompt, clip_dur, animate_fn=None, task_id_out=None):
                 """Generate the clip; if Grok's content filter (failCode 430) flags
                 the frame, redraw the shot with a safer wholesome framing and retry
-                ONCE. Returns (clip_url_or_None, image_url_actually_used)."""
+                ONCE. Returns (clip_url_or_None, image_url_actually_used).
+
+                ``animate_fn`` (checklist §1.2/C13): the per-row resolved
+                animator (see ``_animate_for``/``resolve_clip_model`` in
+                ``_one`` below); defaults to the video-level ``animate`` so
+                any caller that doesn't pass one keeps the pre-C13 behavior."""
+                animate_fn = animate_fn or animate
                 extra = [_proxy_url(sheet)] if sheet else None
                 try:
-                    return (await _gen(animate(image_url, full_prompt, duration=clip_dur,
+                    return (await _gen(animate_fn(image_url, full_prompt, duration=clip_dur,
                                                extra_image_urls=extra, task_id_out=task_id_out)), image_url)
                 except Exception as e:
                     if CONTENT_POLICY_MARKER not in str(e):
@@ -12008,7 +12031,7 @@ separate scenes."""
                     new_img = _proxy_url((nr or {}).get("drive_image_url")
                                          or (nr or {}).get("image_url") or image_url)
                     try:
-                        return (await _gen(animate(new_img, full_prompt, duration=clip_dur,
+                        return (await _gen(animate_fn(new_img, full_prompt, duration=clip_dur,
                                                    extra_image_urls=extra, task_id_out=task_id_out)), new_img)
                     except Exception as e2:
                         if CONTENT_POLICY_MARKER in str(e2):
@@ -12030,6 +12053,23 @@ separate scenes."""
                         pass
                     sc, idx = r["scene"], r["image_index"]
                     img = _proxy_url(r.get("drive_image_url") or r.get("image_url"))
+                    # Per-scene model routing (checklist §1.2/C13): resolve_clip_model
+                    # precedence is (future scene-level override, unwired here yet) ->
+                    # assets.routed_model (C12, ONLY if it names a wired registry
+                    # model) -> model_id (the video-level model resolved above,
+                    # itself already gated wired). A NULL/unknown/unwired
+                    # routed_model returns model_id unchanged, so any asset with no
+                    # routing (every video before C12, or a row whose shot-plan-time
+                    # routing try/except tripped) resolves to EXACTLY model_id — the
+                    # same value every row got before this chunk, so its profile/
+                    # durations/animator below are byte-identical to pre-C13.
+                    row_model_id = resolve_clip_model(r.get("routed_model"), model_id)
+                    if row_model_id != model_id:
+                        row_profile = MODEL_REGISTRY.get(row_model_id) or profile
+                        row_durations = sorted(row_profile.durations) or durations
+                        row_animate = _animate_for(row_model_id)
+                    else:
+                        row_profile, row_durations, row_animate = profile, durations, animate
                     # Fresh per-clip box (not a shared attribute on `client`) so
                     # concurrent clips never clobber each other's Kie taskId —
                     # generation_ledger traceability (checklist §0.3a / C07).
@@ -12072,6 +12112,12 @@ separate scenes."""
                         clip_cost = 0.0
                         clip_dur = None
                         talked = False
+                        # The engine that ACTUALLY animates this row (checklist
+                        # §1.2/C13 orchestrator review) — refined below once we
+                        # know whether InfiniteTalk or the Grok/Seedance
+                        # fallback ran. Never reported as the routed model when
+                        # a different engine actually produced the clip.
+                        effective_model_id = row_model_id
                         talking_model = os.getenv("TALKING_CLIP_MODEL", "infinitalk")
                         if not native_voices and talking_model != "off":
                             try:
@@ -12103,6 +12149,12 @@ separate scenes."""
                                         timeout=int(os.getenv("TALKING_CLIP_DEADLINE", "1200")))
                                     if clip_url:
                                         talked = True
+                                        # InfiniteTalk ran, not row_model_id's
+                                        # engine — model_used/ledger must say
+                                        # so (checklist §1.2/C13 orchestrator
+                                        # review), not whatever model routing
+                                        # picked for this row.
+                                        effective_model_id = talking_model
                                         audio_len = (DIALOGUE_VOICE_LEAD_SECONDS
                                                      + sum(float(l.get("duration") or 2.0) for l in lines)
                                                      + float(os.getenv("PERFORM_DIALOGUE_TAIL", "0.25")))
@@ -12116,6 +12168,27 @@ separate scenes."""
                         if not clip_url:
                             # Grok speaking path (grok_native, kill-switched
                             # talking model, or InfiniteTalk failure).
+                            # _animate_for() has NO Veo case — this leg can
+                            # only ever really run Seedance (if routed there)
+                            # or Grok (every other id, INCLUDING any Veo id —
+                            # its closure silently falls through to Grok's own
+                            # generate_video call). Before C13 this was a
+                            # narrower pre-existing gap (only reachable if the
+                            # whole VIDEO's own default model was Veo); C13's
+                            # per-scene routing widens the surface (a shot can
+                            # now be routed to Veo by purpose alone), so fix
+                            # it here: force the row to the engine this leg
+                            # can actually run BEFORE computing duration/cost,
+                            # so model_used/ledger never claim an engine that
+                            # didn't run (checklist §1.2/C13 orchestrator
+                            # review — money invariant #1 applies here too).
+                            if not (row_model_id.startswith("seedance")
+                                    or row_model_id == DEFAULT_VIDEO_MODEL):
+                                row_model_id = DEFAULT_VIDEO_MODEL
+                                row_profile = MODEL_REGISTRY[DEFAULT_VIDEO_MODEL]
+                                row_durations = sorted(row_profile.durations) or durations
+                                row_animate = _animate_for(row_model_id)
+                            effective_model_id = row_model_id
                             # A coverage master already has a WRITTEN motion
                             # prompt with its line embedded — keep that
                             # direction; generic speaking_prompt is the
@@ -12136,10 +12209,10 @@ separate scenes."""
                             else:
                                 need = (sum(float(l.get("duration") or 2.0) for l in lines)
                                         + DIALOGUE_VOICE_LEAD_SECONDS)
-                            clip_dur = pick_clip_duration(need, durations)
+                            clip_dur = pick_clip_duration(need, row_durations)
                             clip_url, img = await _animate_recover(
-                                r, img, prompt, clip_dur, task_id_out=task_id_box)
-                            clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
+                                r, img, prompt, clip_dur, row_animate, task_id_out=task_id_box)
+                            clip_cost = clip_cost_for(row_profile.cost_per_clip, clip_dur)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
                         # card without one still animates (safe default) instead
@@ -12166,16 +12239,19 @@ separate scenes."""
                         # timed segment still acts as a floor.
                         spoken_secs = speech_seconds(spoken_word_count(prompt))
                         seg_dur = float(r.get("duration_seconds") or 0)
-                        clip_dur = pick_clip_duration(max(spoken_secs, seg_dur), durations)
-                        if model_id.startswith("veo-3.1"):
-                            veo_model = client.VEO_MODEL_QUALITY if model_id.endswith("quality") else client.VEO_MODEL_FAST
+                        clip_dur = pick_clip_duration(max(spoken_secs, seg_dur), row_durations)
+                        if row_model_id.startswith("veo-3.1"):
+                            veo_model = client.VEO_MODEL_QUALITY if row_model_id.endswith("quality") else client.VEO_MODEL_FAST
                             clip_url = await _gen(client.generate_video_veo(
                                 prompt, image_url=img, model=veo_model, task_id_out=task_id_box))
-                            clip_dur = profile.durations[0]
+                            clip_dur = row_profile.durations[0]
                         else:
                             clip_url, img = await _animate_recover(
-                                r, img, _decorate(prompt), clip_dur, task_id_out=task_id_box)
-                        clip_cost = clip_cost_for(profile.cost_per_clip, clip_dur)
+                                r, img, _decorate(prompt), clip_dur, row_animate, task_id_out=task_id_box)
+                        clip_cost = clip_cost_for(row_profile.cost_per_clip, clip_dur)
+                        # This branch has a real Veo case (above) — row_model_id
+                        # always names the engine that actually ran here.
+                        effective_model_id = row_model_id
 
                     if not clip_url:
                         failed += 1
@@ -12242,7 +12318,7 @@ separate scenes."""
                                                              delay_seconds=lead, bed_gain=0.2)
                             else:
                                 clip_bytes = await duck_audio(clip_bytes)
-                        elif not is_speaking and getattr(profile, "strip_audio", False):
+                        elif not is_speaking and getattr(row_profile, "strip_audio", False):
                             # Only SILENT shots get ducked. Grok sometimes ad-libs
                             # a stray line over a B-roll insert, so we duck these
                             # HARD (to a faint room-tone bed, not dead silence) so
@@ -12259,22 +12335,47 @@ separate scenes."""
                         "updated_at = now() WHERE id = $3",
                         drive_url, clip_dur, r["id"],
                     )
+                    # model_used (checklist §1.2/C13, migration 088): which model
+                    # ACTUALLY generated this clip — `effective_model_id`, NOT
+                    # `row_model_id` (the routed TARGET): the two can differ
+                    # (InfiniteTalk ran instead of the routed model; the
+                    # speaking branch's Grok/Seedance-only leg couldn't honor
+                    # a Veo route — orchestrator review). Deliberately a
+                    # SEPARATE statement from the video_clip_url write above,
+                    # and wrapped in its own try/except: this is a nice-to-have
+                    # record, and must never risk the clip result itself
+                    # (fail-soft).
+                    try:
+                        await execute(
+                            "UPDATE assets SET model_used = $1 WHERE id = $2",
+                            effective_model_id, r["id"],
+                        )
+                    except Exception as mu_err:  # noqa: BLE001 — never break a clip that already cost money
+                        print(f"[clips] S{sc}.{idx} model_used write failed "
+                              f"(clip itself succeeded): {str(mu_err)[:150]}", flush=True)
                     done += 1
                     cost += clip_cost
                     # generation_ledger: one row per completed clip, single source
                     # of truth for videos.total_cost (checklist §0.3a / C07).
                     # unit_cost/actual_cost both resolve to clip_cost — the SAME
-                    # value already computed above from profile.cost_per_clip
-                    # (MODEL_REGISTRY, not hardcoded); Kie never returns an
-                    # actual-spend figure in the task-status payload, so there's
-                    # no better "actual" than the registry price for now.
+                    # value already computed above (row_profile.cost_per_clip for
+                    # the Grok/Seedance/Veo legs, INFINITALK_USD_PER_SEC for the
+                    # InfiniteTalk leg); Kie never returns an actual-spend figure
+                    # in the task-status payload, so there's no better "actual"
+                    # than that for now. `model` is `effective_model_id`
+                    # (checklist §1.2/C13 money invariant #1, tightened by the
+                    # orchestrator's review) — the engine that ACTUALLY ran this
+                    # clip, never the routed target when the two diverge — so a
+                    # mixed-routing video's ledger prices each row by what really
+                    # generated it instead of one flat video-wide price (or a
+                    # false one borrowed from a model that never ran).
                     # record_ledger_entry() is fail-soft internally — never
                     # raises — so the clip result above is never at risk.
                     await record_ledger_entry(
                         tenant_id=self.tenant_id,
                         video_id=video_id,
                         stage="clip",
-                        model=model_id,
+                        model=effective_model_id,
                         units=1,
                         unit_cost=clip_cost,
                         actual_cost=clip_cost,

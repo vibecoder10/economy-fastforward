@@ -122,3 +122,36 @@ def route_shot_model(purpose: str | None, is_multi_shot: bool = False) -> Routin
         return RoutingDecision(mid, f"{label} scene → draft tier ({profile.tier})")
 
     return RoutingDecision(DEFAULT_VIDEO_MODEL, "default")
+
+
+def resolve_clip_model(
+    routed_model: str | None,
+    video_model_id: str,
+    scene_override: str | None = None,
+) -> str:
+    """Resolve which model_id actually generates ONE shot's clip (checklist
+    §1.2/C13 — the read side of C12's write-only ``routed_model`` column).
+
+    Precedence:
+      1. ``scene_override`` — an explicit per-scene choice. No column exists
+         for this yet (C14 owns that UI); this parameter is the seam a
+         future caller wires a real value into. Always None today.
+      2. ``routed_model`` — ``assets.routed_model``, C12's shot-plan-time
+         recommendation — but ONLY when it names a model that is BOTH in
+         ``MODEL_REGISTRY`` and ``wired`` (an unknown id, or a registry
+         entry that's since been un-wired, must not silently attempt a
+         dead generation path).
+      3. ``video_model_id`` — the video-level model the caller already
+         resolved (mirrors pre-C13 behavior: ``(video.get("video_model")
+         or "").strip() or DEFAULT_VIDEO_MODEL``, gated wired upstream).
+
+    A NULL/unknown/unwired ``routed_model`` — i.e. every asset row that
+    predates C12, or any row whose shot-plan-time routing try/except
+    tripped — falls through step 2 and returns ``video_model_id``
+    UNCHANGED: byte-identical to what clip generation did before this
+    function existed.
+    """
+    for candidate in (scene_override, routed_model):
+        if candidate and candidate in MODEL_REGISTRY and MODEL_REGISTRY[candidate].wired:
+            return candidate
+    return video_model_id or DEFAULT_VIDEO_MODEL

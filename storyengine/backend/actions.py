@@ -24,6 +24,15 @@ from typing import Any, Optional
 from fastapi import HTTPException
 
 from database import execute, fetch_one
+try:
+    from database import fetch_all
+except ImportError:
+    # Several test files stub a bare-bones `database` module in sys.modules
+    # (only `execute`/`fetch_one`) before importing actions.py transitively —
+    # keep those importable; only the new per-row routed-cost query below
+    # actually needs `fetch_all` to be present (and real callers/tests that
+    # exercise it monkeypatch this module attribute directly).
+    fetch_all = None
 from status_map import is_at_or_past_stage
 
 # shared.channel_profile lives in the pipeline package, not the SaaS backend
@@ -57,6 +66,7 @@ from shared.channel_profile import (  # noqa: E402
     SOUND_PRICE_ESTIMATE as SOUND_COST_ESTIMATE,
     picture_price_for,
 )
+from shared.model_router import resolve_clip_model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -237,20 +247,41 @@ def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
     return None
 
 
+async def _routed_clip_costs(tenant_id, video_id, scene: Optional[int], video_model: str) -> list[float]:
+    """Per-row clip prices for a video's (or one scene's) not-yet-clipped
+    pictures, resolved through the SAME precedence clip generation actually
+    uses (checklist §1.2/C13 money invariant #2 — the quote a creator
+    confirms must match what generation will actually spend). Each row's
+    price is ``CLIP_PRICE_BY_MODEL[resolve_clip_model(routed_model,
+    video_model)]`` — the cheapest wired tier for whichever model that row
+    will really run through, not one flat video-level price times a count.
+
+    Same WHERE clause as the pre-C13 flat count query (image_url IS NOT
+    NULL, scoped to `scene` when given) — only the per-row pricing changed,
+    not which rows are counted."""
+    where = "video_id=$1 AND tenant_id=$2 AND image_url IS NOT NULL"
+    params = [video_id, tenant_id]
+    if scene is not None:
+        where += " AND scene=$3"
+        params.append(scene)
+    rows = await fetch_all(f"SELECT routed_model FROM assets WHERE {where}", *params)
+    return [
+        CLIP_COST.get(resolve_clip_model(r.get("routed_model"), video_model), CLIP_COST.get(video_model, 0.10))
+        for r in rows
+    ]
+
+
 async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], summary: dict[str, Any]) -> tuple[float, str]:
     """A rough but honest dollar estimate for a paid action, mirroring the page's
     counts. Per-scene actions price just that scene's pictures/clips."""
     model = summary["model"]
     clip = CLIP_COST.get(model, 0.10)
     if verb == "animate":
-        n = summary["pics"]
-        if scene is not None:
-            row = await fetch_one(
-                "SELECT count(*) AS n FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 AND image_url IS NOT NULL",
-                video_id, tenant_id, scene,
-            )
-            n = int((row or {}).get("n") or 0) or 4  # fall back to a small guess
-        cost = n * clip
+        costs = await _routed_clip_costs(tenant_id, video_id, scene, model)
+        if scene is not None and not costs:
+            cost = 4 * clip  # fall back to a small guess — unchanged from pre-C13
+        else:
+            cost = sum(costs)
     elif verb == "images":
         n = summary["pics"] or max(1, summary["scenes"]) * 6  # ~6 shots/scene when none exist yet
         if scene is not None:
@@ -296,8 +327,20 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
         scenes = summary["scenes"] or 5
         if summary["status"] in BUILD_TO_PICTURES:
             cost = scenes * 6 * PICTURE_COST
+        elif summary["pics"]:
+            # Pictures already exist -> the shot plan (and each row's
+            # routed_model) was already computed before those pictures were
+            # drawn (storyboard/coverage.py's plan_camera_moves runs BEFORE
+            # any frame renders) -> sum the SAME per-row routed prices the
+            # "animate" quote above uses, instead of one flat video-level
+            # price times a count (checklist §1.2/C13 money invariant #2).
+            cost = sum(await _routed_clip_costs(tenant_id, video_id, None, model))
         else:
-            cost = (summary["pics"] or scenes * 6) * clip
+            # No pictures yet -> no shot plan exists yet -> nothing to route
+            # per scene. Money invariant #3: fall back to today's rough
+            # flat math rather than invent per-scene numbers that don't
+            # exist yet.
+            cost = scenes * 6 * clip
     else:
         cost = 0.0
     text = "no extra cost" if cost <= 0 else f"~${cost:.2f}"
