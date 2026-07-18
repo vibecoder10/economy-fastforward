@@ -7,7 +7,7 @@
  *
  * Design bar (decisions.md): the page banner is the ONLY primary CTA;
  * everything here is a per-item contextual control or lives behind ⋯.
- * Clips follow the trust-ladder contract: tap a card = animate (~$0.10,
+ * Clips follow the trust-ladder contract: tap a card = animate (~$0.09,
  * no confirm), "Animate this scene" per group, "Animate the rest" in the
  * strip; confirms only above $0.50. Bad crops wear a red badge with a
  * one-tap Re-crop that also re-animates stale clips server-side.
@@ -32,7 +32,7 @@ import {
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
   deleteClip, recropAsset, getEnvironments, getVideoCharacters, updateVideoPrompt, updateImagePrompt, improvePrompt,
-  getModels,
+  getModels, getVideoActions,
 } from "@/lib/api";
 import type { VideoModelInfo } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
@@ -50,7 +50,10 @@ import { StopGenerationButton } from "@/components/production/StopGenerationButt
  * derivation below, backed by the `["models"]` query); it exists so a
  * dropped request never breaks the UI. */
 const FALLBACK_WIRED_MODELS: { id: string; label: string }[] = [
-  { id: "grok-imagine", label: "Grok Imagine — $0.10/clip" },
+  // TODO: source from API — this is the offline-only safety net, so it can't
+  // read modelsData. $0.09 = grok-imagine's 6s tier (channel_profile.py,
+  // C09a); keep in sync by hand if that price ever moves.
+  { id: "grok-imagine", label: "Grok Imagine — $0.09/clip" },
 ];
 
 /** Short labels for the picture-model badge (asset.image_model — the model that
@@ -282,6 +285,19 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     [priceByModel],
   );
   const perClip = priceForModel(model);
+
+  // Same "video-actions" query the video page runs (page.tsx) — same query
+  // key, so React Query serves this from the shared cache instead of firing
+  // a second request. Gives us the live picture price (prices.picture) for
+  // toasts/tooltips below, mirroring how perClip above reads modelsData.
+  const { data: videoActions } = useQuery({
+    queryKey: ["video-actions", video.id],
+    queryFn: () => getVideoActions(video.id),
+    staleTime: 30_000,
+  });
+  // Loading-gap fallback only (C09a: GPT Image 2 2K default) — real value
+  // always wins once the query above resolves.
+  const picturePrice = videoActions?.prices?.picture ?? 0.05;
 
   // The "video" (animation) stage can be switched OFF at creation (an images-
   // only plan). When it is, keep the picture workspace but hide every animate/
@@ -659,7 +675,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const handleRedoSceneFromScratch = useCallback(async (sceneNumber: number) => {
     if (!requireEnvironments()) return;
     const confirmed = window.confirm(
-      `Redo Scene ${sceneNumber}'s pictures? We'll draw fresh per-shot pictures, replacing the current ones (≈ $0.08 each).\n\nTo remove just one picture, hover it and click the X.`
+      `Redo Scene ${sceneNumber}'s pictures? We'll draw fresh per-shot pictures, replacing the current ones (≈ $${picturePrice.toFixed(2)} each).\n\nTo remove just one picture, hover it and click the X.`
     );
     if (!confirmed) return;
     setClearingScene(sceneNumber);
@@ -676,7 +692,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     } finally {
       setClearingScene(null);
     }
-  }, [video.id, queryClient, toast, runStageWith409Retry, requireEnvironments]);
+  }, [video.id, queryClient, toast, runStageWith409Retry, requireEnvironments, picturePrice]);
 
   // Draw a scene's grids only (no re-plan) — used by empty-slot clicks on a
   // scene that already has a plan.
@@ -775,7 +791,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     if (list.length === 0) return;
     const what = stage === "coverage-images" ? "pictures" : "storyboards";
     if (!window.confirm(
-      `Generate ${what} for ${list.length} scene${list.length === 1 ? "" : "s"} (≈ $0.08 each). You can Stop anytime.`,
+      `Generate ${what} for ${list.length} scene${list.length === 1 ? "" : "s"} (≈ $${picturePrice.toFixed(2)} each). You can Stop anytime.`,
     )) return;
     const steps = list.map((s) => ({ stage, scene: s.sceneNumber }));
     const [first, ...rest] = steps;
@@ -788,7 +804,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       setGeneratingScene(null);
       toast.error(`Couldn't start generating all ${what}: ${(err as Error).message}`);
     }
-  }, [runStageWith409Retry, toast, requireEnvironments]);
+  }, [runStageWith409Retry, toast, requireEnvironments, picturePrice]);
 
   const handleClearAllStoryboards = useCallback(async () => {
     if (!window.confirm(
@@ -1027,7 +1043,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   }, [video.id, queryClient, toast]);
 
   // One-tap bad-crop fix: free re-crop of the whole beat; the backend
-  // re-animates any clips the new pictures made stale (~$0.10 each).
+  // re-animates any clips the new pictures made stale (per-clip price, same as perClip below).
   const recropOne = useCallback(async (asset: Asset) => {
     if (running) {
       toast.info(`Hang on — still working: ${taskMessage || "finishing the current step"}.`);
@@ -1037,12 +1053,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     try {
       await recropAsset(video.id, asset.id);
       markStarted();
-      toast.info("Re-cropping this picture's storyboard — clips that go stale re-animate automatically (~$0.10 each).");
+      toast.info(`Re-cropping this picture's storyboard — clips that go stale re-animate automatically (~$${perClip.toFixed(2)} each).`);
     } catch (err) {
       setRecropping(null);
       toast.error((err as Error).message || "Couldn't start the re-crop.");
     }
-  }, [video.id, running, taskMessage, markStarted, toast]);
+  }, [video.id, running, taskMessage, markStarted, toast, perClip]);
 
   const redrawOne = useCallback(async (asset: Asset) => {
     if (running) {
@@ -1052,12 +1068,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     setRecropping(asset.id);  // reuse the per-card "working" dim until onComplete clears it
     try {
       await runStageWith409Retry("redraw-image", { asset_id: asset.id });
-      toast.info("Redrawing this picture from your prompt (~$0.08), anchored on the locked cast. Re-animate after.");
+      toast.info(`Redrawing this picture from your prompt (~$${picturePrice.toFixed(2)}), anchored on the locked cast. Re-animate after.`);
     } catch (err) {
       setRecropping(null);
       toast.error((err as Error).message || "Couldn't start the redraw.");
     }
-  }, [running, taskMessage, toast, runStageWith409Retry]);
+  }, [running, taskMessage, toast, runStageWith409Retry, picturePrice]);
 
   /** Confirm-then-run for anything over $0.50; cheaper actions just go. */
   const confirmable = (key: string, dollars: number, run: () => void) => {
@@ -1760,6 +1776,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     asset={asset}
                     speaker={speakerFor(asset)}
                     perClip={perClip}
+                    picturePrice={picturePrice}
                     canAnimate={videoStageEnabled}
                     isGenerating={generatingClipIds.has(asset.id) && running}
                     isRecropping={recropping === asset.id && running}
@@ -1859,12 +1876,13 @@ function BoardLightbox({ items, index, onNavigate, onClose }: {
 }
 
 /** One story segment: shows the clip when it exists (tap = play), else the
- * final picture (tap = animate, ~$0.10). Bad crops wear a red badge whose
+ * final picture (tap = animate, ~$0.09). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw }: {
+function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
+  picturePrice: number;
   canAnimate: boolean;
   isGenerating: boolean;
   isRecropping: boolean;
@@ -1978,7 +1996,7 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
           <button
             onClick={(e) => { e.stopPropagation(); onRecrop(); }}
             disabled={disabled}
-            title="This picture was cut wrong from its storyboard. Re-crop it for free — a clip on it re-animates automatically (~$0.10)."
+            title={`This picture was cut wrong from its storyboard. Re-crop it for free — a clip on it re-animates automatically (~$${perClip.toFixed(2)}).`}
             className="absolute bottom-2 left-2 z-20 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-all hover:brightness-125 disabled:opacity-50"
             style={{ background: "rgba(220, 50, 50, 0.92)", color: "white" }}>
             <Scissors size={10} /> Bad crop — fix it
@@ -2107,7 +2125,7 @@ function SegmentCard({ asset, speaker, perClip, canAnimate, isGenerating, isRecr
               disabled={imgState === "saving"}
               className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
               style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
-              <RotateCcw size={11} /> {imgState === "saving" ? "Starting…" : imgState === "error" ? "Failed — retry" : "Redraw picture · ~$0.08"}
+              <RotateCcw size={11} /> {imgState === "saving" ? "Starting…" : imgState === "error" ? "Failed — retry" : `Redraw picture · ~$${picturePrice.toFixed(2)}`}
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); improve("image"); }}
