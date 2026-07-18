@@ -39,6 +39,7 @@ from actions import (
     blocked_reason as _action_blocked,
     cost_breakdown as _cost_breakdown,
     estimate_cost as _estimate_cost,
+    estimate_plan_cost as _estimate_plan_cost,
     guardrail_note as _guardrail_note,
     make_action_step as _make_copilot_step,
     make_autobuild_step as _make_autobuild_step,
@@ -2646,6 +2647,46 @@ async def _annotate_style_recommendation(data, tenant_id, state):
         spec["detected_style_label"] = label
 
 
+async def _stamp_plan_estimate(data) -> None:
+    """C15a — MONEY GAP CLOSED: the home Producer's "Make it" tap used to fire
+    ``_handle_approve`` -> ``create_video`` -> a paid autobuild straight to real
+    pictures with no cost shown or confirmed anywhere (every other paid verb in
+    this file quote-gates via ``_confirm_card``; this was the one hole). Stamp
+    the plan with a REAL, honest estimate BEFORE it ever reaches the creator, so
+    "Make it" is informed consent (shape (a) — the plan card itself carries the
+    quote, not a second confirm round-trip: C15's itemized ``cost_breakdown``
+    needs a shot plan that doesn't exist before the script is written, so there
+    is nothing to itemize yet — same as this estimate being a rough guess, not
+    a precise one).
+
+    Sourced ENTIRELY from ``actions.estimate_plan_cost`` (itself a thin
+    synthetic-summary wrapper around ``estimate_cost``'s own pre-pictures
+    "build" guess) — no new math, no hardcoded price lives here. Threads the
+    plan's OWN ``spec.video_length_minutes`` through so the estimate scales
+    with the requested length (orchestrator review, 2026-07-18: a flat guess
+    ignoring length was a predictable-direction shown-price-vs-real-spend
+    mismatch on long plans) — ``estimate_plan_cost`` derives the real scene
+    count from that length via the SAME formula the live script generator
+    already targets (``VideoConfig.act_count``, see its docstring), so this
+    file still does zero scene-count math of its own. Additive only: an
+    older frontend build simply never reads ``estimated_cost_text``, so it
+    renders the exact same card it always has."""
+    plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
+    if not plan:
+        return
+    spec = plan.get("spec") if isinstance(plan.get("spec"), dict) else None
+    minutes = spec.get("video_length_minutes") if spec else None
+    try:
+        cost, _cost_text, scenes = await _estimate_plan_cost(minutes)
+    except Exception:  # noqa: BLE001 — never block the plan turn over a display quote
+        return
+    plan["estimated_cost"] = cost
+    plan["estimated_cost_text"] = (
+        f"Making this ≈ ${cost:.2f} — pictures for ~{scenes} scenes "
+        "(rough estimate; refined once the script's written)."
+    )
+
+
 # --- producer text-client resolution (home path) ----------------------------
 # The home Producer needs the SAME key fallback the in-video co-pilot already
 # has (_handle_copilot above): the tenant's direct Anthropic key if they have
@@ -2712,6 +2753,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     data = call_producer(transcript, build_system_prompt(brief), client=client)
     await _stamp_length_default(data, tenant_id)
     await _annotate_style_recommendation(data, tenant_id, state)
+    await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, None)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
@@ -3349,6 +3391,7 @@ async def chat_turn(
     data = call_producer(transcript, system_prompt, client=client)
     await _stamp_length_default(data, tenant_id)
     await _annotate_style_recommendation(data, tenant_id, state)
+    await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
     transcript.append(_assistant_turn(data))
 

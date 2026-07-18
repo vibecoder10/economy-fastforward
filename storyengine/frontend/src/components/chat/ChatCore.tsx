@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
@@ -1439,6 +1439,18 @@ function ProductionPlanCard({ plan, onApprove }: { plan: ProductionPlan; onAppro
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* C15a: real, server-sourced quote so "Make it" is informed consent, not
+          a blind paid tap. Absent on an older backend build — the card simply
+          skips this section, unchanged from before. */}
+      {!!plan.estimated_cost_text && (
+        <Section title="Estimated cost">
+          <p className="text-sm flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+            <CircleDollarSign size={14} className="shrink-0" style={{ color: "var(--gold)" }} />
+            {plan.estimated_cost_text}
+          </p>
         </Section>
       )}
 

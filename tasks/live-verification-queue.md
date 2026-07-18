@@ -312,6 +312,67 @@ live conversation:
 
 ---
 
+## C15a — home Producer "Make it" tap quote · live tap-through check
+Checklist §1.2 follow-up (2026-07-18 director-gap audit's MONEY GAP finding,
+plus a same-day orchestrator review that caught the estimate ignoring the
+plan's own length). `actions.estimate_plan_cost(video_length_minutes=None)`
+now derives the real scene count from length via `VideoConfig.act_count`
+(`skills/video-pipeline/orchestrator/pipeline_config.py:53` — the SAME
+formula the live script generator targets, imported not re-derived) and
+`routes/chat.py::_stamp_plan_estimate()` threads `plan.spec.
+video_length_minutes` through, naming the scene count in the card text. All
+covered at the unit level (12 tests in `test_c15a_plan_cost_quote.py`,
+confirmed non-vacuous via `git stash` TWICE — the original fix and this
+length-scaling follow-up; `npx tsc --noEmit` clean) — no live LLM call in
+that pass (`call_producer` has no no-network path in this sandbox). What's
+NOT provable without a live conversation:
+- [ ] **Local E2E boot** (same recipe as C14/C15's entries above): source
+      prod `storyengine/.env`, `DEV_MODE=true DEV_TOKEN=<random>
+      DEV_TENANT_ID=<disposable tenant>`, uvicorn on :8002,
+      `NEXT_PUBLIC_API_URL=http://127.0.0.1:8002 npm run dev -- --port 3002`.
+- [ ] **Start a fresh home chat conversation** (no `video_id` yet — the
+      un-docked producer flow, not the in-video co-pilot): describe a SHORT
+      idea (nudge the length slider to ~1 min) through to phase `"plan"`,
+      confirm the `ProductionPlanCard`'s "Estimated cost" line reads
+      something like *"Making this ≈ $0.30 — pictures for ~1 scenes (rough
+      estimate; refined once the script's written)."*
+- [ ] **Repeat with a LONG idea** (nudge the length slider to ~20-30 min):
+      confirm the estimate reads a VISIBLY LARGER figure (≈$1.80, capped at
+      6 scenes) — not the same number the short plan showed. This is the
+      exact bug the orchestrator review caught; confirming it moved is the
+      point of this recipe.
+- [ ] Confirm both numbers match `actions.estimate_plan_cost(minutes)` called
+      directly in a Python shell for the same `video_length_minutes` (today:
+      1 min→≈$0.30, 5 min→≈$0.90, 10 min→≈$1.50, 12-30 min→≈$1.80 capped) —
+      i.e. neither is silently drifting from the source of truth.
+- [ ] **Tap "Make it"** on the long plan: confirm the existing plumbing is
+      completely unaffected — `create_video` fires, the video is created,
+      the autobuild kicks off exactly as it did before this chunk (research
+      → script → pictures, or script → pictures depending on channel mode),
+      and the assistant's "I'm building it now…" message appears unchanged.
+      Once the script is written, spot-check that the real scene count
+      lands near what the quote named (exact match not required — the
+      producer/creator can still steer the story; this is a sanity check
+      that the estimate wasn't wildly off, not a hard assertion).
+- [ ] **Regression check:** run through the onboarding ("Start Here") path
+      that hands off into `_seed_producer` too, confirming the SAME
+      length-scaled estimated-cost line appears there (both call sites must
+      show it, not just the main intake turn).
+- **Cost:** free through the plan/quote checks (no generation until "Make
+  it" is tapped). Tapping "Make it" costs whatever the seeded channel's
+  script + however many scenes × 6 pictures actually costs (~$0.30 for a
+  1-scene short to ~$1.80+ for a capped-6-scene long video, GPT Image 2 2K
+  default) — same spend the autobuild always incurred; this chunk adds
+  visibility (now length-aware), not a new charge.
+- **Safety net:** `estimate_plan_cost`/`_stamp_plan_estimate` are pure reads
+  (no writes, no DB touched by the branch they exercise) layered onto a
+  `plan` dict that already existed; the two new plan fields are additive and
+  only ever populated when a plan is present — a stale frontend build (or a
+  plan payload from before this fix) renders the exact pre-C15a card, and
+  `_handle_approve`'s create+autobuild call chain is completely untouched.
+
+---
+
 ## C10 — UI "Est → Actual" cost chip + ledger drawer · live generate-and-compare check
 Checklist §0.3d. New `GET /api/videos/{id}/ledger` endpoint, a `CostLedgerChip`
 component (chip + drawer) on the video-detail page header, and a `cost` tool

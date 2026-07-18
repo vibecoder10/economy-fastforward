@@ -2333,3 +2333,152 @@ backend that never sends `breakdown` also renders identically (the
 component's `hasBreakdown` check is `!!breakdown && breakdown.lines.length
 > 0`, false on `undefined`). No existing field, endpoint, or card shape
 changed — auto-deploy safe, ff-merge safe.
+
+## C15a — MONEY GAP: Quote on the Home Producer's "Make it" Tap (added 2026-07-18)
+
+The 2026-07-18 director-gap audit found the ONE paid path in the entire chat
+surface that skipped the quote+confirm law every other paid verb obeys: the
+home chat's `ProductionPlanCard` "Make it" button fires `_handle_approve` →
+`create_video` → `_make_autobuild_step(..., target="pictures")`
+(`storyengine/backend/routes/chat.py` ~L478-549) — a real paid autobuild
+(research/script → ~scenes × 6 × PICTURE_COST worth of pictures) with no cost
+shown or confirmed anywhere before it fires.
+
+**Why shape (a), not a second confirm card:** C15's itemized
+`cost_breakdown()` needs a real shot plan (`storyboard/coverage.py`'s
+`plan_camera_moves`), which doesn't exist until AFTER the script is written —
+exactly why `cost_breakdown` already returns `None` pre-plan. There is
+nothing real to itemize at plan time, so a `_confirm_card`-style breakdown
+round-trip would be theater. Instead the ProductionPlanCard itself now
+carries an honest, hedged estimate line, making the single existing "Make it"
+tap informed consent rather than a blind one — no new UI step, no new tap.
+
+**Backend (`storyengine/backend/actions.py`):**
+- New `estimate_plan_cost(video_length_minutes=None) -> tuple[float, str,
+  int]`: a thin wrapper, NOT a new cost formula. No video row exists at plan
+  time, so there's no real `video_summary()` to hand `estimate_cost`.
+  **Orchestrator review (same day):** the first pass ignored the plan's own
+  `video_length_minutes` entirely — a flat ~5-scene guess for every length,
+  meaning a 20-30 min plan showed the SAME "≈$1.50" a 1-min plan showed, then
+  spent several times that once pictures actually generated. Fixed by
+  deriving the real scene count from length via the SAME formula the live
+  script generator already targets, imported verbatim (no new ratio):
+  `VideoConfig.act_count` (`skills/video-pipeline/orchestrator/
+  pipeline_config.py:53` — `max(3, min(6, video_length_minutes // 2)) if
+  video_length_minutes >= 3 else 1`). Traced end to end that this is the
+  REAL number, not just a plausible-looking one: `VideoConfig` (built from
+  this exact `video_length_minutes`) is handed to `script_generator.
+  generate_script()`, whose prompt instructs "Structure it in {act_count}
+  acts" (`script_generator.py:638/643`); `brief_translator.
+  _write_script_records` then writes exactly ONE `scripts` row per act
+  ("one per act", `scene_number=act_num`); `SupabaseAdapter.
+  create_script_record` inserts with `scene=scene_number` — so `act_count`
+  IS the real "scenes" number `video_summary()` later counts and this same
+  `estimate_cost` build branch prices. Builds the synthetic summary
+  `{"model": "grok-imagine", "status": "idea_logged", "scenes":
+  <derived act_count>, "pics": 0}` and calls `estimate_cost(None, None,
+  "build", None, summary)` — the SAME pre-pictures math (`cost = scenes * 6
+  * PICTURE_COST`) that branch already ran, just fed a real scene count
+  instead of 0. `video_length_minutes=None` (or an invalid value —
+  clamped/caught, never raises) keeps the EXACT pre-existing flat-guess
+  behavior: `scenes=0` routes to `estimate_cost`'s own "scenes or 5"
+  fallback unchanged. Returns a 3rd value, `scenes_used` (the derived count,
+  or 5 on fallback — read off the identical `summary["scenes"] or 5`
+  expression `estimate_cost` itself evaluates, not a second computation), so
+  the card text can name its own scene count. Honest cap surfaced, not
+  hidden: `act_count` maxes at 6 for any video >=12 min — a real property of
+  the live formula — so a 20-min and a 30-min quote are identical, both
+  capped at the 12-min figure.
+
+**Backend (`storyengine/backend/routes/chat.py`):**
+- Imports `estimate_plan_cost as _estimate_plan_cost`.
+- New `_stamp_plan_estimate(data)`: given a producer turn's raw JSON `data`,
+  if `data["plan"]` is a dict, reads `plan.spec.video_length_minutes` (may be
+  missing/None — handled) and calls `_estimate_plan_cost(minutes)`, then sets
+  `plan["estimated_cost"]` (float) and `plan["estimated_cost_text"]` (e.g.
+  `"Making this ≈ $1.80 — pictures for ~6 scenes (rough estimate; refined
+  once the script's written)."` for a 20-min plan, vs `"≈ $0.30 — pictures
+  for ~1 scenes"` for a 1-min plan). No-ops silently (no KeyError, no
+  mutation) when there's no plan yet (an "asking" phase turn) or the plan is
+  malformed (defensive — producer JSON is LLM-authored); wrapped in its own
+  try/except so a broken estimate call never blocks the plan turn itself.
+  chat.py still does zero scene-count math of its own — `scenes_used` comes
+  straight from `estimate_plan_cost`.
+- Called from BOTH home-producer plan-emission sites, right after
+  `_annotate_style_recommendation` and before `_apply_and_merge_profile_ops`:
+  `_seed_producer` (the onboarding hand-off) and the main intake turn inside
+  `chat_turn()`. Both call sites needed the fix — this is the same
+  "call-site drift" class of bug C04's `_resolve_producer_client` fix
+  guarded against, so both are now source-locked by a test.
+
+**Frontend (additive only, UNCHANGED by the length-scaling follow-up — only
+the server-side wording/number changed):**
+- `ProductionPlan` (`storyengine/frontend/src/lib/api.ts`) gains optional
+  `estimated_cost?: number` / `estimated_cost_text?: string`.
+- `ProductionPlanCard` (`storyengine/frontend/src/components/chat/
+  ChatCore.tsx`) renders a new "Estimated cost" `Section` (new
+  `CircleDollarSign` icon import from `lucide-react`) directly above the
+  Make-it/Cancel row, ONLY when `plan.estimated_cost_text` is truthy — an
+  older frontend build simply never reads the key and renders byte-identical
+  to before; a plan payload from an older/legacy conversation transcript
+  (persisted before this fix, no estimate keys at all) renders identically
+  too, since the guard is `!!plan.estimated_cost_text`.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c15a_plan_cost_quote.py` | 12 tests: `estimate_plan_cost` matches a direct `estimate_cost` call on the identical synthetic summary when length is unknown (no-parallel-math proof) + is never zero/negative; scene count for every tested length equals `VideoConfig.act_count` exactly (sourcing proof) and cost = scenes×6×PICTURE_COST; cost scales monotonically with length AND a 30-min plan quotes strictly more than a 1-min plan (the exact regression pinned); a 12/20/30-min plan all quote the SAME capped figure (honest-cap proof); `_stamp_plan_estimate` adds a length-scaled quote naming its own scene count; a 1-min vs 20-min plan produce different quotes; missing/None length falls back to the original flat guess; no-ops (no KeyError) on a plan-less "asking" turn; no-ops on a malformed (non-dict) plan; a legacy pre-fix plan payload has no estimate keys, and history-hydration (`get_conversation_for_video`) never calls the stamp; source lock that BOTH `_seed_producer` and `chat_turn` call `_stamp_plan_estimate` |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/actions.py` | `estimate_plan_cost()` gains a `video_length_minutes` param, derives the real scene count via `orchestrator.pipeline_config.VideoConfig.act_count`, returns a 3rd `scenes_used` value |
+| `storyengine/backend/routes/chat.py` | `_stamp_plan_estimate` threads `plan.spec.video_length_minutes` into `_estimate_plan_cost`; card text now names its own scene count |
+| `storyengine/frontend/src/lib/api.ts` | `ProductionPlan` gains optional `estimated_cost`/`estimated_cost_text` |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | `ProductionPlanCard` renders the new "Estimated cost" section when present; `CircleDollarSign` added to the `lucide-react` import |
+| `tasks/storyengine-wiring-fix-checklist.md` | C15a line ticked with summary |
+| `tasks/live-verification-queue.md` | New §C15a deferral (live "Make it" tap recipe) |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c15a_plan_cost_quote.py -q` — 12 passed. Confirmed
+non-vacuous via `git stash` on `actions.py`/`routes/chat.py` (the new test
+file is untracked, unaffected by the stash) TWICE — once for the original
+fix, once for the length-scaling follow-up (8 of the 12 current tests fail
+against the pre-follow-up source: `TypeError`/`ValueError` on the changed
+`estimate_plan_cost` signature, or the exact "1-min == 20-min" regression the
+review flagged; the other 4 legitimately still pass, pinning behavior that
+was never broken). Full backend suite: 851 passed (839 baseline + 12 new,
+was 846/7 before this follow-up) / 16 pre-existing failures (same file list
+as C15) / 1 pre-existing error (`vault.py`'s `test_api_key` collision) —
+zero new failures. `python -m py_compile` clean on both touched `.py` files.
+Frontend: `npx tsc --noEmit` clean; `npm run build` clean (required
+`NEXT_PUBLIC_API_URL` set in-sandbox — same pre-existing project requirement
+as C14/C15) — no frontend files touched by the length-scaling follow-up,
+re-verified anyway since the card's wording changed server-side.
+
+**Example estimates (verified in-sandbox):** 1 min → 1 scene → ≈$0.30; 3-5
+min → 3 scenes → ≈$0.90; 10 min → 5 scenes → ≈$1.50 (same figure the
+original flat-guess fallback also lands on, coincidentally); 12-30 min → 6
+scenes (capped) → ≈$1.80; no length yet → falls back to the original 5-scene
+guess → ≈$1.50 (unchanged from the first pass).
+
+**Deferred to `tasks/live-verification-queue.md` §C15a** (exact recipe
+there): a fresh home chat conversation through to a plan, confirming the
+"Estimated cost" line renders with a real, length-scaled `≈$` figure naming
+its own scene count, tapping "Make it", and confirming the autobuild
+proceeds exactly as before (unchanged plumbing — only the display quote is
+new). Requires a live LLM producer call (no no-DB path exists for
+`call_producer` in this sandbox).
+
+**Deploy-safety note:** both new fields (`estimated_cost`,
+`estimated_cost_text`) are additive and only ever populated on `plan` when a
+plan exists — old frontend + new backend: the old build never reads the two
+new keys, so `ProductionPlanCard` renders byte-identical to before (no
+runtime error, no layout shift); new frontend + old backend: the old backend
+never sends the keys, so the new "Estimated cost" `Section`'s `!!plan.
+estimated_cost_text` guard is false and the section simply doesn't render —
+the rest of the card (look/story/titles/thumbnails/Make-it button) is
+unchanged either direction. No existing field, endpoint, or card shape
+changed, and `_handle_approve`'s create+autobuild plumbing is completely
+untouched (only the plan payload the creator sees before tapping "Make it"
+changed) — auto-deploy safe, ff-merge safe.

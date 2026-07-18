@@ -487,6 +487,70 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     return round(cost, 2), text
 
 
+async def estimate_plan_cost(video_length_minutes: Optional[float] = None) -> tuple[float, str, int]:
+    """The producer's PRE-CREATION quote (checklist C15a — the home Producer's
+    "Make it" tap was the one paid path that skipped the quote law: it fires
+    ``_handle_approve`` -> ``create_video`` -> an autobuild straight to real
+    paid pictures with no cost shown). No video row exists yet at plan time, so
+    there's no real ``video_summary()`` to hand ``estimate_cost`` — a shot plan
+    only exists after the script is written (same reason ``cost_breakdown``
+    returns None pre-plan).
+
+    Orchestrator review (2026-07-18): a flat ~5-scene guess regardless of the
+    plan's OWN ``video_length_minutes`` is exactly the shown-price-vs-real-spend
+    mismatch this chunk exists to close, in a predictable direction (a 20-30
+    min plan would show the same "≈$1.50" a 1-min plan shows, then spend
+    several times that). Scene count for a not-yet-scripted video is NOT
+    free-form here — it's the SAME formula the live script generator already
+    targets, reused verbatim via import (no new ratio invented):
+    ``VideoConfig.act_count`` (``skills/video-pipeline/orchestrator/
+    pipeline_config.py:53`` — ``max(3, min(6, video_length_minutes // 2)) if
+    video_length_minutes >= 3 else 1``). Traced end to end: that same
+    ``VideoConfig`` (built from this exact ``video_length_minutes``) is handed
+    to ``script_generator.generate_script()``, whose prompt instructs
+    "Structure it in {act_count} acts" (``script_generator.py:638/643``);
+    ``brief_translator._write_script_records`` then writes exactly ONE row per
+    act ("one per act", ``scene_number=act_num``); ``SupabaseAdapter.
+    create_script_record`` inserts that row with ``scene=scene_number``
+    (``supabase_adapter.py``) — so ``act_count`` IS the real "scenes" number
+    ``video_summary()`` later counts and this same ``estimate_cost`` build
+    branch prices. (Honest cap: ``act_count`` maxes out at 6 for any video
+    >=12 min — a real property of the live formula, not something invented
+    here — so a 20-30 min quote scales up to that cap, not further.)
+
+    Hands ``estimate_cost``'s own "build" verb a synthetic summary shaped like
+    a fresh, pre-script video (status in ``BUILD_TO_PICTURES``) with
+    ``scenes`` set to that derived act count — which routes straight to ITS
+    OWN existing pre-pictures math (``cost = scenes * 6 * PICTURE_COST``).
+    That is the exact figure the autobuild ``_handle_approve`` kicks off will
+    actually be run against once the video exists — no parallel math, no
+    hardcoded price. ``tenant_id``/``video_id`` are unused by this branch (no
+    DB read happens before pictures exist), so the ``None`` placeholders below
+    are safe; ``model`` is unused by this branch too (kept only for
+    ``video_summary``-shape parity).
+
+    ``video_length_minutes=None`` (no length picked yet, e.g. a turn before
+    the length card resolves) keeps the EXACT pre-existing behavior: a
+    ``scenes=0`` synthetic summary, which still routes to ``estimate_cost``'s
+    own "scenes or 5" fallback unchanged. Returns ``(cost, cost_text,
+    scenes_used)`` — ``scenes_used`` is the actual scene count the estimate
+    was based on (the derived act count, or 5 when it fell back), read off
+    the SAME ``summary["scenes"] or 5`` expression ``estimate_cost`` itself
+    evaluates — so the card text can read "for ~N scenes" without a second,
+    independently-computed number."""
+    scenes = 0
+    if video_length_minutes is not None:
+        try:
+            from orchestrator.pipeline_config import VideoConfig
+            mins = max(1, min(30, int(round(float(video_length_minutes)))))
+            scenes = VideoConfig(video_length_minutes=mins).act_count
+        except Exception:  # noqa: BLE001 — never block the plan turn over a display quote
+            scenes = 0
+    summary = {"model": "grok-imagine", "status": "idea_logged", "scenes": scenes, "pics": 0}
+    cost, text = await estimate_cost(None, None, "build", None, summary)
+    return cost, text, (scenes or 5)
+
+
 async def ensure_scriptable(tenant_id, video_id) -> None:
     """'Write the script' straight from an idea: skip past research the same
     plan-aware way autobuild does, so the script verb never trips the

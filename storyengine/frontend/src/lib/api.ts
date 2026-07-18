@@ -2623,6 +2623,12 @@ export interface ProductionPlan {
   recommended_titles?: string[];
   thumbnail_concepts?: string[];
   spec?: Record<string, unknown>;
+  // C15a — pre-creation cost quote for the "Make it" tap, stamped server-side
+  // from actions.estimate_cost's own rough pre-pictures guess (before "Make it"
+  // ever fires the paid autobuild). Optional and additive: an older backend
+  // build never sends these, and the plan card renders exactly as before.
+  estimated_cost?: number;
+  estimated_cost_text?: string;
 }
 export interface ChatTurnRequest {
   conversation_id?: string | null;
