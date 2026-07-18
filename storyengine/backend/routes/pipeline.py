@@ -484,20 +484,59 @@ async def _enqueue_or_fallback(
     video_id: str,
     tenant_id: str,
     fallback_fn,
+    **stage_kwargs,
 ):
-    """Enqueue to arq queue if available, otherwise fall back to BackgroundTasks."""
+    """Enqueue to arq queue if available, otherwise fall back to BackgroundTasks.
+
+    C16d (S7-4): `attempt` used to be hardcoded to 1 on every call — since
+    arq's job_id is `f"{stage}:{video_id}:{attempt}"` and results are kept
+    for 24h (WorkerSettings.keep_result=86400), a hardcoded 1 collided with
+    arq's OWN dedup on every legitimate second run of the same stage within
+    that window, and `enqueue_stage` returning None for that reason fell
+    into the `if job_id:` gap below with no signal at all — a real retry (or
+    an explicit Regenerate) silently no-op'd for up to 24h. `attempt` is now
+    derived from the highest attempt already recorded for this (video,
+    stage) in background_tasks — the same source main.py's restart-recovery
+    already reads (`row["attempt"] + 1`) — so a fresh legitimate call mints a
+    fresh job_id and never collides with its own history. Only a genuine
+    concurrent duplicate (two requests racing to enqueue the SAME
+    not-yet-persisted attempt number) can still hit arq's dedup; that case
+    now raises the same 409 "Task already running" HTTPException the
+    `_is_task_active` gates already use elsewhere (an existing, frontend-
+    understood shape — see ThumbnailTab.tsx/stage-advancer.tsx's 409 retry
+    handling) instead of returning 200 with nothing actually queued.
+
+    `**stage_kwargs` (C16d, S7-3) passes stage-specific args (e.g.
+    thumbnail's `force`) through to the arq job function — forwarded as
+    kwargs by arq's enqueue_job, landing on the matching `arq_run_*` handler
+    in worker.py, which forwards them again to the executor method. Stages
+    that don't declare a matching kwarg are unaffected (this is only ever
+    populated by callers that need it).
+    """
     arq_pool = _get_arq_pool(request)
     if arq_pool:
         try:
-            attempt = 1
-            job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt)
+            prior = await fetch_one(
+                "SELECT COALESCE(MAX(attempt), 0) AS n FROM background_tasks "
+                "WHERE video_id = $1 AND tenant_id = $2 AND task_type = $3",
+                video_id, tenant_id, stage,
+            )
+            attempt = int((prior or {}).get("n") or 0) + 1
+            job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt, **stage_kwargs)
             if job_id:
                 await db_persist_task(
                     tenant_id, video_id, stage, "pending",
                     message=f"{stage} queued — job_id={job_id}",
                     job_id=job_id, attempt=attempt,
                 )
-            return
+                return
+            # arq refused: a job already exists for this EXACT (stage, video_id,
+            # attempt) key (in flight, or completed within the keep_result
+            # window) — with attempt now derived from real history this should
+            # only fire on a genuine concurrent duplicate. Surface it honestly.
+            raise HTTPException(status_code=409, detail="Task already running")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.warning(
                 "arq enqueue failed for %s/%s, falling back to BackgroundTasks: %s",
@@ -1911,6 +1950,7 @@ async def run_thumbnail(
     video_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    force: bool = False,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Generate thumbnail for a video.
@@ -1918,6 +1958,13 @@ async def run_thumbnail(
     Reads thumbnail_prompt, thumbnail_text, and thumbnail_style_override
     from the video record so the pipeline bot uses the configured settings
     and any autopilot-generated patterns.
+
+    force=true (C16d, S7-3 — same convention as POST /clip/{video_id})
+    regenerates + rebills even when a thumbnail already exists. Default
+    False skips a video that already has one — this same route is hit both
+    by the guided "Create your thumbnail" first-run AND the Thumbnail tab's
+    Regenerate button (frontend/src/components/production/ThumbnailTab.tsx),
+    so only the latter passes force=true.
     """
     video = await fetch_one(
         """SELECT id, status, thumbnail_prompt, thumbnail_text,
@@ -1946,7 +1993,7 @@ async def run_thumbnail(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_thumbnail(video_id)
+            result = await executor.run_thumbnail(video_id, force=force)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
@@ -1955,7 +2002,7 @@ async def run_thumbnail(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    await _enqueue_or_fallback(request, background_tasks, "thumbnail", video_id, tenant_id, _run)
+    await _enqueue_or_fallback(request, background_tasks, "thumbnail", video_id, tenant_id, _run, force=force)
 
     return PipelineResponse(video_id=video_id, status="running", message="Thumbnail generation started")
 

@@ -17,4 +17,24 @@
 | ElevenLabs timeout | Voice generation poll hits 30 attempts | Audio too long or API backlogged | Increase `max_attempts` in `elevenlabs_client.py` or split text into smaller chunks |
 | Google Docs unavailable | 503 on document creation | Google Docs API intermittent outage | Code returns `GoogleDocsUnavailableError` gracefully. Non-blocking - pipeline continues without Docs backup. |
 | Worker not executing queued jobs | Stages stuck at `pending`, no progress | `storyengine-worker` service stopped | `systemctl status storyengine-worker`; restart if stopped. Run `bash infra/setup_worker.sh` after fresh deploy. |
-| Queue silently bypassed (no Redis) | Pipeline runs in-process, no `job_id` in `background_tasks` rows | Redis unreachable or `REDIS_URL` wrong | Check backend logs for "Redis/arq pool not available" warning. Verify `REDIS_URL` env var. |
+| Queue silently bypassed (no Redis) | Pipeline runs in-process, no `job_id` in `background_tasks` rows | Redis unreachable or `REDIS_URL` wrong | Check backend logs for "Redis/arq pool not available" warning, or `GET /api/health` → `queue: "degraded-inprocess"` (C16d, S7-7). Verify `REDIS_URL` env var. |
+
+## Per-Stage Resumability (checklist C16d, S7-9 — docs/reports/2026-07-17-storyengine-agent-audit-findings.md §S7)
+
+Whether re-invoking a pipeline stage on a video that already has that stage's
+output skips the work (cheap, safe to retry/resume) or fully redoes it
+(re-spends money, or in upload's case, re-publishes). "Guard" is the file:line
+that actually implements the skip — not just a status-machine gate.
+
+| Stage | Resumable (skip-if-done)? | Guard |
+|-------|---------------------------|-------|
+| voice | Yes | `skills/video-pipeline/voice/run.py:86-96` ("voice already done, skipping" per scene) |
+| sound prompts (design) | Yes | `skills/video-pipeline/sound/sound_prompt_bot.py:301-320` (per-scene "already have prompts") |
+| sound effects | Yes | `skills/video-pipeline/sound/sound_bot.py:73-79` (`already_done` count) |
+| clips (video generation) | Yes | `storyengine/backend/supabase_adapter.py:756,765` (`video_url IS NULL`); `storyengine/backend/pipeline_executor.py::run_clip_generation` ~L11841 (`force or not r.get("video_clip_url")`) — `force=True` (routes/pipeline.py `POST /clip/{id}?force=true`) is the explicit redo |
+| images / coverage | Yes (since C16b, 2026-07-18) | `storyengine/backend/scripts/coverage_to_app.py::generate_coverage_for_video` (completeness rule: directive hash match + drawn-frame count vs. expected; `only_scenes` allowlist forces named scenes) |
+| thumbnail | Yes (since C16d, 2026-07-18) | `storyengine/backend/pipeline_executor.py::run_thumbnail` ~L14574 (skip when `videos.thumbnail_url` set and `force` is not True; `force=True` from the ACTIONS["thumbnail"] verb, the prompt-studio "Apply & redo" path, or `POST /thumbnail/{id}?force=true`) |
+| research | No — full restart every call | `storyengine/backend/pipeline_executor.py::run_research` ~L7532 (no existence check; relatively cheap — one Claude/web-research call) |
+| script | No — full restart every call | `storyengine/backend/pipeline_executor.py::run_script` ~L11333 (always overwrites; relatively cheap — one Claude call) |
+| render | No — full restart every call | `storyengine/backend/pipeline_executor.py::run_render` ~L14963 (always re-renders; compute-only, no external per-call billing) |
+| upload | No — full restart every call, **and no re-upload guard**: a re-invoke can create a SECOND YouTube draft, not just re-spend | `storyengine/backend/pipeline_executor.py::run_upload` ~L15030 (only checks whether SEO text is already saved before regenerating; never checks for a prior successful upload). Flagged as a follow-up — not fixed in C16d, out of this chunk's scope. |

@@ -955,6 +955,10 @@ CREATE INDEX IF NOT EXISTS idx_bg_tasks_tenant ON background_tasks(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_bg_tasks_status ON background_tasks(status) WHERE status IN ('pending', 'running');
 CREATE INDEX IF NOT EXISTS idx_bg_tasks_video ON background_tasks(video_id, status);
 CREATE INDEX IF NOT EXISTS idx_bg_tasks_created_at ON background_tasks(created_at DESC);
+-- migration 094 (checklist C16d — S7-8 LOW fix): partial UNIQUE backstop
+-- behind db_persist_task()'s check-then-insert race on the "pending" branch.
+-- NULL job_id (the in-process fallback path) is never deduped.
+CREATE UNIQUE INDEX IF NOT EXISTS background_tasks_job_id_uidx ON background_tasks(job_id) WHERE job_id IS NOT NULL;
 
 ALTER TABLE background_tasks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Tenant isolation" ON background_tasks FOR ALL TO authenticated

@@ -635,6 +635,14 @@ async def health():
     # Storage (basic check — Google Drive client initialized)
     checks["storage"] = True  # Will fail visibly on actual upload if broken
 
+    # Queue mode (C16d, S7-7): when the arq/Redis pool failed to connect at
+    # startup (see the lifespan warning above, "Redis/arq pool not available"),
+    # every pipeline stage silently falls back to in-process BackgroundTasks —
+    # this is a supported degraded mode (docs/failure-modes.md), not a crash,
+    # but it was previously invisible outside the startup log line. Surfaced
+    # here as data only; no UI banner yet (tracked as a frontend follow-up).
+    checks["queue"] = "arq" if getattr(app.state, "arq", None) else "degraded-inprocess"
+
     # Overall status
     if checks.get("database") is True:
         status = "healthy"
@@ -673,6 +681,9 @@ async def health_detailed(request: Request):
         checks["task_queue"] = {r["status"]: r["cnt"] for r in rows} if rows else {}
     except Exception:
         checks["task_queue"] = {"error": "query failed"}
+
+    # Queue mode (C16d, S7-7) — see /api/health for the full rationale.
+    checks["queue"] = "arq" if getattr(app.state, "arq", None) else "degraded-inprocess"
 
     # Error rate (from logging_config tracker)
     from logging_config import _error_counts, _error_window_start

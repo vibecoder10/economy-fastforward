@@ -14571,8 +14571,26 @@ separate scenes."""
             "logos, watermarks or badges.")
         return " ".join(parts)
 
-    async def run_thumbnail(self, video_id: str) -> dict:
-        """Generate thumbnail for a video."""
+    async def run_thumbnail(self, video_id: str, force: bool = False) -> dict:
+        """Generate thumbnail for a video.
+
+        `force` (C16d, S7-3): default False skips generation (and the paid
+        ledger write) when videos.thumbnail_url is already set — every one of
+        the three completion branches below (modeled/channel-formula/legacy
+        from-scratch) previously regenerated + rebilled unconditionally on
+        every call, including a routine status-machine resume that reaches
+        this stage a second time. force=True (the ONLY way to bypass the
+        guard) is threaded in explicitly by every caller that represents a
+        real "redo it" request: the ACTIONS["thumbnail"] chat/button verb
+        (actions.py's make_action_step), the prompt-studio "Apply & redo"
+        path (routes/chat.py's _make_prompt_regen), and the Scenes page's
+        Regenerate button (routes/pipeline.py's POST /thumbnail/{video_id},
+        which now accepts ?force=true — mirroring the existing
+        POST /clip/{video_id} convention). Callers that represent natural
+        first-time progression (the autobuild finish chain, the arq/queue
+        stage runner, claude_orchestrator's skill dispatch) pass nothing and
+        get the skip-if-done default, same as C16b's coverage guard.
+        """
         await self._ensure_initialized()
         bot_name = "Thumbnail Bot"
 
@@ -14580,6 +14598,13 @@ separate scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+
+            if not force and (video.get("thumbnail_url") or "").strip():
+                msg = "Thumbnail already exists — skipping (already generated)."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "completed", "video_id": video_id,
+                        "thumbnail_url": video["thumbnail_url"], "message": msg,
+                        "skipped": True}
 
             current_status = video.get("status")
 

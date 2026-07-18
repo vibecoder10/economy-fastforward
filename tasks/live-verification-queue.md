@@ -1203,6 +1203,67 @@ the following need a real backend + DB + Kie key:
 
 ---
 
+## C16d — Queue hardening: S7-3/S7-4/S7-7/S7-8/S7-9 fixes · live re-invoke + degraded-mode check
+Checklist entry C16d (audit `docs/reports/2026-07-17-storyengine-agent-audit-
+findings.md` §S7, the hardening tier — S7-3 HIGH, S7-4 HIGH, S7-7 MED, S7-8
+LOW, S7-9 LOW). Thumbnail now skips regeneration when `thumbnail_url` is
+already set unless `force=true`; `_enqueue_or_fallback` derives `attempt`
+from real history and raises an honest 409 on a genuine arq dedup-hit instead
+of a silent 200; `/api/health` reports `queue: "arq"|"degraded-inprocess"`;
+`background_tasks.job_id` has a live partial unique index (migration 094,
+confirmed via `pg_indexes`, zero pre-existing duplicates). Covered at the
+unit level (17 new tests across 4 files, all confirmed non-vacuous via `git
+stash` per source file) with fully faked DB/request objects — none of the
+following was driven through a real backend + DB + arq/Redis pool in the
+sandbox:
+- [ ] **Thumbnail Regenerate spends $0 on a no-op re-click.** On a video that
+      already has a thumbnail, tap the Thumbnail tab's action button when its
+      label reads "Regenerate" is NOT what to test first — that path already
+      passes `force=true` by design. Instead: trigger `POST
+      /api/pipeline/thumbnail/{id}` directly with NO `force` param (e.g. via
+      `se db` isn't right here — use `curl` against the live backend or the
+      `runPipelineStage(id, "thumbnail")` call with no params) on a video that
+      already has `thumbnail_url` set. Confirm the response/task-status shows
+      `"skipped": true` / a "already exists" message, and `se db "SELECT
+      COUNT(*) FROM generation_ledger WHERE video_id='<id>' AND
+      stage='thumbnail'"` does NOT grow.
+- [ ] **Thumbnail Regenerate with `force=true` still works end to end.** Tap
+      the real Regenerate button in the UI (thumbnail already exists) —
+      confirm a NEW image actually generates (thumbnail_url changes) and one
+      new `generation_ledger` row lands.
+- [ ] **`/api/health` reflects the real queue state.** `se db` won't show
+      this — hit the endpoint directly (`curl <backend>/api/health` or via
+      `se health` if it proxies there). Confirm `queue` reads `"arq"` if
+      `storyengine-worker`/Redis are actually up on the VPS, or
+      `"degraded-inprocess"` if not — cross-check against `journalctl -u
+      storyengine-worker` / `se logs backend` for the "Redis/arq pool not
+      available" startup line to make sure the field agrees with reality.
+- [ ] **A genuine concurrent double-enqueue surfaces the 409, not a silent
+      success.** Hardest to stage live (needs arq/Redis actually connected
+      AND two requests racing the same not-yet-persisted attempt number).
+      If Redis isn't running on the VPS today (check first via the health
+      field above), this whole path is dormant — skip until arq is actually
+      wired into a live deploy, and note that in this checklist rather than
+      forcing it.
+- [ ] **Legitimate retries no longer silently no-op for 24h.** With arq
+      connected, run the SAME stage twice in a row (e.g. two research runs on
+      one video). Confirm the SECOND enqueue actually queues (not swallowed)
+      by checking `se db "SELECT attempt, job_id FROM background_tasks WHERE
+      video_id='<id>' ORDER BY created_at"` shows attempt=1 then attempt=2
+      with two DIFFERENT job_ids, not the same job_id refused twice.
+- **Cost:** the thumbnail force-regenerate check is a normal paid action a
+  creator would trigger anyway (~$0.05) — no new spend surface. The
+  skip-if-done check should cost exactly $0 — that's the point.
+- **Safety net:** the thumbnail guard only ever skips work that would have
+  produced a byte-identical result (same prompt, same seed inputs) when
+  `thumbnail_url` is already set and no caller asked for a redo; every real
+  redo path threads `force=true` explicitly (traced and unit-tested). The
+  409 fix only ever fires on an EXACT duplicate `(stage, video_id, attempt)`
+  key — a state that was already a bug (a job silently not running) before
+  this chunk, never a legitimate two-different-jobs collision.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

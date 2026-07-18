@@ -37,8 +37,16 @@ async def enqueue_stage(
     video_id: str,
     tenant_id: str,
     attempt: int = 1,
+    **stage_kwargs,
 ) -> str | None:
-    """Enqueue a pipeline stage. Returns job_id or None if already queued."""
+    """Enqueue a pipeline stage. Returns job_id or None if already queued.
+
+    `**stage_kwargs` (C16d, S7-3) is forwarded as extra kwargs on the arq job
+    (e.g. thumbnail's `force`) — arq passes *args/**kwargs straight through
+    to the worker function, so the matching `arq_run_*` handler in worker.py
+    must declare a same-named parameter to receive it. Stages that pass
+    nothing behave exactly as before.
+    """
     handler = _STAGE_HANDLERS.get(stage)
     if not handler:
         raise ValueError(f"Unknown stage: {stage!r}. Valid: {list(_STAGE_HANDLERS)}")
@@ -51,6 +59,7 @@ async def enqueue_stage(
         attempt,
         _job_id=job_id,
         _job_timeout=7200,  # 2h max per stage (render can be long)
+        **stage_kwargs,
     )
     if job is None:
         logger.info("Stage %s for %s already queued (attempt=%d)", stage, video_id, attempt)

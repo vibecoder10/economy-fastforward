@@ -3206,3 +3206,186 @@ above (empty table, index confirmed live). Live race-proof (fire two
 concurrent requests at the same provider task and confirm exactly one ledger
 row lands) deferred to `tasks/live-verification-queue.md` §C16c — needs a
 live DB + concurrent paid-API session, not available in the sandbox.
+
+## C16d — Queue Hardening: S7-3/S7-4/S7-7/S7-8/S7-9 Fixes (added 2026-07-18)
+
+**Problem (audit §S7, hardening tier — C16a/b/c already shipped the three
+critical/gating fixes S7-1/S7-2/S7-5):**
+- **S7-3 HIGH:** `PipelineExecutor.run_thumbnail` (all 3 completion branches —
+  modeled/channel-formula/legacy from-scratch) unconditionally regenerated +
+  ledger-billed on EVERY call, including a routine status-machine resume.
+- **S7-4 HIGH:** `routes/pipeline.py::_enqueue_or_fallback` hardcoded
+  `attempt=1` — since arq's job_id (`f"{stage}:{video_id}:{attempt}"`) is kept
+  for 24h (`keep_result=86400`), a hardcoded 1 collided with arq's OWN dedup on
+  every legitimate second run; when `enqueue_stage` returned `None` for that
+  reason, the function silently `return`ed with no persisted row and no error
+  — the caller got a 200 "running" response for a job that was never queued.
+- **S7-7 MED:** when the arq/Redis pool failed to connect at startup, every
+  stage silently fell back to in-process BackgroundTasks — a supported
+  degraded mode, but invisible outside one startup log line.
+- **S7-8 LOW:** `task_store.db_persist_task`'s "pending" branch was a plain
+  check-then-insert with no DB-level constraint behind it — a TOCTOU race
+  between two concurrent calls for the SAME arq job_id could land two rows.
+- **S7-9 LOW:** resumability was undocumented per stage.
+
+**Fixes (all 5 shipped — none split out):**
+
+1. **S7-3 — thumbnail skip-if-done.** `run_thumbnail(video_id, force=False)`
+   now checks `videos.thumbnail_url` right after fetching the video, BEFORE
+   any of the three completion branches run — one guard covers all three
+   (the channel-formula branch is only ever reached FROM run_thumbnail, so
+   gating at the top is sufficient, unlike C16b's per-scene coverage guard).
+   `force=True` is the only bypass, threaded explicitly by every caller that
+   represents a real "redo it": `actions.py::make_action_step` special-cases
+   `name == "run_thumbnail"` to always pass `force=True` (the ACTIONS verb's
+   label is literally "Redo the thumbnail" — never a first-time call);
+   `routes/chat.py::_make_prompt_regen`'s "Apply & redo" prompt-studio path;
+   and `routes/pipeline.py`'s `POST /thumbnail/{video_id}?force=true` (new
+   query param, mirroring the pre-existing `POST /clip/{video_id}?force=true`
+   convention). Callers representing natural first-time progression —
+   `actions.py`'s autobuild finish chain (already double-guarded by its own
+   pre-existing `not thumbnail_url` check), the arq/queue stage runner, and
+   `claude_orchestrator.py`'s skill dispatch — pass nothing and get the
+   default skip.
+
+   The ONE frontend surface that hits this route serves BOTH intents from
+   the same button (`ThumbnailTab.tsx`'s label flips "Generate Thumbnail" /
+   "Regenerate" off the SAME `handleRegenerate` handler) — traced via
+   `GuidedNextStep.tsx`/`next-action.ts` (natural "Create your thumbnail" at
+   `status===ready_for_thumbnail`, no force) vs. `ThumbnailTab.tsx` (this
+   chunk: now passes `{force: "true"}` only when `video.thumbnail_url` is
+   already set, i.e. only when the label actually reads "Regenerate").
+
+2. **S7-4 — arq attempt + honest dedup signal.** `_enqueue_or_fallback` now
+   derives `attempt` from `COALESCE(MAX(attempt), 0) + 1` over prior
+   `background_tasks` rows for that `(video_id, tenant_id, task_type)` —
+   the same source `main.py`'s restart-recovery already reads
+   (`row["attempt"] + 1`). When `enqueue_stage` STILL returns `None` after
+   that (a genuine concurrent duplicate — the residual race the attempt fix
+   can't close), the function now raises `HTTPException(409, "Task already
+   running")` — the SAME shape `_is_task_active` gates already raise
+   elsewhere, which the frontend already retries on (`ThumbnailTab.tsx`/
+   `stage-advancer.tsx`'s existing 409→clearStaleTask→retry handling). A
+   `except HTTPException: raise` guards this from being swallowed by the
+   surrounding `except Exception` (which still handles the pre-existing
+   degraded-queue fallback for a genuine connection-style error — S7-7's
+   behavior is untouched). `**stage_kwargs` threading (`job_queue.enqueue_stage`
+   → arq's `enqueue_job(**kwargs)` → `worker.py`'s `arq_run_thumbnail(...,
+   force=False)` → `_run_stage(..., **method_kwargs)` → `method(video_id,
+   **method_kwargs)`) carries S7-3's `force` through the arq path too, so
+   Regenerate behaves identically whether or not Redis is up.
+
+3. **S7-7 — degraded-queue visibility.** Both `GET /api/health` and
+   `GET /api/health/detailed` now include `"queue": "arq" |
+   "degraded-inprocess"`, read straight from `app.state.arq` (the same
+   attribute the lifespan sets on connect/failure, and `_enqueue_or_fallback`
+   reads via `_get_arq_pool`). Data only — no UI banner this chunk (frontend
+   follow-up).
+
+4. **S7-8 — background_tasks job_id uniqueness.** Live duplicate-scan FIRST
+   (required by chunk spec): `SELECT job_id, count(*) ... GROUP BY job_id
+   HAVING count(*) > 1` against `wrromlupsmyzrrcqlucn` → **zero rows** (468
+   total rows in `background_tasks`, 0 of them carry a job_id at all — arq has
+   never actually been in the loop in prod; every stage so far ran via the
+   in-process fallback). Safe to index with no cleanup. **Migration 094**
+   (idempotent, `CREATE UNIQUE INDEX IF NOT EXISTS background_tasks_job_id_uidx
+   ON background_tasks (job_id) WHERE job_id IS NOT NULL`) applied LIVE via
+   Supabase MCP, confirmed via `pg_indexes` (alongside a pre-existing plain
+   `background_tasks_job_id_idx` that was live in prod but never captured in
+   schema.sql — a pre-existing drift, left alone, out of this chunk's scope).
+   `task_store.db_persist_task`'s shared INSERT (used by both the "pending"
+   and "running" branches) now carries `ON CONFLICT (job_id) WHERE job_id IS
+   NOT NULL DO NOTHING` — the race's loser becomes a silent no-op instead of
+   a duplicate row, with the NULL-job_id (in-process fallback) path
+   completely unaffected (NULL never conflicts). Fail-soft (the function has
+   never raised out to a caller) is fully preserved.
+
+5. **S7-9 — resumability table.** Added to `docs/failure-modes.md`: voice,
+   sound prompts, sound effects, clips, images/coverage (since C16b), and
+   thumbnail (since this chunk) skip-if-done; research, script, and render
+   fully restart every call (all three relatively low-stakes — cheap LLM
+   calls or local compute, no external per-call billing at risk beyond one
+   redundant call); **upload has NO re-publish guard at all** — a re-invoke
+   can mint a SECOND YouTube draft, not just re-spend. Flagged as a follow-up,
+   not fixed here (out of this chunk's 5-item scope).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/094_background_tasks_job_id_unique.sql` | Partial UNIQUE index behind S7-8's ON CONFLICT fix; live duplicate-scan result in the header comment |
+| `storyengine/backend/tests/functional/test_c16d_thumbnail_skip_if_done.py` | 5 tests: skip-if-done default+existing thumbnail (no ledger call, activity log line), no-skip when NULL/blank thumbnail_url, force=True bypasses, video-not-found ordering |
+| `storyengine/backend/tests/functional/test_c16d_enqueue_or_fallback.py` | 5 tests: attempt derived from MAX(attempt)+1, attempt=1 with no history, dedup-hit raises honest 409 (not silent, doesn't double-run via fallback), generic Exception still falls back (S7-7 regression pin), no-arq-pool skips the attempt query entirely |
+| `storyengine/backend/tests/functional/test_c16d_health_queue_status.py` | 3 tests: `/api/health` and `/api/health/detailed` both report `degraded-inprocess`/`arq` off `app.state.arq` directly (no TestClient/lifespan — main.py imports cleanly standalone) |
+| `storyengine/backend/tests/functional/test_c16d_task_store_job_id_conflict.py` | 4 tests: a true `asyncio.gather` TOCTOU race (fake DB snapshots the SELECT result BEFORE yielding, so both callers see "not found" before either INSERTs) lands exactly one row post-fix; sequential calls still short-circuit via the pre-existing SELECT check; NULL job_id rows are never deduped; fail-soft preserved on a hard DB error |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/pipeline_executor.py` | `run_thumbnail` gains `force: bool = False` + the skip-if-done guard (one check covers all 3 completion branches) |
+| `storyengine/backend/actions.py` | `make_action_step` special-cases `run_thumbnail` to always pass `force=True` (mirrors the pre-existing `run_script`/`ensure_scriptable` special-case) |
+| `storyengine/backend/routes/chat.py` | `_make_prompt_regen`'s thumbnail branch passes `force=True` |
+| `storyengine/backend/routes/pipeline.py` | `POST /thumbnail/{video_id}` gains `force: bool = False` query param, threaded to both the fallback closure and `_enqueue_or_fallback`; `_enqueue_or_fallback` derives `attempt` from `MAX(attempt)+1`, raises 409 on a genuine dedup-hit instead of a silent no-op, and accepts `**stage_kwargs` |
+| `storyengine/backend/job_queue.py` | `enqueue_stage` accepts `**stage_kwargs`, forwarded to `arq_pool.enqueue_job` |
+| `storyengine/backend/worker.py` | `_run_stage` accepts `**method_kwargs`; `arq_run_thumbnail` gains `force: bool = False`, threaded through |
+| `storyengine/backend/main.py` | `/api/health` and `/api/health/detailed` add `"queue": "arq" \| "degraded-inprocess"` |
+| `storyengine/backend/task_store.py` | `db_persist_task`'s shared INSERT gains `ON CONFLICT (job_id) WHERE job_id IS NOT NULL DO NOTHING` |
+| `storyengine/schema.sql` | `background_tasks_job_id_uidx` added alongside the table definition |
+| `storyengine/frontend/src/components/production/ThumbnailTab.tsx` | `handleRegenerate` passes `{force: "true"}` only when `video.thumbnail_url` is already set (the "Regenerate" case, not "Generate Thumbnail") |
+| `docs/failure-modes.md` | New "Per-Stage Resumability" table (S7-9) |
+
+**Deploy-safety assessment (per fix):**
+- **S7-3 (thumbnail skip-if-done):** ff-merge candidate. The only behavior
+  change for existing flows is that a video with an already-set
+  `thumbnail_url` is no longer re-billed by a non-explicit caller — every
+  real "redo" path (chat verb, prompt-studio apply, Scenes-page Regenerate)
+  is traced and threads `force=True` explicitly, proven by the test suite's
+  guard/no-guard/force-bypass assertions. Pure cost fix, no loss of function.
+- **S7-4 (attempt + honest 409):** ff-merge candidate for the attempt-fix
+  half (purely additive — a query that used to always return "0 prior" now
+  returns the real count; behavior is IDENTICAL for any video/stage with no
+  prior arq history). The 409-instead-of-silent-200 half is a real behavior
+  change for the (currently unreached in prod — 0 of 468 rows carry a
+  job_id) arq-active path: a caller that previously got a fake "success" now
+  gets an honest error. Recommend the orchestrator specifically confirm the
+  frontend's existing 409-retry handling (already wired for `_is_task_active`
+  409s) covers this new source too before flagging fully safe — the test
+  suite proves the backend contract but doesn't exercise the live frontend.
+- **S7-7 (health queue field):** ff-merge candidate. Purely additive JSON
+  field, no existing consumer of either endpoint is broken by an extra key.
+- **S7-8 (background_tasks job_id unique index):** ff-merge candidate.
+  Additive index (`IF NOT EXISTS`, confirmed empty-of-job_id table pre-apply)
+  + `ON CONFLICT DO NOTHING` insert semantics — can only ever change behavior
+  on an EXACT duplicate job_id, which was already a bug being raced against,
+  never a legitimate two-different-jobs case (NULL job_id, the common path
+  today, is never deduped at all).
+- **S7-9 (docs):** no runtime change, nothing to assess.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c16d_thumbnail_skip_if_done.py
+tests/functional/test_c16d_enqueue_or_fallback.py
+tests/functional/test_c16d_health_queue_status.py
+tests/functional/test_c16d_task_store_job_id_conflict.py -q` — 17 passed.
+Non-vacuous per file via `git stash push -- <file>`: `pipeline_executor.py`
+stashed → 2/5 fail (guard + force kwarg both gone); `routes/pipeline.py`
+stashed → 2/5 fail (attempt derivation + honest-409); `main.py` stashed →
+3/3 fail (queue field missing); `task_store.py` stashed → 1/4 fails, and
+only after restructuring the fake DB so the race actually reproduces the
+TOCTOU window (snapshot-then-yield, not yield-then-snapshot — the first
+attempt was accidentally vacuous because a non-suspending fake let one
+caller's whole SELECT+INSERT complete before the other's SELECT ever ran,
+which the pre-existing app-level check alone already covered regardless of
+the DB-level fix). Full backend suite: `./venv/bin/python -m pytest tests/ -q`
+— 988 passed (971 baseline + 17 new) / 16 pre-existing failures (identical
+file list to C15a-d/C16a-c) / 1 pre-existing error — zero new failures.
+`python -m py_compile` clean on every touched Python file. Frontend: DID
+touch `ThumbnailTab.tsx` (needed for the force-intent signal to actually
+reach the backend — see fix 1 above) — `npx tsc --noEmit` clean; `npm run
+build` compiles + type-checks clean, then fails at the static-prerender step
+on a pre-existing sandbox gap (`NEXT_PUBLIC_API_URL is required in
+production builds`), unrelated to this change. Live: duplicate-scan (zero
+rows) + `pg_indexes` confirmation pasted above. Live re-invoke proof (hit
+`POST /thumbnail/{id}` twice on a real video, confirm the second call spends
+$0 with `force` omitted and DOES redraw with `force=true`; force a genuine
+concurrent double-enqueue and confirm the 409) deferred to
+`tasks/live-verification-queue.md` §C16d — needs a live DB + paid API
+session, not available in the sandbox.

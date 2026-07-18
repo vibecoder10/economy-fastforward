@@ -1275,7 +1275,10 @@ def _make_prompt_regen(tenant_id, video_id: str, surface: str, *, asset_id: Opti
                 result = await PipelineExecutor(tenant_id).run_clip_generation(
                     video_id, asset_id=asset_id, force=True) or {}
             elif surface == "thumbnail":
-                result = await PipelineExecutor(tenant_id).run_thumbnail(video_id) or {}
+                # C16d (S7-3): applying an edited thumbnail prompt is always an
+                # explicit "redo it" — bypass the skip-if-done guard, same as
+                # the ACTIONS["thumbnail"] verb.
+                result = await PipelineExecutor(tenant_id).run_thumbnail(video_id, force=True) or {}
             else:
                 result = {"status": "completed"}
             _set_task_status(video_id, result.get("status", "completed"),

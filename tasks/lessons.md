@@ -515,3 +515,21 @@ new column reference to any function that reads DB rows, the worker must (a) quo
 SELECT list in its report and (b) add at least one test that drives the REAL function with a row
 shaped exactly by that SELECT (no extra stub keys). Orchestrator review should grep the SELECT
 whenever a report says "threaded a new field through."
+
+## 2026-07-18 — A fake-async race test can be vacuous even with an explicit yield point (caught in C16d)
+Testing a TOCTOU race (two `asyncio.gather`'d calls both reading "not found" before either
+writes) with a fully in-memory fake DB requires the fake to snapshot its read result BEFORE
+yielding to the scheduler (`await asyncio.sleep(0)`), not after. Yielding first, then computing
+the result, lets caller A run its ENTIRE read+write to completion in one uninterrupted scheduler
+turn (since a non-blocking fake has no other suspension point), so by the time caller B's read
+actually executes, A has already written — B's own pre-existing "does one exist?" check then
+correctly finds A's row and returns early, which looks identical to the fix under test working,
+even when tested against the PRE-FIX source with the fake wired to allow duplicates. The
+`test_c16d_task_store_job_id_conflict.py` race test passed against both fixed AND stashed
+(pre-fix) `task_store.py` on the first attempt for exactly this reason — silently vacuous
+despite having an explicit `asyncio.sleep(0)` in the fake. RULE: when simulating a race with a
+hand-rolled async fake (not real threads/real DB), the read's RETURN VALUE must be computed
+BEFORE the yield point, so every "concurrent" caller observes the state as it existed at the
+moment they'd have issued the real query, not the state after a sibling call already mutated it.
+Always run the non-vacuous `git stash` proof on the EXACT race test, not just the simpler
+sequential-call tests in the same file — a suite can be 3/4 real and 1/4 theater.

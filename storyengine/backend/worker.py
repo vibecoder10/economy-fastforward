@@ -48,8 +48,14 @@ async def _run_stage(
     video_id: str,
     tenant_id: str,
     attempt: int,
+    **method_kwargs,
 ) -> dict:
-    """Shared implementation for all stage handlers."""
+    """Shared implementation for all stage handlers.
+
+    `**method_kwargs` (C16d, S7-3) forwards stage-specific args (e.g.
+    thumbnail's `force`) to the executor method — passed straight through
+    from the matching `arq_run_*` handler below.
+    """
     from pipeline_executor import PipelineExecutor
     from task_store import db_persist_task
 
@@ -69,7 +75,7 @@ async def _run_stage(
     try:
         executor = PipelineExecutor(tenant_id)
         method = getattr(executor, executor_method)
-        result = await method(video_id)
+        result = await method(video_id, **method_kwargs)
 
         status = result.get("status", "unknown")
         if status == "cancelled":
@@ -164,8 +170,8 @@ async def arq_run_video_generation(ctx: dict, video_id: str, tenant_id: str, att
     return await _run_stage(ctx, "video_generation", "run_video_generation", video_id, tenant_id, attempt)
 
 
-async def arq_run_thumbnail(ctx: dict, video_id: str, tenant_id: str, attempt: int) -> dict:
-    return await _run_stage(ctx, "thumbnail", "run_thumbnail", video_id, tenant_id, attempt)
+async def arq_run_thumbnail(ctx: dict, video_id: str, tenant_id: str, attempt: int, force: bool = False) -> dict:
+    return await _run_stage(ctx, "thumbnail", "run_thumbnail", video_id, tenant_id, attempt, force=force)
 
 
 async def arq_run_render(ctx: dict, video_id: str, tenant_id: str, attempt: int) -> dict:

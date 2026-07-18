@@ -60,10 +60,18 @@ async def db_persist_task(
             )
             return
 
+        # C16d (S7-8): migration 094's partial UNIQUE index on (job_id) WHERE
+        # job_id IS NOT NULL is the DB-level backstop behind the pending-branch
+        # check-then-insert above — two concurrent calls for the SAME job_id
+        # can both pass the SELECT before either INSERTs (TOCTOU race); ON
+        # CONFLICT DO NOTHING makes the loser a silent no-op instead of a
+        # duplicate row, with zero change to the NULL-job_id (in-process
+        # fallback) path, which never conflicts.
         await execute(
             "INSERT INTO background_tasks "
             "(tenant_id, video_id, task_type, status, message, job_id, attempt, started_at) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, now()) "
+            "ON CONFLICT (job_id) WHERE job_id IS NOT NULL DO NOTHING",
             tenant_id, video_id, task_type, status, message, job_id, attempt,
         )
     except Exception as exc:

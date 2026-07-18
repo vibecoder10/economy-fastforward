@@ -112,15 +112,21 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
     if (!isReadyForThumbnail) return;
     setIsRegenerating(true);
     setIsApproved(false);
+    // C16d (S7-3): the backend now skips generation (and the paid ledger
+    // write) when a thumbnail already exists unless force=true — this
+    // button doubles as "Generate Thumbnail" (nothing exists yet) and
+    // "Regenerate" (one already does, per the label above), so only pass
+    // force when there's actually something to redo.
+    const params = video.thumbnail_url ? { force: "true" } : undefined;
     try {
-      await runPipelineStage(video.id, "thumbnail");
+      await runPipelineStage(video.id, "thumbnail", params);
       setTaskRunning(true);
     } catch (err: unknown) {
       const message = (err as Error).message || "";
       if (message.includes("409")) {
         try {
           await clearStaleTask(video.id);
-          await runPipelineStage(video.id, "thumbnail");
+          await runPipelineStage(video.id, "thumbnail", params);
           setTaskRunning(true);
           return;
         } catch (retryErr) {
@@ -138,7 +144,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
       }
       setIsRegenerating(false);
     }
-  }, [video.id, queryClient, isReadyForThumbnail]);
+  }, [video.id, video.thumbnail_url, queryClient, isReadyForThumbnail]);
 
   const handleApprove = useCallback(async () => {
     setIsApproving(true);

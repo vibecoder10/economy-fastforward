@@ -617,6 +617,13 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
                     result = {"status": "failed", "error": f"Unknown stage '{name}'"}
                     break
                 kwargs = {"scene": scene} if (takes_scene and scene is not None) else {}
+                # C16d (S7-3): the "thumbnail" verb (ACTIONS["thumbnail"], label
+                # "Redo the thumbnail") is ALWAYS an explicit redo request — never
+                # the natural first-time generation — so it must bypass
+                # run_thumbnail's skip-if-done guard. Same special-case pattern
+                # as the run_script branch above.
+                if name == "run_thumbnail":
+                    kwargs["force"] = True
                 result = await method(video_id, **kwargs) or {}
                 if result.get("error"):
                     break
