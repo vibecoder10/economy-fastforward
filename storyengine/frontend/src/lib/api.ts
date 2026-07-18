@@ -1584,6 +1584,10 @@ export interface VideoDetail extends VideoSummary {
   // page hides the tabs for stages that aren't in this list.
   pipeline_stages?: string[] | null;
   skip_voice?: boolean;
+  // True when the default autobuild chain skipped the optional research
+  // stage (script wrote straight from the topic). Drives the "Research:
+  // skipped — Run research" transparency chip. Clears once research runs.
+  research_skipped?: boolean;
   airtable_record_id: string | null;
   headline: string | null;
   source: string | null;

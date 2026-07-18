@@ -51,6 +51,11 @@ class VideoDetail(VideoSummary):
     # pipeline). The UI hides the tabs for stages that are turned off.
     skip_voice: bool = False
     pipeline_stages: Optional[list] = None
+    # True when the default autobuild chain skipped the optional research
+    # stage for this video (script wrote straight from the topic). Drives the
+    # "Research: skipped — Run research" transparency chip (checklist P0.5).
+    # Cleared back to False once research actually runs for the video.
+    research_skipped: bool = False
     headline: Optional[str] = None
     source: Optional[str] = None
     framework_angle: Optional[str] = None

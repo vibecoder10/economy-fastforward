@@ -418,6 +418,17 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                          r.get("error") or "Research failed — can't verify facts for this format.",
                                          tenant_id=tenant_id)
                         return
+                    # Record the skip so the UI can be honest about it (P0.5 —
+                    # users previously had no way to know their video wasn't
+                    # researched). Cleared back to FALSE the moment research
+                    # actually runs (pipeline_executor.run_research), whether
+                    # via the transparency chip's one-tap enable or otherwise.
+                    try:
+                        await execute(
+                            "UPDATE videos SET research_skipped = TRUE WHERE id=$1 AND tenant_id=$2",
+                            video_id, tenant_id)
+                    except Exception:  # noqa: BLE001 — the build must not fail on this
+                        pass
                     await _advance("ready_for_scripting")
                     continue
                 # IMAGE PHASE: draw the pictures via the COVERAGE flow — the same path the

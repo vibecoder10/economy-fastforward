@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Lock, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Lock, RefreshCw, Search, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 import { useToast } from "@/components/ui/toast";
@@ -46,6 +46,7 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
   const [failure, setFailure] = useState<string | null>(null);
   const [skipConfirm, setSkipConfirm] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const [researchStarting, setResearchStarting] = useState(false);
 
   const doSkip = async () => {
     if (!action.skip) return;
@@ -122,6 +123,45 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
     },
   });
 
+  // One-tap enable for the research-transparency chip (checklist P0.5/C06):
+  // the default autobuild skips research for speed, so this reuses the SAME
+  // manual trigger endpoint the Research tab's own button calls. The route
+  // widens the video's stage plan if research was switched off at creation,
+  // so this always works. The chip disappears on its own once refreshAll()
+  // (via onComplete above) refetches the video and research_skipped is FALSE.
+  const runResearchNow = async () => {
+    setResearchStarting(true);
+    try {
+      try { await clearStaleTask(video.id); } catch { /* fine */ }
+      await runPipelineStage(video.id, "research");
+      markStarted();
+      toast.success("Running research now.");
+    } catch (err) {
+      toast.error(humanizeError(err, "Couldn't start research."));
+    } finally {
+      setResearchStarting(false);
+    }
+  };
+
+  const researchChip = video.research_skipped && !running ? (
+    <GlassCard className="!p-3 mb-3 flex items-center justify-between gap-3 flex-wrap" style={{ border: "1px solid var(--border-subtle)" }}>
+      <div className="flex items-center gap-2 min-w-0">
+        <Search size={14} className="shrink-0" style={{ color: "var(--text-tertiary)" }} />
+        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+          Research: skipped (script writes from topic)
+        </p>
+      </div>
+      <button
+        onClick={runResearchNow}
+        disabled={researchStarting}
+        className="text-xs font-semibold px-3 py-1.5 rounded-lg shrink-0 disabled:opacity-40 transition-all hover:brightness-110"
+        style={{ background: "rgba(255,255,255,0.1)", color: "var(--text-primary)" }}
+      >
+        {researchStarting ? "Starting…" : "Run research"}
+      </button>
+    </GlassCard>
+  ) : null;
+
   const handleLock = async () => {
     if (!window.confirm(
       "Lock the story? This says: I've looked at every board and I'm happy.\n\nThe final pictures are created from these boards. You can unlock later if you change your mind."
@@ -184,6 +224,8 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
   // ---------- FAILED: persistent until retried or dismissed ----------
   if (failure && !running) {
     return (
+      <>
+      {researchChip}
       <GlassCard className="!p-4 mb-4" style={{ border: "1px solid var(--red)" }}>
         <div className="flex items-start gap-3">
           <AlertTriangle size={20} className="shrink-0 mt-0.5" style={{ color: "var(--red)" }} />
@@ -208,12 +250,15 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
           </button>
         </div>
       </GlassCard>
+      </>
     );
   }
 
   // ---------- RUNNING: live progress + Stop (any task, any starter) ----------
   if (running || starting || locking) {
     return (
+      <>
+      {researchChip}
       <GlassCard className="!p-4 mb-4" style={{ border: "1px solid var(--turquoise)" }}>
         <div className="flex items-center gap-3">
           <Loader2 size={20} className="animate-spin shrink-0" style={{ color: "var(--turquoise)" }} />
@@ -230,12 +275,15 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
           {!locking && <StopGenerationButton videoId={video.id} running={running} />}
         </div>
       </GlassCard>
+      </>
     );
   }
 
   // ---------- DONE ----------
   if (action.kind === "celebrate") {
     return (
+      <>
+      {researchChip}
       <GlassCard className="!p-4 mb-4" style={{ border: "1px solid var(--green)" }}>
         <div className="flex items-center gap-3">
           <CheckCircle2 size={20} className="shrink-0" style={{ color: "var(--green)" }} />
@@ -252,11 +300,14 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
           </button>
         </div>
       </GlassCard>
+      </>
     );
   }
 
   // ---------- IDLE: the one big next button (+ a clear Skip for optional steps) ----------
   return (
+    <>
+    {researchChip}
     <GlassCard className="!p-5 mb-4" style={{ border: "1px solid var(--turquoise)" }}>
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex-1 min-w-[220px]">
@@ -316,5 +367,6 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
         </div>
       )}
     </GlassCard>
+    </>
   );
 }

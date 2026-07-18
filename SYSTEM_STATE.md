@@ -900,3 +900,94 @@ to this change. The live step ("open a video's co-pilot dock, drop a PNG,
 confirm it lands in `chat_assets` with the video's id and the copilot
 references it") needs a running app + browser and is deferred — see
 `tasks/live-verification-queue.md` §C05.
+
+## C06 — Research-Skipped Transparency Chip + One-Tap Enable (added 2026-07-18)
+
+Follow-up to checklist §0.5. `actions.make_autobuild_step` (the chain behind
+"Build the video" — chat's `_handle_approve`/`_run_pending_action("build")` and
+the `/api/pipeline/build/{id}` button) has always skipped the optional research
+stage for non-`static_docu` videos: `idea_logged`/`approved` jumps straight to
+`ready_for_scripting` instead of running `research.agent`. That default is
+UNCHANGED — this chunk only makes it visible and reversible.
+
+**Recording (`[D]`+`[B]`):** checked whether the existing per-video
+`pipeline_stages` plan already represented this and it doesn't — a video's
+plan is normally `NULL`/full (research technically "enabled"), yet the
+autobuild's skip branch bypasses the plan entirely and skips research anyway
+(pre-existing behavior, unchanged). Plan state and "did research actually run
+this build" are two different facts, so a new column was needed: migration
+`086_videos_research_skipped.sql` (`ALTER TABLE videos ADD COLUMN IF NOT
+EXISTS research_skipped BOOLEAN DEFAULT FALSE`), applied live to project
+`wrromlupsmyzrrcqlucn` via Supabase MCP, column confirmed via
+`information_schema.columns`. `make_autobuild_step`'s skip branch now writes
+`research_skipped = TRUE` right before advancing; `static_docu` videos (which
+always research first) never set it.
+`pipeline_executor.run_research`'s save now also sets `research_skipped =
+FALSE` in the same UPDATE that persists the payload — so tapping "Run
+research" (or any path that actually runs research) clears the flag once it
+completes, gate-pass or not (research DID run either way).
+
+**Clickable door (`[U]`):** `GuidedNextStep.tsx` (the pipeline page's one
+next-step surface) renders a "Research: skipped (script writes from topic) —
+Run research" chip whenever `video.research_skipped` is true, with a one-tap
+button that calls the SAME manual trigger endpoint the Research tab's own
+button uses (`POST /api/pipeline/research/{id}`, i.e.
+`runPipelineStage(id, "research")`). That endpoint's own gate
+(`_require_stage_enabled`) was widened: a manual tap now WIDENS the video's
+`pipeline_stages` plan to include `"research"` first (instead of 400ing) if
+the video's plan had switched it off at creation, so the chip's one-tap always
+works. The chip disappears on its own — `refreshAll()` (already wired to the
+task watcher's `onComplete`) refetches the video and `research_skipped` reads
+`false`.
+
+**Conversational door:** three deterministic "I'm building it now" messages
+that unconditionally claimed "I'll research it" were corrected to check the
+video's actual `render_mode` and say the true thing (`routes/chat.py`
+`_handle_approve` and `_run_pending_action("build")`; `routes/pipeline.py`
+`/build/{video_id}`). `producer_prompt.py`'s system prompt also now instructs
+the producer to say plainly, when proposing a "full" plan, that the script
+writes straight from the topic with no separate research pass (and that one
+can be run afterward from the video's page) — this part isn't unit-testable
+without a live LLM call.
+
+**Found but explicitly NOT fixed (flagged for a future chunk):**
+`make_autobuild_step`'s skip branch doesn't consult the plan before skipping —
+so a video whose plan EXPLICITLY includes research (`workflow: "research"` or
+a custom plan with `"research"` in it) still gets silently skipped by the
+same chat-triggered autobuild, and `resolve_planned_status` then routes it
+straight to `"done"` with no research and no script. This predates C06 (I
+only added a DB write inside the existing branch — the control flow is
+untouched), and P0.5 explicitly scoped this chunk to "record the fact, don't
+change when research runs." The transparency chip's one-tap fix (calling
+`/research/{id}` directly, bypassing the autobuild chain) works correctly
+regardless of this bug.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/086_videos_research_skipped.sql` | `ALTER TABLE videos ADD COLUMN IF NOT EXISTS research_skipped BOOLEAN DEFAULT FALSE`. Applied live to project `wrromlupsmyzrrcqlucn` via Supabase MCP; column confirmed present via `information_schema.columns`. |
+| `storyengine/backend/tests/functional/test_research_skipped_chip.py` | Locks: non-`static_docu` autobuild records `research_skipped=TRUE` and never calls `run_research`; `static_docu` always calls `run_research` and never records the skip; same for `approved` status. 3 tests, stubs `database`/`pipeline_executor`/`routes.pipeline`. |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/schema.sql` | `videos` gained `research_skipped BOOLEAN DEFAULT false`, matching migration 086. |
+| `storyengine/backend/actions.py` | `make_autobuild_step`'s non-`static_docu` skip branch now writes `research_skipped = TRUE` before advancing to `ready_for_scripting`. |
+| `storyengine/backend/pipeline_executor.py` | `run_research`'s save UPDATE now also sets `research_skipped = FALSE`. |
+| `storyengine/backend/routes/pipeline.py` | `/api/pipeline/research/{video_id}` widens the video's `pipeline_stages` plan to include `"research"` (instead of 400ing) when a manual trigger arrives for a video whose plan excluded it. `/api/pipeline/build/{video_id}`'s start message now checks `render_mode` instead of unconditionally claiming "research". |
+| `storyengine/backend/models.py` | `VideoDetail` gained `research_skipped: bool = False`. |
+| `storyengine/backend/routes/videos.py` | `GET /api/videos/{id}` SELECTs and returns `research_skipped`. |
+| `storyengine/backend/routes/chat.py` | `_handle_approve` and `_run_pending_action("build")`'s "I'm building it now" messages check `render_mode` instead of unconditionally claiming a research pass. |
+| `storyengine/backend/producer_prompt.py` | System prompt: the "full" workflow plan summary now tells the creator plainly that the script writes from the topic without a research pass. |
+| `storyengine/frontend/src/lib/api.ts` | `VideoDetail` gained `research_skipped?: boolean`. |
+| `storyengine/frontend/src/components/production/GuidedNextStep.tsx` | New "Research: skipped — Run research" chip, rendered above every state card, with a one-tap handler reusing `runPipelineStage(id, "research")` + the existing task-watcher/toast/refresh plumbing. |
+
+`cd storyengine/frontend && npx tsc --noEmit` clean. `python -m py_compile`
+clean on every touched backend file. `./venv/bin/python -m pytest
+tests/functional/test_research_skipped_chip.py -q` — 3 passed (verified they
+fail without the `actions.py`/`pipeline_executor.py` fix via `git stash`, so
+they're not vacuous). Full suite: same 16 pre-existing failures + 1
+pre-existing error before and after (confirmed via `git stash`), unrelated to
+this change. The live step ("create a default video, see the chip, tap it,
+confirm research runs and the chip clears") needs a running app + browser and
+is deferred — see `tasks/live-verification-queue.md` §C06.

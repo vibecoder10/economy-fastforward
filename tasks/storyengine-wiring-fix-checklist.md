@@ -42,9 +42,9 @@ Onboarding promises Kie-only is enough; home producer errors without `anthropic_
 
 ### 0.5 Research silently skipped in default autobuild
 `make_autobuild_step` (`actions.py` L401-421) skips research for non-`static_docu` videos; users believe their documentary was researched.
-- [ ] `[B]` Keep the default, but record `research_skipped=true` on the video/plan.
-- [ ] `[U]` Plan card + pipeline page show "Research: skipped (script writes from topic) — Run research" chip with one-tap enable. Copilot mentions it in the plan summary.
-- [ ] `[V]` Create default video → chip visible; tap → research stage runs and chip clears.
+- [x] `[B]` Keep the default, but record `research_skipped=true` on the video/plan. — new `videos.research_skipped` column (migration 086; the existing `pipeline_stages` plan does NOT already represent this — see SYSTEM_STATE.md §C06 for why); `make_autobuild_step`'s skip branch writes it, `run_research`'s save clears it.
+- [x] `[U]` Plan card + pipeline page show "Research: skipped (script writes from topic) — Run research" chip with one-tap enable. Copilot mentions it in the plan summary. — chip on `GuidedNextStep.tsx` (the pipeline page's next-step card), one-tap reuses `/api/pipeline/research/{id}`; 3 deterministic chat/route "building now" messages + the producer system prompt corrected to not claim a research pass that won't happen.
+- [x] `[V]` Create default video → chip visible; tap → research stage runs and chip clears. — trace + 3 unit tests done in-sandbox (non-vacuous, confirmed via `git stash`); live tap-through deferred to `tasks/live-verification-queue.md` §C06.
 
 ### 0.6 Docked co-pilot ignores file attachments
 `ChatCore.attachFiles` returns early when `docked` (~L359) — drop-in works on home chat only.
@@ -216,7 +216,7 @@ the following build chunk.
 - [x] C03 · P0.2 dead models: `wired` flag in registry + minimal `GET /api/models` + frontend derives from it — wiring + curl/test verification done; live "every wired model generates a clip" deferred, see §0.2 [V] note + `tasks/live-verification-queue.md` §C03.
 - [x] C04 · P0.4 home Producer works Kie-only (text-client fallback + soft hint) — both home producer entry points (`chat_turn` intake turn, `_seed_producer` onboarding hand-off) now resolve via the shared `_resolve_producer_client` (mirrors `_handle_copilot`'s `get_text_client_for_tenant` fallback exactly); `producer_prompt.call_producer` drives the resolved client's `.client.messages.create(...)` instead of building its own Anthropic-only client. Trace + 6 new unit tests pass (`tests/functional/test_producer_kie_fallback.py`); live "fresh Kie-only tenant → plan on home" deferred to `tasks/live-verification-queue.md` §C04.
 - [x] C05 · P0.6 docked co-pilot accepts file attachments — `ChatCore.attachFiles`'s `if (docked) return;` removed and the docked `<Composer>` (which never even received the attach props) now wires them; `/api/chat/upload` takes an optional `video_id` (tenant-verified, fail-soft), persisted on a new `chat_assets.video_id` column (migration `085_chat_assets_video_id.sql`, applied live); `_handle_copilot` now attaches + surfaces dropped files via the same `_attach_assets`/`_assets_brief` the home chat uses. Trace + tsc/py_compile/pytest clean; live Playwright drop-test deferred — see `tasks/live-verification-queue.md` §C05.
-- [ ] C06 · P0.5 research-skipped transparency chip + one-tap enable
+- [x] C06 · P0.5 research-skipped transparency chip + one-tap enable — recording (`videos.research_skipped`, migration 086, applied live), the chip + one-tap enable on `GuidedNextStep.tsx`, and the copilot/plan-summary mention are all shipped and trace/test-verified in-sandbox; live tap-test deferred to `tasks/live-verification-queue.md` §C06. Found but NOT fixed (flagged, out of scope): the autobuild's skip branch doesn't consult the plan, so an EXPLICIT `workflow:"research"` build is also silently skipped by chat's autobuild today (pre-existing, unrelated to this chunk's control flow) — see SYSTEM_STATE.md §C06.
 - [ ] C07 · P0.3a `generation_ledger` migration + ledger writes on CLIP path + `total_cost` rollup
 - [ ] C08 · P0.3b ledger writes on images/voice/thumbnail/sound paths
 - [ ] C09 · P0.3c single price source (registry → `actions.py` estimates; DELETE `next-action.ts` constants)

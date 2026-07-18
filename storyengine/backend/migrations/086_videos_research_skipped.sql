@@ -1,0 +1,13 @@
+-- Records when the default autobuild chain (actions.make_autobuild_step)
+-- skipped the optional research stage for a video, instead of running
+-- research.agent from an idle_logged/approved status. Static-documentary
+-- videos (render_mode='static_docu') always research first and never set
+-- this. Drives the "Research: skipped — Run research" transparency chip
+-- (checklist P0.5 / C06). Cleared back to FALSE once research.agent
+-- actually runs for the video (pipeline_executor.run_research), whether
+-- triggered by the chip's one-tap enable, the copilot, or a manual button.
+--
+-- Idempotent / additive: safe to re-run, existing videos default to FALSE
+-- (their default-autobuild behavior — skip research for non-static_docu —
+-- is unchanged by this migration; it only adds visibility of the fact).
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS research_skipped BOOLEAN DEFAULT FALSE;

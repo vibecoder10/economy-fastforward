@@ -7689,6 +7689,7 @@ class PipelineExecutor:
                    thesis = $2,
                    executive_hook = $3,
                    status = $4,
+                   research_skipped = FALSE,
                    updated_at = now()
                    WHERE id = $5 AND tenant_id = $6""",
                 json.dumps(payload),

@@ -22,7 +22,10 @@ from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
 from error_utils import humanize_error, USER_FACING_PREFIX
 from pipeline_executor import PipelineExecutor
-from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage, stage_enabled_in_plan, friendly_state
+from status_map import (
+    to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage,
+    stage_enabled_in_plan, friendly_state, parse_stage_plan, normalize_stage_plan,
+)
 from job_queue import enqueue_stage
 from task_store import db_persist_task
 import actions
@@ -541,6 +544,23 @@ async def run_research(
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    # A manual tap of "Run research" (the transparency chip's one-tap enable,
+    # P0.5/C06) is explicit intent to turn research ON — widen the video's
+    # stage plan instead of refusing it, so the chip always works even for a
+    # video whose plan excluded research at creation. _require_stage_enabled
+    # below still protects every OTHER manual stage trigger from running a
+    # step the creator explicitly switched off.
+    if not stage_enabled_in_plan("research", video.get("pipeline_stages")):
+        widened_plan = normalize_stage_plan(
+            [*(parse_stage_plan(video.get("pipeline_stages")) or []), "research"]
+        )
+        await execute(
+            "UPDATE videos SET pipeline_stages = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+            json.dumps(widened_plan) if widened_plan is not None else None,
+            video_id, tenant_id,
+        )
+        video["pipeline_stages"] = widened_plan
 
     _require_stage_enabled(video, "research")
 
@@ -2114,8 +2134,18 @@ async def run_build(
     if _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    msg = ("Building to the pictures checkpoint (research, script, pictures)"
-           if target == "pictures" else "Finishing the video (voice, clips, thumbnail, render)")
+    if target == "pictures":
+        # Static-documentary channels always research first; everyone else's
+        # autobuild skips research and writes from the topic (P0.5 — this
+        # banner used to claim "research" unconditionally, which was false
+        # for the common case).
+        vrow = await fetch_one(
+            "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+        will_research = (vrow or {}).get("render_mode") == "static_docu"
+        msg = ("Building to the pictures checkpoint (research, script, pictures)"
+               if will_research else "Building to the pictures checkpoint (script, pictures)")
+    else:
+        msg = "Finishing the video (voice, clips, thumbnail, render)"
     background_tasks.add_task(actions.make_autobuild_step(
         tenant_id, video_id, target=target, start_msg=f"{msg}…"))
     return PipelineResponse(video_id=video_id, status="running", message=msg)

@@ -8,6 +8,54 @@
 
 ---
 
+## C06 — Research-skipped transparency chip · live tap-test
+Checklist §0.5. `actions.make_autobuild_step` records `videos.research_skipped
+= TRUE` when the default autobuild skips research for a non-`static_docu`
+video (unchanged default behavior — this only adds visibility). The pipeline
+page's `GuidedNextStep` card shows a "Research: skipped (script writes from
+topic) — Run research" chip when the flag is set, with a one-tap button that
+calls the existing `POST /api/pipeline/research/{id}` trigger. Proven
+in-sandbox: 3 unit tests lock the record/no-record behavior for
+static_docu vs. not (`tests/functional/test_research_skipped_chip.py`,
+confirmed non-vacuous via `git stash`); `tsc --noEmit` + `py_compile` clean;
+full trace read end to end (autobuild write → API SELECT → VideoDetail field
+→ frontend type → chip render → tap → `runPipelineStage(id, "research")` →
+existing trigger route → `pipeline_executor.run_research` → clears the flag
+on save). What's NOT provable without a running app + browser:
+- [ ] **Create a default video** (any non-static-documentary channel, normal
+      "full" build) and open its pipeline page. Expected: the "Research:
+      skipped — Run research" chip is visible on the `GuidedNextStep` card
+      before the script finishes (the video's status will already be past
+      `idea_logged`/`approved` by the time you look, which is fine — the flag
+      persists once set).
+- [ ] **Tap "Run research."** Expected: the chip's button shows "Starting…",
+      the card flips into the shared running/progress state (same banner any
+      other step uses), and a `research` stage kicks off — confirm via the
+      activity feed or `background_tasks`/`stage_transitions` rows for that
+      video showing a `research` entry.
+- [ ] **After it completes,** confirm `videos.research_skipped` is now
+      `false` for that video (`se db "SELECT research_skipped FROM videos
+      WHERE id='<id>'"`) and that the chip has disappeared from the page
+      (may need a refresh/refetch if SSE doesn't push it).
+- [ ] **Plan-restricted edge case (optional):** create a video via a
+      "script only" or other reduced-workflow chat plan (so `pipeline_stages`
+      excludes `"research"`), then tap the chip's "Run research" from that
+      video's page anyway. Expected: it still works — the trigger route
+      widens `pipeline_stages` to include `"research"` first instead of
+      400ing, and the chip clears the same way.
+- **Cost:** research is a paid Claude/agent call (~$0.05-0.20 per the
+  `docs/cost-awareness.md` "Claude API" line) — get a nod before running it if
+  that matters for the test tenant's budget, but it's a single call, not a
+  video-scale spend.
+- **Safety net:** the DEFAULT autobuild behavior (skip research for
+  non-`static_docu`) is completely unchanged by this chunk — worst case the
+  chip is cosmetic-only and the one-tap silently no-ops into the existing
+  `/research/{id}` route's own error handling (409 if a task's already
+  running, 404 if the video's gone). No new failure mode on the build path
+  itself.
+
+---
+
 ## C01a — RLS enablement (migration 083) · post-deploy smoke check
 Migration `083_enable_rls_ad_hoc_tables.sql` flips Row Level Security ON for `secrets`, `static_reference_cache`, `channel_video_retention`. Proven safe in-sandbox (the backend role bypasses RLS — `secrets` already runs RLS-on/0-policies live and works). Auto-deploys on the next `git pull` + backend restart.
 - [ ] After 083 has auto-deployed, confirm the backend still functions normally — specifically anything that reads/writes **`static_reference_cache`** (static-docu feature) and **`channel_video_retention`** (analytics/retention). Expected: no change in behavior (backend bypasses RLS). If either suddenly errors on read, 083 is the suspect — the fix is to add a permissive policy or confirm the connecting role.

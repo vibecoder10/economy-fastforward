@@ -125,6 +125,11 @@ CREATE TABLE videos (
   -- thumbnail, render, upload) in chain order — NULL = run the full pipeline.
   skip_voice BOOLEAN NOT NULL DEFAULT false,
   pipeline_stages JSONB,
+  -- True when the default autobuild chain skipped the optional research stage
+  -- for this video (migration 086) — drives the "Research: skipped — Run
+  -- research" transparency chip. Cleared back to false once research actually
+  -- runs. Static-documentary videos always research first and never set this.
+  research_skipped BOOLEAN DEFAULT false,
 
   -- Drive / YouTube
   final_video_url TEXT,

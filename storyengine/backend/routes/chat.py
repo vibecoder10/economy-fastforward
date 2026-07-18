@@ -512,16 +512,33 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
         )
 
     video_id = summary.id
-    # Auto-build the whole thing up to the pictures (research -> script -> pictures),
-    # then it pauses for review — not a single step.
+    # Static-documentary channels (exact-figures format) always research first;
+    # every other video's autobuild skips the research pass and writes the
+    # script straight from the topic (actions.make_autobuild_step). Check the
+    # actual mode instead of assuming, so this message never claims a research
+    # pass that isn't going to happen (P0.5 — it used to say "I'll research
+    # it" unconditionally, which was simply false for the common case).
+    video_row = await fetch_one(
+        "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+    will_research = (video_row or {}).get("render_mode") == "static_docu"
+    build_desc = "research, script, then the pictures" if will_research else "the script, then the pictures"
+    # Auto-build the whole thing up to the pictures (research -> script -> pictures
+    # when applicable), then it pauses for review — not a single step.
     background_tasks.add_task(_make_autobuild_step(
         tenant_id, video_id, target="pictures",
-        start_msg=f"Building “{spec.get('title') or 'your video'}” — research, script, then the pictures…"))
+        start_msg=f"Building “{spec.get('title') or 'your video'}” — {build_desc}…"))
     title = spec.get("title") or "your video"
-    assistant_text = (
-        f"Love it. I'm building “{title}” now — I'll research it, write the script, and generate the "
-        "pictures, then pause so you can review them. Follow along right here."
-    )
+    if will_research:
+        assistant_text = (
+            f"Love it. I'm building “{title}” now — I'll research it, write the script, and generate the "
+            "pictures, then pause so you can review them. Follow along right here."
+        )
+    else:
+        assistant_text = (
+            f"Love it. I'm building “{title}” now — I'll write the script straight from the topic "
+            "(skipping a separate research pass so it moves faster; say the word any time and I'll "
+            "run one) and generate the pictures, then pause so you can review them. Follow along right here."
+        )
     transcript.append(_assistant_turn({"assistant_text": assistant_text, "phase": "created"}))
     await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
     return ChatTurnResponse(
@@ -642,9 +659,21 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     doing = cfg["doing"] + (f" for scene {scene}" if scene is not None else "")
     if verb == "build":
         target = pending.get("target") or "pictures"
-        msg = ("On it — building your video. I'll run research, script and the pictures, then stop so "
-               "you can review them." if target == "pictures"
-               else "On it — finishing your video (animating the clips and rendering). I'll update you here.")
+        if target == "pictures":
+            # Static-documentary channels always research first; everyone
+            # else's autobuild skips research and writes from the topic
+            # (actions.make_autobuild_step) — say so instead of claiming a
+            # research pass that won't run (P0.5, same fix as _handle_approve).
+            vrow = await fetch_one(
+                "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+            will_research = (vrow or {}).get("render_mode") == "static_docu"
+            msg = ("On it — building your video. I'll run research, script and the pictures, then stop so "
+                   "you can review them." if will_research else
+                   "On it — building your video. I'll write the script straight from the topic (skipping "
+                   "research so it's faster — say the word and I'll run one) then make the pictures, then "
+                   "stop so you can review them.")
+        else:
+            msg = "On it — finishing your video (animating the clips and rendering). I'll update you here."
         background_tasks.add_task(_make_autobuild_step(tenant_id, video_id, target=target, start_msg=msg))
         return msg
     # Runner verbs (approvals, lock, Drive sync, SEO…) reuse the same route
